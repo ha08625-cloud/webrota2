@@ -1,0 +1,59 @@
+WEEK 1,MON,TUES,WED,THURS,FRI,WEEK 2,MON,TUES,WED,THURS,FRI,WEEK 3,MON,TUES,WED,THURS,FRI,WEEK 4,MON,TUES,WED,THURS,FRI
+SB,D4,D4,No Surgery,No Surgery,D4,SB,D4,D4,No Surgery,No Surgery,D4,SB,D4,D4,No Surgery,No Surgery,D4,SB,D4,D4,No Surgery,No Surgery,D4
+,D4,ADMIN TIME,No Surgery,No Surgery,SR,,D4,ADMIN TIME,No Surgery,No Surgery,SR,,D4,ADMIN TIME,No Surgery,No Surgery,SR,,D4,ADMIN TIME,No Surgery,No Surgery,SR
+MAC,D6,D6,C1,No Surgery,D6,MAC,D6,D6,C1,No Surgery,D6,MAC,D6,D6,C1,No Surgery,D6,MAC,D6,D6,C1,No Surgery,D6
+,D6,ADMIN TIME,C1,No Surgery,D6,,D6,ADMIN TIME,C1,No Surgery,D6,,D6,ADMIN TIME,C1,No Surgery,D6,,D6,ADMIN TIME,C1,No Surgery,D6
+LFM,D2,D2 ,D2,No Surgery,D2,LFM,D2,D2 ,D2,No Surgery,D2,LFM,D2,D2 ,D2,No Surgery,D2,LFM,D2,D2 ,D2,No Surgery,D2
+,D2,No Surgery,No Surgery,No Surgery,ADMIN TIME,,D2,No Surgery,No Surgery,No Surgery,ADMIN TIME,,D2,No Surgery,No Surgery,No Surgery,ADMIN TIME,,D2,No Surgery,No Surgery,No Surgery,ADMIN TIME
+DT,No Surgery,ADMIN TIME D7,D7,D7,D7,DT,No Surgery,ADMIN TIME D7,D7,D7,D7,DT,No Surgery,ADMIN TIME D7,D7,D7,D7,DT,No Surgery,ADMIN TIME D7,D7,D7,D7
+,No Surgery,D7,D7,D7,D7,,No Surgery,D7,D7,D7,D7,,No Surgery,D7,D7,D7,D7,,No Surgery,D7,D7,D7,D7
+JM,No Surgery,W1,ADMIN TIME,D8,D8,JM,No Surgery,W1,ADMIN TIME,D8,D8,JM,No Surgery,W1,ADMIN TIME,D8,D8,JM,No Surgery,W1,ADMIN TIME,D8,D8
+,No Surgery,D8,ADMIN TIME D8,D8,D8,,No Surgery,D8,ADMIN TIME D8,D8,D8,,No Surgery,D8,ADMIN TIME D8,D8,D8,,No Surgery,D8,ADMIN TIME D8,D8,D8
+CL,D1,D1,ADMIN TIME,D1,No Surgery,CL,D1,D1,ADMIN TIME,W1,No Surgery,CL,D1,D1,ADMIN TIME,D1,No Surgery,CL,D1,D1,ADMIN TIME,W1,No Surgery
+,D1,C1,No Surgery,D1,No Surgery,,D1,C1,No Surgery,W1,No Surgery,,D1,C1,No Surgery,D1,No Surgery,,D1,C1,No Surgery,W1,No Surgery
+LB,D5,No Surgery,No Surgery,D5,No Surgery,LB,D5,No Surgery,No Surgery,D5,No Surgery,LB,D5,No Surgery,No Surgery,D5,No Surgery,LB,D5,No Surgery,No Surgery,D5,No Surgery
+,D5,No Surgery,No Surgery,D5,No Surgery,,D5,No Surgery,No Surgery,D5,No Surgery,,D5,No Surgery,No Surgery,D5,No Surgery,,D5,No Surgery,No Surgery,D5,No Surgery
+HP,No Surgery,D5,D5,No Surgery,D?,HP,No Surgery,D5,D5,No Surgery,D?,HP,No Surgery,D5,D5,No Surgery,D?,HP,No Surgery,D5,D5,No Surgery,D?
+,No Surgery,D5,D5,No Surgery,D2,,No Surgery,D5,D5,No Surgery,D2,,No Surgery,D5,D5,No Surgery,D2,,No Surgery,D5,D5,No Surgery,D2
+ES,D?,No Surgery,No Surgery,C1,No Surgery,ES,D?,No Surgery,No Surgery,C1,No Surgery,ES,D?,No Surgery,No Surgery,C1,No Surgery,ES,D?,No Surgery,No Surgery,C1,No Surgery
+,D?,No Surgery,No Surgery,C1,No Surgery,,D?,No Surgery,No Surgery,C1,No Surgery,,D?,No Surgery,No Surgery,C1,No Surgery,,D?,No Surgery,No Surgery,C1,No Surgery
+NW,No Surgery,D?,D8,No Surgery,D1,NW,No Surgery,D?,D8,No Surgery,D1,NW,No Surgery,D?,D8,No Surgery,D1,NW,No Surgery,D?,D8,No Surgery,D1
+,No Surgery,D?,No Surgery,No Surgery,D1,,No Surgery,D?,No Surgery,No Surgery,D1,,No Surgery,D?,No Surgery,No Surgery,D1,,No Surgery,D?,No Surgery,No Surgery,D1
+KK,No Surgery,D?,No Surgery,No Surgery,No Surgery,KK,No Surgery,D?,No Surgery,No Surgery,No Surgery,KK,No Surgery,D?,No Surgery,No Surgery,No Surgery,KK,No Surgery,D?,No Surgery,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+EM,D8,D?,No Surgery,D6,No Surgery,EM,D8,D?,No Surgery,D6,No Surgery,EM,D8,D?,No Surgery,D6,No Surgery,EM,D8,D?,No Surgery,D6,No Surgery
+,No Surgery,D?,No Surgery,D6,No Surgery,,No Surgery,D?,No Surgery,D6,No Surgery,,No Surgery,D?,No Surgery,D6,No Surgery,,No Surgery,D?,No Surgery,D6,No Surgery
+Alex C,D?,D?,D?,No Surgery,No Surgery,Alex C,D?,D?,D?,No Surgery,No Surgery,Alex C,D?,D?,D?,No Surgery,No Surgery,Alex C,D?,D?,D?,No Surgery,No Surgery
+,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery
+Jess T,No Surgery,No Surgery,No Surgery,D?,D?,Jess T,No Surgery,No Surgery,No Surgery,D?,D?,Jess T,No Surgery,No Surgery,No Surgery,D?,D?,Jess T,No Surgery,No Surgery,No Surgery,D?,D?
+,No Surgery,No Surgery,No Surgery,D?,D?,,No Surgery,No Surgery,No Surgery,D?,D?,,No Surgery,No Surgery,No Surgery,D?,D?,,No Surgery,No Surgery,No Surgery,D?,D?
+Susie B,D?,No Surgery,D?,No Surgery,No Surgery,Susie B,D?,No Surgery,D?,No Surgery,No Surgery,Susie B,D?,No Surgery,D?,No Surgery,No Surgery,Susie B,D?,No Surgery,D?,No Surgery,No Surgery
+,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery
+Maryam A,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Maryam A,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Maryam A,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Maryam A,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+Bella,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Bella,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Bella,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Bella,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+OA,D3,No Surgery,D?,No Surgery,No Surgery,OA,D?,No Surgery,D?,No Surgery,No Surgery,OA,D?,No Surgery,D?,No Surgery,No Surgery,OA,D?,No Surgery,D?,No Surgery,No Surgery
+,D3,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery,,D?,No Surgery,D?,No Surgery,No Surgery
+MIND,No Surgery,No Surgery,No Surgery,No Surgery,D?,MIND,No Surgery,No Surgery,No Surgery,No Surgery,D?,MIND,No Surgery,No Surgery,No Surgery,No Surgery,D?,MIND,No Surgery,No Surgery,No Surgery,No Surgery,D?
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+MY,No Surgery,D3,Working from Home,Working from Home,D5,MY,No Surgery,D3,Working from Home,Working from Home,D5,MY,No Surgery,D3,Working from Home,Working from Home,D5,MY,No Surgery,D3,Working from Home,Working from Home,D5
+,No Surgery,D3,Working from Home,Working from Home,D5,,No Surgery,D3,Working from Home,Working from Home,D5,,No Surgery,D3,Working from Home,Working from Home,D5,,No Surgery,D3,Working from Home,Working from Home,D5
+Frances,No Surgery,No Surgery,No Surgery,D?,No Surgery,Frances,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,Frances,No Surgery,No Surgery,No Surgery,D?,No Surgery,Frances,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+RA,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,RA,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,RA,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,RA,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
+MW,No Surgery,No Surgery,D3,D2,No Surgery,MW,No Surgery,No Surgery,D3,D2,No Surgery,MW,No Surgery,No Surgery,D3,D2,No Surgery,MW,No Surgery,No Surgery,D3,D2,No Surgery
+,No Surgery,No Surgery,D3,D2,No Surgery,,No Surgery,No Surgery,D3,D2,No Surgery,,No Surgery,No Surgery,D3,D2,No Surgery,,No Surgery,No Surgery,D3,D2,No Surgery
+LM,D1,D1,No Surgery,No Surgery,No Surgery,LM,D1,D1,No Surgery,No Surgery,No Surgery,LM,D1,D1,No Surgery,No Surgery,No Surgery,LM,D1,D1,No Surgery,No Surgery,No Surgery
+,D1,D1,No Surgery,No Surgery,No Surgery,,D1,D1,No Surgery,No Surgery,No Surgery,,D1,D1,No Surgery,No Surgery,No Surgery,,D1,D1,No Surgery,No Surgery,No Surgery
+AN,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,AN,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,AN,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,AN,No Surgery,No Surgery,No Surgery,C1,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,C1,No Surgery
+Nurse 1,C1,C1,W1,W1,W1,Nurse 1,C1,C1,W1,W1,W1,Nurse 1,C1,C1,W1,W1,W1,Nurse 1,C1,C1,W1,W1,W1
+,C1,C1,No Surgery,W1,C2,,C1,C1,No Surgery,W1,C2,,C1,C1,No Surgery,W1,C2,,C1,C1,No Surgery,W1,C2
+Nurse 2,No Surgery,W1,W2,C1,W2,Nurse 2,No Surgery,W1,W2,C1,W2,Nurse 2,No Surgery,W1,W2,C1,W2,Nurse 2,No Surgery,W1,W2,C1,W2
+,No Surgery,No Surgery,No Surgery,C1,C3,,No Surgery,No Surgery,No Surgery,C1,C3,,No Surgery,No Surgery,No Surgery,C1,C3,,No Surgery,No Surgery,No Surgery,C1,C3
+Nurse 3,No Surgery,No Surgery,C1,No Surgery,C1,Nurse 3,No Surgery,No Surgery,C1,No Surgery,C1,Nurse 3,No Surgery,No Surgery,C1,No Surgery,C1,Nurse 3,No Surgery,No Surgery,C1,No Surgery,C1
+,No Surgery,No Surgery,C1,No Surgery,C1,,No Surgery,No Surgery,C1,No Surgery,C1,,No Surgery,No Surgery,C1,No Surgery,C1,,No Surgery,No Surgery,C1,No Surgery,C1
+Nurse 4,No Surgery,No Surgery,C2,No Surgery,No Surgery,Nurse 4,No Surgery,No Surgery,C2,No Surgery,No Surgery,Nurse 4,No Surgery,No Surgery,C2,No Surgery,No Surgery,Nurse 4,No Surgery,No Surgery,C2,No Surgery,No Surgery
+,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery,,No Surgery,No Surgery,No Surgery,No Surgery,No Surgery
