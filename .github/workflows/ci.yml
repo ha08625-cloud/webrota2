@@ -22,18 +22,14 @@ jobs:
       - name: Install dependencies (not the project itself)
         run: uv sync --no-install-project --extra dev
 
-      - name: Diagnose double import
+      - name: Diagnose re-entry
         run: |
           set +e
-          echo "=== plain import twice (same process) ==="
-          uv run --no-sync python -c "import app.models; import app.models; print('double import OK')"
-          echo "=== import then re-import models submodule by file identity ==="
-          uv run --no-sync python -c "import app.models.room as r1; import importlib; print('room module:', r1.__name__, r1.__file__)"
-          echo "=== run pytest collect-only, no test execution ==="
-          uv run --no-sync pytest --collect-only -q 2>&1 | head -40
-          echo "=== does tests/__init__.py exist? ==="
-          ls -la tests/
-          echo "=== pytest version ==="
-          uv run --no-sync pytest --version
-      - name: Run tests
-        run: uv run --no-sync pytest -v
+          echo "=== who imports the models package or app.models from inside app/ ==="
+          grep -rn "import app.models\|from app.models\|from app import\|import app$" app/
+          echo "=== imports inside each model module ==="
+          grep -rn "^from \|^import " app/models/
+          echo "=== does database.py import anything from models? ==="
+          grep -rn "import" app/database.py
+          echo "=== PYTHONPATH / cwd at runtime ==="
+          uv run --no-sync python -c "import sys, app, app.models as m; print('models file:', m.__file__); print('app.models' in sys.modules, 'app.models.room' in sys.modules)"
