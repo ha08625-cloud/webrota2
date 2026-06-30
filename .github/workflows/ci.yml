@@ -22,5 +22,22 @@ jobs:
       - name: Install dependencies (not the project itself)
         run: uv sync --no-install-project --extra dev
 
+      - name: Diagnose import paths
+        run: |
+          set +e
+          echo "=== cwd ==="; pwd
+          echo "=== app package location(s) ==="
+          uv run --no-sync python -c "import app; print('app.__path__ =', list(app.__path__))"
+          echo "=== app.database file ==="
+          uv run --no-sync python -c "import app.database as d; print(d.__file__)"
+          echo "=== sys.path ==="
+          uv run --no-sync python -c "import sys; print(chr(10).join(sys.path))"
+          echo "=== site-packages: app / rota / pth ==="
+          ls -la .venv/lib/python*/site-packages/ | grep -iE 'app|rota|\.pth'
+          echo "=== .pth contents ==="
+          find .venv -name "*.pth" -print -exec cat {} \;
+          echo "=== editable / dist records ==="
+          find .venv -iname "*rota*" -o -iname "__editable__*"
+
       - name: Run tests
         run: uv run --no-sync pytest -v
