@@ -22,22 +22,18 @@ jobs:
       - name: Install dependencies (not the project itself)
         run: uv sync --no-install-project --extra dev
 
-      - name: Diagnose import paths
+      - name: Diagnose double import
         run: |
           set +e
-          echo "=== cwd ==="; pwd
-          echo "=== app package location(s) ==="
-          uv run --no-sync python -c "import app; print('app.__path__ =', list(app.__path__))"
-          echo "=== app.database file ==="
-          uv run --no-sync python -c "import app.database as d; print(d.__file__)"
-          echo "=== sys.path ==="
-          uv run --no-sync python -c "import sys; print(chr(10).join(sys.path))"
-          echo "=== site-packages: app / rota / pth ==="
-          ls -la .venv/lib/python*/site-packages/ | grep -iE 'app|rota|\.pth'
-          echo "=== .pth contents ==="
-          find .venv -name "*.pth" -print -exec cat {} \;
-          echo "=== editable / dist records ==="
-          find .venv -iname "*rota*" -o -iname "__editable__*"
-
+          echo "=== plain import twice (same process) ==="
+          uv run --no-sync python -c "import app.models; import app.models; print('double import OK')"
+          echo "=== import then re-import models submodule by file identity ==="
+          uv run --no-sync python -c "import app.models.room as r1; import importlib; print('room module:', r1.__name__, r1.__file__)"
+          echo "=== run pytest collect-only, no test execution ==="
+          uv run --no-sync pytest --collect-only -q 2>&1 | head -40
+          echo "=== does tests/__init__.py exist? ==="
+          ls -la tests/
+          echo "=== pytest version ==="
+          uv run --no-sync pytest --version
       - name: Run tests
         run: uv run --no-sync pytest -v
