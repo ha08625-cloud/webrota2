@@ -22,14 +22,5 @@ jobs:
       - name: Install dependencies (not the project itself)
         run: uv sync --no-install-project --extra dev
 
-      - name: Diagnose re-entry
-        run: |
-          set +e
-          echo "=== who imports the models package or app.models from inside app/ ==="
-          grep -rn "import app.models\|from app.models\|from app import\|import app$" app/
-          echo "=== imports inside each model module ==="
-          grep -rn "^from \|^import " app/models/
-          echo "=== does database.py import anything from models? ==="
-          grep -rn "import" app/database.py
-          echo "=== PYTHONPATH / cwd at runtime ==="
-          uv run --no-sync python -c "import sys, app, app.models as m; print('models file:', m.__file__); print('app.models' in sys.modules, 'app.models.room' in sys.modules)"
+      - name: Run tests
+        run: uv run --no-sync pytest -v
