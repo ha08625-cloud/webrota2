@@ -1,8 +1,8 @@
 """Generation engine package.
 
 Built up across M2 steps 1-9:
-  1. datatypes.py, week_map.py   <- this step
-  2. context.py
+  1. datatypes.py, week_map.py
+  2. context.py                  <- this step
   3. phases/phase0.py
   4. phases/phase2.py
   5. phases/phase4.py
@@ -14,6 +14,7 @@ Built up across M2 steps 1-9:
 Re-exports are added here as each piece lands; kept minimal for now so this
 file doesn't reference modules that don't exist yet.
 """
+from .context import load_context
 from .datatypes import (
     ClinicDoctorEligibility,
     ClinicSchedule,
@@ -40,4 +41,5 @@ __all__ = [
     "template_week",
     "build_week_dates",
     "build_date_to_genslot",
+    "load_context",
 ]

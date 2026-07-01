@@ -1,0 +1,182 @@
+"""Load all reference data for one generation run into a `GenerationContext`.
+
+Runs once per `generate()` call, before any phase executes. This is a
+read-only snapshot: nothing here mutates the database, and the returned
+`GenerationContext` is frozen. Mutable generation state (the grid, the
+counters) is built separately in Phase 2.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from ..models import (
+    ClinicType,
+    Doctor,
+    DutyAssignment,
+    LeaveEntry,
+    MasterRotaSession,
+    MasterRotaTemplate,
+    Room,
+    RotaConfig,
+)
+from ..models.enums import RoomType
+from .datatypes import (
+    ClinicDoctorEligibility,
+    ClinicSchedule,
+    ClinicTypeInfo,
+    GenerationContext,
+)
+from .week_map import build_date_to_genslot, build_week_dates
+
+
+def load_context(db: Session, config: RotaConfig) -> GenerationContext:
+    """Build the immutable reference-data snapshot for a generation run.
+
+    `config` supplies `start_date`, `num_weeks`, and `template_start_week`.
+    Leave and duty data are filtered to the run's date range: the half-open
+    interval `[config.start_date, config.start_date + num_weeks * 7 days)`.
+    """
+    doctors_all = db.execute(select(Doctor)).scalars().all()
+    doctor_by_id = {d.id: d for d in doctors_all}
+    spw_by_id = {d.id: float(d.sessions_per_week) for d in doctors_all}
+    # Only active doctors are candidates for any assignment. Inactive doctors
+    # still need to be reachable via doctor_by_id/spw_by_id so Phase 0 can
+    # flag a template referencing one.
+    doctors = tuple(sorted((d for d in doctors_all if d.active), key=lambda d: d.code))
+
+    rooms = tuple(db.execute(select(Room)).scalars().all())
+    room_by_id = {r.id: r for r in rooms}
+    rooms_by_type = _group_rooms_by_type(rooms)
+
+    clinic_types = _load_clinic_types(db, rooms_by_type)
+
+    range_start = config.start_date
+    range_end = config.start_date + timedelta(days=config.num_weeks * 7)
+
+    leave_rows = db.execute(
+        select(LeaveEntry).where(
+            LeaveEntry.date >= range_start, LeaveEntry.date < range_end
+        )
+    ).scalars().all()
+    leave_set = frozenset((e.doctor_id, e.date, e.period) for e in leave_rows)
+
+    duty_rows = db.execute(
+        select(DutyAssignment).where(
+            DutyAssignment.date >= range_start, DutyAssignment.date < range_end
+        )
+    ).scalars().all()
+    duty_map = {(d.date, d.period, d.duty_type): d.doctor_id for d in duty_rows}
+
+    week_dates = build_week_dates(config.start_date, config.num_weeks)
+    date_to_genslot = build_date_to_genslot(week_dates)
+
+    active_template, template_sessions = _load_active_template(db)
+
+    return GenerationContext(
+        doctors=doctors,
+        doctor_by_id=doctor_by_id,
+        spw_by_id=spw_by_id,
+        rooms=rooms,
+        room_by_id=room_by_id,
+        rooms_by_type=rooms_by_type,
+        clinic_types=clinic_types,
+        leave_set=leave_set,
+        duty_map=duty_map,
+        week_dates=week_dates,
+        date_to_genslot=date_to_genslot,
+        template_sessions=template_sessions,
+        active_template=active_template,
+    )
+
+
+def _group_rooms_by_type(rooms: tuple[Room, ...]) -> dict[RoomType, tuple[Room, ...]]:
+    grouped: dict[RoomType, list[Room]] = defaultdict(list)
+    for r in rooms:
+        grouped[r.room_type].append(r)
+    return {rt: tuple(rs) for rt, rs in grouped.items()}
+
+
+def _load_clinic_types(
+    db: Session, rooms_by_type: dict[RoomType, tuple[Room, ...]]
+) -> tuple[ClinicTypeInfo, ...]:
+    """Enabled clinic types only, ordered by `clinic_priority` ascending.
+
+    `id` is a secondary sort key purely for deterministic ordering when two
+    clinic types share a priority; it has no meaning to the generation
+    algorithm itself.
+    """
+    rows = db.execute(
+        select(ClinicType)
+        .where(ClinicType.is_enabled.is_(True))
+        .options(
+            selectinload(ClinicType.schedules),
+            selectinload(ClinicType.doctor_eligibilities),
+            selectinload(ClinicType.room_eligibilities),
+        )
+        .order_by(ClinicType.clinic_priority.asc(), ClinicType.id.asc())
+    ).scalars().all()
+
+    infos = []
+    for ct in rows:
+        schedules = tuple(
+            ClinicSchedule(day=s.day, period=s.period) for s in ct.schedules
+        )
+        doctor_eligibilities = tuple(
+            ClinicDoctorEligibility(doctor_id=e.doctor_id, doctor_priority=e.doctor_priority)
+            for e in ct.doctor_eligibilities
+        )
+
+        room_ids: set[int] = set()
+        for re in ct.room_eligibilities:
+            if re.room_id is not None:
+                room_ids.add(re.room_id)
+            elif re.room_type is not None:
+                room_ids.update(r.id for r in rooms_by_type.get(re.room_type, ()))
+
+        infos.append(
+            ClinicTypeInfo(
+                id=ct.id,
+                name=ct.name,
+                clinic_priority=ct.clinic_priority,
+                room_required=ct.room_required,
+                schedules=schedules,
+                doctor_eligibilities=doctor_eligibilities,
+                eligible_room_ids=tuple(sorted(room_ids)),
+            )
+        )
+    return tuple(infos)
+
+
+def _load_active_template(
+    db: Session,
+) -> tuple[MasterRotaTemplate | None, dict]:
+    """Load the single active `MasterRotaTemplate`, if there is exactly one.
+
+    Zero or more-than-one active templates are both ambiguous states that
+    Phase 0 must abort generation for (single-active-template is enforced in
+    app logic, not the schema — see master_rota.py). Both cases are signalled
+    the same way here: `(None, {})`. Phase 0 checks `active_template is None`
+    and does not need to distinguish "zero" from "more than one" — the fix
+    in either case is to correct the template data, not something the
+    generation run can resolve itself.
+    """
+    active = db.execute(
+        select(MasterRotaTemplate).where(MasterRotaTemplate.is_active.is_(True))
+    ).scalars().all()
+
+    if len(active) != 1:
+        return None, {}
+
+    template = active[0]
+    session_rows = db.execute(
+        select(MasterRotaSession).where(MasterRotaSession.template_id == template.id)
+    ).scalars().all()
+    template_sessions = {
+        (s.doctor_id, s.week, s.day, s.period): (s.session_type, s.room_id)
+        for s in session_rows
+    }
+    return template, template_sessions
