@@ -1,0 +1,282 @@
+"""Core data structures used by the generation engine.
+
+These types are the shared vocabulary between the phases (`phases/*.py`),
+the orchestrator (`generate.py`), and the context loader (`context.py`).
+Nothing in this module touches the database — `SessionSlot`/`RotaGrid`/
+`CounterState` are plain in-memory structures built and mutated by the
+phases, and `GenerationContext` is a read-only snapshot assembled once by
+`context.load_context()`.
+
+Clinic counters are shared per (doctor, clinic_type) — there is no
+day/period dimension. See python_roadmap_updated.md Design Decisions for
+why an earlier per_slot design was reversed before M2.
+"""
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Literal
+
+from ..models import Doctor, MasterRotaTemplate, Room
+from ..models.enums import (
+    Day,
+    DutyType,
+    MasterSessionType,
+    Period,
+    RoomType,
+    SessionRole,
+    SystemCounterType,
+)
+
+
+# ---------------------------------------------------------------------------
+# Validation issues
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    """One finding raised by a phase.
+
+    Only Phase 0 emits `severity="error"` (which aborts generation before any
+    write). Every other phase emits `severity="warning"`; warnings are
+    collected and returned but never abort the run.
+    """
+    severity: Literal["error", "warning"]
+    phase: str
+    check: str
+    message: str
+    week: int | None = None
+    day: Day | None = None
+    period: Period | None = None
+
+
+# ---------------------------------------------------------------------------
+# Rota grid
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SessionSlot:
+    """One (doctor, generation week, day, period) position in the grid."""
+
+    doctor_id: int
+    week: int
+    day: Day
+    period: Period
+
+    # From the master template (set once in Phase 2, never mutated after).
+    template_type: MasterSessionType
+    template_room_id: int | None = None
+
+    # Set during generation.
+    assigned_room_id: int | None = None
+    clinic_type_id: int | None = None
+    role: SessionRole | None = None
+    is_on_leave: bool = False
+    is_wfh: bool = False
+    notes: str | None = None
+
+    @property
+    def key(self) -> tuple[int, int, Day, Period]:
+        return (self.doctor_id, self.week, self.day, self.period)
+
+    @property
+    def has_role(self) -> bool:
+        """True once the doctor is committed to a duty or clinic role.
+
+        Used by later phases to exclude doctors who are already spoken for
+        in this slot (e.g. Phase 5 must not assign a clinic to a doctor
+        already on duty in the same session).
+        """
+        return self.role is not None
+
+
+@dataclass
+class RotaGrid:
+    """All `SessionSlot`s for one generation run, plus room occupancy.
+
+    Two occupancy indexes are kept in sync so both "is this room free right
+    now" and "what room is this doctor in right now" are O(1) lookups:
+      - `_room_occupancy`: (week, day, period, room_id) -> doctor_id
+      - `_doctor_room`:     (week, day, period, doctor_id) -> room_id
+    """
+
+    slots: dict[tuple[int, int, Day, Period], SessionSlot] = field(default_factory=dict)
+    _room_occupancy: dict[tuple[int, Day, Period, int], int] = field(
+        default_factory=dict, repr=False
+    )
+    _doctor_room: dict[tuple[int, Day, Period, int], int] = field(
+        default_factory=dict, repr=False
+    )
+
+    def add_slot(self, slot: SessionSlot) -> None:
+        self.slots[slot.key] = slot
+
+    def get(self, doctor_id: int, week: int, day: Day, period: Period) -> SessionSlot | None:
+        return self.slots.get((doctor_id, week, day, period))
+
+    def sessions_for_slot(self, week: int, day: Day, period: Period) -> list[SessionSlot]:
+        return [
+            s for s in self.slots.values()
+            if s.week == week and s.day == day and s.period == period
+        ]
+
+    def is_room_free(self, week: int, day: Day, period: Period, room_id: int) -> bool:
+        return (week, day, period, room_id) not in self._room_occupancy
+
+    def get_doctor_room(self, week: int, day: Day, period: Period, doctor_id: int) -> int | None:
+        return self._doctor_room.get((week, day, period, doctor_id))
+
+    def assign_room(
+        self, week: int, day: Day, period: Period, doctor_id: int, room_id: int
+    ) -> None:
+        """Assign `room_id` to `doctor_id` in this slot.
+
+        Frees the doctor's previous room in this slot first (a no-op if they
+        had none), then claims the new room, updating both indexes and the
+        slot's `assigned_room_id`.
+        """
+        self.free_room(week, day, period, doctor_id)
+        self._room_occupancy[(week, day, period, room_id)] = doctor_id
+        self._doctor_room[(week, day, period, doctor_id)] = room_id
+        slot = self.get(doctor_id, week, day, period)
+        if slot is not None:
+            slot.assigned_room_id = room_id
+
+    def free_room(self, week: int, day: Day, period: Period, doctor_id: int) -> None:
+        """Vacate whatever room `doctor_id` currently holds in this slot, if any."""
+        room_id = self._doctor_room.pop((week, day, period, doctor_id), None)
+        if room_id is not None:
+            self._room_occupancy.pop((week, day, period, room_id), None)
+        slot = self.get(doctor_id, week, day, period)
+        if slot is not None:
+            slot.assigned_room_id = None
+
+
+# ---------------------------------------------------------------------------
+# Counters
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CounterState:
+    """Working copy of clinic and system counters, loaded once from the DB.
+
+    `clinic` is keyed `(doctor_id, clinic_type_id)` — shared across all of a
+    clinic type's schedule slots, per the M1/M2 design decision. `system` is
+    keyed `(doctor_id, SystemCounterType)`.
+
+    All mutation happens in memory; nothing is persisted until
+    `generate._write_to_db` runs after a successful pipeline.
+    """
+
+    clinic: dict[tuple[int, int], int] = field(default_factory=dict)
+    system: dict[tuple[int, SystemCounterType], int] = field(default_factory=dict)
+    _new_clinic_keys: set[tuple[int, int]] = field(default_factory=set, repr=False)
+
+    def weighted_clinic_score(self, doctor_id: int, clinic_type_id: int, spw: float) -> float:
+        """`raw / sessions_per_week`. Missing key treated as raw=0. spw=0 -> inf."""
+        if spw == 0:
+            return math.inf
+        raw = self.clinic.get((doctor_id, clinic_type_id), 0)
+        return raw / spw
+
+    def weighted_system_score(
+        self, doctor_id: int, counter_type: SystemCounterType, spw: float
+    ) -> float:
+        if spw == 0:
+            return math.inf
+        raw = self.system.get((doctor_id, counter_type), 0)
+        return raw / spw
+
+    def increment_clinic(self, doctor_id: int, clinic_type_id: int) -> None:
+        key = (doctor_id, clinic_type_id)
+        if key not in self.clinic:
+            self._new_clinic_keys.add(key)
+        self.clinic[key] = self.clinic.get(key, 0) + 1
+
+    def increment_system(self, doctor_id: int, counter_type: SystemCounterType) -> None:
+        key = (doctor_id, counter_type)
+        self.system[key] = self.system.get(key, 0) + 1
+
+    def is_new_clinic_key(self, doctor_id: int, clinic_type_id: int) -> bool:
+        """True if this (doctor, clinic_type) pair has no existing DB row.
+
+        `_write_to_db` uses this to decide INSERT vs UPDATE. System counters
+        never need this: M1's `seed_system_counters` guarantees a row for
+        every active doctor and counter type up front.
+        """
+        return (doctor_id, clinic_type_id) in self._new_clinic_keys
+
+
+# ---------------------------------------------------------------------------
+# Generation context (reference data, read-only for the whole run)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClinicSchedule:
+    day: Day
+    period: Period
+
+
+@dataclass(frozen=True)
+class ClinicDoctorEligibility:
+    doctor_id: int
+    doctor_priority: int
+
+
+@dataclass(frozen=True)
+class ClinicTypeInfo:
+    """Denormalised view of one enabled `ClinicType` for the engine.
+
+    `eligible_room_ids` has `ClinicTypeRoomEligibility.room_type` entries
+    already expanded to concrete room IDs, so phases never need to touch
+    `rooms_by_type` when resolving a clinic's room eligibility.
+    """
+    id: int
+    name: str
+    clinic_priority: int
+    room_required: bool
+    schedules: tuple[ClinicSchedule, ...]
+    doctor_eligibilities: tuple[ClinicDoctorEligibility, ...]
+    eligible_room_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class GenerationContext:
+    """Immutable reference data for one generation run, loaded once.
+
+    Built by `context.load_context()` (M2 step 2). Nothing here is mutated
+    during generation — mutable state lives in `RotaGrid` and `CounterState`.
+    """
+    doctors: tuple[Doctor, ...]
+    doctor_by_id: dict[int, Doctor]
+    spw_by_id: dict[int, float]
+
+    rooms: tuple[Room, ...]
+    room_by_id: dict[int, Room]
+    rooms_by_type: dict[RoomType, tuple[Room, ...]]
+
+    # Enabled only, ordered by clinic_priority ascending.
+    clinic_types: tuple[ClinicTypeInfo, ...]
+
+    leave_set: frozenset[tuple[int, date, Period]]
+    duty_map: dict[tuple[date, Period, DutyType], int]
+
+    week_dates: dict[tuple[int, Day], date]
+    date_to_genslot: dict[date, tuple[int, Day]]
+
+    template_sessions: dict[
+        tuple[int, int, Day, Period], tuple[MasterSessionType, int | None]
+    ]
+    active_template: MasterRotaTemplate | None
+
+
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GenerationResult:
+    rota_id: int | None
+    issues: tuple[ValidationIssue, ...]
+    status: Literal["success", "partial", "failed"]
