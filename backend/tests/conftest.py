@@ -1,33 +1,44 @@
-"""Shared fixtures for engine tests.
+"""Shared pytest fixtures: an in-memory SQLite DB with all tables created.
 
-`session`/`engine` (in-memory SQLite, FK enforcement on) come from the
-project-level `tests/conftest.py`. Fixtures here are small conveniences
-reused across phase test files, built inline per the M2 plan's fixture
-strategy — nothing is seeded from CSV.
+Uses StaticPool so the single in-memory connection persists for the test, and
+enables SQLite FK enforcement (off by default) so FK-dependent behaviour is
+realistic.
 """
-import datetime
-
 import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.models import RotaConfig
-
-
-@pytest.fixture
-def monday() -> datetime.date:
-    """A fixed Monday used as the default start_date across engine tests."""
-    return datetime.date(2026, 1, 5)
+from app.database import Base
+import app.models  # noqa: F401  (registers all models on Base.metadata)
 
 
 @pytest.fixture
-def config_1wk(monday) -> RotaConfig:
-    """An unpersisted RotaConfig: 1 generation week, template_start_week=1.
+def engine():
+    eng = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
 
-    Not added to the session — `load_context()` only reads plain attributes,
-    so no id/FK is needed for engine-level tests.
-    """
-    return RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+    @event.listens_for(eng, "connect")
+    def _enable_fk(dbapi_connection, _record):
+        cur = dbapi_connection.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
+    Base.metadata.create_all(eng)
+    yield eng
+    Base.metadata.drop_all(eng)
+    eng.dispose()
 
 
 @pytest.fixture
-def config_2wk(monday) -> RotaConfig:
-    return RotaConfig(start_date=monday, num_weeks=2, template_start_week=1)
+def session(engine) -> Session:
+    factory = sessionmaker(bind=engine, autoflush=False, future=True)
+    s = factory()
+    try:
+        yield s
+    finally:
+        s.close()
