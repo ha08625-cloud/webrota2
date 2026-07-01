@@ -10,6 +10,7 @@ import datetime
 from decimal import Decimal
 
 from app.models import (
+    ClinicCounter,
     ClinicType,
     ClinicTypeDoctorEligibility,
     ClinicTypeRoomEligibility,
@@ -20,6 +21,7 @@ from app.models import (
     MasterRotaSession,
     MasterRotaTemplate,
     Room,
+    SystemCounter,
 )
 from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, Site
 
@@ -110,3 +112,17 @@ def make_master_session(
     session.add(s)
     session.flush()
     return s
+
+
+def make_clinic_counter(session, doctor, clinic_type, raw_count=0) -> ClinicCounter:
+    c = ClinicCounter(doctor_id=doctor.id, clinic_type_id=clinic_type.id, raw_count=raw_count)
+    session.add(c)
+    session.flush()
+    return c
+
+
+def make_system_counter(session, doctor, counter_type, raw_count=0) -> SystemCounter:
+    c = SystemCounter(doctor_id=doctor.id, counter_type=counter_type, raw_count=raw_count)
+    session.add(c)
+    session.flush()
+    return c
