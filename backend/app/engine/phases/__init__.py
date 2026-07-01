@@ -5,8 +5,8 @@ Each module exposes a single `run_phaseN(...)` function operating on a
 See ../datatypes.py for the shared types passed between them.
 
 Built up across M2 steps 3-9:
-  3. phase0.py   <- this step
-  4. phase2.py
+  3. phase0.py   <- done
+  4. phase2.py   <- this step
   5. phase4.py
   6. phase5.py
   7. phase7_9a.py
@@ -14,5 +14,6 @@ Built up across M2 steps 3-9:
   9. phase12.py
 """
 from .phase0 import run_phase0
+from .phase2 import run_phase2
 
-__all__ = ["run_phase0"]
+__all__ = ["run_phase0", "run_phase2"]
