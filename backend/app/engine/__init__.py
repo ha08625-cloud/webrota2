@@ -2,8 +2,8 @@
 
 Built up across M2 steps 1-9:
   1. datatypes.py, week_map.py
-  2. context.py                  <- this step
-  3. phases/phase0.py
+  2. context.py
+  3. phases/phase0.py            <- this step
   4. phases/phase2.py
   5. phases/phase4.py
   6. phases/phase5.py
@@ -26,6 +26,7 @@ from .datatypes import (
     SessionSlot,
     ValidationIssue,
 )
+from .phases import run_phase0
 from .week_map import build_date_to_genslot, build_week_dates, template_week
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "build_week_dates",
     "build_date_to_genslot",
     "load_context",
+    "run_phase0",
 ]
