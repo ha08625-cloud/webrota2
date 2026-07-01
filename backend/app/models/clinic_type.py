@@ -3,6 +3,10 @@
 ClinicType is the configurable unit for all assignment slots: school clinics,
 college clinics, care homes, duty helpers, and any future type. Children are
 seeded empty in M1 and populated via the API (M3) / frontend (M4).
+
+Clinic counters are shared-only (one counter per doctor per clinic type) — see
+python_roadmap_updated.md Design Decisions for the reversal of the earlier
+per_slot counter design considered in M1.
 """
 from sqlalchemy import (
     Boolean,
@@ -15,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from .enums import ClinicCounterMode, Day, Period, RoomType, enum_col
+from .enums import Day, Period, RoomType, enum_col
 
 
 class ClinicType(Base):
@@ -25,9 +29,6 @@ class ClinicType(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     clinic_priority: Mapped[int] = mapped_column(Integer, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    counter_mode: Mapped[ClinicCounterMode] = mapped_column(
-        enum_col(ClinicCounterMode), nullable=False, default=ClinicCounterMode.SHARED
-    )
     category: Mapped[str | None] = mapped_column(String, nullable=True)
     room_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

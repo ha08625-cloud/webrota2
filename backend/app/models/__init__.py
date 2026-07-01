@@ -4,7 +4,6 @@ Importing this package ensures all mappers are registered on Base.metadata,
 which Alembic autogenerate and the seed scripts rely on.
 """
 from .enums import (
-    ClinicCounterMode,
     Day,
     DoctorType,
     DutyType,
@@ -33,7 +32,7 @@ from .rota import RotaConfig, GeneratedRota, RotaSession
 __all__ = [
     # enums
     "DoctorType", "RoomType", "Site", "Day", "Period", "DutyType",
-    "RotaStatus", "SystemCounterType", "ClinicCounterMode", "MasterSessionType",
+    "RotaStatus", "SystemCounterType", "MasterSessionType",
     "SessionRole",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",

@@ -7,6 +7,11 @@ Create Date: 2026-01-01 00:00:00
 Hand-authored to mirror app.models. Per the M1 plan, this single migration is
 regenerated/overwritten as the schema evolves through M1-M2; it is finalised as
 the deployment baseline at M3 (Railway + Postgres).
+
+Clinic counters are shared-only (one row per doctor per clinic type). An
+earlier per_slot design (ClinicCounterMode, ClinicCounter.day/period) was
+reversed before M2 and never shipped to a persistent database, so it is
+removed here rather than carried forward as a migration.
 """
 from typing import Sequence, Union
 
@@ -14,7 +19,6 @@ from alembic import op
 import sqlalchemy as sa
 
 from app.models.enums import (
-    ClinicCounterMode,
     Day,
     DoctorType,
     DutyType,
@@ -59,7 +63,6 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("clinic_priority", sa.Integer(), nullable=False),
         sa.Column("is_enabled", sa.Boolean(), nullable=False),
-        sa.Column("counter_mode", enum_col(ClinicCounterMode), nullable=False),
         sa.Column("category", sa.String(), nullable=True),
         sa.Column("room_required", sa.Boolean(), nullable=False),
         sa.UniqueConstraint("name", name="uq_clinic_types_name"),
@@ -147,14 +150,8 @@ def upgrade() -> None:
             "clinic_type_id", sa.Integer(),
             sa.ForeignKey("clinic_types.id"), nullable=False,
         ),
-        sa.Column("day", enum_col(Day), nullable=True),
-        sa.Column("period", enum_col(Period), nullable=True),
         sa.Column("raw_count", sa.Integer(), nullable=False),
-        sa.CheckConstraint(
-            "(day IS NULL AND period IS NULL) "
-            "OR (day IS NOT NULL AND period IS NOT NULL)",
-            name="ck_clinic_counter_day_period",
-        ),
+        sa.UniqueConstraint("doctor_id", "clinic_type_id", name="uq_clinic_counter"),
     )
     op.create_table(
         "system_counters",
@@ -234,28 +231,8 @@ def upgrade() -> None:
         ),
     )
 
-    # --- partial unique indexes on clinic_counters (shared vs per_slot) ---
-    op.create_index(
-        "uq_clinic_counter_shared",
-        "clinic_counters",
-        ["doctor_id", "clinic_type_id"],
-        unique=True,
-        sqlite_where=sa.text("day IS NULL"),
-        postgresql_where=sa.text("day IS NULL"),
-    )
-    op.create_index(
-        "uq_clinic_counter_per_slot",
-        "clinic_counters",
-        ["doctor_id", "clinic_type_id", "day", "period"],
-        unique=True,
-        sqlite_where=sa.text("day IS NOT NULL"),
-        postgresql_where=sa.text("day IS NOT NULL"),
-    )
-
 
 def downgrade() -> None:
-    op.drop_index("uq_clinic_counter_per_slot", table_name="clinic_counters")
-    op.drop_index("uq_clinic_counter_shared", table_name="clinic_counters")
     for table in (
         "rota_sessions",
         "generated_rotas",

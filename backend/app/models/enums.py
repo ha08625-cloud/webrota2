@@ -58,11 +58,6 @@ class SystemCounterType(str, enum.Enum):
     SUPERVISION = "supervision"
 
 
-class ClinicCounterMode(str, enum.Enum):
-    SHARED = "shared"
-    PER_SLOT = "per_slot"
-
-
 class MasterSessionType(str, enum.Enum):
     REQUIRES_ROOM = "requires_room"
     NO_SURGERY = "no_surgery"

@@ -16,7 +16,6 @@ from app.models import (
     RotaConfig,
 )
 from app.models.enums import (
-    ClinicCounterMode,
     Day,
     DoctorType,
     MasterSessionType,
@@ -40,8 +39,8 @@ def _doctor(session, code="AA", dt=DoctorType.PARTNER, spw="10.0"):
     return d
 
 
-def _clinic(session, name="Dragon", mode=ClinicCounterMode.SHARED):
-    c = ClinicType(name=name, clinic_priority=10, counter_mode=mode)
+def _clinic(session, name="Dragon"):
+    c = ClinicType(name=name, clinic_priority=10)
     session.add(c)
     session.flush()
     return c
@@ -115,52 +114,14 @@ def test_dpr_xor_neither_set_rejected(session):
         session.flush()
 
 
-# --- counter_mode default ---
+# --- ClinicCounter: shared-only, one row per (doctor, clinic_type) ---
 
-def test_clinic_type_counter_mode_defaults_shared(session):
-    c = ClinicType(name="DutyHelper", clinic_priority=99)
-    session.add(c)
-    session.flush()
-    session.refresh(c)
-    assert c.counter_mode == ClinicCounterMode.SHARED
-
-
-# --- ClinicCounter shared vs per_slot ---
-
-def test_clinic_counter_shared_unique(session):
+def test_clinic_counter_unique(session):
     d = _doctor(session)
     c = _clinic(session)
     session.add(ClinicCounter(doctor_id=d.id, clinic_type_id=c.id, raw_count=0))
     session.flush()
     session.add(ClinicCounter(doctor_id=d.id, clinic_type_id=c.id, raw_count=0))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
-def test_clinic_counter_per_slot_unique_and_distinct_slots_allowed(session):
-    d = _doctor(session)
-    c = _clinic(session, mode=ClinicCounterMode.PER_SLOT)
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=Period.AM,
-    ))
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.WEDNESDAY, period=Period.AM,
-    ))
-    session.flush()  # different slots -> allowed
-
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=Period.AM,
-    ))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
-def test_clinic_counter_day_period_check(session):
-    d = _doctor(session)
-    c = _clinic(session)
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=None,
-    ))
     with pytest.raises(IntegrityError):
         session.flush()
 
