@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..models import (
     ClinicType,
     Doctor,
+    DoctorPreferredRoom,
     DutyAssignment,
     LeaveEntry,
     MasterRotaSession,
@@ -23,14 +24,16 @@ from ..models import (
     Room,
     RotaConfig,
 )
-from ..models.enums import RoomType
+from ..models.enums import Period, RoomType
 from .datatypes import (
     ClinicDoctorEligibility,
     ClinicSchedule,
     ClinicTypeInfo,
     GenerationContext,
 )
-from .week_map import build_date_to_genslot, build_week_dates
+from .week_map import DAY_ORDER, build_date_to_genslot, build_week_dates
+
+_PERIOD_ORDER = {Period.AM: 0, Period.PM: 1}
 
 
 def load_context(db: Session, config: RotaConfig) -> GenerationContext:
@@ -53,6 +56,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
     rooms_by_type = _group_rooms_by_type(rooms)
 
     clinic_types = _load_clinic_types(db, rooms_by_type)
+    preferred_rooms_by_doctor = _load_preferred_rooms(db, rooms_by_type)
 
     range_start = config.start_date
     range_end = config.start_date + timedelta(days=config.num_weeks * 7)
@@ -83,6 +87,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
         rooms=rooms,
         room_by_id=room_by_id,
         rooms_by_type=rooms_by_type,
+        preferred_rooms_by_doctor=preferred_rooms_by_doctor,
         clinic_types=clinic_types,
         leave_set=leave_set,
         duty_map=duty_map,
@@ -122,9 +127,10 @@ def _load_clinic_types(
 
     infos = []
     for ct in rows:
-        schedules = tuple(
-            ClinicSchedule(day=s.day, period=s.period) for s in ct.schedules
-        )
+        schedules = tuple(sorted(
+            (ClinicSchedule(day=s.day, period=s.period) for s in ct.schedules),
+            key=lambda cs: (DAY_ORDER[cs.day], _PERIOD_ORDER[cs.period]),
+        ))
         doctor_eligibilities = tuple(
             ClinicDoctorEligibility(doctor_id=e.doctor_id, doctor_priority=e.doctor_priority)
             for e in ct.doctor_eligibilities
@@ -180,3 +186,31 @@ def _load_active_template(
         for s in session_rows
     }
     return template, template_sessions
+
+
+def _load_preferred_rooms(
+    db: Session, rooms_by_type: dict[RoomType, tuple[Room, ...]]
+) -> dict[int, tuple[int, ...]]:
+    """Flatten each doctor's ordered preferred-room list to concrete room IDs.
+
+    `room_type` rows expand to every room of that type (sorted by id) at
+    that preference position. Used by Phase 5's displacement logic to find
+    a bumped occupant's next room -- room *type* (not how it was originally
+    referenced) is what matters there, so flattening loses no information
+    the engine needs.
+    """
+    rows = db.execute(
+        select(DoctorPreferredRoom).order_by(
+            DoctorPreferredRoom.doctor_id, DoctorPreferredRoom.preference_order
+        )
+    ).scalars().all()
+
+    grouped: dict[int, list[int]] = defaultdict(list)
+    for row in rows:
+        if row.room_id is not None:
+            grouped[row.doctor_id].append(row.room_id)
+        elif row.room_type is not None:
+            grouped[row.doctor_id].extend(
+                sorted(r.id for r in rooms_by_type.get(row.room_type, ()))
+            )
+    return {doctor_id: tuple(ids) for doctor_id, ids in grouped.items()}
