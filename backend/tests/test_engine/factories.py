@@ -16,6 +16,7 @@ from app.models import (
     ClinicTypeRoomEligibility,
     ClinicTypeSchedule,
     Doctor,
+    DoctorPreferredRoom,
     DutyAssignment,
     LeaveEntry,
     MasterRotaSession,
@@ -126,3 +127,16 @@ def make_system_counter(session, doctor, counter_type, raw_count=0) -> SystemCou
     session.add(c)
     session.flush()
     return c
+
+
+def make_preferred_room(
+    session, doctor, preference_order, room=None, room_type=None
+) -> DoctorPreferredRoom:
+    p = DoctorPreferredRoom(
+        doctor_id=doctor.id, preference_order=preference_order,
+        room_id=(room.id if room is not None else None),
+        room_type=room_type,
+    )
+    session.add(p)
+    session.flush()
+    return p
