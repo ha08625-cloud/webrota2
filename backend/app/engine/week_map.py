@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from ..models.enums import Day
 
 # Monday..Friday offsets in days from the week's Monday.
-_DAY_OFFSETS: dict[Day, int] = {
+DAY_ORDER: dict[Day, int] = {
     Day.MONDAY: 0,
     Day.TUESDAY: 1,
     Day.WEDNESDAY: 2,
@@ -40,7 +40,7 @@ def build_week_dates(start_date: date, num_weeks: int) -> dict[tuple[int, Day], 
     week_dates: dict[tuple[int, Day], date] = {}
     for gen_week in range(1, num_weeks + 1):
         week_monday = start_date + timedelta(days=(gen_week - 1) * 7)
-        for day, offset in _DAY_OFFSETS.items():
+        for day, offset in DAY_ORDER.items():
             week_dates[(gen_week, day)] = week_monday + timedelta(days=offset)
     return week_dates
 
