@@ -124,6 +124,14 @@ class RotaGrid:
     def is_room_free(self, week: int, day: Day, period: Period, room_id: int) -> bool:
         return (week, day, period, room_id) not in self._room_occupancy
 
+    def get_room_occupant(self, week: int, day: Day, period: Period, room_id: int) -> int | None:
+        """The doctor_id currently occupying `room_id` in this slot, if any.
+
+        Added in M2 step 6 -- Phase 5's room displacement needs to know *who*
+        occupies a room, not just whether it's free.
+        """
+        return self._room_occupancy.get((week, day, period, room_id))
+
     def get_doctor_room(self, week: int, day: Day, period: Period, doctor_id: int) -> int | None:
         return self._doctor_room.get((week, day, period, doctor_id))
 
@@ -255,6 +263,11 @@ class GenerationContext:
     rooms: tuple[Room, ...]
     room_by_id: dict[int, Room]
     rooms_by_type: dict[RoomType, tuple[Room, ...]]
+
+    # doctor_id -> room_ids in preference order, room_type entries already
+    # expanded to concrete rooms (sorted by id) at that preference position.
+    # Added in M2 step 6 for Phase 5's displacement logic.
+    preferred_rooms_by_doctor: dict[int, tuple[int, ...]]
 
     # Enabled only, ordered by clinic_priority ascending.
     clinic_types: tuple[ClinicTypeInfo, ...]
