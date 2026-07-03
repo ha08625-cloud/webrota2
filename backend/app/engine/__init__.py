@@ -1,18 +1,14 @@
-"""Generation engine package.
+"""Generation engine package. M2 complete.
 
-Built up across M2 steps 1-9:
-  1. datatypes.py, week_map.py
-  2. context.py
-  3. phases/phase0.py
-  4. phases/phase2.py
-  5. phases/phase4.py
-  6. phases/phase5.py
-  7. phases/phase7_9a.py
-  8. phases/phase9b.py           <- this step
-  9. phases/phase12.py, generate.py
+  datatypes.py            core in-memory structures
+  week_map.py              generation-week <-> template-week <-> date mapping
+  context.py                load_context(): read all reference data once
+  phases/                    phase0, phase2, phase4, phase5, phase7_9a,
+                              phase9b, phase12
+  generate.py                orchestrator + _write_to_db()
 
-Re-exports are added here as each piece lands; kept minimal for now so this
-file doesn't reference modules that don't exist yet.
+Usage: `generate(db_session, config_id)` inside a transaction; see
+generate.py for details.
 """
 from .context import load_context
 from .datatypes import (
@@ -26,6 +22,7 @@ from .datatypes import (
     SessionSlot,
     ValidationIssue,
 )
+from .generate import generate
 from .phases import (
     run_phase0,
     run_phase2,
@@ -33,6 +30,7 @@ from .phases import (
     run_phase5,
     run_phase7_to_9a,
     run_phase9b,
+    run_phase12,
 )
 from .week_map import DAY_ORDER, build_date_to_genslot, build_week_dates, template_week
 
@@ -57,4 +55,6 @@ __all__ = [
     "run_phase5",
     "run_phase7_to_9a",
     "run_phase9b",
+    "run_phase12",
+    "generate",
 ]
