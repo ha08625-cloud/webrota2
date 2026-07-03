@@ -29,7 +29,7 @@ class TestDutyCoverage:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        # no DutyAssignment at all -- expected 2 primary Monday AM, found 0
+        # no DutyAssignment at all -- expected 1 primary Monday AM, found 0
 
         ctx, grid = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
@@ -37,21 +37,21 @@ class TestDutyCoverage:
         matching = [i for i in issues if i.check == "duty_coverage_primary"
                     and i.day == Day.MONDAY and i.period == Period.AM]
         assert len(matching) == 1
-        assert "Expected 2" in matching[0].message
+        assert "Expected 1" in matching[0].message
 
     def test_correct_monday_coverage_no_warning(self, session, config_1wk, monday):
         t = make_template(session, is_active=True)
         d1 = make_doctor(session, code="AA")
         d2 = make_doctor(session, code="BB")
-        d3 = make_doctor(session, code="CC")
-        for d in (d1, d2, d3):
+        for d in (d1, d2):
             make_master_session(
                 session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
                 session_type=MasterSessionType.REQUIRES_ROOM,
             )
+        # DutyAssignment schema is unique on (date, period, duty_type) --
+        # at most 1 primary and 1 secondary can ever exist per session.
         make_duty(session, monday, Period.AM, d1, DutyType.PRIMARY)
-        make_duty(session, monday, Period.AM, d2, DutyType.PRIMARY)
-        make_duty(session, monday, Period.AM, d3, DutyType.SECONDARY)
+        make_duty(session, monday, Period.AM, d2, DutyType.SECONDARY)
 
         ctx, grid = _build(session, config_1wk)
         run_phase4(ctx, grid)
@@ -83,6 +83,23 @@ class TestDutyCoverage:
             i.check == "duty_coverage_secondary" and i.day == Day.TUESDAY and i.period == Period.AM
             for i in issues
         )
+
+    def test_two_primary_same_session_impossible_at_db_level(self, session, config_1wk, monday):
+        """Documents the constraint that made the original Check 1 wording
+        ("2 primary Monday") impossible: DutyAssignment is unique on
+        (date, period, duty_type), so a second PRIMARY row for the same
+        date/period always fails at the database, before Phase 12 even
+        runs."""
+        import pytest
+        from sqlalchemy.exc import IntegrityError
+
+        t = make_template(session, is_active=True)
+        d1 = make_doctor(session, code="AA")
+        d2 = make_doctor(session, code="BB")
+        make_duty(session, monday, Period.AM, d1, DutyType.PRIMARY)
+        make_duty(session, monday, Period.AM, d2, DutyType.PRIMARY)
+        with pytest.raises(IntegrityError):
+            session.flush()
 
 
 class TestClinicCoverage:
