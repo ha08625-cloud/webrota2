@@ -89,7 +89,9 @@ class TestDutyCoverage:
         ("2 primary Monday") impossible: DutyAssignment is unique on
         (date, period, duty_type), so a second PRIMARY row for the same
         date/period always fails at the database, before Phase 12 even
-        runs."""
+        runs. make_duty() flushes internally, so the second call itself is
+        where the IntegrityError is raised -- not a separate flush() after
+        it."""
         import pytest
         from sqlalchemy.exc import IntegrityError
 
@@ -97,9 +99,8 @@ class TestDutyCoverage:
         d1 = make_doctor(session, code="AA")
         d2 = make_doctor(session, code="BB")
         make_duty(session, monday, Period.AM, d1, DutyType.PRIMARY)
-        make_duty(session, monday, Period.AM, d2, DutyType.PRIMARY)
         with pytest.raises(IntegrityError):
-            session.flush()
+            make_duty(session, monday, Period.AM, d2, DutyType.PRIMARY)
 
 
 class TestClinicCoverage:
