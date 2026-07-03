@@ -34,14 +34,19 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
 
 
 def _expected_duty_counts(day: Day) -> tuple[int, int]:
-    """(expected primary count, expected secondary count) for a weekday.
+    """(expected primary count, expected secondary count) for one session.
 
-    2 primary + 1 secondary on Monday; 1 primary + 0 secondary Tue-Fri, per
-    the M2 plan's Check 1.
+    Exactly 1 primary duty doctor per session, every weekday -- the
+    DutyAssignment schema's unique constraint on (date, period, duty_type)
+    structurally forbids more than one row per session regardless of day,
+    so a "2 primary on Monday" check (the M2 plan's original wording) can
+    never be satisfied and was a bug, caught by CI hitting the constraint
+    directly. 1 secondary duty doctor per session on Monday only (0
+    elsewhere), per domain_model.md's Duty Assignments table -- confirmed
+    with the user.
     """
-    if day == Day.MONDAY:
-        return 2, 1
-    return 1, 0
+    expected_secondary = 1 if day == Day.MONDAY else 0
+    return 1, expected_secondary
 
 
 def _check_duty_coverage(context: GenerationContext, grid: RotaGrid) -> list[ValidationIssue]:
