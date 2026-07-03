@@ -7,8 +7,8 @@ Built up across M2 steps 1-9:
   4. phases/phase2.py
   5. phases/phase4.py
   6. phases/phase5.py
-  7. phases/phase7_9a.py         <- this step
-  8. phases/phase9b.py
+  7. phases/phase7_9a.py
+  8. phases/phase9b.py           <- this step
   9. phases/phase12.py, generate.py
 
 Re-exports are added here as each piece lands; kept minimal for now so this
@@ -26,7 +26,14 @@ from .datatypes import (
     SessionSlot,
     ValidationIssue,
 )
-from .phases import run_phase0, run_phase2, run_phase4, run_phase5, run_phase7_to_9a
+from .phases import (
+    run_phase0,
+    run_phase2,
+    run_phase4,
+    run_phase5,
+    run_phase7_to_9a,
+    run_phase9b,
+)
 from .week_map import DAY_ORDER, build_date_to_genslot, build_week_dates, template_week
 
 __all__ = [
@@ -49,4 +56,5 @@ __all__ = [
     "run_phase4",
     "run_phase5",
     "run_phase7_to_9a",
+    "run_phase9b",
 ]
