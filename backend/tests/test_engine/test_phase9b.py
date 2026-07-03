@@ -35,13 +35,22 @@ def _requires_room_unresolved(session, template, doctor, week=1, day=Day.MONDAY,
 
 
 def _build(session, config):
+    """Build context+grid. Must be called only AFTER every fixture row for
+    this test (doctors, sessions, preferences, leave) has been created --
+    GenerationContext is an immutable snapshot taken at load_context() time,
+    so anything added afterward is invisible to it."""
     ctx = load_context(session, config)
     grid, counters = run_phase2(ctx, config, session)
     return ctx, grid
 
 
-def _make_swap(session, config, a_type=DoctorType.PARTNER, b_type=DoctorType.SALARIED):
-    """A: AM=X, PM=Y. B: AM=Y, PM=X -- an exact swap. Returns (ctx, grid, a, b, x, y)."""
+def _setup_swap(session, a_type=DoctorType.PARTNER, b_type=DoctorType.SALARIED):
+    """A: AM=X, PM=Y. B: AM=Y, PM=X -- an exact swap.
+
+    Does NOT build the context/grid -- call _build() after adding any
+    per-test preferences/leave, so load_context() sees them.
+    Returns (template, a, b, x, y).
+    """
     t = make_template(session, is_active=True)
     a = make_doctor(session, code="AA", doctor_type=a_type)
     b = make_doctor(session, code="BB", doctor_type=b_type)
@@ -51,16 +60,16 @@ def _make_swap(session, config, a_type=DoctorType.PARTNER, b_type=DoctorType.SAL
     _pre_assigned(session, t, a, y, period=Period.PM)
     _pre_assigned(session, t, b, y, period=Period.AM)
     _pre_assigned(session, t, b, x, period=Period.PM)
-    ctx, grid = _build(session, config)
-    return ctx, grid, a, b, x, y
+    return t, a, b, x, y
 
 
 class TestDefaultRows:
     def test_row1_only_a_prefers_own_room(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, a, preference_order=1, room=x)  # A prefers own (X)
         # B has no preferences at all
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.AM).assigned_room_id == x.id  # AM unchanged
@@ -69,30 +78,33 @@ class TestDefaultRows:
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
 
     def test_row2_only_b_prefers_own_room(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
 
     def test_row6_same_room_same_type_defaults(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(
-            session, config_1wk, a_type=DoctorType.PARTNER, b_type=DoctorType.PARTNER,
+        t, a, b, x, y = _setup_swap(
+            session, a_type=DoctorType.PARTNER, b_type=DoctorType.PARTNER,
         )
         make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y)
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y) -- same room, same type
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
 
     def test_row7_no_preferences_defaults(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
         # neither doctor has any preferred rooms at all
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
@@ -101,18 +113,20 @@ class TestDefaultRows:
 
 class TestConfirmRows:
     def test_row3_only_a_prefers_other_room(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # unchanged (confirmed)
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # unchanged (confirmed)
 
     def test_row4_only_b_prefers_other_room(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, b, preference_order=1, room=x)  # B prefers other (X)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # confirmed
@@ -127,12 +141,13 @@ class TestRow5DroppedCollapsesToDefault:
     doctor type."""
 
     def test_same_room_y_defaults_regardless_of_partner_type_a(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(
-            session, config_1wk, a_type=DoctorType.PARTNER, b_type=DoctorType.SALARIED,
+        t, a, b, x, y = _setup_swap(
+            session, a_type=DoctorType.PARTNER, b_type=DoctorType.SALARIED,
         )
         make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y)
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         # row 2 fires first ("only B prefers own room") -> default, regardless
@@ -141,24 +156,26 @@ class TestRow5DroppedCollapsesToDefault:
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
 
     def test_same_room_y_defaults_regardless_of_partner_type_b(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(
-            session, config_1wk, a_type=DoctorType.SALARIED, b_type=DoctorType.PARTNER,
+        t, a, b, x, y = _setup_swap(
+            session, a_type=DoctorType.SALARIED, b_type=DoctorType.PARTNER,
         )
         make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y)
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
 
     def test_same_room_x_defaults_regardless_of_partner_type(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(
-            session, config_1wk, a_type=DoctorType.SALARIED, b_type=DoctorType.PARTNER,
+        t, a, b, x, y = _setup_swap(
+            session, a_type=DoctorType.SALARIED, b_type=DoctorType.PARTNER,
         )
         make_preferred_room(session, a, preference_order=1, room=x)  # A prefers own (X)
         make_preferred_room(session, b, preference_order=1, room=x)  # B prefers other (X)
 
+        ctx, grid = _build(session, config_1wk)
         run_phase9b(ctx, grid)
 
         # row 1 fires first ("only A prefers own room") -> default
@@ -168,15 +185,7 @@ class TestRow5DroppedCollapsesToDefault:
 
 class TestSkipConditions:
     def test_leave_pair_skipped_entirely(self, session, config_1wk, monday):
-        t = make_template(session, is_active=True)
-        a = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
-        b = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
-        x = make_room(session, code="C1", room_type=RoomType.C)
-        y = make_room(session, code="C2", room_type=RoomType.C)
-        _pre_assigned(session, t, a, x, period=Period.AM)
-        _pre_assigned(session, t, a, y, period=Period.PM)
-        _pre_assigned(session, t, b, y, period=Period.AM)
-        _pre_assigned(session, t, b, x, period=Period.PM)
+        t, a, b, x, y = _setup_swap(session)
         make_leave(session, a, monday, Period.AM)
 
         ctx, grid = _build(session, config_1wk)
@@ -259,6 +268,7 @@ class TestNonSwapsUntouched:
 
 class TestNoIssuesEmitted:
     def test_never_returns_issues(self, session, config_1wk):
-        ctx, grid, a, b, x, y = _make_swap(session, config_1wk)
+        t, a, b, x, y = _setup_swap(session)
+        ctx, grid = _build(session, config_1wk)
         issues = run_phase9b(ctx, grid)
         assert issues == []
