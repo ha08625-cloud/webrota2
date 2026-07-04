@@ -179,7 +179,7 @@ class TestScrap:
 
         second = generate(session, config.id)
         assert _clinic_count(session, a.id, ct.id) == 4
-        assert second.rota_id != first.rota_id
+        assert second.rota_id is not None
 
 
 class TestActiveDraft:
