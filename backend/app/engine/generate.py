@@ -16,14 +16,16 @@ simplified and this fixes that inconsistency.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..models import (
     ClinicCounter,
     GeneratedRota,
+    RotaClinicCounterSnapshot,
     RotaConfig,
     RotaSession,
+    RotaSystemCounterSnapshot,
     SystemCounter,
 )
 from ..models.enums import RotaStatus
@@ -67,17 +69,21 @@ def generate(db: Session, config_id: int) -> GenerationResult:
 
 
 def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterState) -> int:
-    """Persist one generation run: the rota header, every session, and the
-    updated counters. Called once, at the end of a successful pipeline.
+    """Persist one generation run: the rota header, a snapshot of every
+    pre-existing counter row, every session, and the updated counters.
+    Called once, at the end of a successful pipeline.
 
-    Factored as a single function (not split further) so M3 can wrap it with
-    a "snapshot all existing counter rows before this call" step without
-    restructuring -- see the M2 plan's `_write_to_db` note. M3 will also add
-    the snapshot tables and scrap_rota().
+    Snapshot ordering matters (M3 plan, resolution 3): the snapshot is taken
+    from the DB *before* _write_counters mutates any counter row, so it holds
+    exact pre-generation values. Scrapping the draft later restores these
+    values wholesale -- undoing both the generation's increments and any
+    manual swap edits made while the rota was a draft.
     """
     rota = GeneratedRota(config_id=config_id, status=RotaStatus.DRAFT)
     db.add(rota)
-    db.flush()  # populate rota.id for the RotaSession FK below
+    db.flush()  # populate rota.id for the snapshot and RotaSession FKs below
+
+    _snapshot_counters(db, rota.id)
 
     for slot in grid.slots.values():
         # Every slot is written, including template-type-only ones
@@ -135,3 +141,119 @@ def _write_counters(db: Session, counters: CounterState) -> None:
             )
         ).scalar_one()
         row.raw_count = raw_count
+
+
+def _snapshot_counters(db: Session, rota_id: int) -> None:
+    """Snapshot every existing counter row's current value against a rota.
+
+    All rows are captured, not just those the generation will touch: swap
+    edits during the draft period can change counters the generation never
+    looked at, and scrap must restore those too. Bounded at roughly
+    (doctors x clinic types) + 2 x doctors rows, and at most one draft
+    exists at a time.
+    """
+    for row in db.execute(select(ClinicCounter)).scalars():
+        db.add(RotaClinicCounterSnapshot(
+            rota_id=rota_id, doctor_id=row.doctor_id,
+            clinic_type_id=row.clinic_type_id, value_before=row.raw_count,
+        ))
+    for row in db.execute(select(SystemCounter)).scalars():
+        db.add(RotaSystemCounterSnapshot(
+            rota_id=rota_id, doctor_id=row.doctor_id,
+            counter_type=row.counter_type, value_before=row.raw_count,
+        ))
+
+
+def get_active_draft(db: Session) -> GeneratedRota | None:
+    """The single draft rota, or None. One draft exists globally at most
+    (M3 plan, resolution 7); the generate endpoint 409s if this is not None.
+    """
+    return db.execute(
+        select(GeneratedRota).where(GeneratedRota.status == RotaStatus.DRAFT)
+    ).scalars().first()
+
+
+def commit_rota(db: Session, rota_id: int) -> GeneratedRota:
+    """Commit a draft: delete its snapshots and set status=committed.
+
+    The live counter values -- generation increments plus any swap edits --
+    become the baseline for future generations. Raises ValueError if the
+    rota does not exist or is already committed (the router maps this
+    to 409/404).
+    """
+    rota = db.get(GeneratedRota, rota_id)
+    if rota is None:
+        raise ValueError(f"GeneratedRota id={rota_id} not found")
+    if rota.status != RotaStatus.DRAFT:
+        raise ValueError(f"Rota {rota_id} is already committed")
+
+    _delete_snapshots(db, rota_id)
+    rota.status = RotaStatus.COMMITTED
+    db.flush()
+    return rota
+
+
+def scrap_rota(db: Session, rota_id: int) -> None:
+    """Discard a draft: restore all counters to their snapshotted
+    pre-generation values, then delete the rota and its snapshots.
+
+    Runs entirely within the caller's transaction (M3 plan, resolution 4).
+    Counter rows whose key is absent from the snapshot were created during
+    the draft period (generation reaching a new (doctor, clinic type) pair,
+    or a forced swap to a previously-untracked doctor) and are deleted.
+    Raises ValueError if the rota does not exist or is committed.
+    """
+    rota = db.get(GeneratedRota, rota_id)
+    if rota is None:
+        raise ValueError(f"GeneratedRota id={rota_id} not found")
+    if rota.status != RotaStatus.DRAFT:
+        raise ValueError(f"Rota {rota_id} is committed and cannot be scrapped")
+
+    clinic_snaps = db.execute(
+        select(RotaClinicCounterSnapshot)
+        .where(RotaClinicCounterSnapshot.rota_id == rota_id)
+    ).scalars().all()
+    system_snaps = db.execute(
+        select(RotaSystemCounterSnapshot)
+        .where(RotaSystemCounterSnapshot.rota_id == rota_id)
+    ).scalars().all()
+
+    clinic_before = {(s.doctor_id, s.clinic_type_id): s.value_before for s in clinic_snaps}
+    system_before = {(s.doctor_id, s.counter_type): s.value_before for s in system_snaps}
+
+    # Restore snapshotted rows; delete rows created after the snapshot.
+    for row in db.execute(select(ClinicCounter)).scalars().all():
+        key = (row.doctor_id, row.clinic_type_id)
+        if key in clinic_before:
+            row.raw_count = clinic_before.pop(key)
+        else:
+            db.delete(row)
+    for row in db.execute(select(SystemCounter)).scalars().all():
+        key = (row.doctor_id, row.counter_type)
+        if key in system_before:
+            row.raw_count = system_before.pop(key)
+        else:
+            db.delete(row)
+
+    # Snapshotted rows that no longer exist as live rows (deleted during the
+    # draft period, e.g. via a future admin action) are recreated at their
+    # pre-generation values, so scrap always restores the exact prior state.
+    for (doctor_id, clinic_type_id), value in clinic_before.items():
+        db.add(ClinicCounter(
+            doctor_id=doctor_id, clinic_type_id=clinic_type_id, raw_count=value,
+        ))
+    for (doctor_id, counter_type), value in system_before.items():
+        db.add(SystemCounter(
+            doctor_id=doctor_id, counter_type=counter_type, raw_count=value,
+        ))
+
+    _delete_snapshots(db, rota_id)
+    db.delete(rota)  # ORM cascade removes RotaSession rows
+    db.flush()
+
+
+def _delete_snapshots(db: Session, rota_id: int) -> None:
+    db.execute(delete(RotaClinicCounterSnapshot).where(
+        RotaClinicCounterSnapshot.rota_id == rota_id))
+    db.execute(delete(RotaSystemCounterSnapshot).where(
+        RotaSystemCounterSnapshot.rota_id == rota_id))
