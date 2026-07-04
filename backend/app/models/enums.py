@@ -76,14 +76,28 @@ def _snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
-def enum_col(py_enum: type[enum.Enum]) -> SAEnum:
-    """Build a SQLAlchemy Enum column type that stores enum values.
+_ENUM_TYPE_CACHE: dict[type[enum.Enum], SAEnum] = {}
 
-    Uses a stable lowercase type name (matters for the Postgres native enum
-    type; ignored by SQLite, which renders a VARCHAR + CHECK).
+
+def enum_col(py_enum: type[enum.Enum]) -> SAEnum:
+    """Build (or reuse) the SQLAlchemy Enum column type for a Python enum.
+
+    Stores the enum *value* and uses a stable lowercase type name. The
+    instance is cached and shared across every column that uses the same
+    Python enum: on Postgres, a native ``CREATE TYPE`` is emitted per enum
+    type, and a fresh SAEnum instance per column would try to create the
+    same named type once per table, breaking ``create_all`` /
+    ``alembic upgrade head``. One shared instance per enum lets SQLAlchemy
+    deduplicate type creation within Base.metadata. SQLite is unaffected
+    (renders VARCHAR + CHECK). Flagged in the M1 plan's implementation note;
+    fixed here at M3 as part of finalising the Postgres baseline.
     """
-    return SAEnum(
-        py_enum,
-        name=_snake(py_enum.__name__),
-        values_callable=lambda e: [member.value for member in e],
-    )
+    cached = _ENUM_TYPE_CACHE.get(py_enum)
+    if cached is None:
+        cached = SAEnum(
+            py_enum,
+            name=_snake(py_enum.__name__),
+            values_callable=lambda e: [member.value for member in e],
+        )
+        _ENUM_TYPE_CACHE[py_enum] = cached
+    return cached
