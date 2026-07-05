@@ -1,0 +1,43 @@
+"""FastAPI app: CORS, router registration, health check.
+
+CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
+"*" for development. All routers are registered under /api/v1. Routers are
+created as stubs in Task 2 and populated in Tasks 3-6, so this file does not
+change as endpoints are added.
+"""
+import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from .routers import (
+    clinic_types,
+    counters,
+    doctors,
+    duty,
+    leave,
+    rooms,
+    rota,
+)
+
+app = FastAPI(title="Rota Generator API", version="0.1.0")
+
+_origins = [
+    o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=False if _origins == ["*"] else True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+API_PREFIX = "/api/v1"
+for module in (rota, clinic_types, doctors, leave, duty, rooms, counters):
+    app.include_router(module.router, prefix=API_PREFIX)
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
