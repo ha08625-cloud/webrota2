@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env files may hold a Railway backend URL or other local overrides -
+# never commit them, but keep the documented example.
+.env*
+!.env.example
+
+coverage
