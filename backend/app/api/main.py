@@ -15,9 +15,10 @@ M4 produces a build, the backend runs exactly as before.
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from .routers import (
     clinic_types,
