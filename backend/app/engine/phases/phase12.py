@@ -108,6 +108,10 @@ def _check_unresolved_rooms(context: GenerationContext, grid: RotaGrid) -> list[
             continue
         if slot.is_on_leave:
             continue  # a doctor on leave never needs a room -- see phase7_9a.py
+        if slot.is_wfh:
+            continue  # WFH needs no room (M3.5 Task 2: the session PATCH can
+            # set WFH on a REQUIRES_ROOM slot, clearing its room; that must
+            # not warn while WFH is on. Toggling WFH off re-surfaces it.)
 
         doctor = context.doctor_by_id.get(slot.doctor_id)
         code = doctor.code if doctor is not None else f"id={slot.doctor_id}"

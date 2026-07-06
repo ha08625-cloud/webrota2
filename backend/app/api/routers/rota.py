@@ -50,6 +50,8 @@ from ..schemas import (
     RotaOut,
     RotaSessionOut,
     RotaSummaryOut,
+    SessionPatchIn,
+    SessionPatchOut,
     SwapIn,
     SwapOut,
     ValidationIssueOut,
@@ -303,6 +305,51 @@ def scrap(
     _require_draft(rota)
     scrap_rota(db, rota_id)
     db.commit()
+
+
+@router.patch("/{rota_id}/sessions/{session_id}", response_model=SessionPatchOut)
+def patch_session(
+    rota_id: int,
+    session_id: int,
+    payload: SessionPatchIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> SessionPatchOut:
+    """Draft-only partial update: is_wfh and/or notes (M3.5 Task 2).
+
+    Setting is_wfh true also clears room_id (Q3 decision); the freed room
+    is immediately free for that week/day/period since freeness is derived
+    from session rows. Setting is_wfh false does NOT restore a room -- the
+    slot warns unresolved_room until a room is dragged on. Phase 12 re-runs
+    and its fresh issues are returned, matching the swap endpoints.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+    _require_draft(rota)
+    s = db.get(RotaSession, session_id)
+    if s is None or s.rota_id != rota_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in rota {rota_id}",
+        )
+
+    fields = payload.model_fields_set
+    if not fields:
+        raise HTTPException(status_code=422, detail="Empty patch: provide is_wfh and/or notes")
+
+    if "is_wfh" in fields and payload.is_wfh is not None:
+        s.is_wfh = payload.is_wfh
+        if payload.is_wfh:
+            s.room_id = None
+    if "notes" in fields:
+        s.notes = payload.notes
+
+    db.flush()
+    issues = _issues_out(db, rota_id)
+    db.commit()
+
+    config = db.get(RotaConfig, rota.config_id)
+    out = _session_outs(db, config, [s])[0]
+    return SessionPatchOut(session=out, issues=issues)
 
 
 @router.post("/{rota_id}/swap-roles", response_model=SwapOut)

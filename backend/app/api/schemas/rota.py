@@ -61,6 +61,19 @@ class RotaOut(BaseModel):
     sessions: list[RotaSessionOut]
 
 
+class SessionPatchIn(BaseModel):
+    """Partial update of a draft session (M3.5 Task 2). Only fields present
+    in the request body are applied (checked via model_fields_set), so
+    `notes: null` clears notes while an absent `notes` leaves them alone."""
+    is_wfh: bool | None = None
+    notes: str | None = None
+
+
+class SessionPatchOut(BaseModel):
+    session: RotaSessionOut
+    issues: list[ValidationIssueOut]
+
+
 class SwapIn(BaseModel):
     session_a_id: int
     session_b_id: int
