@@ -1,14 +1,23 @@
-"""FastAPI app: CORS, router registration, health check.
+"""FastAPI app: CORS, router registration, health check, frontend mount.
 
 CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
 "*" for development. All routers are registered under /api/v1. Routers are
 created as stubs in Task 2 and populated in Tasks 3-6, so this file does not
 change as endpoints are added.
+
+M3.5 Task 6: if a built frontend exists (FRONTEND_DIST env var, defaulting
+to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
+so /api/v1/* and /health always win. The mount serves index.html as an SPA
+fallback for unknown non-API paths (client-side routes survive a refresh)
+but lets /api/* 404s stay real 404s. Guarded by directory existence: until
+M4 produces a build, the backend runs exactly as before.
 """
 import os
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .routers import (
     clinic_types,
@@ -41,3 +50,41 @@ for module in (rota, clinic_types, doctors, leave, duty, rooms, counters):
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Frontend static serving (M3.5 Task 6)
+# ---------------------------------------------------------------------------
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles with an index.html fallback for unknown non-API paths."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code == 404 and not path.startswith("api"):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+def _default_dist() -> Path:
+    # backend/app/api/main.py -> parents[3] is the repo root.
+    return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+
+def mount_frontend(application: FastAPI, dist_dir: Path | None = None) -> bool:
+    """Mount the built frontend at "/" if dist_dir exists. Returns whether
+    a mount happened. Mounts are matched after registered routes, so the
+    API routes and /health always take precedence. Split out as a helper
+    so tests can exercise it against a temp directory."""
+    dist = Path(dist_dir) if dist_dir is not None else Path(
+        os.environ.get("FRONTEND_DIST", _default_dist())
+    )
+    if not dist.is_dir() or not (dist / "index.html").is_file():
+        return False
+    application.mount("/", SPAStaticFiles(directory=dist, html=True), name="frontend")
+    return True
+
+
+mount_frontend(app)
