@@ -39,6 +39,17 @@ class RotaSessionOut(BaseModel):
     notes: str | None = None
 
 
+class RotaSummaryOut(BaseModel):
+    """GET /rota (list): metadata only, no sessions. Joined from
+    GeneratedRota + its RotaConfig in the router."""
+    rota_id: int
+    status: RotaStatus
+    created_at: datetime.datetime
+    start_date: datetime.date
+    num_weeks: int
+    template_start_week: int
+
+
 class RotaOut(BaseModel):
     """GET /rota/{id}: metadata plus the flat session list."""
     rota_id: int

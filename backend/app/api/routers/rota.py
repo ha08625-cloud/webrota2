@@ -49,6 +49,7 @@ from ..schemas import (
     GenerateRotaOut,
     RotaOut,
     RotaSessionOut,
+    RotaSummaryOut,
     SwapIn,
     SwapOut,
     ValidationIssueOut,
@@ -218,6 +219,32 @@ def generate_rota(
         status=RotaStatus.DRAFT,
         issues=[ValidationIssueOut.model_validate(i) for i in result.issues],
     )
+
+
+@router.get("", response_model=list[RotaSummaryOut])
+def list_rotas(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[RotaSummaryOut]:
+    """All rotas, newest first (M3.5 Task 1). The frontend derives the
+    active draft (at most one by design) and the committed history from
+    this list. No pagination: volume is tens per year."""
+    rows = db.execute(
+        select(GeneratedRota, RotaConfig)
+        .join(RotaConfig, GeneratedRota.config_id == RotaConfig.id)
+        .order_by(GeneratedRota.created_at.desc(), GeneratedRota.id.desc())
+    ).all()
+    return [
+        RotaSummaryOut(
+            rota_id=rota.id,
+            status=rota.status,
+            created_at=rota.created_at,
+            start_date=config.start_date,
+            num_weeks=config.num_weeks,
+            template_start_week=config.template_start_week,
+        )
+        for rota, config in rows
+    ]
 
 
 @router.get("/{rota_id}", response_model=RotaOut)

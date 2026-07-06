@@ -5,6 +5,7 @@ from .rota import (
     GenerateRotaOut,
     RotaOut,
     RotaSessionOut,
+    RotaSummaryOut,
     SwapIn,
     SwapOut,
 )
@@ -34,6 +35,7 @@ from .counter import ClinicCounterOut, SystemCounterOut
 __all__ = [
     "ValidationIssueOut",
     "GenerateRotaIn", "GenerateRotaOut", "RotaOut", "RotaSessionOut",
+    "RotaSummaryOut",
     "SwapIn", "SwapOut",
     "ClinicTypeIn", "ClinicTypeOut", "DoctorEligIn", "DoctorEligOut",
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
