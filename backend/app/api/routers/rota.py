@@ -359,7 +359,21 @@ def swap_roles(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> SwapOut:
+    """Swap or move (role, clinic_type_id) between two draft sessions.
+
+    M3.5 Tasks 3-4: one side may have no role, making this a move -- the
+    counter guards below already handle an empty half correctly (decrement
+    the source's clinic counter, increment the target's). Both sides empty
+    is a 422: nothing to move. Eligibility is not checked server-side
+    (consistent with force-swap); Phase 12 re-runs and returns warnings.
+    """
     rota, a, b = _load_swap_sessions(db, rota_id, payload)
+
+    if a.role is None and b.role is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Neither session has a role; nothing to swap or move",
+        )
 
     old_a_role, old_a_ct = a.role, a.clinic_type_id
     old_b_role, old_b_ct = b.role, b.clinic_type_id
@@ -396,7 +410,20 @@ def swap_rooms(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> SwapOut:
+    """Swap or move room_id between two draft sessions (no counter effect).
+
+    M3.5 Tasks 3-4: one side may have no room, making this a move. The
+    deliberate consequence of a move is an unresolved_room warning on the
+    source if its slot is REQUIRES_ROOM -- the signal to reassign. Both
+    sides empty is a 422.
+    """
     rota, a, b = _load_swap_sessions(db, rota_id, payload)
+
+    if a.room_id is None and b.room_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Neither session has a room; nothing to swap or move",
+        )
 
     a.room_id, b.room_id = b.room_id, a.room_id
 
