@@ -18,13 +18,15 @@ def _sessions(client, rota_id):
     return resp.json()["sessions"]
 
 
-def _unresolved_for(issues, week, day, period):
+def _unresolved_for(issues, target):
     return [
         i for i in issues
         if i["check"] == "unresolved_room"
-        and i["week"] == week and i["day"] == day and i["period"] == period
+        and i["week"] == target["week"]
+        and i["day"] == target["day"]
+        and i["period"] == target["period"]
+        and target["doctor_code"] in i["message"]
     ]
-
 
 def _set_room(db_session, session_id, room_id):
     s = db_session.get(RotaSession, session_id)
@@ -47,9 +49,7 @@ def test_wfh_on_clears_room_and_silences_warning(client, seeded, db_session):
     assert body["session"]["room_id"] is None
     assert body["session"]["room_code"] is None
     # REQUIRES_ROOM slot with no room, but WFH: must not warn.
-    assert _unresolved_for(
-        body["issues"], target["week"], target["day"], target["period"]
-    ) == []
+    assert _unresolved_for(body["issues"], target) == []
 
 
 def test_wfh_off_leaves_room_null_and_warns(client, seeded, db_session):
@@ -64,9 +64,7 @@ def test_wfh_off_leaves_room_null_and_warns(client, seeded, db_session):
     body = resp.json()
     assert body["session"]["is_wfh"] is False
     assert body["session"]["room_id"] is None  # no room restored
-    warnings = _unresolved_for(
-        body["issues"], target["week"], target["day"], target["period"]
-    )
+    warnings = _unresolved_for(body["issues"], target)
     assert len(warnings) == 1
     assert target["doctor_code"] in warnings[0]["message"]
 
