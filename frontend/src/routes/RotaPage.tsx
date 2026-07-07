@@ -150,7 +150,7 @@ function GenerateRotaForm() {
         {generateRota.isPending ? "Generating..." : "Generate rota"}
       </button>
 
-      {generateRota.isError ? <GenerateErrorMessage error={generateRota.error as ApiError} /> : null}
+      {generateRota.isError ? <GenerateErrorMessage error={generateRota.error} /> : null}
     </form>
   );
 }

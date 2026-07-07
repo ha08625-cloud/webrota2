@@ -1,7 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useCommitRota, useRota, useScrapRota } from "@/api/rota";
-import type { ApiError } from "@/api/types";
 import { formatDate, formatDateTime } from "@/lib/date";
 
 export function RotaDetailPage() {
@@ -17,8 +16,7 @@ export function RotaDetailPage() {
   }
 
   if (isError) {
-    const apiError = error as ApiError;
-    if (apiError.status === 404) {
+    if (error.status === 404) {
       // Reachable via a stale bookmark/back-button after this rota was
       // scrapped, or a mistyped id - not just a theoretical case.
       return (
@@ -37,12 +35,19 @@ export function RotaDetailPage() {
   }
 
   const isDraft = rota.status === "draft";
+  // Pulled out as a plain number rather than referencing rota.rota_id
+  // inside the handlers below: narrowing from the `if (!rota) return null`
+  // check above doesn't survive into nested function declarations (TS
+  // can't prove they're only called within this render's narrowed
+  // window), so `rota` would still type-check as possibly undefined
+  // inside them. A primitive has no such ambiguity.
+  const currentRotaId = rota.rota_id;
 
   function handleCommit() {
     if (!window.confirm("Commit this rota? This finalises it and cannot be undone.")) {
       return;
     }
-    commitRota.mutate(rota.rota_id, {
+    commitRota.mutate(currentRotaId, {
       onSuccess: () => navigate("/"),
     });
   }
@@ -55,7 +60,7 @@ export function RotaDetailPage() {
     ) {
       return;
     }
-    scrapRota.mutate(rota.rota_id, {
+    scrapRota.mutate(currentRotaId, {
       onSuccess: () => navigate("/"),
     });
   }
