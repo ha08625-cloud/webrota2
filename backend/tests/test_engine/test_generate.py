@@ -221,3 +221,72 @@ class TestGenerateEndToEnd:
             s for s in rota_sessions if s.doctor_id == partner.id and s.period == Period.AM
         )
         assert partner_am.room_id == fallback.id
+
+
+class TestPhase0DutyIncompatibleSlot:
+    """M3.7: duty pre-planned onto a NO_SURGERY/ADMIN_TIME template slot is
+    a Phase 0 hard error (same tier as duty-on-leave). WFH is deliberately
+    excluded from this block (a WFH slot is overridable in practice - the
+    doctor comes in for duty) and is a Phase 12 warning instead - see
+    test_phase12.py's TestRoleOnIncompatibleSlot.
+    """
+
+    def test_duty_on_no_surgery_blocks(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="EE", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+        make_duty(session, monday, Period.AM, doctor, DutyType.PRIMARY)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.status == "failed"
+        assert result.rota_id is None
+        assert any(i.check == "duty_on_incompatible_slot" for i in result.issues)
+        written = session.execute(select(RotaSession)).scalars().all()
+        assert written == []
+
+    def test_duty_on_admin_time_blocks(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="FF", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.ADMIN_TIME,
+        )
+        make_duty(session, monday, Period.AM, doctor, DutyType.PRIMARY)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.status == "failed"
+        assert any(i.check == "duty_on_incompatible_slot" for i in result.issues)
+
+    def test_duty_on_wfh_does_not_block(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="GG", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+        make_duty(session, monday, Period.AM, doctor, DutyType.PRIMARY)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        # WFH is deliberately not in the Phase 0 block - generation proceeds
+        # (Phase 12's role_on_incompatible_slot warns about it instead).
+        assert result.status in ("success", "partial")
+        assert result.rota_id is not None
+        assert not any(i.check == "duty_on_incompatible_slot" for i in result.issues)

@@ -7,7 +7,9 @@ returns any `severity="error"` issue, `generate()` stops immediately: no
 from __future__ import annotations
 
 from ...models import RotaConfig
+from ...models.enums import MasterSessionType
 from ..datatypes import GenerationContext, ValidationIssue
+from ..week_map import template_week
 
 PHASE = "phase0"
 
@@ -20,6 +22,7 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_num_weeks(config))
     issues.extend(_check_template_start_week(config))
     issues.extend(_check_duty_doctors_not_on_leave(context))
+    issues.extend(_check_duty_on_incompatible_template_slot(context, config))
     issues.extend(_check_template_doctors_active(context))
 
     return issues
@@ -86,6 +89,56 @@ def _check_duty_doctors_not_on_leave(context: GenerationContext) -> list[Validat
             message=(
                 f"Duty doctor {code} ({duty_type.value}) is on leave on "
                 f"{date_.isoformat()} {period.value}."
+            ),
+        ))
+    return issues
+
+
+def _check_duty_on_incompatible_template_slot(
+    context: GenerationContext, config: RotaConfig
+) -> list[ValidationIssue]:
+    """Error if a pre-planned duty doctor's slot is templated NO_SURGERY or
+    ADMIN_TIME (M3.7): nothing is scheduled there, so a duty role has
+    nowhere meaningful to attach. Same severity tier as duty-on-leave, for
+    the same reason - both are pre-flight data errors, not generation-time
+    tradeoffs.
+
+    WFH is deliberately not covered here (M3.7 decision): a WFH template
+    slot is overridable in practice (the doctor comes in for duty), so it
+    is a Phase 12 warning, not a Phase 0 block - see
+    _check_role_on_incompatible_slot in phase12.py.
+
+    A missing template row entirely (no entry for this doctor/day/period
+    at all) is a different, pre-existing condition and is left alone here
+    - see Phase 4's duty_no_session_slot warning.
+    """
+    issues: list[ValidationIssue] = []
+    for (date_, period, duty_type), doctor_id in sorted(
+        context.duty_map.items(), key=lambda kv: (kv[0][0], kv[0][1].value, kv[0][2].value)
+    ):
+        genslot = context.date_to_genslot.get(date_)
+        if genslot is None:
+            # Defensive only, same as _check_duty_doctors_not_on_leave:
+            # context.duty_map is already filtered to the run's date range.
+            continue
+        gen_week, day = genslot
+        tw = template_week(gen_week, config.template_start_week)
+        template_entry = context.template_sessions.get((doctor_id, tw, day, period))
+        if template_entry is None:
+            continue  # no template row at all - Phase 4's concern, not this one
+        session_type, _room_id = template_entry
+        if session_type not in (MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME):
+            continue
+
+        doctor = context.doctor_by_id.get(doctor_id)
+        code = doctor.code if doctor is not None else f"id={doctor_id}"
+        issues.append(ValidationIssue(
+            severity="error", phase=PHASE, check="duty_on_incompatible_slot",
+            week=gen_week, day=day, period=period,
+            message=(
+                f"Duty doctor {code} ({duty_type.value}) is assigned to a "
+                f"{session_type.value} slot on {date_.isoformat()} "
+                f"{period.value}, which cannot carry a duty role."
             ),
         ))
     return issues

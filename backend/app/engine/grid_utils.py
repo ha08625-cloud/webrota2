@@ -8,14 +8,25 @@ this module reconstructs an equivalent grid from RotaSession rows.
 A fresh GenerationContext is built per call (M3 plan, resolution 5) -- no
 caching. The context is also returned because Phase 12 needs it.
 
-Template drift: template_type is re-derived from the active template via
-(doctor, template_week, day, period), per the M1 decision that RotaSession
-stores no session_type of its own. If the template has been edited since
-generation and an entry no longer exists, the slot falls back to NO_SURGERY:
-that keeps duty/clinic coverage checks (which read roles, not template
-types) fully accurate, while opting the slot out of the unresolved-room
-check rather than raising spurious warnings against a template entry that
-no longer exists.
+Template type (M3.7): row.template_type is trusted when present -- it was
+persisted at generation time (M3.6) and reflects the template as it stood
+then, not as it stands now. This matters beyond cosmetics: Phase 12's
+role_on_incompatible_slot check (M3.7) judges edits against this value, so
+re-deriving from the *current* active template would let a template edit
+made after generation silently change which past edits register as
+warnings. Falls back to re-deriving from the active template (as this
+module did before M3.6) only for legacy rows with no persisted value, and
+falls back further to NO_SURGERY if the active template no longer has a
+matching entry either -- unchanged from the original behaviour, and still
+only reachable for pre-M3.6 data.
+
+template_room_id has no persisted equivalent (M3.6 only added
+template_type) and is always derived from the *current* active template
+regardless. This is lower-stakes than it sounds: nothing in this
+reconstruction path actually reads template_room_id downstream -- Phase 12
+only reads assigned_room_id, and the pre-occupying-room logic that does
+read template_room_id lives in phase2.py's fresh-generation path, never
+called from here.
 """
 from __future__ import annotations
 
@@ -54,10 +65,14 @@ def rebuild_rota_grid(
         template_entry = context.template_sessions.get(
             (row.doctor_id, tw, row.day, row.period)
         )
-        if template_entry is not None:
-            template_type, template_room_id = template_entry
+        template_room_id = template_entry[1] if template_entry is not None else None
+
+        if row.template_type is not None:
+            template_type = row.template_type
+        elif template_entry is not None:
+            template_type = template_entry[0]
         else:
-            template_type, template_room_id = MasterSessionType.NO_SURGERY, None
+            template_type = MasterSessionType.NO_SURGERY
 
         session_date = context.week_dates.get((row.week, row.day))
         is_on_leave = (

@@ -30,6 +30,7 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
     issues.extend(_check_duty_coverage(context, grid))
     issues.extend(_check_clinic_coverage(context, grid))
     issues.extend(_check_unresolved_rooms(context, grid))
+    issues.extend(_check_role_on_incompatible_slot(context, grid))
     return issues
 
 
@@ -119,6 +120,43 @@ def _check_unresolved_rooms(context: GenerationContext, grid: RotaGrid) -> list[
             "unresolved_room", slot.week, slot.day, slot.period,
             f"{code} has an unresolved REQUIRES_ROOM slot on {slot.day.value} "
             f"{slot.period.value} (week {slot.week}).",
+        ))
+    return issues
+
+
+def _check_role_on_incompatible_slot(
+    context: GenerationContext, grid: RotaGrid
+) -> list[ValidationIssue]:
+    """Warn if any role (duty or clinic) ended up on a slot that shouldn't
+    carry one (M3.7): NO_SURGERY/ADMIN_TIME template slots, on-leave slots,
+    or WFH slots. Covers both generation output and every edit (swap, move,
+    and the session PATCH all re-run Phase 12 via grid_utils), since the
+    editing API has no eligibility checks of its own - a forced swap/move
+    can put any role anywhere. Covers clinic roles too, not just duty: the
+    swap/move endpoints can put a clinic assignment on an incompatible slot
+    exactly as easily as a duty one, at no extra cost to check both.
+    """
+    issues: list[ValidationIssue] = []
+    for slot in grid.slots.values():
+        if slot.role is None:
+            continue
+
+        reasons: list[str] = []
+        if slot.is_on_leave:
+            reasons.append("the doctor is on leave")
+        if slot.is_wfh:
+            reasons.append("the doctor is WFH")
+        if slot.template_type in (MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME):
+            reasons.append(f"the template slot is {slot.template_type.value}")
+        if not reasons:
+            continue
+
+        doctor = context.doctor_by_id.get(slot.doctor_id)
+        code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
+        issues.append(_warning(
+            "role_on_incompatible_slot", slot.week, slot.day, slot.period,
+            f"{code} has role {slot.role.value} on {slot.day.value} "
+            f"{slot.period.value} (week {slot.week}), but {'; '.join(reasons)}.",
         ))
     return issues
 

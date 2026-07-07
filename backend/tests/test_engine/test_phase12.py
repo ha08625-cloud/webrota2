@@ -2,7 +2,9 @@ from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
 from app.engine.phases.phase12 import run_phase12
-from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType
+from app.models.enums import (
+    Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, SessionRole,
+)
 
 from .factories import (
     make_clinic_type,
@@ -214,3 +216,91 @@ class TestUnresolvedRooms:
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "unresolved_room" for i in issues)
+
+
+class TestRoleOnIncompatibleSlot:
+    """M3.7: any role (duty or clinic) landing on a NO_SURGERY/ADMIN_TIME
+    template slot, an on-leave slot, or a WFH slot warns. Covers both
+    generation output and post-generation edits, since swap/move/PATCH all
+    re-run this same check via grid_utils with no eligibility checks of
+    their own upstream.
+    """
+
+    def test_role_on_no_surgery_warns(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+        ctx, grid = _build(session, config_1wk)
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+        issues = run_phase12(ctx, grid)
+
+        assert any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_role_on_admin_time_warns(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.ADMIN_TIME,
+        )
+        ctx, grid = _build(session, config_1wk)
+        # Clinic role too, not just duty - M3.7 covers any role.
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.CLINIC
+        issues = run_phase12(ctx, grid)
+
+        assert any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_role_on_leave_warns(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_leave(session, d, monday, Period.AM)
+        ctx, grid = _build(session, config_1wk)
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+        issues = run_phase12(ctx, grid)
+
+        assert any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_role_on_wfh_warns(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+        ctx, grid = _build(session, config_1wk)
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+        issues = run_phase12(ctx, grid)
+
+        assert any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_role_on_normal_slot_does_not_warn(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        ctx, grid = _build(session, config_1wk)
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+        issues = run_phase12(ctx, grid)
+
+        assert not any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_normal_slot_with_no_role_does_not_warn(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+        ctx, grid = _build(session, config_1wk)
+        issues = run_phase12(ctx, grid)
+
+        assert not any(i.check == "role_on_incompatible_slot" for i in issues)

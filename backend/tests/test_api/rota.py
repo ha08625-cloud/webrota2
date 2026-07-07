@@ -9,7 +9,7 @@ from app.models import (
     RotaSystemCounterSnapshot,
 )
 
-from .conftest import generate_rota, make_clinic_type_via_api
+from .conftest import MONDAY, generate_rota, make_clinic_type_via_api
 
 
 def _clinic_counters(client):
@@ -200,3 +200,59 @@ class TestTemplateType:
         rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
         session_out = next(s for s in rota["sessions"] if s["session_id"] == session_id)
         assert session_out["template_type"] is None
+
+
+class TestDutyOnIncompatibleSlot:
+    """M3.7 Phase 0: duty pre-planned onto a NO_SURGERY template slot
+    blocks generation with the new check name, end to end through the API.
+    (ADMIN_TIME and WFH-does-not-block are covered at the engine level in
+    test_generate.py; this is the one API-level check that the 422 shape
+    itself - detail as a list under the standard FastAPI envelope - comes
+    through correctly.)
+    """
+
+    def test_generate_422_duty_on_no_surgery(self, client, db_session, seeded):
+        from app.models import DutyAssignment, MasterRotaSession
+        from app.models.enums import Day, DutyType, MasterSessionType, Period
+
+        row = db_session.execute(
+            select(MasterRotaSession).where(
+                MasterRotaSession.doctor_id == seeded["doctor_aa"],
+                MasterRotaSession.day == Day.MONDAY,
+                MasterRotaSession.period == Period.AM,
+            )
+        ).scalar_one()
+        row.session_type = MasterSessionType.NO_SURGERY
+        db_session.add(DutyAssignment(
+            date=MONDAY, period=Period.AM, doctor_id=seeded["doctor_aa"],
+            duty_type=DutyType.PRIMARY,
+        ))
+        db_session.commit()
+
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 422
+        checks = {i["check"] for i in resp.json()["detail"]}
+        assert "duty_on_incompatible_slot" in checks
+
+
+class TestRoleOnIncompatibleSlotApi:
+    """M3.7 Phase 12: toggling WFH on over an existing role surfaces the
+    warning in the PATCH response's issues - end to end through the API,
+    complementing the engine-level coverage in test_phase12.py.
+    """
+
+    def test_wfh_toggle_over_role_warns(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        am = _monday_am_sessions(client, out["rota_id"])
+        session_id = am["AA"]["session_id"]  # AA has the clinic role from setup
+
+        resp = client.patch(
+            f"/api/v1/rota/{out['rota_id']}/sessions/{session_id}",
+            json={"is_wfh": True},
+        )
+        assert resp.status_code == 200, resp.text
+        checks = {i["check"] for i in resp.json()["issues"]}
+        assert "role_on_incompatible_slot" in checks
