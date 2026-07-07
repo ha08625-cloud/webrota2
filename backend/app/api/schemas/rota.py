@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ...models.enums import Day, Period, RotaStatus, SessionRole
+from ...models.enums import Day, MasterSessionType, Period, RotaStatus, SessionRole
 from .common import ValidationIssueOut
 
 
@@ -22,7 +22,10 @@ class GenerateRotaOut(BaseModel):
 
 class RotaSessionOut(BaseModel):
     """One generated session. room_code / clinic_type_name are joined in the
-    router; is_on_leave is derived from LeaveEntry (never stored)."""
+    router; is_on_leave is derived from LeaveEntry (never stored).
+    template_type is persisted on the row as of M3.6 (RotaSession.template_type);
+    null means either a legacy pre-M3.6 row or a manually-nulled one, and
+    renders as a normal session either way."""
     session_id: int
     doctor_id: int
     doctor_code: str
@@ -34,6 +37,7 @@ class RotaSessionOut(BaseModel):
     clinic_type_id: int | None = None
     clinic_type_name: str | None = None
     role: SessionRole | None = None
+    template_type: MasterSessionType | None = None
     is_wfh: bool
     is_on_leave: bool
     notes: str | None = None

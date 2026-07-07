@@ -96,6 +96,51 @@ class TestGenerateEndToEnd:
         ).scalar_one()
         assert clinic_counter.raw_count == 1
 
+    def test_template_type_persisted_per_slot(self, session, monday):
+        """M3.6: RotaSession.template_type mirrors the master slot's type,
+        for both REQUIRES_ROOM and non-room types. NO_SURGERY/ADMIN_TIME
+        rows are otherwise byte-identical to a normal unassigned row
+        (room_id/clinic_type_id/role all null) - template_type is exactly
+        what resolves that ambiguity, so this asserts it lands on the row.
+        """
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="DD", doctor_type=DoctorType.SALARIED)
+        admin_room = make_room(session, code="D2", room_type=RoomType.D)
+
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.PM,
+            session_type=MasterSessionType.ADMIN_TIME, room=admin_room,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert result.status in ("success", "partial")
+
+        rota_sessions = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+        assert len(rota_sessions) == 2
+
+        am = next(s for s in rota_sessions if s.period == Period.AM)
+        pm = next(s for s in rota_sessions if s.period == Period.PM)
+
+        assert am.template_type == MasterSessionType.NO_SURGERY
+        assert am.role is None
+        assert am.room_id is None  # NO_SURGERY never has a room
+
+        assert pm.template_type == MasterSessionType.ADMIN_TIME
+        assert pm.role is None
+        # Not asserting pm.room_id: whether ADMIN_TIME pre-occupies a room
+        # is phase2's concern (_PRE_OCCUPYING_TYPES), not M3.6's - only that
+        # template_type itself made it onto the row, for both types here.
+
     def test_failed_status_when_phase0_errors(self, session, monday):
         # No active template at all -> Phase 0 errors -> failed, nothing written
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)

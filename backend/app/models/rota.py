@@ -1,9 +1,17 @@
 """Generation-side models: RotaConfig, GeneratedRota, RotaSession.
 
-RotaSession stores generated assignments only (room_id, clinic_type_id, role,
-is_wfh, notes). It has no session_type column: the template type is re-derivable
-from MasterRotaSession via (doctor, template_week, day, period). is_on_leave is
-not stored; it is derived from LeaveEntry at query time.
+RotaSession stores generated assignments (room_id, clinic_type_id, role,
+is_wfh, notes) plus, as of M3.6, template_type: the MasterSessionType the
+slot had in the template at generation time, persisted directly on the row
+rather than re-derived at read time. This was changed because sessions are
+meant to be self-contained snapshots, and read-time re-derivation via
+MasterRotaSession would silently rewrite the appearance of historical
+committed rotas once master-template editing (a deferred milestone) exists.
+template_type is nullable with no backfill: pre-M3.6 rows (from
+pre-production verification only) simply read as null, which the API and
+frontend both treat as "normal session" - the same fallback the original
+re-derivation design would have produced for any legacy data anyway.
+is_on_leave is not stored; it is derived from LeaveEntry at query time.
 """
 import datetime
 
@@ -20,7 +28,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from .enums import Day, Period, RotaStatus, SessionRole, enum_col
+from .enums import Day, MasterSessionType, Period, RotaStatus, SessionRole, enum_col
 
 
 class RotaConfig(Base):
@@ -86,6 +94,9 @@ class RotaSession(Base):
         ForeignKey("clinic_types.id"), nullable=True
     )
     role: Mapped[SessionRole | None] = mapped_column(enum_col(SessionRole), nullable=True)
+    template_type: Mapped[MasterSessionType | None] = mapped_column(
+        enum_col(MasterSessionType), nullable=True
+    )
     is_wfh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

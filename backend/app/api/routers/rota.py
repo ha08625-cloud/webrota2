@@ -120,6 +120,7 @@ def _session_outs(
                 clinic_names.get(s.clinic_type_id) if s.clinic_type_id else None
             ),
             role=s.role,
+            template_type=s.template_type,
             is_wfh=s.is_wfh,
             is_on_leave=(
                 session_date is not None

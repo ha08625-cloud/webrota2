@@ -87,9 +87,10 @@ def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterS
 
     for slot in grid.slots.values():
         # Every slot is written, including template-type-only ones
-        # (NO_SURGERY / ADMIN_TIME / WFH with no clinic or duty role) -- the
-        # M2 plan is explicit that RotaSession has no session_type column of
-        # its own; that type is re-derived from MasterRotaSession later.
+        # (NO_SURGERY / ADMIN_TIME / WFH with no clinic or duty role).
+        # template_type is persisted directly as of M3.6 - RotaSession no
+        # longer relies on re-deriving it from MasterRotaSession at read
+        # time (see the model docstring for why).
         db.add(RotaSession(
             rota_id=rota.id,
             doctor_id=slot.doctor_id,
@@ -99,6 +100,7 @@ def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterS
             room_id=slot.assigned_room_id,
             clinic_type_id=slot.clinic_type_id,
             role=slot.role,
+            template_type=slot.template_type,
             is_wfh=slot.is_wfh,
             notes=slot.notes,
         ))

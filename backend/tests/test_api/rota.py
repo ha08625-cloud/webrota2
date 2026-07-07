@@ -172,3 +172,31 @@ class TestIssues:
         # Also works after commit (read-only on committed rotas).
         client.post(f"/api/v1/rota/{out['rota_id']}/commit")
         assert client.get(f"/api/v1/rota/{out['rota_id']}/issues").status_code == 200
+
+
+class TestTemplateType:
+    """M3.6: template_type persisted at generation, returned via the API,
+    and null-safe for any pre-M3.6/manually-nulled row."""
+
+    def test_generate_persists_and_returns_template_type(self, client, seeded):
+        # seeded's template is REQUIRES_ROOM for both doctors, Monday AM/PM.
+        out = generate_rota(client)
+        am = _monday_am_sessions(client, out["rota_id"])
+        assert am["AA"]["template_type"] == "requires_room"
+        assert am["BB"]["template_type"] == "requires_room"
+
+    def test_null_template_type_serialises_as_null(self, client, db_session, seeded):
+        # Simulates a pre-M3.6 legacy row (no backfill was done): API and
+        # frontend both treat null as a normal session, so this asserts the
+        # response stays well-formed rather than erroring on a null enum.
+        out = generate_rota(client)
+        am = _monday_am_sessions(client, out["rota_id"])
+        session_id = am["AA"]["session_id"]
+
+        row = db_session.get(RotaSession, session_id)
+        row.template_type = None
+        db_session.commit()
+
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        session_out = next(s for s in rota["sessions"] if s["session_id"] == session_id)
+        assert session_out["template_type"] is None
