@@ -10,6 +10,21 @@ export interface ApiError {
 }
 
 /**
+ * TanStack Query v5's mechanism for typing every query/mutation error as
+ * ApiError by default, instead of the built-in default of Error. Without
+ * this, `useQuery`/`useMutation` callers get `error: Error | null` and
+ * any `error.status` access is a type error - apiClient's `request()`
+ * throws a plain ApiError object, never a real Error instance, so
+ * `Error` was never the right default here. Covers every hook in every
+ * api/*.ts file; no per-hook generic annotation needed.
+ */
+declare module "@tanstack/react-query" {
+  interface Register {
+    defaultError: ApiError;
+  }
+}
+
+/**
  * The shape of one item in a standard FastAPI request-validation error
  * (422 from Pydantic parsing the request body itself, as opposed to a
  * business-logic 422 raised deliberately by a route). Distinguished from
