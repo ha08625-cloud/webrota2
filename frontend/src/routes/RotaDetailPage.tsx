@@ -1,6 +1,8 @@
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useCommitRota, useRota, useScrapRota } from "@/api/rota";
+import { IssuesPanel } from "@/components/IssuesPanel";
+import { RotaGrid } from "@/components/RotaGrid";
 import { formatDate, formatDateTime } from "@/lib/date";
 
 export function RotaDetailPage() {
@@ -66,15 +68,12 @@ export function RotaDetailPage() {
   }
 
   return (
-    <div className="max-w-2xl">
+    <div>
       <h1 className="text-lg font-semibold">
         Rota - {formatDate(rota.start_date)} ({rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""})
       </h1>
       <p className="mt-1 text-sm text-ink/70">
         Status: {rota.status} - created {formatDateTime(rota.created_at)} - {rota.sessions.length} sessions
-      </p>
-      <p className="mt-4 text-sm text-ink/50">
-        The full rota grid is built out in the next task; this is metadata only for now.
       </p>
 
       {isDraft ? (
@@ -102,6 +101,13 @@ export function RotaDetailPage() {
 
       {commitRota.isError ? <p className="mt-3 text-sm text-red-700">Could not commit this rota.</p> : null}
       {scrapRota.isError ? <p className="mt-3 text-sm text-red-700">Could not scrap this rota.</p> : null}
+
+      <div className="mt-6 flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <RotaGrid rota={rota} />
+        </div>
+        <IssuesPanel rotaId={currentRotaId} />
+      </div>
     </div>
   );
 }

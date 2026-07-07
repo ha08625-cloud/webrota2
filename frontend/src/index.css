@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Brief highlight applied by IssuesPanel when navigating to a grid cell
+   (Task 3). Removed via a timeout in IssuesPanel.tsx, not by animation
+   end, so it also degrades gracefully if the class is reapplied before
+   the previous one finished clearing. */
+.issue-flash {
+  animation: issue-flash-fade 1.5s ease-out;
+}
+
+@keyframes issue-flash-fade {
+  0% {
+    outline: 2px solid theme("colors.accent");
+    outline-offset: -2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+}

@@ -1,38 +1,50 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { ApiError, GenerateRotaIn, GenerateRotaOut, Rota, RotaSummary } from "./types";
+import type { GenerateRotaIn, GenerateRotaOut, Rota, RotaSummary, ValidationIssue } from "./types";
 
 export const rotaKeys = {
   all: ["rota"] as const,
   list: () => [...rotaKeys.all, "list"] as const,
   detail: (rotaId: number) => [...rotaKeys.all, "detail", rotaId] as const,
+  issues: (rotaId: number) => [...rotaKeys.all, "issues", rotaId] as const,
 };
 
 export function useRotaList() {
-  // TanStack Query defaults its error type parameter to `Error`. apiClient
-  // throws a plain ApiError object literal, not an Error instance, so that
-  // default is simply wrong here - stating it explicitly (rather than
-  // casting `.error` at each call site) makes every consumer of this hook
-  // get the real type with no cast needed.
-  return useQuery<RotaSummary[], ApiError>({
+  return useQuery({
     queryKey: rotaKeys.list(),
     queryFn: () => apiClient.get<RotaSummary[]>("/rota"),
   });
 }
 
 export function useRota(rotaId: number) {
-  return useQuery<Rota, ApiError>({
+  return useQuery({
     queryKey: rotaKeys.detail(rotaId),
     queryFn: () => apiClient.get<Rota>(`/rota/${rotaId}`),
     enabled: Number.isFinite(rotaId),
   });
 }
 
+/**
+ * GET /rota/{id}/issues is a separate endpoint from GET /rota/{id} - it
+ * re-runs Phase 12 live rather than returning a snapshot embedded in the
+ * rota payload (routers_rota.py's swap/move/patch endpoints reuse the
+ * same _issues_out helper, which is what keeps this fresh after Task 4's
+ * mutations too). Added for Task 3's IssuesPanel; Task 4 will invalidate
+ * this query key after every mutation.
+ */
+export function useRotaIssues(rotaId: number) {
+  return useQuery({
+    queryKey: rotaKeys.issues(rotaId),
+    queryFn: () => apiClient.get<ValidationIssue[]>(`/rota/${rotaId}/issues`),
+    enabled: Number.isFinite(rotaId),
+  });
+}
+
 export function useGenerateRota() {
   const queryClient = useQueryClient();
-  return useMutation<GenerateRotaOut, ApiError, GenerateRotaIn>({
-    mutationFn: (payload) => apiClient.post<GenerateRotaOut>("/rota/generate", payload),
+  return useMutation({
+    mutationFn: (payload: GenerateRotaIn) => apiClient.post<GenerateRotaOut>("/rota/generate", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: rotaKeys.list() });
     },
@@ -41,8 +53,8 @@ export function useGenerateRota() {
 
 export function useCommitRota() {
   const queryClient = useQueryClient();
-  return useMutation<Rota, ApiError, number>({
-    mutationFn: (rotaId) => apiClient.post<Rota>(`/rota/${rotaId}/commit`),
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.post<Rota>(`/rota/${rotaId}/commit`),
     onSuccess: (data, rotaId) => {
       // Commit returns the full RotaOut - seed the detail cache with it
       // rather than discarding it, so re-opening this rota from the
@@ -55,8 +67,8 @@ export function useCommitRota() {
 
 export function useScrapRota() {
   const queryClient = useQueryClient();
-  return useMutation<void, ApiError, number>({
-    mutationFn: (rotaId) => apiClient.delete<void>(`/rota/${rotaId}`),
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.delete<void>(`/rota/${rotaId}`),
     onSuccess: (_data, rotaId) => {
       // The rota no longer exists - drop its cache entry outright rather
       // than leaving it to be refetched into a 404 later.
