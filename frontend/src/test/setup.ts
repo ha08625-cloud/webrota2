@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
+import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
 import { server } from "./msw/server";
@@ -20,5 +21,21 @@ class ResizeObserverStub {
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+
+/**
+ * @testing-library/react's automatic cleanup-between-tests only
+ * self-registers when `afterEach` exists as a true global, which needs
+ * `test.globals: true` in vite.config.ts - this project doesn't set
+ * that (every test file explicitly imports describe/it/afterEach from
+ * "vitest"), so cleanup() has to be called explicitly here. Without it,
+ * every render() across `it()` blocks in the same file keeps appending
+ * to document.body unremoved, and later tests' queries can silently
+ * resolve against a previous test's stale DOM instead of throwing an
+ * obviously-wrong-looking error - exactly the failure mode this fixes.
+ */
+afterEach(() => {
+  cleanup();
+  server.resetHandlers();
+});
+
 afterAll(() => server.close());
