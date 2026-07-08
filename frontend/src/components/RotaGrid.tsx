@@ -1,5 +1,6 @@
 import {
   DndContext,
+  DragOverlay,
   type DragEndEvent,
   type DragStartEvent,
   PointerSensor,
@@ -231,6 +232,12 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
         {editable ? (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             {table}
+            {/* Floating preview that follows the pointer - DragOverlay
+                positions itself via its own portal, so no manual
+                transform is needed here (that's only for moving the
+                original element in place, which the opacity-40 dim on
+                DraggableChip's isDragging state already substitutes for). */}
+            <DragOverlay>{activeChip ? <ChipOverlayPreview activeChip={activeChip} /> : null}</DragOverlay>
           </DndContext>
         ) : (
           table
@@ -379,6 +386,15 @@ function RoleLabel({ role, clinicName }: { role: string | null; clinicName: stri
   return null;
 }
 
+function chipLabel(type: ChipType, session: RotaSession): string | null {
+  if (type === "role") {
+    if (session.role === "duty_primary") return "Duty";
+    if (session.role === "duty_secondary") return "Duty (2nd)";
+    return session.clinic_type_name ?? "Clinic";
+  }
+  return session.room_code;
+}
+
 /**
  * PointerSensor's activationConstraint (8px, configured on DndContext)
  * is what distinguishes a genuine drag from a click here: dnd-kit
@@ -396,15 +412,6 @@ function DraggableChip({ type, session, className = "" }: { type: ChipType; sess
     data: { type, session } satisfies ActiveChip,
   });
 
-  const label =
-    type === "role"
-      ? session.role === "duty_primary"
-        ? "Duty"
-        : session.role === "duty_secondary"
-          ? "Duty (2nd)"
-          : (session.clinic_type_name ?? "Clinic")
-      : session.room_code;
-
   return (
     <div
       ref={setNodeRef}
@@ -412,7 +419,22 @@ function DraggableChip({ type, session, className = "" }: { type: ChipType; sess
       {...attributes}
       className={`cursor-grab select-none text-xs font-medium ${className} ${isDragging ? "opacity-40" : ""}`}
     >
-      {label}
+      {chipLabel(type, session)}
+    </div>
+  );
+}
+
+/**
+ * The floating copy DragOverlay portals to the pointer position while a
+ * drag is in progress. Deliberately unstyled beyond matching the chip's
+ * own text size/weight - it's a drag affordance, not a second place to
+ * apply Q13's room-type font colour (the original chip already dims via
+ * isDragging rather than needing this to carry that signal too).
+ */
+function ChipOverlayPreview({ activeChip }: { activeChip: ActiveChip }) {
+  return (
+    <div className="cursor-grabbing rounded border border-accent bg-surface px-2 py-1 text-xs font-medium shadow-lg">
+      {chipLabel(activeChip.type, activeChip.session)}
     </div>
   );
 }
