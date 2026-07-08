@@ -78,10 +78,6 @@ export interface Room {
 }
 
 // --- Clinic types (schemas_clinic_type.py) ---
-// Task 3 only needs the read shape (for the /clinic-types list used by the
-// grid's category lookup). The nested create/edit shapes (ClinicTypeIn,
-// ScheduleIn, DoctorEligIn, RoomEligIn, etc.) belong to Task 5, which owns
-// the management form, and are deliberately not added here yet.
 
 export interface ClinicTypeSchedule {
   id: number;
@@ -118,6 +114,47 @@ export interface ClinicType {
   schedules: ClinicTypeSchedule[];
   doctor_eligibilities: ClinicTypeDoctorEligibility[];
   room_eligibilities: ClinicTypeRoomEligibility[];
+}
+
+// Write-side shapes (Task 5). POST/PUT both take the full nested
+// ClinicTypeIn - PUT replaces all child rows wholesale (replace-children
+// pattern), it does not diff against what's already there. There is no
+// "wfh_allowed" field or room_required XOR anything - room_required is a
+// plain boolean with no counterpart, despite what an earlier plan draft
+// assumed; confirmed directly against clinic_type.py, schemas_clinic_type.py,
+// and routers_clinic_types.py, none of which reference such a field.
+
+export interface ScheduleIn {
+  day: Day;
+  period: Period;
+}
+
+export interface DoctorEligIn {
+  doctor_id: number;
+  doctor_priority: number;
+}
+
+/**
+ * Exactly one of room_id / room_type, mirroring the DB check constraint
+ * (ck_ctre_room_xor) and the Pydantic model_validator. The client never
+ * constructs a row with both or neither set - ClinicTypeFormDialog's two
+ * separate add buttons and discriminated form-state shape make that
+ * structurally unrepresentable, not just discouraged.
+ */
+export interface RoomEligIn {
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+export interface ClinicTypeIn {
+  name: string;
+  clinic_priority: number;
+  is_enabled: boolean;
+  room_required: boolean;
+  category: string | null;
+  schedules: ScheduleIn[];
+  doctor_eligibilities: DoctorEligIn[];
+  room_eligibilities: RoomEligIn[];
 }
 
 // --- Doctors (schemas_doctor.py) ---
