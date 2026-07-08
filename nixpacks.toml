@@ -1,0 +1,30 @@
+# Nixpacks build plan (M4 Task 8).
+#
+# Lives at the repo root, matching Root Directory = "/" in the Railway
+# dashboard (Settings > Source) - see railway.toml's header for why that
+# setting matters and its history.
+#
+# Neither backend/pyproject.toml nor frontend/package.json sits at this
+# scanned root (both are one level down), so neither the python nor the
+# node provider has anything at the root to auto-detect and generate
+# install/build commands from. `providers` below is only to get the
+# python and node runtimes onto PATH; every actual command in `install`
+# and `build` is written out explicitly and cd's into the right
+# subdirectory, rather than relying on "..." to inherit anything from
+# auto-detection (there is nothing meaningful for it to inherit here).
+#
+# No [start] section here deliberately - railway.toml's [deploy]
+# startCommand is the single source of truth for the run command, so
+# there is exactly one place that can define it.
+providers = ["python", "node"]
+
+[phases.install]
+cmds = [
+  "cd backend && pip install .",
+  "cd frontend && npm ci"
+]
+
+[phases.build]
+cmds = [
+  "cd frontend && npm run build"
+]
