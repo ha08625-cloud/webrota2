@@ -1,11 +1,27 @@
+import {
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { useMemo, useState } from "react";
 
+import { usePatchSession, useRotaIssues, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { useClinicTypes } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
-import type { ClinicType, Day, Period, Room, Rota } from "@/api/types";
+import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
+import { CellEditPopover } from "@/components/CellEditPopover";
+import { mutationAppliedMessage } from "@/components/Toast";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
+import { type ChipType, canDrop } from "@/lib/dragRules";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
+import { resolveDragOutcome } from "@/lib/resolveDrag";
+import type { UndoEntry } from "@/lib/undoStack";
 
 const BACKGROUND_CLASS: Record<CellBackground, string> = {
   leave: "bg-gray-200",
@@ -25,22 +41,40 @@ const FONT_CLASS: Record<FontColor, string> = {
 
 interface RotaGridProps {
   rota: Rota;
+  /** Called after any successful swap/move/patch, so RotaDetailPage can push an undo entry and show a toast. */
+  onMutationApplied?: (entry: UndoEntry, toastMessage: string) => void;
+  /** Called on any mutation failure - covers the (UI-unreachable but not impossible) 409 from a committed rota. */
+  onMutationError?: () => void;
+}
+
+interface ActiveChip {
+  type: ChipType;
+  session: RotaSession;
 }
 
 /**
- * Read-only rota grid: week tabs, pivoted doctor x (day, period) table,
- * full Q13 cell colouring. Used both for draft rotas (this task) and
- * committed rotas (Q10 for free - no separate read-only variant needed).
- * Drag-and-drop, WFH toggling, and notes editing are Task 4's job; this
- * component renders state, it does not mutate it.
+ * Rota grid: week tabs, pivoted doctor x (day, period) table, full Q13
+ * cell colouring. Used both for draft rotas (editable) and committed
+ * rotas (Q10 for free - read-only automatically, since `editable` below
+ * is derived from rota.status). Drag sources/targets and the edit
+ * popover simply aren't rendered for a committed rota - there is no
+ * separate read-only component variant to keep in sync.
  */
-export function RotaGrid({ rota }: RotaGridProps) {
+export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridProps) {
+  const editable = rota.status === "draft";
+
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
+  const { data: issues } = useRotaIssues(rota.rota_id);
+
+  const swapRoles = useSwapRoles();
+  const swapRooms = useSwapRooms();
+  const patchSession = usePatchSession();
 
   const weeks = useMemo(() => weekNumbers(rota.num_weeks), [rota.num_weeks]);
   const [activeWeek, setActiveWeek] = useState(weeks[0] ?? 1);
+  const [activeChip, setActiveChip] = useState<ActiveChip | null>(null);
 
   const roomsById = useMemo(() => toIdMap(rooms), [rooms]);
   const clinicTypesById = useMemo(() => toIdMap(clinicTypes), [clinicTypes]);
@@ -49,9 +83,125 @@ export function RotaGrid({ rota }: RotaGridProps) {
     [rota.sessions, doctors],
   );
 
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
   if (doctorsLoading || roomsLoading || clinicTypesLoading) {
     return <p className="text-sm text-ink/70">Loading grid...</p>;
   }
+
+  function handleDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as ActiveChip | undefined;
+    if (data) setActiveChip(data);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveChip(null);
+    const activeData = event.active.data.current as ActiveChip | undefined;
+    const overData = event.over?.data.current as { session: RotaSession } | undefined;
+
+    const outcome = resolveDragOutcome(activeData, overData);
+    if (!outcome) return;
+
+    const issuesBefore = issues?.length ?? 0;
+    const mutation = outcome.chipType === "role" ? swapRoles : swapRooms;
+
+    mutation.mutate(
+      { rotaId: rota.rota_id, sessionAId: outcome.sessionAId, sessionBId: outcome.sessionBId },
+      {
+        onSuccess: (data) => {
+          onMutationApplied?.(outcome.undoEntry, mutationAppliedMessage(issuesBefore, data.issues.length));
+        },
+        onError: () => onMutationError?.(),
+      },
+    );
+  }
+
+  function handlePopoverSave(session: RotaSession, isWfh: boolean, notes: string | null) {
+    const issuesBefore = issues?.length ?? 0;
+    patchSession.mutate(
+      { rotaId: rota.rota_id, sessionId: session.session_id, isWfh, notes },
+      {
+        onSuccess: (data) => {
+          const entry: UndoEntry = {
+            kind: "patch",
+            sessionId: session.session_id,
+            previousIsWfh: session.is_wfh,
+            previousNotes: session.notes,
+            previousRoomId: session.room_id,
+            previousRoomCode: session.room_code,
+          };
+          onMutationApplied?.(entry, mutationAppliedMessage(issuesBefore, data.issues.length));
+        },
+        onError: () => onMutationError?.(),
+      },
+    );
+  }
+
+  const table = (
+    <table className="min-w-full border-collapse text-sm">
+      <thead>
+        <tr>
+          <th className="sticky left-0 bg-background px-2 py-1 text-left font-medium text-ink/70">
+            Doctor
+          </th>
+          {DAYS.map((day) =>
+            PERIODS.map((period) => (
+              <th
+                key={`${day}-${period}`}
+                data-week-day-period={`${activeWeek}-${day}-${period}`}
+                className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
+              >
+                {day.slice(0, 3)} {period}
+              </th>
+            )),
+          )}
+        </tr>
+      </thead>
+      <tbody>
+        {grid.rows.map(({ doctor, inactiveWithSessions }) => (
+          <tr key={doctor.id}>
+            <td className="sticky left-0 whitespace-nowrap bg-background px-2 py-1 font-medium">
+              {doctor.code}
+              {inactiveWithSessions ? (
+                <span className="ml-1 text-xs text-ink/50">(inactive)</span>
+              ) : null}
+            </td>
+            {DAYS.map((day) =>
+              PERIODS.map((period) => {
+                const session = getCell(grid, doctor.id, activeWeek, day, period);
+                return editable ? (
+                  <EditableGridCell
+                    key={`${day}-${period}`}
+                    week={activeWeek}
+                    doctorId={doctor.id}
+                    day={day}
+                    period={period}
+                    session={session}
+                    roomsById={roomsById}
+                    clinicTypesById={clinicTypesById}
+                    activeChip={activeChip}
+                    onSave={handlePopoverSave}
+                    saving={patchSession.isPending}
+                  />
+                ) : (
+                  <ReadOnlyGridCell
+                    key={`${day}-${period}`}
+                    doctorId={doctor.id}
+                    week={activeWeek}
+                    day={day}
+                    period={period}
+                    session={session}
+                    roomsById={roomsById}
+                    clinicTypesById={clinicTypesById}
+                  />
+                );
+              }),
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
   return (
     <div>
@@ -78,69 +228,34 @@ export function RotaGrid({ rota }: RotaGridProps) {
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="sticky left-0 bg-background px-2 py-1 text-left font-medium text-ink/70">
-                Doctor
-              </th>
-              {DAYS.map((day) =>
-                PERIODS.map((period) => (
-                  <th
-                    key={`${day}-${period}`}
-                    data-week-day-period={`${activeWeek}-${day}-${period}`}
-                    className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
-                  >
-                    {day.slice(0, 3)} {period}
-                  </th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {grid.rows.map(({ doctor, inactiveWithSessions }) => (
-              <tr key={doctor.id}>
-                <td className="sticky left-0 whitespace-nowrap bg-background px-2 py-1 font-medium">
-                  {doctor.code}
-                  {inactiveWithSessions ? (
-                    <span className="ml-1 text-xs text-ink/50">(inactive)</span>
-                  ) : null}
-                </td>
-                {DAYS.map((day) =>
-                  PERIODS.map((period) => (
-                    <GridCell
-                      key={`${day}-${period}`}
-                      doctorId={doctor.id}
-                      week={activeWeek}
-                      day={day}
-                      period={period}
-                      grid={grid}
-                      roomsById={roomsById}
-                      clinicTypesById={clinicTypesById}
-                    />
-                  )),
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {editable ? (
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            {table}
+          </DndContext>
+        ) : (
+          table
+        )}
       </div>
     </div>
   );
 }
 
-interface GridCellProps {
+// --- Read-only cell (committed rotas, or any rota with editable=false) ---
+// Unchanged from Task 3: no dnd-kit hooks, no popover - a committed rota
+// should never call useDraggable/useDroppable, since those require a
+// DndContext ancestor that this path deliberately doesn't render.
+
+interface ReadOnlyGridCellProps {
   doctorId: number;
   week: number;
   day: Day;
   period: Period;
-  grid: ReturnType<typeof pivotRota>;
+  session: RotaSession | undefined;
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
 }
 
-function GridCell({ doctorId, week, day, period, grid, roomsById, clinicTypesById }: GridCellProps) {
-  const session = getCell(grid, doctorId, week, day, period);
+function ReadOnlyGridCell({ doctorId, week, day, period, session, roomsById, clinicTypesById }: ReadOnlyGridCellProps) {
   const style = cellStyle(session, roomsById, clinicTypesById);
 
   if (session === undefined) {
@@ -152,23 +267,154 @@ function GridCell({ doctorId, week, day, period, grid, roomsById, clinicTypesByI
       className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
     >
-      {session.is_on_leave ? <span className="text-xs font-medium text-ink/70">LEAVE</span> : null}
-      {!session.is_on_leave && session.is_wfh ? (
-        <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>
-      ) : null}
-      {!session.is_on_leave ? <RoleChip role={session.role} clinicName={session.clinic_type_name} /> : null}
-      {!session.is_on_leave && !session.is_wfh && session.room_code ? (
-        <div className={`text-xs font-medium ${FONT_CLASS[style.fontColor]}`}>{session.room_code}</div>
-      ) : null}
+      <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} />
     </td>
   );
 }
 
-function RoleChip({ role, clinicName }: { role: string | null; clinicName: string | null }) {
+// --- Editable cell (draft rotas) ---
+
+interface EditableGridCellProps {
+  week: number;
+  doctorId: number;
+  day: Day;
+  period: Period;
+  session: RotaSession | undefined;
+  roomsById: Map<number, Room>;
+  clinicTypesById: Map<number, ClinicType>;
+  activeChip: ActiveChip | null;
+  onSave: (session: RotaSession, isWfh: boolean, notes: string | null) => void;
+  saving: boolean;
+}
+
+function EditableGridCell({
+  week,
+  doctorId,
+  day,
+  period,
+  session,
+  roomsById,
+  clinicTypesById,
+  activeChip,
+  onSave,
+  saving,
+}: EditableGridCellProps) {
+  const style = cellStyle(session, roomsById, clinicTypesById);
+  const dropDisabled = session === undefined || session.is_on_leave || session.is_wfh;
+
+  const { setNodeRef, isOver } = useDroppable({
+    id: `cell:${week}:${doctorId}:${day}:${period}`,
+    data: session ? { session } : undefined,
+    disabled: dropDisabled,
+  });
+
+  if (session === undefined) {
+    return <td className="border border-border bg-gray-100" aria-label="Absent" />;
+  }
+
+  const isSelf = activeChip?.session.session_id === session.session_id;
+  const isEligibleTarget = !isSelf && activeChip !== null && canDrop(activeChip.type, activeChip.session, session);
+  const isIneligibleTarget = !isSelf && activeChip !== null && !isEligibleTarget;
+
+  const highlightClass = isEligibleTarget
+    ? "ring-2 ring-inset ring-accent"
+    : isIneligibleTarget
+      ? "opacity-40"
+      : "";
+
+  const cellBody = (
+    <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} draggable />
+  );
+
+  return (
+    <td
+      ref={setNodeRef}
+      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""}`}
+      data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+    >
+      <CellEditPopover session={session} onSave={(isWfh, notes) => onSave(session, isWfh, notes)} saving={saving}>
+        <div>{cellBody}</div>
+      </CellEditPopover>
+    </td>
+  );
+}
+
+// --- Shared cell content ---
+
+interface CellContentProps {
+  session: RotaSession;
+  fontColorClass: string;
+  draggable?: boolean;
+}
+
+function CellContent({ session, fontColorClass, draggable = false }: CellContentProps) {
+  return (
+    <>
+      {session.is_on_leave ? <span className="text-xs font-medium text-ink/70">LEAVE</span> : null}
+      {!session.is_on_leave && session.is_wfh ? (
+        <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>
+      ) : null}
+      {!session.is_on_leave ? (
+        draggable && session.role !== null ? (
+          <DraggableChip type="role" session={session} />
+        ) : (
+          <RoleLabel role={session.role} clinicName={session.clinic_type_name} />
+        )
+      ) : null}
+      {!session.is_on_leave && !session.is_wfh && session.room_code ? (
+        draggable ? (
+          <DraggableChip type="room" session={session} className={fontColorClass} />
+        ) : (
+          <div className={`text-xs font-medium ${fontColorClass}`}>{session.room_code}</div>
+        )
+      ) : null}
+    </>
+  );
+}
+
+function RoleLabel({ role, clinicName }: { role: string | null; clinicName: string | null }) {
   if (role === "duty_primary") return <div className="text-xs font-medium">Duty</div>;
   if (role === "duty_secondary") return <div className="text-xs font-medium">Duty (2nd)</div>;
   if (role === "clinic") return <div className="text-xs font-medium">{clinicName ?? "Clinic"}</div>;
   return null;
+}
+
+/**
+ * PointerSensor's activationConstraint (8px, configured on DndContext)
+ * is what distinguishes a genuine drag from a click here: dnd-kit
+ * suppresses the trailing click event once a drag has actually started,
+ * so a real drag-and-drop never also opens the popover. A press-and-
+ * release on a chip with no movement is NOT intercepted as a drag, so it
+ * falls through as an ordinary click and opens the popover via the
+ * trigger it's nested inside - accepted as consistent with "click
+ * anywhere on the cell opens it" rather than treated as a bug to route
+ * around with an extra guard.
+ */
+function DraggableChip({ type, session, className = "" }: { type: ChipType; session: RotaSession; className?: string }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `${type}:${session.session_id}`,
+    data: { type, session } satisfies ActiveChip,
+  });
+
+  const label =
+    type === "role"
+      ? session.role === "duty_primary"
+        ? "Duty"
+        : session.role === "duty_secondary"
+          ? "Duty (2nd)"
+          : (session.clinic_type_name ?? "Clinic")
+      : session.room_code;
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`cursor-grab select-none text-xs font-medium ${className} ${isDragging ? "opacity-40" : ""}`}
+    >
+      {label}
+    </div>
+  );
 }
 
 function toIdMap<T extends { id: number }>(items: T[] | undefined): Map<number, T> {

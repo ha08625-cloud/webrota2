@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { useRota } from "@/api/rota";
 import { makeClinicType, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -150,5 +151,115 @@ describe("RotaGrid", () => {
 
     expect(await screen.findByTestId("cell-1-2-Monday-AM")).toBeInTheDocument();
     expect(screen.queryByTestId("cell-1-1-Monday-AM")).not.toBeInTheDocument();
+  });
+
+  it("draft rota: clicking a normal cell opens the WFH/notes popover", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+
+    expect(await screen.findByLabelText("Working from home")).toBeInTheDocument();
+  });
+
+  it("draft rota: saving the popover calls the PATCH endpoint and the live query cache update is reflected in the cell", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      session_id: 42,
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      is_wfh: false,
+    });
+    const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [session] });
+
+    server.use(
+      http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)),
+      http.patch("/api/v1/rota/:rotaId/sessions/:sessionId", () =>
+        HttpResponse.json({
+          session: { ...session, is_wfh: true, room_id: null, room_code: null },
+          issues: [],
+        }),
+      ),
+    );
+
+    // RotaGrid takes `rota` as a prop rather than subscribing itself -
+    // in production, RotaDetailPage's useRota(rotaId) is what re-renders
+    // it with fresh data after a mutation's setQueryData call. A static
+    // prop here (as every other test in this file correctly uses, since
+    // they never mutate) would leave nothing for the PATCH response to
+    // flow into, so this one test needs the harness below to exercise
+    // the real wiring rather than a disconnected copy of it.
+    function Harness() {
+      const { data } = useRota(7);
+      if (!data) return null;
+      return <RotaGrid rota={data} />;
+    }
+
+    renderWithProviders(<Harness />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    await user.click(await screen.findByLabelText("Working from home"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await within(cell).findByText("WFH")).toBeInTheDocument();
+  });
+
+  it("draft rota: role and room chips on a normal cell are drag-registered", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    // Two separate chips (role, room), each individually drag-registered
+    // - not the whole cell as one draggable unit.
+    expect(cell.querySelectorAll(".cursor-grab")).toHaveLength(2);
+  });
+
+  it("committed rota: does not render drag handles or an editable popover trigger for a normal cell", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({ status: "committed", num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    // Content still renders (Q10: committed rotas display through the
+    // same grid) but nothing in the cell is drag-registered.
+    expect(within(cell).getByText("Duty")).toBeInTheDocument();
+    expect(within(cell).getByText("D1")).toBeInTheDocument();
+    expect(cell.querySelector(".cursor-grab")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    // No popover should have opened - the WFH checkbox never appears.
+    expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
   });
 });
