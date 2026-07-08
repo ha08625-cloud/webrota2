@@ -10,8 +10,16 @@
 # install/build commands from. `providers` below is only to get the
 # python and node runtimes onto PATH; every actual command in `install`
 # and `build` is written out explicitly and cd's into the right
-# subdirectory, rather than relying on "..." to inherit anything from
-# auto-detection (there is nothing meaningful for it to inherit here).
+# subdirectory.
+#
+# The nixpkgs python3 that this setup provides has NO pip module at all
+# (in nixpkgs, pip is a separate package, not part of the interpreter),
+# so `python3 -m pip` fails outright. Instead we do what the python
+# provider itself does when auto-detection works: create a venv at
+# /opt/venv (python3 -m venv bootstraps pip inside it) and install into
+# that. The venv persists into the runtime image because nixpacks phases
+# are layers of a single image - but it is NOT on PATH at runtime, which
+# is why railway.toml's startCommand calls /opt/venv/bin/* explicitly.
 #
 # No [start] section here deliberately - railway.toml's [deploy]
 # startCommand is the single source of truth for the run command, so
@@ -19,15 +27,8 @@
 providers = ["python", "node"]
 
 [phases.install]
-# `python3 -m pip`, not a bare `pip` binary: forcing the python provider
-# without root-level detection (see the top-of-file note) doesn't
-# reliably put a `pip` console-script on PATH even though python3 itself
-# is there. --break-system-packages pre-empts PEP 668's
-# externally-managed-environment check, which recent nixpkgs python
-# builds enable and which would otherwise refuse this install outright;
-# it's a no-op if that check isn't actually active here.
 cmds = [
-  "cd backend && python3 -m pip install --break-system-packages .",
+  "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
   "cd frontend && npm ci"
 ]
 
