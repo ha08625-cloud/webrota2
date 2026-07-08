@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeClinicType } from "@/test/fixtures/reference";
 
-import { clinicTypeKeys, useCreateClinicType, useDeleteClinicType, useUpdateClinicType } from "./clinicTypes";
+import { clinicTypeKeys, useClinicTypes, useCreateClinicType, useDeleteClinicType, useUpdateClinicType } from "./clinicTypes";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -29,8 +29,20 @@ describe("useCreateClinicType", () => {
     );
     queryClient.setQueryData(clinicTypeKeys.list(), []);
 
-    const { result } = renderHook(() => useCreateClinicType(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate({
+    // invalidateQueries only auto-refetches actively-observed queries -
+    // in the real app, ClinicTypesPage's useClinicTypes() is mounted
+    // alongside the dialog that fires this mutation, so this harness
+    // renders both hooks together rather than just the mutation in
+    // isolation (which would have nothing for invalidation to refetch,
+    // and the assertion below would never become true through no fault
+    // of the mutation itself).
+    const { result } = renderHook(
+      () => ({ list: useClinicTypes(), create: useCreateClinicType() }),
+      { wrapper: makeWrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+
+    result.current.create.mutate({
       name: "New clinic",
       clinic_priority: 1000,
       is_enabled: true,
@@ -41,7 +53,7 @@ describe("useCreateClinicType", () => {
       room_eligibilities: [],
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.create.isSuccess).toBe(true));
     await waitFor(() => expect(refetched).toBe(true));
   });
 });
