@@ -75,12 +75,37 @@ describe("ClinicTypeFormDialog - create mode", () => {
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
     const roomSelect = screen.getByLabelText("Add specific room");
     await within(roomSelect).findByRole("option", { name: "D1" });
+    const roomRows = screen.getByRole("list", { name: "Room eligibility rows" });
 
     await user.selectOptions(roomSelect, "1");
     await user.selectOptions(screen.getByLabelText("Add room type"), "C");
 
-    expect(screen.getByText("D1")).toBeInTheDocument();
-    expect(screen.getByText("Room type: C")).toBeInTheDocument();
+    expect(within(roomRows).getByText("D1")).toBeInTheDocument();
+    expect(within(roomRows).getByText("Room type: C")).toBeInTheDocument();
+  });
+
+  it("a room already added as a specific-room row is removed from the 'Add specific room' select (mirrors the doctor select)", async () => {
+    setUpServer({ rooms: [makeRoom({ id: 1, code: "D1", room_type: "D" })] });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomSelect = screen.getByLabelText("Add specific room");
+    await within(roomSelect).findByRole("option", { name: "D1" });
+
+    await user.selectOptions(roomSelect, "1");
+
+    expect(within(roomSelect).queryByRole("option", { name: "D1" })).not.toBeInTheDocument();
+  });
+
+  it("a room type already added is removed from the 'Add room type' select", async () => {
+    setUpServer();
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomTypeSelect = screen.getByLabelText("Add room type");
+    await within(roomTypeSelect).findByRole("option", { name: "C" });
+
+    await user.selectOptions(roomTypeSelect, "C");
+
+    expect(within(roomTypeSelect).queryByRole("option", { name: "C" })).not.toBeInTheDocument();
   });
 
   it("removing a row via its Remove button works for doctor and room eligibility", async () => {
@@ -89,11 +114,19 @@ describe("ClinicTypeFormDialog - create mode", () => {
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
     const doctorSelect = screen.getByLabelText("Add doctor");
     await within(doctorSelect).findByRole("option", { name: "AB" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
 
     await user.selectOptions(doctorSelect, "1");
-    expect(screen.getByText("AB")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Remove" }));
-    expect(screen.queryByText("AB")).not.toBeInTheDocument();
+    expect(within(doctorRows).getByText("AB")).toBeInTheDocument();
+
+    await user.click(within(doctorRows).getByRole("button", { name: "Remove" }));
+
+    // "AB" correctly reappears as an option in the add-select once the
+    // row is removed (it's available again) - scoping to the rows list
+    // specifically, rather than the whole document, is what makes this
+    // assertion mean "the row is gone" instead of "the string AB is
+    // nowhere on the page", which would be false for the wrong reason.
+    expect(within(doctorRows).queryByText("AB")).not.toBeInTheDocument();
   });
 
   it("submits a create payload matching the built form state, including the room-eligibility XOR collapse", async () => {
