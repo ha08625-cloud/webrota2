@@ -256,7 +256,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
 
             <fieldset>
               <legend className="text-sm font-medium">Doctor eligibility</legend>
-              <ul className="mt-1 space-y-1">
+              <ul className="mt-1 space-y-1" aria-label="Doctor eligibility rows">
                 {values.doctorEligibilities.map((row, index) => {
                   const doctor = doctorsById.get(row.doctorId);
                   return (
@@ -310,7 +310,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
 
             <fieldset>
               <legend className="text-sm font-medium">Room eligibility</legend>
-              <ul className="mt-1 space-y-1">
+              <ul className="mt-1 space-y-1" aria-label="Room eligibility rows">
                 {values.roomEligibilities.map((row, index) => (
                   <li key={index} className="flex items-center gap-2 text-sm">
                     <span className="flex-1">
@@ -342,11 +342,13 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                   <option value="" disabled>
                     Add specific room...
                   </option>
-                  {(rooms ?? []).map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.code}
-                    </option>
-                  ))}
+                  {(rooms ?? [])
+                    .filter((r) => !values.roomEligibilities.some((row) => row.kind === "room" && row.roomId === r.id))
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.code}
+                      </option>
+                    ))}
                 </select>
                 <select
                   aria-label="Add room type"
@@ -360,7 +362,9 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                   <option value="" disabled>
                     Add room type...
                   </option>
-                  {ROOM_TYPES.map((rt) => (
+                  {ROOM_TYPES.filter(
+                    (rt) => !values.roomEligibilities.some((row) => row.kind === "roomType" && row.roomType === rt),
+                  ).map((rt) => (
                     <option key={rt} value={rt}>
                       {rt}
                     </option>
