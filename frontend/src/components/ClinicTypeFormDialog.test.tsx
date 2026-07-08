@@ -46,12 +46,13 @@ describe("ClinicTypeFormDialog - create mode", () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     const user = userEvent.setup();
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
-    await screen.findByLabelText("Name");
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
 
-    await user.selectOptions(screen.getByLabelText("Add doctor"), "1");
+    await user.selectOptions(doctorSelect, "1");
 
     expect(screen.getByText("AB")).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Add doctor")).queryByRole("option", { name: "AB" })).not.toBeInTheDocument();
+    expect(within(doctorSelect).queryByRole("option", { name: "AB" })).not.toBeInTheDocument();
   });
 
   it("the active-doctor add-select excludes inactive doctors", async () => {
@@ -62,19 +63,20 @@ describe("ClinicTypeFormDialog - create mode", () => {
       ],
     });
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
-    await screen.findByLabelText("Name");
+    const doctorSelect = screen.getByLabelText("Add doctor");
 
-    expect(within(screen.getByLabelText("Add doctor")).getByRole("option", { name: "AB" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Add doctor")).queryByRole("option", { name: "CD" })).not.toBeInTheDocument();
+    expect(await within(doctorSelect).findByRole("option", { name: "AB" })).toBeInTheDocument();
+    expect(within(doctorSelect).queryByRole("option", { name: "CD" })).not.toBeInTheDocument();
   });
 
   it("adding a specific room and a room type produces two distinct rows", async () => {
     setUpServer({ rooms: [makeRoom({ id: 1, code: "D1", room_type: "D" })] });
     const user = userEvent.setup();
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
-    await screen.findByLabelText("Name");
+    const roomSelect = screen.getByLabelText("Add specific room");
+    await within(roomSelect).findByRole("option", { name: "D1" });
 
-    await user.selectOptions(screen.getByLabelText("Add specific room"), "1");
+    await user.selectOptions(roomSelect, "1");
     await user.selectOptions(screen.getByLabelText("Add room type"), "C");
 
     expect(screen.getByText("D1")).toBeInTheDocument();
@@ -85,9 +87,10 @@ describe("ClinicTypeFormDialog - create mode", () => {
     setUpServer();
     const user = userEvent.setup();
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
-    await screen.findByLabelText("Name");
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
 
-    await user.selectOptions(screen.getByLabelText("Add doctor"), "1");
+    await user.selectOptions(doctorSelect, "1");
     expect(screen.getByText("AB")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.queryByText("AB")).not.toBeInTheDocument();
@@ -105,11 +108,12 @@ describe("ClinicTypeFormDialog - create mode", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
-    await screen.findByLabelText("Name");
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
 
     await user.type(screen.getByLabelText("Name"), "Diabetic clinic");
     await user.click(screen.getByLabelText("Monday AM"));
-    await user.selectOptions(screen.getByLabelText("Add doctor"), "1");
+    await user.selectOptions(doctorSelect, "1");
     await user.selectOptions(screen.getByLabelText("Add specific room"), "1");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
