@@ -103,7 +103,12 @@ describe("DoctorFormDialog - edit mode", () => {
     expect(await screen.findByLabelText("Code")).toHaveValue("AB");
     expect(screen.getByLabelText("Sessions per week")).toHaveValue(8);
     const rows = await screen.findByRole("list", { name: "Preferred room rows" });
-    expect(within(rows).getByText("D1")).toBeInTheDocument();
+    // The room-code label depends on the separate /rooms fetch resolving
+    // (labelForRow looks up roomsById), which can land after the
+    // preferred-rooms list itself renders from the doctor detail fetch -
+    // two independent queries. findByText waits for that, rather than
+    // racing it with a synchronous getByText.
+    expect(await within(rows).findByText("D1")).toBeInTheDocument();
     expect(within(rows).getByText("Room type: C")).toBeInTheDocument();
   });
 
@@ -152,6 +157,12 @@ describe("DoctorFormDialog - edit mode", () => {
     const user = userEvent.setup();
     renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
     await screen.findByLabelText("Code");
+    // Wait for the seeded row to actually be in the DOM (detail fetch +
+    // the effect that populates `rows` from it) before saving - clicking
+    // Save while `rows` is still its initial empty array would submit an
+    // empty PUT instead of the row this test is checking for.
+    const rows = await screen.findByRole("list", { name: "Preferred room rows" });
+    await within(rows).findByText("D1");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).toBeDefined());

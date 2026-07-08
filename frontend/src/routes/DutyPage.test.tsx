@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +19,14 @@ function setUpServer({
   );
 }
 
+/** Same doctors-fetch race as LeavePage - wait for the option before selecting it. */
+async function selectAddRowDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
+  const select = await screen.findByLabelText("Doctor");
+  const option = await within(select).findByRole("option", { name: code });
+  await user.selectOptions(select, option);
+  return select;
+}
+
 describe("DutyPage", () => {
   it("shows an empty-state message when there are no assignments", async () => {
     setUpServer();
@@ -31,9 +39,10 @@ describe("DutyPage", () => {
     setUpServer({ duty: [makeDutyAssignment({ id: 1, doctor_id: 1, date: "2026-08-03", duty_type: "primary" })] });
     renderWithProviders(<DutyPage />);
 
-    expect(await screen.findByText("2026-08-03")).toBeInTheDocument();
-    expect(screen.getByText("AB")).toBeInTheDocument();
-    expect(screen.getByText("primary")).toBeInTheDocument();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("2026-08-03")).toBeInTheDocument();
+    expect(within(table).getByText("AB")).toBeInTheDocument();
+    expect(within(table).getByText("primary")).toBeInTheDocument();
   });
 
   it("adding an assignment posts the selected fields", async () => {
@@ -48,9 +57,7 @@ describe("DutyPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<DutyPage />);
-    await screen.findByLabelText("Doctor");
-
-    await user.selectOptions(screen.getByLabelText("Doctor"), "1");
+    await selectAddRowDoctor(user, "AB");
     await user.type(screen.getByLabelText("Date"), "2026-08-03");
     await user.selectOptions(screen.getByLabelText("Duty type"), "secondary");
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -73,8 +80,7 @@ describe("DutyPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<DutyPage />);
-    await screen.findByLabelText("Doctor");
-    await user.selectOptions(screen.getByLabelText("Doctor"), "1");
+    await selectAddRowDoctor(user, "AB");
     await user.type(screen.getByLabelText("Date"), "2026-08-03");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
@@ -96,7 +102,8 @@ describe("DutyPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<DutyPage />);
-    await screen.findByText("2026-08-03");
+    const table = await screen.findByRole("table");
+    within(table).getByText("2026-08-03");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
 

@@ -19,6 +19,21 @@ function setUpServer({
   );
 }
 
+/**
+ * The add-row doctor select starts with only "Select..." until the
+ * /doctors fetch resolves - selecting an option before then fails with
+ * "Value not found in options". Every test that interacts with this
+ * select waits for its target option to actually be there first,
+ * mirroring the `within(select).findByRole("option", ...)` pattern
+ * ClinicTypeFormDialog_test.tsx already established for the same race.
+ */
+async function selectAddRowDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
+  const select = await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
+  const option = await within(select).findByRole("option", { name: code });
+  await user.selectOptions(select, option);
+  return select;
+}
+
 describe("LeavePage", () => {
   it("shows an empty-state message when there are no entries", async () => {
     setUpServer();
@@ -31,16 +46,17 @@ describe("LeavePage", () => {
     setUpServer({ leave: [makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-08-03", period: "AM" })] });
     renderWithProviders(<LeavePage />);
 
-    expect(await screen.findByText("2026-08-03")).toBeInTheDocument();
-    expect(screen.getByText("AB")).toBeInTheDocument();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("2026-08-03")).toBeInTheDocument();
+    expect(within(table).getByText("AB")).toBeInTheDocument();
   });
 
   it("the doctor filter select includes inactive doctors", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 2, code: "ZZ", active: false })] });
     renderWithProviders(<LeavePage />);
 
-    const filter = await screen.findByLabelText("Doctor");
-    expect(within(filter).getByRole("option", { name: "ZZ (inactive)" })).toBeInTheDocument();
+    const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+    expect(await within(filter).findByRole("option", { name: "ZZ (inactive)" })).toBeInTheDocument();
   });
 
   it("the add-row doctor select excludes inactive doctors", async () => {
@@ -50,7 +66,7 @@ describe("LeavePage", () => {
     renderWithProviders(<LeavePage />);
 
     const addSelect = await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
-    expect(within(addSelect).getByRole("option", { name: "AB" })).toBeInTheDocument();
+    expect(await within(addSelect).findByRole("option", { name: "AB" })).toBeInTheDocument();
     expect(within(addSelect).queryByRole("option", { name: /ZZ/ })).not.toBeInTheDocument();
   });
 
@@ -67,8 +83,9 @@ describe("LeavePage", () => {
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
     const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+    const option = await within(filter).findByRole("option", { name: "AB" });
 
-    await user.selectOptions(filter, "1");
+    await user.selectOptions(filter, option);
 
     await waitFor(() => expect(capturedUrl).toContain("doctor_id=1"));
   });
@@ -86,9 +103,7 @@ describe("LeavePage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
-    await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
-
-    await user.selectOptions(screen.getByLabelText("Doctor", { selector: "#leave-add-doctor" }), "1");
+    await selectAddRowDoctor(user, "AB");
     await user.type(screen.getByLabelText("Date"), "2026-08-03");
     await user.selectOptions(screen.getByLabelText("Period"), "BOTH");
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -110,9 +125,7 @@ describe("LeavePage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
-    await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
-
-    await user.selectOptions(screen.getByLabelText("Doctor", { selector: "#leave-add-doctor" }), "1");
+    await selectAddRowDoctor(user, "AB");
     await user.type(screen.getByLabelText("Date"), "2026-08-03");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
@@ -137,9 +150,7 @@ describe("LeavePage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
-    await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
-
-    await user.selectOptions(screen.getByLabelText("Doctor", { selector: "#leave-add-doctor" }), "1");
+    await selectAddRowDoctor(user, "AB");
     await user.type(screen.getByLabelText("Date"), "2026-08-03");
     await user.selectOptions(screen.getByLabelText("Period"), "BOTH");
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -162,7 +173,8 @@ describe("LeavePage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
-    await screen.findByText("2026-08-03");
+    const table = await screen.findByRole("table");
+    within(table).getByText("2026-08-03");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
