@@ -19,8 +19,15 @@
 providers = ["python", "node"]
 
 [phases.install]
+# `python3 -m pip`, not a bare `pip` binary: forcing the python provider
+# without root-level detection (see the top-of-file note) doesn't
+# reliably put a `pip` console-script on PATH even though python3 itself
+# is there. --break-system-packages pre-empts PEP 668's
+# externally-managed-environment check, which recent nixpkgs python
+# builds enable and which would otherwise refuse this install outright;
+# it's a no-op if that check isn't actually active here.
 cmds = [
-  "cd backend && pip install .",
+  "cd backend && python3 -m pip install --break-system-packages .",
   "cd frontend && npm ci"
 ]
 
