@@ -1,4 +1,13 @@
-import type { ClinicType, Doctor, DoctorDetail, DutyAssignment, LeaveEntry, Room } from "@/api/types";
+import type {
+  ClinicCounter,
+  ClinicType,
+  Doctor,
+  DoctorDetail,
+  DutyAssignment,
+  LeaveEntry,
+  Room,
+  SystemCounter,
+} from "@/api/types";
 
 let doctorIdCounter = 1;
 
@@ -71,6 +80,33 @@ export function makeDutyAssignment(overrides: Partial<DutyAssignment> = {}): Dut
     period: "AM",
     doctor_id: 1,
     duty_type: "primary",
+    ...overrides,
+  };
+}
+
+let clinicCounterIdCounter = 1;
+
+export function makeClinicCounter(overrides: Partial<ClinicCounter> = {}): ClinicCounter {
+  return {
+    id: clinicCounterIdCounter++,
+    doctor_id: 1,
+    doctor_code: "AB",
+    clinic_type_id: 1,
+    clinic_type_name: "Diabetic clinic",
+    raw_count: 3,
+    ...overrides,
+  };
+}
+
+let systemCounterIdCounter = 1;
+
+export function makeSystemCounter(overrides: Partial<SystemCounter> = {}): SystemCounter {
+  return {
+    id: systemCounterIdCounter++,
+    doctor_id: 1,
+    doctor_code: "AB",
+    counter_type: "room_move",
+    raw_count: 2,
     ...overrides,
   };
 }

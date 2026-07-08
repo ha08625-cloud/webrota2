@@ -247,6 +247,38 @@ export interface DutyIn {
   duty_type: DutyType;
 }
 
+// --- Counters (schemas_counter.py) ---
+// Read-only: "mutation happens only through generation and swap-roles"
+// (routers_counters.py docstring) - no write hooks in api/counters.ts.
+// Neither schema includes a weighted score; counter.py's docstring
+// documents raw_count / doctor.sessions_per_week as "computed at query
+// time, not stored", but that computation currently lives only in the
+// engine (datatypes.py's weighted_clinic_score/weighted_system_score),
+// not in these API responses. CountersPage computes it client-side from
+// the joined doctor's sessions_per_week, replicating the engine's own
+// spw===0 -> Infinity rule (never "no data") for fidelity with how the
+// allocator actually treats that doctor.
+
+export interface ClinicCounter {
+  id: number;
+  doctor_id: number;
+  doctor_code: string;
+  clinic_type_id: number;
+  clinic_type_name: string;
+  raw_count: number;
+}
+
+export interface SystemCounter {
+  id: number;
+  doctor_id: number;
+  doctor_code: string;
+  counter_type: SystemCounterKind;
+  raw_count: number;
+}
+
+/** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */
+export type SystemCounterKind = "room_move" | "supervision";
+
 // --- Rota (schemas_rota.py) ---
 // Deliberately named `rota_id` throughout, matching the wire field exactly
 // - not normalised to `id`. A silent `undefined` from `rota.id` (instead
