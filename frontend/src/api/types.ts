@@ -158,8 +158,6 @@ export interface ClinicTypeIn {
 }
 
 // --- Doctors (schemas_doctor.py) ---
-// Task 3 only needs the read shape (for grid row ordering). Preferred-room
-// editing and the nested DoctorDetailOut belong to Task 6.
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
 
@@ -169,6 +167,84 @@ export interface Doctor {
   doctor_type: DoctorType;
   sessions_per_week: string;
   active: boolean;
+}
+
+/** POST /doctors body. `active` is not settable here - always true server-side. */
+export interface DoctorIn {
+  code: string;
+  doctor_type: DoctorType;
+  sessions_per_week: string;
+}
+
+/**
+ * PATCH /doctors/{id} body - every field optional, only supplied fields
+ * are applied (DoctorPatch in schemas_doctor.py). Task 6 only ever sends
+ * `active` with this (the "Deactivate instead" action on the soft-delete
+ * 409 banner) - code/doctor_type/sessions_per_week edits go through the
+ * same endpoint but are always sent together as a full set from
+ * DoctorFormDialog, never partially.
+ */
+export interface DoctorPatch {
+  code?: string;
+  doctor_type?: DoctorType;
+  sessions_per_week?: string;
+  active?: boolean;
+}
+
+/**
+ * Exactly one of room_id / room_type, mirroring the DB check constraint
+ * (ck_dpr_room_xor) on doctor_preferred_rooms.
+ */
+export interface PreferredRoomOut {
+  id: number;
+  preference_order: number;
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+export interface PreferredRoomIn {
+  preference_order: number;
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+/** GET /doctors/{id} - the list endpoint's DoctorOut has no preferred_rooms. */
+export interface DoctorDetail extends Doctor {
+  preferred_rooms: PreferredRoomOut[];
+}
+
+// --- Leave (schemas_leave.py) ---
+
+export interface LeaveEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+}
+
+export interface LeaveIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
+}
+
+// --- Duty (schemas_duty.py) ---
+
+export type DutyType = "primary" | "secondary";
+
+export interface DutyAssignment {
+  id: number;
+  date: string;
+  period: Period;
+  doctor_id: number;
+  duty_type: DutyType;
+}
+
+export interface DutyIn {
+  date: string;
+  period: Period;
+  doctor_id: number;
+  duty_type: DutyType;
 }
 
 // --- Rota (schemas_rota.py) ---

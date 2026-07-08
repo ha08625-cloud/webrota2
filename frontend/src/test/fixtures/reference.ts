@@ -1,4 +1,4 @@
-import type { ClinicType, Doctor, Room } from "@/api/types";
+import type { ClinicType, Doctor, DoctorDetail, DutyAssignment, LeaveEntry, Room } from "@/api/types";
 
 let doctorIdCounter = 1;
 
@@ -10,6 +10,14 @@ export function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
     sessions_per_week: "10.0",
     active: true,
     ...overrides,
+  };
+}
+
+export function makeDoctorDetail(overrides: Partial<DoctorDetail> = {}): DoctorDetail {
+  const { preferred_rooms, ...doctorOverrides } = overrides;
+  return {
+    ...makeDoctor(doctorOverrides),
+    preferred_rooms: preferred_rooms ?? [],
   };
 }
 
@@ -38,6 +46,31 @@ export function makeClinicType(overrides: Partial<ClinicType> = {}): ClinicType 
     schedules: [],
     doctor_eligibilities: [],
     room_eligibilities: [],
+    ...overrides,
+  };
+}
+
+let leaveIdCounter = 1;
+
+export function makeLeaveEntry(overrides: Partial<LeaveEntry> = {}): LeaveEntry {
+  return {
+    id: leaveIdCounter++,
+    doctor_id: 1,
+    date: "2026-08-03",
+    period: "AM",
+    ...overrides,
+  };
+}
+
+let dutyIdCounter = 1;
+
+export function makeDutyAssignment(overrides: Partial<DutyAssignment> = {}): DutyAssignment {
+  return {
+    id: dutyIdCounter++,
+    date: "2026-08-03",
+    period: "AM",
+    doctor_id: 1,
+    duty_type: "primary",
     ...overrides,
   };
 }
