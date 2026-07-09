@@ -34,7 +34,7 @@ from ...models import (
     RotaConfig,
     RotaSession,
 )
-from ...models.enums import RotaStatus, SessionRole
+from ...models.enums import MasterSessionType, RotaStatus, SessionRole
 from ...engine.generate import (
     commit_rota,
     generate,
@@ -52,6 +52,10 @@ from ..schemas import (
     RotaSummaryOut,
     SessionPatchIn,
     SessionPatchOut,
+    SetRoleIn,
+    SetRoleOut,
+    SetRoomIn,
+    SetRoomOut,
     SwapIn,
     SwapOut,
     ValidationIssueOut,
@@ -177,6 +181,58 @@ def _load_swap_sessions(
                 detail=f"Session {sid} not found in rota {rota_id}",
             )
     return rota, a, b
+
+
+def _find_room_holder(
+    db: Session, rota_id: int, week: int, day, period, room_id: int, exclude_id: int
+) -> RotaSession | None:
+    """Session in the same slot already holding room_id, excluding self.
+
+    Ordered by id for determinism and fetched with .first() rather than
+    scalar_one_or_none(): duplicate holders should be impossible by
+    construction, but a raised exception on dirty data is worse than
+    displacing one of them (M4.1 plan).
+    """
+    return db.execute(
+        select(RotaSession)
+        .where(
+            RotaSession.rota_id == rota_id,
+            RotaSession.week == week,
+            RotaSession.day == day,
+            RotaSession.period == period,
+            RotaSession.room_id == room_id,
+            RotaSession.id != exclude_id,
+        )
+        .order_by(RotaSession.id)
+    ).scalars().first()
+
+
+def _find_role_holder(
+    db: Session,
+    rota_id: int,
+    week: int,
+    day,
+    period,
+    role: SessionRole,
+    clinic_type_id: int | None,
+    exclude_id: int,
+) -> RotaSession | None:
+    """Session in the same slot already holding (role[, clinic_type_id]),
+    excluding self. Same defensive .first() as _find_room_holder."""
+    conditions = [
+        RotaSession.rota_id == rota_id,
+        RotaSession.week == week,
+        RotaSession.day == day,
+        RotaSession.period == period,
+        RotaSession.role == role,
+        RotaSession.id != exclude_id,
+    ]
+    if clinic_type_id is not None:
+        conditions.append(RotaSession.clinic_type_id == clinic_type_id)
+    return db.execute(
+        select(RotaSession).where(*conditions).order_by(RotaSession.id)
+    ).scalars().first()
+
 
 
 # ---------------------------------------------------------------------------
@@ -435,3 +491,158 @@ def swap_rooms(
     config = db.get(RotaConfig, rota.config_id)
     outs = _session_outs(db, config, [a, b])
     return SwapOut(session_a=outs[0], session_b=outs[1], issues=issues)
+
+@router.post("/{rota_id}/sessions/{session_id}/set-room", response_model=SetRoomOut)
+def set_room(
+    rota_id: int,
+    session_id: int,
+    payload: SetRoomIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> SetRoomOut:
+    """One-sided room assign/clear with displacement (M4.1 Task 1).
+
+    room_id=None clears the target's room -- no displacement lookup, no
+    is_wfh change. room_id set: any other session in the same slot already
+    holding that room is displaced (its room_id cleared to None), then the
+    target takes the room and is_wfh is cleared if it was true (mirrors
+    the PATCH is_wfh=true room-clear rule in reverse). Assigning the room
+    the target already holds is a harmless no-op (lookup excludes self).
+    No counter effect, matching swap-rooms. Draft-only.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+    _require_draft(rota)
+    target = db.get(RotaSession, session_id)
+    if target is None or target.rota_id != rota_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in rota {rota_id}",
+        )
+
+    displaced: RotaSession | None = None
+    if payload.room_id is None:
+        target.room_id = None
+    else:
+        room = db.get(Room, payload.room_id)
+        if room is None:
+            raise HTTPException(
+                status_code=404, detail=f"Room {payload.room_id} not found"
+            )
+        displaced = _find_room_holder(
+            db, rota_id, target.week, target.day, target.period,
+            payload.room_id, exclude_id=target.id,
+        )
+        if displaced is not None:
+            displaced.room_id = None
+        target.room_id = payload.room_id
+        if target.is_wfh:
+            target.is_wfh = False
+
+    db.flush()
+    issues = _issues_out(db, rota_id)
+    db.commit()
+
+    config = db.get(RotaConfig, rota.config_id)
+    to_serialise = [target] if displaced is None else [target, displaced]
+    outs = {s.session_id: s for s in _session_outs(db, config, to_serialise)}
+    return SetRoomOut(
+        session=outs[target.id],
+        displaced_session=outs.get(displaced.id) if displaced is not None else None,
+        issues=issues,
+    )
+
+
+@router.post("/{rota_id}/sessions/{session_id}/set-role", response_model=SetRoleOut)
+def set_role(
+    rota_id: int,
+    session_id: int,
+    payload: SetRoleIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> SetRoleOut:
+    """Verbatim (role, clinic_type_id, template_type) triple setter with
+    displacement, for the M4.1 cell-edit menu and its undo replay.
+
+    The endpoint does not distinguish menu shapes from undo-restoration
+    calls -- it always writes the given triple exactly. Displacement only
+    applies to steal-class assignments: duty roles (same role, same slot)
+    and clinic-type picks (role=clinic with a non-null clinic_type_id,
+    same clinic_type_id, same slot). Everything else -- normal clinic,
+    template shapes, unassign, and undo restorations with role=None -- has
+    no displacement lookup. If the resulting state is role=None with
+    template_type in (no_surgery, admin_time), the target's room is
+    cleared (a no-surgery session silently holding a room would block it
+    with no warning). Counter adjustments mirror swap-roles, with the
+    same != guard making a same-clinic-type reassignment a no-op. Draft-only.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+    _require_draft(rota)
+    target = db.get(RotaSession, session_id)
+    if target is None or target.rota_id != rota_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in rota {rota_id}",
+        )
+    if payload.clinic_type_id is not None:
+        ct = db.get(ClinicType, payload.clinic_type_id)
+        if ct is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Clinic type {payload.clinic_type_id} not found",
+            )
+
+    old_role, old_ct = target.role, target.clinic_type_id
+
+    displaced: RotaSession | None = None
+    if payload.role in (SessionRole.DUTY_PRIMARY, SessionRole.DUTY_SECONDARY):
+        displaced = _find_role_holder(
+            db, rota_id, target.week, target.day, target.period,
+            payload.role, None, exclude_id=target.id,
+        )
+    elif payload.role == SessionRole.CLINIC and payload.clinic_type_id is not None:
+        displaced = _find_role_holder(
+            db, rota_id, target.week, target.day, target.period,
+            SessionRole.CLINIC, payload.clinic_type_id, exclude_id=target.id,
+        )
+
+    displaced_old_ct: int | None = None
+    if displaced is not None:
+        displaced_old_ct = displaced.clinic_type_id
+        displaced.role = None
+        displaced.clinic_type_id = None
+
+    target.role = payload.role
+    target.clinic_type_id = payload.clinic_type_id
+    target.template_type = payload.template_type
+
+    if (
+        target.role is None
+        and target.template_type in (MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME)
+    ):
+        target.room_id = None
+
+    # Counter adjustments (mirrors swap_roles: get-or-create, floored at 0).
+    # Guarded so that reassigning a session to the clinic type it already
+    # holds is a counter no-op, not a stray decrement with no increment.
+    old_credit = old_role == SessionRole.CLINIC and old_ct is not None
+    new_credit = target.role == SessionRole.CLINIC and target.clinic_type_id is not None
+    same_credit = old_credit and new_credit and target.clinic_type_id == old_ct
+    if old_credit and not same_credit:
+        _adjust_clinic_counter(db, target.doctor_id, old_ct, -1)
+    if new_credit and not same_credit:
+        _adjust_clinic_counter(db, target.doctor_id, target.clinic_type_id, +1)
+    if displaced is not None and displaced_old_ct is not None:
+        _adjust_clinic_counter(db, displaced.doctor_id, displaced_old_ct, -1)
+
+    db.flush()
+    issues = _issues_out(db, rota_id)
+    db.commit()
+
+    config = db.get(RotaConfig, rota.config_id)
+    to_serialise = [target] if displaced is None else [target, displaced]
+    outs = {s.session_id: s for s in _session_outs(db, config, to_serialise)}
+    return SetRoleOut(
+        session=outs[target.id],
+        displaced_session=outs.get(displaced.id) if displaced is not None else None,
+        issues=issues,
+    )
