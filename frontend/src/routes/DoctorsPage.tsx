@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
 import type { Doctor } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
+import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 
 interface DialogState {
   open: boolean;
@@ -22,7 +23,10 @@ export function DoctorsPage() {
   // "Deactivate instead" action below) drops out of this list and is not
   // recoverable from the UI until that toggle exists - a deliberate,
   // known limitation, not an oversight.
-  const { data: doctors, isLoading, isError } = useDoctors(true);
+  const { data: doctorsData, isLoading, isError } = useDoctors(true);
+  // Same display convention as the rota grids: Partner/Salaried/Trainee/AHP
+  // groups in that fixed order, alphabetical by code within each group.
+  const doctors = doctorsData ? [...doctorsData].sort(compareDoctorDisplayOrder) : doctorsData;
   const softDeleteDoctor = useSoftDeleteDoctor();
   const updateDoctor = useUpdateDoctor();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
