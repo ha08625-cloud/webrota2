@@ -33,6 +33,7 @@ from .leave import LeaveIn, LeaveOut
 from .duty import DutyIn, DutyOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
+from .master_rota import MasterRotaSessionOut, MasterRotaTemplateOut
 
 __all__ = [
     "ValidationIssueOut",
