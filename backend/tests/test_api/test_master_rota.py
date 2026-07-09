@@ -23,6 +23,7 @@ class TestMasterRota:
         assert {s["period"] for s in aa_sessions} == {"AM", "PM"}
         for s in aa_sessions:
             assert s["doctor_code"] == "AA"
+            assert s["doctor_type"] == "Partner"
             assert s["session_type"] == "requires_room"
             assert s["room_id"] is None
             assert s["room_code"] is None
@@ -30,6 +31,7 @@ class TestMasterRota:
         bb_sessions = [s for s in body["sessions"] if s["doctor_id"] == seeded["doctor_bb"]]
         assert len(bb_sessions) == 2
         assert all(s["doctor_code"] == "BB" for s in bb_sessions)
+        assert all(s["doctor_type"] == "Salaried" for s in bb_sessions)
 
     def test_room_code_join(self, client, seeded, db_session):
         db_session.add(MasterRotaSession(

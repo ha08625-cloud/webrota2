@@ -5,13 +5,30 @@ import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 import { getMasterRotaCell, pivotMasterRota } from "./pivotMasterRota";
 
 describe("pivotMasterRota", () => {
-  it("builds rows only from doctors present in the sessions, ordered by code", () => {
+  it("builds rows only from doctors present in the sessions, ordered by code within a type", () => {
     const sessions = [
       makeMasterRotaSession({ doctor_id: 2, doctor_code: "ZZ" }),
       makeMasterRotaSession({ doctor_id: 1, doctor_code: "AA" }),
     ];
     const grid = pivotMasterRota(sessions);
     expect(grid.rows.map((r) => r.doctorCode)).toEqual(["AA", "ZZ"]);
+  });
+
+  it("groups rows by doctor type (Partner, Salaried, Trainee, AHP) before alphabetising by code", () => {
+    const sessions = [
+      makeMasterRotaSession({ doctor_id: 1, doctor_code: "ZZ", doctor_type: "AHP" }),
+      makeMasterRotaSession({ doctor_id: 2, doctor_code: "AA", doctor_type: "Trainee" }),
+      makeMasterRotaSession({ doctor_id: 3, doctor_code: "BB", doctor_type: "Salaried" }),
+      makeMasterRotaSession({ doctor_id: 4, doctor_code: "YY", doctor_type: "Partner" }),
+    ];
+    const grid = pivotMasterRota(sessions);
+    expect(grid.rows.map((r) => r.doctorCode)).toEqual(["YY", "BB", "AA", "ZZ"]);
+  });
+
+  it("carries doctorType through onto each row", () => {
+    const sessions = [makeMasterRotaSession({ doctor_id: 1, doctor_code: "AA", doctor_type: "Salaried" })];
+    const grid = pivotMasterRota(sessions);
+    expect(grid.rows[0].doctorType).toBe("Salaried");
   });
 
   it("does not duplicate a doctor row when they have multiple sessions", () => {

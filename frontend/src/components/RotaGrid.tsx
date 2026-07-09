@@ -142,37 +142,45 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     <table className="min-w-full border-collapse text-sm">
       <thead>
         <tr>
-          <th className="sticky left-0 bg-background px-2 py-1 text-left font-medium text-ink/70">
+          <th className="sticky left-0 z-10 w-24 bg-background px-2 py-1 text-left font-medium text-ink/70">
             Doctor
           </th>
-          {DAYS.map((day) =>
-            PERIODS.map((period) => (
-              <th
-                key={`${day}-${period}`}
-                data-week-day-period={`${activeWeek}-${day}-${period}`}
-                className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
-              >
-                {day.slice(0, 3)} {period}
-              </th>
-            )),
-          )}
+          <th className="sticky left-24 z-10 w-12 bg-background px-2 py-1 text-left font-medium text-ink/70">
+            Session
+          </th>
+          {DAYS.map((day) => (
+            <th
+              key={day}
+              className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
+            >
+              {day}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {grid.rows.map(({ doctor, inactiveWithSessions }) => (
-          <tr key={doctor.id}>
-            <td className="sticky left-0 whitespace-nowrap bg-background px-2 py-1 font-medium">
-              {doctor.code}
-              {inactiveWithSessions ? (
-                <span className="ml-1 text-xs text-ink/50">(inactive)</span>
+        {grid.rows.map(({ doctor, inactiveWithSessions }) =>
+          PERIODS.map((period, periodIndex) => (
+            <tr key={`${doctor.id}-${period}`}>
+              {periodIndex === 0 ? (
+                <td
+                  rowSpan={PERIODS.length}
+                  className="sticky left-0 z-10 whitespace-nowrap bg-background px-2 py-1 align-top font-medium"
+                >
+                  <div>{doctor.code}</div>
+                  {inactiveWithSessions ? (
+                    <div className="text-xs text-ink/50">(inactive)</div>
+                  ) : null}
+                </td>
               ) : null}
-            </td>
-            {DAYS.map((day) =>
-              PERIODS.map((period) => {
+              <td className="sticky left-24 z-10 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                {period}
+              </td>
+              {DAYS.map((day) => {
                 const session = getCell(grid, doctor.id, activeWeek, day, period);
                 return editable ? (
                   <EditableGridCell
-                    key={`${day}-${period}`}
+                    key={day}
                     week={activeWeek}
                     doctorId={doctor.id}
                     day={day}
@@ -186,7 +194,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                   />
                 ) : (
                   <ReadOnlyGridCell
-                    key={`${day}-${period}`}
+                    key={day}
                     doctorId={doctor.id}
                     week={activeWeek}
                     day={day}
@@ -196,10 +204,10 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                     clinicTypesById={clinicTypesById}
                   />
                 );
-              }),
-            )}
-          </tr>
-        ))}
+              })}
+            </tr>
+          )),
+        )}
       </tbody>
     </table>
   );
@@ -266,13 +274,20 @@ function ReadOnlyGridCell({ doctorId, week, day, period, session, roomsById, cli
   const style = cellStyle(session, roomsById, clinicTypesById);
 
   if (session === undefined) {
-    return <td className="border border-border bg-gray-100" aria-label="Absent" />;
+    return (
+      <td
+        className="border border-border bg-gray-100"
+        aria-label="Absent"
+        data-week-day-period={`${week}-${day}-${period}`}
+      />
+    );
   }
 
   return (
     <td
       className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+      data-week-day-period={`${week}-${day}-${period}`}
     >
       <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} />
     </td>
@@ -316,7 +331,13 @@ function EditableGridCell({
   });
 
   if (session === undefined) {
-    return <td className="border border-border bg-gray-100" aria-label="Absent" />;
+    return (
+      <td
+        className="border border-border bg-gray-100"
+        aria-label="Absent"
+        data-week-day-period={`${week}-${day}-${period}`}
+      />
+    );
   }
 
   const isSelf = activeChip?.session.session_id === session.session_id;
@@ -338,6 +359,7 @@ function EditableGridCell({
       ref={setNodeRef}
       className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+      data-week-day-period={`${week}-${day}-${period}`}
     >
       <CellEditPopover session={session} onSave={(isWfh, notes) => onSave(session, isWfh, notes)} saving={saving}>
         <div>{cellBody}</div>

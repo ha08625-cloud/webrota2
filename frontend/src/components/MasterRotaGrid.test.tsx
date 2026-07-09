@@ -7,14 +7,37 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 import { MasterRotaGrid } from "./MasterRotaGrid";
 
 describe("MasterRotaGrid", () => {
-  it("renders a row per doctor present in the sessions and a column per day/period", () => {
+  it("renders a column per day and AM/PM sub-rows per doctor", () => {
     const sessions = [makeMasterRotaSession({ doctor_id: 1, doctor_code: "AB" })];
 
     renderWithProviders(<MasterRotaGrid sessions={sessions} />);
 
     expect(screen.getByText("AB")).toBeInTheDocument();
-    expect(screen.getByText("Mon AM")).toBeInTheDocument();
-    expect(screen.getByText("Fri PM")).toBeInTheDocument();
+    expect(screen.getByText("Monday")).toBeInTheDocument();
+    expect(screen.getByText("Friday")).toBeInTheDocument();
+    expect(screen.getAllByText("AM")).toHaveLength(1);
+    expect(screen.getAllByText("PM")).toHaveLength(1);
+  });
+
+  it("groups rows by doctor type before alphabetising by code", () => {
+    const sessions = [
+      makeMasterRotaSession({ doctor_id: 1, doctor_code: "ZZ", doctor_type: "AHP" }),
+      makeMasterRotaSession({ doctor_id: 2, doctor_code: "YY", doctor_type: "Partner" }),
+    ];
+
+    renderWithProviders(<MasterRotaGrid sessions={sessions} />);
+
+    const codeCells = screen.getAllByText(/^(YY|ZZ)$/);
+    expect(codeCells.map((el) => el.textContent)).toEqual(["YY", "ZZ"]);
+  });
+
+  it("spans the doctor code cell across both AM and PM rows", () => {
+    const sessions = [makeMasterRotaSession({ doctor_id: 1, doctor_code: "AB" })];
+
+    renderWithProviders(<MasterRotaGrid sessions={sessions} />);
+    const doctorCell = screen.getByText("AB").closest("td");
+
+    expect(doctorCell).toHaveAttribute("rowspan", "2");
   });
 
   it("renders a blank cell (no badge) for REQUIRES_ROOM with just the room code", () => {

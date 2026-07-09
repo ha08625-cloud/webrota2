@@ -1,4 +1,5 @@
 import type { Day, Doctor, Period, RotaSession } from "@/api/types";
+import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 
 export const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 export const PERIODS: Period[] = ["AM", "PM"];
@@ -15,8 +16,10 @@ export interface GridRow {
 
 export interface PivotedGrid {
   /**
-   * Rows in display order: active doctors (code order, from /doctors),
-   * plus any inactive doctor who has sessions in this rota, flagged.
+   * Rows in display order: active doctors grouped by type (Partner,
+   * Salaried, Trainee, AHP), alphabetical by code within a type - see
+   * compareDoctorDisplayOrder - plus any inactive doctor who has
+   * sessions in this rota, flagged.
    */
   rows: GridRow[];
   /**
@@ -54,7 +57,7 @@ export function pivotRota(sessions: RotaSession[], doctors: Doctor[]): PivotedGr
 
   const rows: GridRow[] = doctors
     .filter((doctor) => doctor.active || doctorIdsWithSessions.has(doctor.id))
-    .sort((a, b) => a.code.localeCompare(b.code))
+    .sort((a, b) => compareDoctorDisplayOrder({ type: a.doctor_type, code: a.code }, { type: b.doctor_type, code: b.code }))
     .map((doctor) => ({
       doctor,
       inactiveWithSessions: !doctor.active && doctorIdsWithSessions.has(doctor.id),

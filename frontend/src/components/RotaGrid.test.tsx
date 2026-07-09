@@ -25,15 +25,54 @@ function setUpServer({
 }
 
 describe("RotaGrid", () => {
-  it("renders a row per doctor and a column per day/period", async () => {
+  it("renders a column per day and AM/PM sub-rows per doctor", async () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
     renderWithProviders(<RotaGrid rota={rota} />);
 
     expect(await screen.findByText("AB")).toBeInTheDocument();
-    expect(screen.getByText("Mon AM")).toBeInTheDocument();
-    expect(screen.getByText("Fri PM")).toBeInTheDocument();
+    expect(screen.getByText("Monday")).toBeInTheDocument();
+    expect(screen.getByText("Friday")).toBeInTheDocument();
+    expect(screen.getAllByText("AM")).toHaveLength(1);
+    expect(screen.getAllByText("PM")).toHaveLength(1);
+  });
+
+  it("groups rows by doctor type before alphabetising by code", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "ZZ", doctor_type: "AHP" }),
+        makeDoctor({ id: 2, code: "YY", doctor_type: "Partner" }),
+      ],
+    });
+    const rota = makeRota({ num_weeks: 1, sessions: [] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    await screen.findByText("YY");
+    await screen.findByText("ZZ");
+
+    const codeCells = screen.getAllByText(/^(YY|ZZ)$/);
+    expect(codeCells.map((el) => el.textContent)).toEqual(["YY", "ZZ"]);
+  });
+
+  it("spans the doctor code cell across both AM and PM rows", async () => {
+    setUpServer();
+    const rota = makeRota({ num_weeks: 1, sessions: [] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const doctorCell = (await screen.findByText("AB")).closest("td");
+
+    expect(doctorCell).toHaveAttribute("rowspan", "2");
+  });
+
+  it("stamps data-week-day-period on the body cell now that the day header spans both periods", async () => {
+    setUpServer();
+    const rota = makeRota({ num_weeks: 1, sessions: [] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    await screen.findByText("AB");
+
+    expect(document.querySelector('[data-week-day-period="1-Monday-AM"]')).toBeInTheDocument();
   });
 
   it("renders an absent cell (no session) as inert with no content", async () => {

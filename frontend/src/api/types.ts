@@ -348,6 +348,7 @@ export interface MasterRotaSession {
   session_id: number;
   doctor_id: number;
   doctor_code: string;
+  doctor_type: DoctorType;
   week: number;
   day: Day;
   period: Period;

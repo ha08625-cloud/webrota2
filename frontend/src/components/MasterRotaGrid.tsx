@@ -43,43 +43,52 @@ export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-0 z-10 w-24 bg-background px-2 py-1 text-left font-medium text-ink/70">
                 Doctor
               </th>
-              {DAYS.map((day) =>
-                PERIODS.map((period) => (
-                  <th
-                    key={`${day}-${period}`}
-                    className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
-                  >
-                    {day.slice(0, 3)} {period}
-                  </th>
-                )),
-              )}
+              <th className="sticky left-24 z-10 w-12 bg-background px-2 py-1 text-left font-medium text-ink/70">
+                Session
+              </th>
+              {DAYS.map((day) => (
+                <th
+                  key={day}
+                  className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
+                >
+                  {day}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {grid.rows.map(({ doctorId, doctorCode }) => (
-              <tr key={doctorId}>
-                <td className="sticky left-0 whitespace-nowrap bg-background px-2 py-1 font-medium">
-                  {doctorCode}
-                </td>
-                {DAYS.map((day) =>
-                  PERIODS.map((period) => {
+            {grid.rows.map(({ doctorId, doctorCode }) =>
+              PERIODS.map((period, periodIndex) => (
+                <tr key={`${doctorId}-${period}`}>
+                  {periodIndex === 0 ? (
+                    <td
+                      rowSpan={PERIODS.length}
+                      className="sticky left-0 z-10 whitespace-nowrap bg-background px-2 py-1 align-top font-medium"
+                    >
+                      {doctorCode}
+                    </td>
+                  ) : null}
+                  <td className="sticky left-24 z-10 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                    {period}
+                  </td>
+                  {DAYS.map((day) => {
                     const session = getMasterRotaCell(grid, doctorId, activeWeek, day, period);
                     return (
                       <td
-                        key={`${day}-${period}`}
+                        key={day}
                         className="border border-border px-2 py-1 text-center"
                         data-testid={`master-cell-${doctorId}-${activeWeek}-${day}-${period}`}
                       >
                         {session ? <CellContent session={session} /> : null}
                       </td>
                     );
-                  }),
-                )}
-              </tr>
-            ))}
+                  })}
+                </tr>
+              )),
+            )}
           </tbody>
         </table>
       </div>

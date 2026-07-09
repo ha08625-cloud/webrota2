@@ -7,15 +7,20 @@ room_id), so a bare `id` would be ambiguous. See schemas/rota.py.
 """
 from pydantic import BaseModel
 
-from ...models.enums import Day, MasterSessionType, Period
+from ...models.enums import Day, DoctorType, MasterSessionType, Period
 
 
 class MasterRotaSessionOut(BaseModel):
     """One master template slot. doctor_code / room_code are joined in
-    the router, matching the pattern in routers/rota.py's _session_outs."""
+    the router, matching the pattern in routers/rota.py's _session_outs.
+
+    doctor_type is joined the same way (added alongside doctor_code, not
+    just code) so the frontend can group grid rows by doctor type
+    (Partner/Salaried/Trainee/AHP) without a separate /doctors fetch."""
     session_id: int
     doctor_id: int
     doctor_code: str
+    doctor_type: DoctorType
     week: int
     day: Day
     period: Period

@@ -14,6 +14,32 @@ const DOCTOR_TYPE_LABELS: Record<DoctorType, string> = {
   AHP: "AHP",
 };
 
+/**
+ * Minimal shape needed to order two doctor-like things by the same
+ * display convention as DOCTOR_TYPE_ORDER: grouped by type, alphabetical
+ * by code within a type. Deliberately not `Doctor` itself - pivot.ts
+ * sorts full Doctor objects (snake_case doctor_type/code) while
+ * pivotMasterRota.ts sorts plain {doctorId, doctorCode, doctorType} rows
+ * (camelCase, no full Doctor available without a second /doctors fetch -
+ * see pivotMasterRota.ts). Each caller maps its own shape into this one
+ * rather than the comparator trying to accept both directly.
+ */
+export interface DoctorDisplayOrderKey {
+  type: DoctorType;
+  code: string;
+}
+
+/**
+ * Orders by DOCTOR_TYPE_ORDER first, then alphabetically by code within
+ * a type - the single source of truth for grid row ordering (RotaGrid,
+ * MasterRotaGrid) as well as this file's own grouping above.
+ */
+export function compareDoctorDisplayOrder(a: DoctorDisplayOrderKey, b: DoctorDisplayOrderKey): number {
+  const typeDiff = DOCTOR_TYPE_ORDER.indexOf(a.type) - DOCTOR_TYPE_ORDER.indexOf(b.type);
+  if (typeDiff !== 0) return typeDiff;
+  return a.code.localeCompare(b.code);
+}
+
 export interface DoctorGroup {
   type: DoctorType;
   label: string;

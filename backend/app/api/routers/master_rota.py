@@ -39,7 +39,7 @@ def get_active_template(
         select(MasterRotaSession).where(MasterRotaSession.template_id == template.id)
     ).scalars().all()
 
-    doctor_codes = {d.id: d.code for d in db.execute(select(Doctor)).scalars()}
+    doctors = {d.id: d for d in db.execute(select(Doctor)).scalars()}
     room_codes = {r.id: r.code for r in db.execute(select(Room)).scalars()}
 
     return MasterRotaTemplateOut(
@@ -49,7 +49,13 @@ def get_active_template(
             MasterRotaSessionOut(
                 session_id=s.id,
                 doctor_id=s.doctor_id,
-                doctor_code=doctor_codes.get(s.doctor_id, "?"),
+                # doctor_code keeps the "?" fallback of the pre-existing
+                # pattern here; doctor_type has no comparable safe
+                # fallback value, so it relies directly on the doctor_id
+                # FK, which guarantees the row exists (doctors are only
+                # ever soft-deactivated, never deleted).
+                doctor_code=doctors[s.doctor_id].code if s.doctor_id in doctors else "?",
+                doctor_type=doctors[s.doctor_id].doctor_type,
                 week=s.week,
                 day=s.day,
                 period=s.period,

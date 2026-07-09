@@ -9,6 +9,7 @@ export function makeMasterRotaSession(
     session_id: sessionIdCounter++,
     doctor_id: 1,
     doctor_code: "AB",
+    doctor_type: "Partner",
     week: 1,
     day: "Monday",
     period: "AM",

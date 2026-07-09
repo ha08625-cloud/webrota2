@@ -54,6 +54,14 @@ describe("IssuesPanel", () => {
     expect(await screen.findByText("Issue A")).toBeInTheDocument();
   });
 
+  // This test exercises navigateTo() in isolation against a hand-built
+  // fixture div carrying data-week-day-period, not the real grid - it
+  // does NOT catch the anchor moving to a different element in RotaGrid
+  // (e.g. the M4.x header-collapse that moved this attribute from the
+  // per-(day,period) <th> onto each body <td>). RotaGrid_test.tsx's
+  // "stamps data-week-day-period on the body cell" test is what
+  // actually guards the real anchor location - keep both in sync if
+  // RotaGrid's markup changes again.
   it("navigates to a located issue: scrolls its cell into view and applies a flash class", async () => {
     server.use(
       http.get("/api/v1/rota/:id/issues", () =>

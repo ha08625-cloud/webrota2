@@ -6,10 +6,21 @@ import { makeRotaSession } from "@/test/fixtures/rota";
 import { getCell, pivotRota, weekNumbers } from "./pivot";
 
 describe("pivotRota", () => {
-  it("includes active doctors even with no sessions, ordered by code", () => {
+  it("includes active doctors even with no sessions, ordered by code within a type", () => {
     const doctors = [makeDoctor({ id: 1, code: "ZZ" }), makeDoctor({ id: 2, code: "AA" })];
     const grid = pivotRota([], doctors);
     expect(grid.rows.map((r) => r.doctor.code)).toEqual(["AA", "ZZ"]);
+  });
+
+  it("groups rows by doctor type (Partner, Salaried, Trainee, AHP) before alphabetising by code", () => {
+    const doctors = [
+      makeDoctor({ id: 1, code: "ZZ", doctor_type: "AHP" }),
+      makeDoctor({ id: 2, code: "AA", doctor_type: "Trainee" }),
+      makeDoctor({ id: 3, code: "BB", doctor_type: "Salaried" }),
+      makeDoctor({ id: 4, code: "YY", doctor_type: "Partner" }),
+    ];
+    const grid = pivotRota([], doctors);
+    expect(grid.rows.map((r) => r.doctor.code)).toEqual(["YY", "BB", "AA", "ZZ"]);
   });
 
   it("excludes an inactive doctor with no sessions in this rota", () => {
