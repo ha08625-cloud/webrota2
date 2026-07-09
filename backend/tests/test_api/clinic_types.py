@@ -55,3 +55,15 @@ class TestClinicTypes:
         assert client.delete(f"/api/v1/clinic-types/{created['id']}").status_code == 204
         assert client.get(f"/api/v1/clinic-types/{created['id']}").status_code == 404
         assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_put_keeps_unchanged_schedule_slot(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)  # Monday AM
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Dragon",
+            "clinic_priority": 10,
+            "room_required": True,
+            "schedules": [{"day": "Monday", "period": "AM"}],  # unchanged
+            "doctor_eligibilities": [{"doctor_id": seeded["doctor_aa"], "doctor_priority": 1}],
+            "room_eligibilities": [{"room_id": seeded["room_c1"]}],  # unchanged
+        })
+        assert resp.status_code == 200, resp.text

@@ -1,4 +1,4 @@
-"""ClinicType router (M3 Task 4).
+"""ClinicType router
 
 Writes accept the full nested object (parent + schedules +
 doctor_eligibilities + room_eligibilities) in one transaction, per the M3
@@ -6,6 +6,13 @@ plan. PUT uses the replace-children pattern: all existing child rows are
 deleted and the new set inserted -- simpler than diffing, and safe for
 counter history because ClinicCounter is keyed on values, never on child-row
 FKs (M1 design decision).
+
+Children are cleared and flushed before the replacement set is attached
+(see `_apply`) -- SQLAlchemy does not guarantee that the DELETEs for
+delete-orphan children are flushed before the INSERTs for a reassigned
+collection on the same table, so an edit that keeps even one schedule slot,
+doctor, or room unchanged can otherwise trigger a spurious unique-constraint
+IntegrityError.
 """
 from __future__ import annotations
 
@@ -52,14 +59,27 @@ def _children_from_payload(payload: ClinicTypeIn) -> tuple[list, list, list]:
     return schedules, doctor_eligs, room_eligs
 
 
-def _apply(ct: ClinicType, payload: ClinicTypeIn) -> None:
+def _apply(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     ct.name = payload.name
     ct.clinic_priority = payload.clinic_priority
     ct.is_enabled = payload.is_enabled
     ct.room_required = payload.room_required
     ct.category = payload.category
+
+    # Clear the existing children and flush the deletes before attaching the
+    # replacement set. Assigning a brand-new list directly to the relationship
+    # still works via the delete-orphan cascade, but the DELETEs and INSERTs
+    # for the old and new rows are not guaranteed to be ordered DELETE-first
+    # within the same flush -- if a new row shares a unique key (day/period,
+    # doctor_id, or room_id/room_type) with a row being replaced, the INSERT
+    # can be attempted while the old row is still present, raising a
+    # spurious IntegrityError even though the end state would be valid.
+    ct.schedules.clear()
+    ct.doctor_eligibilities.clear()
+    ct.room_eligibilities.clear()
+    db.flush()
+
     schedules, doctor_eligs, room_eligs = _children_from_payload(payload)
-    # Assigning new lists triggers delete-orphan cascade on the old rows.
     ct.schedules = schedules
     ct.doctor_eligibilities = doctor_eligs
     ct.room_eligibilities = room_eligs
@@ -96,8 +116,8 @@ def create_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = ClinicType()
-    _apply(ct, payload)
     db.add(ct)
+    _apply(db, ct, payload)
     _commit_or_409(db, payload)
     db.refresh(ct)
     return ct
@@ -120,7 +140,7 @@ def replace_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = _get_or_404(db, clinic_type_id)
-    _apply(ct, payload)
+    _apply(db, ct, payload)
     _commit_or_409(db, payload)
     db.refresh(ct)
     return ct
