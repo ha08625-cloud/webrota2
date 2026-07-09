@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import { useDoctors } from "@/api/doctors";
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import type { DutyType, Period } from "@/api/types";
+import { DutyGrid } from "@/components/DutyGrid";
+import { formatWeekLabel, getUpcomingMondays } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
+const UPCOMING_WEEK_COUNT = 12;
+
 export function DutyPage() {
+  const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
+  const [selectedWeek, setSelectedWeek] = useState(upcomingMondays[0]);
+
   const { data: allDoctors } = useDoctors(false);
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
@@ -48,7 +55,32 @@ export function DutyPage() {
     <div>
       <h1 className="text-lg font-semibold">Duty</h1>
 
-      <form onSubmit={handleAdd} className="mt-4 flex flex-wrap items-end gap-2 rounded border border-border p-3">
+      <div className="mt-4">
+        <label className="block text-xs font-medium text-ink/70" htmlFor="duty-week-select">
+          Week
+        </label>
+        <select
+          id="duty-week-select"
+          value={selectedWeek}
+          onChange={(e) => setSelectedWeek(e.target.value)}
+          className="mt-1 rounded border border-border p-1 text-sm"
+        >
+          {upcomingMondays.map((monday) => (
+            <option key={monday} value={monday}>
+              {formatWeekLabel(monday)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mt-4">
+        <DutyGrid weekStartDate={selectedWeek} />
+      </div>
+
+      <form
+        onSubmit={handleAdd}
+        className="mt-8 flex flex-wrap items-end gap-2 rounded border border-border p-3"
+      >
         <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="duty-add-doctor">
             Doctor

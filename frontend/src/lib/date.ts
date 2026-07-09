@@ -35,3 +35,63 @@ export function formatDateTime(isoString: string): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * Formats a local Date back into a "YYYY-MM-DD" string. The inverse of
+ * parseLocalDate - kept private since every public function here works
+ * in terms of the date-only string, not a raw Date, to stay consistent
+ * with the rest of the module's contract.
+ */
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Adds (or subtracts, if negative) whole days to a "YYYY-MM-DD" string,
+ * returning a "YYYY-MM-DD" string. Built on parseLocalDate + Date's own
+ * local-time month/year rollover (setDate), so this never drifts a day
+ * at a month or year boundary the way UTC-based arithmetic could.
+ */
+export function addDays(dateString: string, days: number): string {
+  const date = parseLocalDate(dateString);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
+/**
+ * Returns `count` upcoming Mondays as "YYYY-MM-DD" strings, starting
+ * from `from` (defaults to today) and moving forward. If `from` is
+ * itself a Monday it is included as the first result - "today's date
+ * forward" per the duty grid's week selector, not "next week onward".
+ */
+export function getUpcomingMondays(count: number, from: Date = new Date()): string[] {
+  let cursor = toDateKey(from);
+  while (!isMonday(cursor)) {
+    cursor = addDays(cursor, 1);
+  }
+  const mondays: string[] = [];
+  for (let i = 0; i < count; i++) {
+    mondays.push(cursor);
+    cursor = addDays(cursor, 7);
+  }
+  return mondays;
+}
+
+/**
+ * Formats a "YYYY-MM-DD" Monday as "w/c 13 Jul 2026" for the duty grid's
+ * week selector. Deliberately pinned to "en-GB" for the month name
+ * rather than the `undefined`-locale pattern formatDate/formatDateTime
+ * use elsewhere - a select list of week options needs one fixed,
+ * unambiguous day-month-year order across every user, not a
+ * locale-dependent one.
+ */
+export function formatWeekLabel(dateString: string): string {
+  const date = parseLocalDate(dateString);
+  const day = date.getDate();
+  const month = date.toLocaleDateString("en-GB", { month: "short" });
+  const year = date.getFullYear();
+  return `w/c ${day} ${month} ${year}`;
+}

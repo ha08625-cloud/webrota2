@@ -106,6 +106,28 @@ describe("DutyPage", () => {
     expect(await screen.findByText(/already exists for this date\/period\/type/)).toBeInTheDocument();
   });
 
+  it("renders a week selector with the next 12 upcoming Mondays as options", async () => {
+    setUpServer();
+    renderWithProviders(<DutyPage />);
+
+    const select = (await screen.findByLabelText("Week")) as HTMLSelectElement;
+    const options = Array.from(select.querySelectorAll("option"));
+    expect(options).toHaveLength(12);
+    // "w/c 13 Jul 2026" shape - exact date depends on today, so only the
+    // format is asserted here (see date_test.ts for the date arithmetic
+    // itself, which is tested against fixed dates).
+    expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
+  });
+
+  it("mounts the duty grid for the selected week, above the existing table", async () => {
+    setUpServer();
+    renderWithProviders(<DutyPage />);
+
+    expect(await screen.findByText("Mon (1st)")).toBeInTheDocument();
+    expect(screen.getByText("Mon (2nd)")).toBeInTheDocument();
+    expect(screen.getByText("Fri")).toBeInTheDocument();
+  });
+
   it("delete removes an assignment", async () => {
     setUpServer({ duty: [makeDutyAssignment({ id: 1, doctor_id: 1, date: "2026-08-03" })] });
     let deleted = false;
