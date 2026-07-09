@@ -2,7 +2,7 @@
 import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, MasterSessionType, Period, RotaStatus, SessionRole
 from .common import ValidationIssueOut
@@ -86,4 +86,40 @@ class SwapIn(BaseModel):
 class SwapOut(BaseModel):
     session_a: RotaSessionOut
     session_b: RotaSessionOut
+    issues: list[ValidationIssueOut]
+
+
+class SetRoomIn(BaseModel):
+    """M4.1 Task 1. room_id: null clears the target's room."""
+    room_id: int | None = None
+
+
+class SetRoomOut(BaseModel):
+    session: RotaSessionOut
+    displaced_session: RotaSessionOut | None
+    issues: list[ValidationIssueOut]
+
+
+class SetRoleIn(BaseModel):
+    """M4.1 Task 1. Verbatim setter of the full (role, clinic_type_id,
+    template_type) triple -- all three fields are required (nullable, but
+    must be present) and are written to the target exactly as given. This
+    is what makes undo replay able to restore any previous triple,
+    including warned states and the full MasterSessionType range, not just
+    the two shapes the menu offers directly. The only invariant enforced
+    here: clinic_type_id non-null requires role='clinic'."""
+    role: SessionRole | None
+    clinic_type_id: int | None
+    template_type: MasterSessionType | None
+
+    @model_validator(mode="after")
+    def _clinic_type_requires_clinic_role(self) -> "SetRoleIn":
+        if self.clinic_type_id is not None and self.role != SessionRole.CLINIC:
+            raise ValueError("clinic_type_id requires role='clinic'")
+        return self
+
+
+class SetRoleOut(BaseModel):
+    session: RotaSessionOut
+    displaced_session: RotaSessionOut | None
     issues: list[ValidationIssueOut]
