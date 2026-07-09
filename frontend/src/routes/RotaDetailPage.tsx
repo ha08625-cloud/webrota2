@@ -1,9 +1,12 @@
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useCommitRota, useRota, useScrapRota } from "@/api/rota";
+import { useCommitRota, usePatchSession, useRota, useScrapRota, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RotaGrid } from "@/components/RotaGrid";
+import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate, formatDateTime } from "@/lib/date";
+import { buildReplayRequest } from "@/lib/replayUndo";
+import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
 export function RotaDetailPage() {
   const params = useParams<{ id: string }>();
@@ -12,6 +15,13 @@ export function RotaDetailPage() {
   const { data: rota, isLoading, isError, error } = useRota(rotaId);
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
+
+  const undoStack = useUndoStack();
+  const { toast, showToast } = useToast();
+  const swapRoles = useSwapRoles();
+  const swapRooms = useSwapRooms();
+  const patchSession = usePatchSession();
+  const undoPending = swapRoles.isPending || swapRooms.isPending || patchSession.isPending;
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -67,6 +77,47 @@ export function RotaDetailPage() {
     });
   }
 
+  function handleMutationApplied(entry: UndoEntry, message: string) {
+    undoStack.push(entry);
+    showToast(message);
+  }
+
+  function handleMutationError() {
+    showToast("Could not apply that change");
+  }
+
+  function handleUndo() {
+    const entry = undoStack.consume();
+    if (!entry) return;
+
+    const request = buildReplayRequest(entry, currentRotaId);
+
+    if (request.kind === "patch") {
+      patchSession.mutate(request.payload, {
+        onSuccess: (data) => {
+          const roomLost = entry.kind === "patch" && entry.previousRoomId !== null && data.session.room_id === null;
+          showToast(roomLost ? "Undone - room could not be restored, reassign it manually" : "Undone");
+        },
+        onError: () => {
+          // Nothing changed server-side, so the entry is still valid -
+          // re-push it so the user can retry.
+          undoStack.push(entry);
+          showToast("Undo failed");
+        },
+      });
+      return;
+    }
+
+    const mutation = request.kind === "swap-roles" ? swapRoles : swapRooms;
+    mutation.mutate(request.payload, {
+      onSuccess: () => showToast("Undone"),
+      onError: () => {
+        undoStack.push(entry);
+        showToast("Undo failed");
+      },
+    });
+  }
+
   return (
     <div>
       <h1 className="text-lg font-semibold">
@@ -94,6 +145,14 @@ export function RotaDetailPage() {
           >
             Scrap
           </button>
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={undoStack.current === null || undoPending}
+            className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+          >
+            Undo
+          </button>
         </div>
       ) : (
         <p className="mt-4 text-sm text-ink/50">This rota is committed and read-only.</p>
@@ -104,10 +163,12 @@ export function RotaDetailPage() {
 
       <div className="mt-6 flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <RotaGrid rota={rota} />
+          <RotaGrid rota={rota} onMutationApplied={handleMutationApplied} onMutationError={handleMutationError} />
         </div>
         <IssuesPanel rotaId={currentRotaId} />
       </div>
+
+      <ToastDisplay message={toast?.message} />
     </div>
   );
 }
