@@ -61,7 +61,7 @@ export function emptyFormValues(): ClinicTypeFormValues {
     name: "",
     clinicPriority: 1000,
     isEnabled: true,
-    roomRequired: false,
+    roomRequired: true,
     category: "",
     schedules: [],
     doctorEligibilities: [],
