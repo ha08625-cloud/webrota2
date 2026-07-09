@@ -5,11 +5,13 @@ import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
 import { LeavePage } from "@/routes/LeavePage";
+import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
 
 const NAV_ITEMS = [
   { to: "/", label: "Rota", end: true },
+  { to: "/master-rota", label: "Master Rota", end: false },
   { to: "/clinic-types", label: "Clinic Types", end: false },
   { to: "/doctors", label: "Doctors", end: false },
   { to: "/leave", label: "Leave", end: false },
@@ -45,6 +47,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<RotaPage />} />
             <Route path="/rota/:id" element={<RotaDetailPage />} />
+            <Route path="/master-rota" element={<MasterRotaPage />} />
             <Route path="/clinic-types" element={<ClinicTypesPage />} />
             <Route path="/doctors" element={<DoctorsPage />} />
             <Route path="/leave" element={<LeavePage />} />

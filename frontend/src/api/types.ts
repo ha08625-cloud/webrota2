@@ -337,3 +337,27 @@ export interface GenerateRotaOut {
   status: RotaStatus;
   issues: ValidationIssue[];
 }
+
+// --- Master rota (schemas/master_rota.py) ---
+// Read-only view of the active template. Named session_id/template_id,
+// matching RotaSession/Rota's convention (not the plain `id` used by
+// standalone CRUD entity schemas) - these objects sit in a list
+// alongside other _id fields (doctor_id, room_id).
+
+export interface MasterRotaSession {
+  session_id: number;
+  doctor_id: number;
+  doctor_code: string;
+  week: number;
+  day: Day;
+  period: Period;
+  session_type: MasterSessionType;
+  room_id: number | null;
+  room_code: string | null;
+}
+
+export interface MasterRotaTemplate {
+  template_id: number;
+  name: string;
+  sessions: MasterRotaSession[];
+}
