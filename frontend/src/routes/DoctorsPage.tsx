@@ -26,7 +26,11 @@ export function DoctorsPage() {
   const { data: doctorsData, isLoading, isError } = useDoctors(true);
   // Same display convention as the rota grids: Partner/Salaried/Trainee/AHP
   // groups in that fixed order, alphabetical by code within each group.
-  const doctors = doctorsData ? [...doctorsData].sort(compareDoctorDisplayOrder) : doctorsData;
+  const doctors = doctorsData
+    ? [...doctorsData].sort((a, b) =>
+        compareDoctorDisplayOrder({ type: a.doctor_type, code: a.code }, { type: b.doctor_type, code: b.code }),
+      )
+    : doctorsData;
   const softDeleteDoctor = useSoftDeleteDoctor();
   const updateDoctor = useUpdateDoctor();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
