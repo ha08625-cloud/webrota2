@@ -161,6 +161,58 @@ describe("RotaGrid", () => {
     expect(within(cell).queryByText("Duty")).not.toBeInTheDocument();
   });
 
+  it("shows a 'No surgery' badge for a no-role no_surgery session", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      template_type: "no_surgery",
+    });
+    const rota = makeRota({ num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    expect(within(cell).getByText("No surgery")).toBeInTheDocument();
+  });
+
+  it("shows an 'Admin' badge for a no-role admin_time session", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      template_type: "admin_time",
+    });
+    const rota = makeRota({ num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    expect(within(cell).getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("does not show a session-type badge when a role is present on a no_surgery slot (role colouring wins)", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      template_type: "no_surgery",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({ num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    expect(within(cell).getByText("Duty")).toBeInTheDocument();
+    expect(within(cell).queryByText("No surgery")).not.toBeInTheDocument();
+  });
+
   it("always renders the week tab bar, even for a single-week rota", async () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
