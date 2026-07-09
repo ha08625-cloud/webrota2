@@ -142,16 +142,18 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     <table className="min-w-full border-collapse text-sm">
       <thead>
         <tr>
-          <th className="sticky left-0 z-10 w-24 bg-background px-2 py-1 text-left font-medium text-ink/70">
+          <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
             Doctor
           </th>
-          <th className="sticky left-24 z-10 w-12 bg-background px-2 py-1 text-left font-medium text-ink/70">
+          <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
             Session
           </th>
-          {DAYS.map((day) => (
+          {DAYS.map((day, dayIndex) => (
             <th
               key={day}
-              className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
+              className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium text-ink/70 ${
+                dayIndex === DAYS.length - 1 ? "" : "border-r-2"
+              }`}
             >
               {day}
             </th>
@@ -159,55 +161,77 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
         </tr>
       </thead>
       <tbody>
-        {grid.rows.map(({ doctor, inactiveWithSessions }) =>
-          PERIODS.map((period, periodIndex) => (
-            <tr key={`${doctor.id}-${period}`}>
-              {periodIndex === 0 ? (
+        {grid.rows.map(({ doctor, inactiveWithSessions }, rowIndex) => {
+          const isLastDoctor = rowIndex === grid.rows.length - 1;
+          // Computed independently of periodIndex: the doctor cell only
+          // renders once (rowSpan, at periodIndex 0) but its bottom edge
+          // sits at the PM row regardless, so it can't reuse the
+          // per-row groupDividerClass below (which is false at
+          // periodIndex 0).
+          const doctorCellGroupDividerClass = isLastDoctor ? "" : "border-b-2";
+          return PERIODS.map((period, periodIndex) => {
+            // Heavier divider under the PM row of every doctor except the
+            // last - the last doctor's bottom edge is instead handled by
+            // the outer frame on the scroll container, avoiding a doubled
+            // border where the two would otherwise coincide.
+            const isGroupEnd = periodIndex === PERIODS.length - 1 && !isLastDoctor;
+            const groupDividerClass = isGroupEnd ? "border-b-2 border-ink/40" : "";
+            return (
+              <tr key={`${doctor.id}-${period}`}>
+                {periodIndex === 0 ? (
+                  <td
+                    rowSpan={PERIODS.length}
+                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass}`}
+                  >
+                    <div>{doctor.code}</div>
+                    {inactiveWithSessions ? (
+                      <div className="text-xs text-ink/50">(inactive)</div>
+                    ) : null}
+                  </td>
+                ) : null}
                 <td
-                  rowSpan={PERIODS.length}
-                  className="sticky left-0 z-10 whitespace-nowrap bg-background px-2 py-1 align-top font-medium"
+                  className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
                 >
-                  <div>{doctor.code}</div>
-                  {inactiveWithSessions ? (
-                    <div className="text-xs text-ink/50">(inactive)</div>
-                  ) : null}
+                  {period}
                 </td>
-              ) : null}
-              <td className="sticky left-24 z-10 bg-background px-2 py-1 text-xs font-medium text-ink/70">
-                {period}
-              </td>
-              {DAYS.map((day) => {
-                const session = getCell(grid, doctor.id, activeWeek, day, period);
-                return editable ? (
-                  <EditableGridCell
-                    key={day}
-                    week={activeWeek}
-                    doctorId={doctor.id}
-                    day={day}
-                    period={period}
-                    session={session}
-                    roomsById={roomsById}
-                    clinicTypesById={clinicTypesById}
-                    activeChip={activeChip}
-                    onSave={handlePopoverSave}
-                    saving={patchSession.isPending}
-                  />
-                ) : (
-                  <ReadOnlyGridCell
-                    key={day}
-                    doctorId={doctor.id}
-                    week={activeWeek}
-                    day={day}
-                    period={period}
-                    session={session}
-                    roomsById={roomsById}
-                    clinicTypesById={clinicTypesById}
-                  />
-                );
-              })}
-            </tr>
-          )),
-        )}
+                {DAYS.map((day, dayIndex) => {
+                  const session = getCell(grid, doctor.id, activeWeek, day, period);
+                  // Right divider between every day column, except the
+                  // last (Friday), where the outer frame takes over.
+                  const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
+                  return editable ? (
+                    <EditableGridCell
+                      key={day}
+                      week={activeWeek}
+                      doctorId={doctor.id}
+                      day={day}
+                      period={period}
+                      session={session}
+                      roomsById={roomsById}
+                      clinicTypesById={clinicTypesById}
+                      activeChip={activeChip}
+                      onSave={handlePopoverSave}
+                      saving={patchSession.isPending}
+                      dividerClassName={dividerClassName}
+                    />
+                  ) : (
+                    <ReadOnlyGridCell
+                      key={day}
+                      doctorId={doctor.id}
+                      week={activeWeek}
+                      day={day}
+                      period={period}
+                      session={session}
+                      roomsById={roomsById}
+                      clinicTypesById={clinicTypesById}
+                      dividerClassName={dividerClassName}
+                    />
+                  );
+                })}
+              </tr>
+            );
+          });
+        })}
       </tbody>
     </table>
   );
@@ -236,7 +260,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
         ))}
       </div>
 
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
         {editable ? (
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             {table}
@@ -268,15 +292,29 @@ interface ReadOnlyGridCellProps {
   session: RotaSession | undefined;
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
+  /** Heavier border-r/border-b classes for the column-to-column and
+   * doctor-group dividers, computed once per cell by the caller (which
+   * knows the day index and doctor-group boundaries) rather than
+   * re-derived here. */
+  dividerClassName: string;
 }
 
-function ReadOnlyGridCell({ doctorId, week, day, period, session, roomsById, clinicTypesById }: ReadOnlyGridCellProps) {
+function ReadOnlyGridCell({
+  doctorId,
+  week,
+  day,
+  period,
+  session,
+  roomsById,
+  clinicTypesById,
+  dividerClassName,
+}: ReadOnlyGridCellProps) {
   const style = cellStyle(session, roomsById, clinicTypesById);
 
   if (session === undefined) {
     return (
       <td
-        className="border border-border bg-gray-100"
+        className={`border border-border bg-gray-100 ${dividerClassName}`}
         aria-label="Absent"
         data-week-day-period={`${week}-${day}-${period}`}
       />
@@ -285,7 +323,7 @@ function ReadOnlyGridCell({ doctorId, week, day, period, session, roomsById, cli
 
   return (
     <td
-      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]}`}
+      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${dividerClassName}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
       data-week-day-period={`${week}-${day}-${period}`}
     >
@@ -307,6 +345,8 @@ interface EditableGridCellProps {
   activeChip: ActiveChip | null;
   onSave: (session: RotaSession, isWfh: boolean, notes: string | null) => void;
   saving: boolean;
+  /** See ReadOnlyGridCellProps.dividerClassName. */
+  dividerClassName: string;
 }
 
 function EditableGridCell({
@@ -320,6 +360,7 @@ function EditableGridCell({
   activeChip,
   onSave,
   saving,
+  dividerClassName,
 }: EditableGridCellProps) {
   const style = cellStyle(session, roomsById, clinicTypesById);
   const dropDisabled = session === undefined || session.is_on_leave || session.is_wfh;
@@ -333,7 +374,7 @@ function EditableGridCell({
   if (session === undefined) {
     return (
       <td
-        className="border border-border bg-gray-100"
+        className={`border border-border bg-gray-100 ${dividerClassName}`}
         aria-label="Absent"
         data-week-day-period={`${week}-${day}-${period}`}
       />
@@ -357,7 +398,7 @@ function EditableGridCell({
   return (
     <td
       ref={setNodeRef}
-      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""}`}
+      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""} ${dividerClassName}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
       data-week-day-period={`${week}-${day}-${period}`}
     >

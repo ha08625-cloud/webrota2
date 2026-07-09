@@ -39,20 +39,22 @@ export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
         ))}
       </div>
 
-      <div className="mt-4 overflow-x-auto">
+      <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 w-24 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
                 Doctor
               </th>
-              <th className="sticky left-24 z-10 w-12 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
                 Session
               </th>
-              {DAYS.map((day) => (
+              {DAYS.map((day, dayIndex) => (
                 <th
                   key={day}
-                  className="border-b border-border px-2 py-1 text-center font-medium text-ink/70"
+                  className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium text-ink/70 ${
+                    dayIndex === DAYS.length - 1 ? "" : "border-r-2"
+                  }`}
                 >
                   {day}
                 </th>
@@ -60,35 +62,47 @@ export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
             </tr>
           </thead>
           <tbody>
-            {grid.rows.map(({ doctorId, doctorCode }) =>
-              PERIODS.map((period, periodIndex) => (
-                <tr key={`${doctorId}-${period}`}>
-                  {periodIndex === 0 ? (
-                    <td
-                      rowSpan={PERIODS.length}
-                      className="sticky left-0 z-10 whitespace-nowrap bg-background px-2 py-1 align-top font-medium"
-                    >
-                      {doctorCode}
-                    </td>
-                  ) : null}
-                  <td className="sticky left-24 z-10 bg-background px-2 py-1 text-xs font-medium text-ink/70">
-                    {period}
-                  </td>
-                  {DAYS.map((day) => {
-                    const session = getMasterRotaCell(grid, doctorId, activeWeek, day, period);
-                    return (
+            {grid.rows.map(({ doctorId, doctorCode }, rowIndex) => {
+              const isLastDoctor = rowIndex === grid.rows.length - 1;
+              // See RotaGrid.tsx for why this can't reuse the per-row
+              // groupDividerClass below - the doctor cell only renders
+              // once (rowSpan, at periodIndex 0).
+              const doctorCellGroupDividerClass = isLastDoctor ? "" : "border-b-2";
+              return PERIODS.map((period, periodIndex) => {
+                const isGroupEnd = periodIndex === PERIODS.length - 1 && !isLastDoctor;
+                const groupDividerClass = isGroupEnd ? "border-b-2 border-ink/40" : "";
+                return (
+                  <tr key={`${doctorId}-${period}`}>
+                    {periodIndex === 0 ? (
                       <td
-                        key={day}
-                        className="border border-border px-2 py-1 text-center"
-                        data-testid={`master-cell-${doctorId}-${activeWeek}-${day}-${period}`}
+                        rowSpan={PERIODS.length}
+                        className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass}`}
                       >
-                        {session ? <CellContent session={session} /> : null}
+                        {doctorCode}
                       </td>
-                    );
-                  })}
-                </tr>
-              )),
-            )}
+                    ) : null}
+                    <td
+                      className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
+                    >
+                      {period}
+                    </td>
+                    {DAYS.map((day, dayIndex) => {
+                      const session = getMasterRotaCell(grid, doctorId, activeWeek, day, period);
+                      const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
+                      return (
+                        <td
+                          key={day}
+                          className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
+                          data-testid={`master-cell-${doctorId}-${activeWeek}-${day}-${period}`}
+                        >
+                          {session ? <CellContent session={session} /> : null}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              });
+            })}
           </tbody>
         </table>
       </div>
