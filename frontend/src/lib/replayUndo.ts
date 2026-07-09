@@ -14,20 +14,27 @@ export type ReplayRequest =
   | { kind: "patch"; payload: PatchSessionPayload };
 
 export function buildReplayRequest(entry: UndoEntry, rotaId: number): ReplayRequest {
-  if (entry.kind === "swap-roles" || entry.kind === "swap-rooms") {
+  // Branch on the single-literal member ("patch") first, not the
+  // swap/move member (whose discriminant is itself a union of two
+  // literals, "swap-roles" | "swap-rooms"). TypeScript's discriminated-
+  // union narrowing does not reliably exclude a union-of-literals member
+  // from the negated/else branch of an `||` check - branching on the
+  // single-literal member first sidesteps that limitation rather than
+  // working around it with a type assertion.
+  if (entry.kind === "patch") {
     return {
-      kind: entry.kind,
-      payload: { rotaId, sessionAId: entry.sessionAId, sessionBId: entry.sessionBId },
+      kind: "patch",
+      payload: {
+        rotaId,
+        sessionId: entry.sessionId,
+        isWfh: entry.previousIsWfh,
+        notes: entry.previousNotes,
+      },
     };
   }
 
   return {
-    kind: "patch",
-    payload: {
-      rotaId,
-      sessionId: entry.sessionId,
-      isWfh: entry.previousIsWfh,
-      notes: entry.previousNotes,
-    },
+    kind: entry.kind,
+    payload: { rotaId, sessionAId: entry.sessionAId, sessionBId: entry.sessionBId },
   };
 }
