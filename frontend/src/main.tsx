@@ -4,7 +4,6 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  
 import { App } from "./App";
-import type { ApiError } from "./api/types";
 import { TokenGate } from "./auth/TokenGate";
 import "./index.css";
  
