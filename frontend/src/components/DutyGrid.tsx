@@ -9,7 +9,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import { useDoctors } from "@/api/doctors";
@@ -170,21 +170,23 @@ export function DutyGrid({ weekStartDate }: DutyGridProps) {
           </div>
         </div>
 
-        <table className="min-w-max border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="px-2 py-1 text-left font-medium text-ink/70" />
-              {columns.map((col) => (
-                <th key={col.key} className="border-b border-border px-2 py-1 text-center font-medium text-ink/70">
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+        <div>
+          <div
+            className="grid gap-px border border-border bg-border text-sm"
+            style={{ gridTemplateColumns: `3rem repeat(${columns.length}, minmax(3rem, 1fr))` }}
+          >
+            <div className="bg-background px-2 py-1" />
+            {columns.map((col) => (
+              <div
+                key={col.key}
+                className="bg-background px-2 py-1 text-center font-medium text-ink/70"
+              >
+                {col.label}
+              </div>
+            ))}
             {PERIODS.map((period) => (
-              <tr key={period}>
-                <td className="px-2 py-1 font-medium text-ink/70">{period}</td>
+              <Fragment key={period}>
+                <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
                 {columns.map((col) => {
                   const assignment = findAssignment(weekAssignments, col.date, period, col.dutyType);
                   return (
@@ -199,10 +201,10 @@ export function DutyGrid({ weekStartDate }: DutyGridProps) {
                     />
                   );
                 })}
-              </tr>
+              </Fragment>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       <DragOverlay>{activeDoctor ? <ChipOverlayPreview doctorCode={activeDoctor.doctorCode} /> : null}</DragOverlay>
@@ -245,10 +247,10 @@ function DutyDropCell({ date, period, dutyType, assignment, doctorCode, onRemove
   });
 
   return (
-    <td
+    <div
       ref={setNodeRef}
       data-testid={`duty-cell-${date}-${period}-${dutyType}`}
-      className={`border border-border px-2 py-1 text-center ${isOver ? "bg-accent/10" : "bg-white"}`}
+      className={`px-2 py-1 text-center ${isOver ? "bg-accent/10" : "bg-white"}`}
     >
       {assignment ? (
         <button
@@ -259,7 +261,7 @@ function DutyDropCell({ date, period, dutyType, assignment, doctorCode, onRemove
           {doctorCode}
         </button>
       ) : null}
-    </td>
+    </div>
   );
 }
 

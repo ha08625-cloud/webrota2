@@ -82,7 +82,11 @@ describe("DutyGrid", () => {
 
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     expect(within(cell).getByText("AB")).toBeInTheDocument();
-    expect(screen.queryByText("CD")).not.toBeInTheDocument();
+    // "CD" still appears once - as the sidebar's draggable doctor chip,
+    // which is unaffected by the selected week - just not a second time
+    // as an assigned chip in any grid cell, since that assignment falls
+    // outside the selected week.
+    expect(screen.getAllByText("CD")).toHaveLength(1);
   });
 
   it("clicking the chip in a filled cell deletes the assignment", async () => {
