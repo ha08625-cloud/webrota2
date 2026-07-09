@@ -1,6 +1,6 @@
 """Master rota router tests: GET /master-rota/active."""
-from app.database import Base
-from app.models import MasterRotaTemplate
+from app.models import MasterRotaSession, MasterRotaTemplate
+from app.models.enums import Day, MasterSessionType, Period
 
 
 class TestMasterRota:
@@ -14,20 +14,39 @@ class TestMasterRota:
         body = resp.json()
         assert body["template_id"] == seeded["template"]
         assert body["name"] == "Default"
-        assert len(body["sessions"]) == 2
+        # seeded (test_api_conftest.py): AA and BB, Monday AM + PM, all
+        # REQUIRES_ROOM, no room assigned.
+        assert len(body["sessions"]) == 4
 
-        by_doctor = {s["doctor_id"]: s for s in body["sessions"]}
-        aa_session = by_doctor[seeded["doctor_aa"]]
-        assert aa_session["doctor_code"] == "AA"
-        assert aa_session["session_type"] == "requires_room"
-        assert aa_session["room_id"] == seeded["room_c1"]
-        assert aa_session["room_code"] == "C1"
+        aa_sessions = [s for s in body["sessions"] if s["doctor_id"] == seeded["doctor_aa"]]
+        assert len(aa_sessions) == 2
+        assert {s["period"] for s in aa_sessions} == {"AM", "PM"}
+        for s in aa_sessions:
+            assert s["doctor_code"] == "AA"
+            assert s["session_type"] == "requires_room"
+            assert s["room_id"] is None
+            assert s["room_code"] is None
 
-        bb_session = by_doctor[seeded["doctor_bb"]]
-        assert bb_session["doctor_code"] == "BB"
-        assert bb_session["session_type"] == "admin_time"
-        assert bb_session["room_id"] is None
-        assert bb_session["room_code"] is None
+        bb_sessions = [s for s in body["sessions"] if s["doctor_id"] == seeded["doctor_bb"]]
+        assert len(bb_sessions) == 2
+        assert all(s["doctor_code"] == "BB" for s in bb_sessions)
+
+    def test_room_code_join(self, client, seeded, db_session):
+        db_session.add(MasterRotaSession(
+            template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=2,
+            day=Day.TUESDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room_id=seeded["room_c1"],
+        ))
+        db_session.commit()
+
+        resp = client.get("/api/v1/master-rota/active")
+        assert resp.status_code == 200
+        added = next(
+            s for s in resp.json()["sessions"]
+            if s["week"] == 2 and s["day"] == "Tuesday"
+        )
+        assert added["room_id"] == seeded["room_c1"]
+        assert added["room_code"] == "C1"
 
     def test_inactive_template_not_returned(self, client, seeded, db_session):
         db_session.add(MasterRotaTemplate(name="Old", is_active=False))
