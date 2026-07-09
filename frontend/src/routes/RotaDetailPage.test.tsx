@@ -141,12 +141,14 @@ describe("RotaDetailPage", () => {
 
   // --- Undo/toast wiring (M4.1 Task 0) ---
 
-  it("shows a disabled Undo button for a draft with no prior edit, and no Undo button for a committed rota", async () => {
+  it("shows a disabled Undo button for a draft with no prior edit", async () => {
     server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 7, status: "draft" }))));
     renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
 
     expect(await screen.findByRole("button", { name: "Undo" })).toBeDisabled();
+  });
 
+  it("shows no Undo button for a committed rota", async () => {
     server.use(
       http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))),
     );
