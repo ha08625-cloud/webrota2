@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
       // (client error, not transient); keep a couple of retries for
       // 5xx/network failures, which might be.
       retry: (failureCount, error) => {
-        const status = (error as ApiError | undefined)?.status;
+        const status = error?.status;
         if (typeof status === "number" && status >= 400 && status < 500) {
           return false;
         }
