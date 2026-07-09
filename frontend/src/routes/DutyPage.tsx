@@ -4,11 +4,13 @@ import type { FormEvent } from "react";
 import { useDoctors } from "@/api/doctors";
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import type { DutyType, Period } from "@/api/types";
+import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 export function DutyPage() {
   const { data: allDoctors } = useDoctors(false);
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
+  const addDoctorGroups = groupDoctorsByType(activeDoctors);
 
   const { data: assignments, isLoading, isError } = useDuty();
   const createDuty = useCreateDuty();
@@ -58,10 +60,14 @@ export function DutyPage() {
             className="mt-1 rounded border border-border p-1 text-sm"
           >
             <option value="">Select...</option>
-            {activeDoctors.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code}
-              </option>
+            {addDoctorGroups.map((group) => (
+              <optgroup key={group.type} label={group.label}>
+                {group.doctors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.code}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

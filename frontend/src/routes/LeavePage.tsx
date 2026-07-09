@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { useDoctors } from "@/api/doctors";
 import { useCreateLeave, useDeleteLeave, useLeave } from "@/api/leave";
 import type { Period } from "@/api/types";
+import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 type PeriodChoice = Period | "BOTH";
 
@@ -30,6 +31,8 @@ export function LeavePage() {
   const [addError, setAddError] = useState<string | null>(null);
 
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
+  const filterDoctorGroups = groupDoctorsByType(allDoctors ?? []);
+  const addDoctorGroups = groupDoctorsByType(activeDoctors);
 
   async function handleAdd(event: FormEvent) {
     event.preventDefault();
@@ -85,11 +88,15 @@ export function LeavePage() {
           className="ml-2 rounded border border-border p-1 text-sm"
         >
           <option value="">All doctors</option>
-          {(allDoctors ?? []).map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.code}
-              {d.active ? "" : " (inactive)"}
-            </option>
+          {filterDoctorGroups.map((group) => (
+            <optgroup key={group.type} label={group.label}>
+              {group.doctors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code}
+                  {d.active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>
@@ -106,10 +113,14 @@ export function LeavePage() {
             className="mt-1 rounded border border-border p-1 text-sm"
           >
             <option value="">Select...</option>
-            {activeDoctors.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.code}
-              </option>
+            {addDoctorGroups.map((group) => (
+              <optgroup key={group.type} label={group.label}>
+                {group.doctors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.code}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

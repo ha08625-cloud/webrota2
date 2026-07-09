@@ -5,7 +5,8 @@ import type { FormEvent } from "react";
 import { useCreateClinicType, useUpdateClinicType } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
-import type { ClinicType, Day, Period, RoomType } from "@/api/types";
+import type { ClinicType, Day, DoctorType, Period, RoomType } from "@/api/types";
+import { groupDoctorsByType } from "@/lib/groupDoctors";
 import {
   type ClinicTypeFormValues,
   clinicTypeFormSchema,
@@ -47,6 +48,16 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
   const activeDoctors = (doctors ?? []).filter((d) => d.active);
   const isSaving = createClinicType.isPending || updateClinicType.isPending;
 
+  // Filter *before* grouping: groupDoctorsByType omits a type entirely
+  // when it has no doctors in the list it's given, so passing the
+  // not-yet-added list (rather than all active doctors) is what makes a
+  // fully-added type's group - and its "All <type>" bulk option - vanish
+  // once there's nothing left to add.
+  const notYetAddedDoctors = activeDoctors.filter(
+    (d) => !values.doctorEligibilities.some((row) => row.doctorId === d.id),
+  );
+  const notYetAddedGroups = groupDoctorsByType(notYetAddedDoctors);
+
   function toggleSchedule(day: Day, period: Period) {
     setValues((prev) => {
       const exists = prev.schedules.some((s) => s.day === day && s.period === period);
@@ -63,6 +74,24 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
     setValues((prev) => ({
       ...prev,
       doctorEligibilities: [...prev.doctorEligibilities, { doctorId, doctorPriority: 1000 }],
+    }));
+  }
+
+  /**
+   * Bulk-add ("All doctors" / "All partners" etc.) - one state update for
+   * every id at once, rather than calling addDoctorEligibility in a loop
+   * (which would both be N re-renders and, worse, N reads of the same
+   * stale `prev` if not written as an updater function each time). Callers
+   * are expected to have already excluded ids already present.
+   */
+  function addManyDoctorEligibilities(doctorIds: number[]) {
+    if (doctorIds.length === 0) return;
+    setValues((prev) => ({
+      ...prev,
+      doctorEligibilities: [
+        ...prev.doctorEligibilities,
+        ...doctorIds.map((doctorId) => ({ doctorId, doctorPriority: 1000 })),
+      ],
     }));
   }
 
@@ -290,7 +319,17 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                 aria-label="Add doctor"
                 defaultValue=""
                 onChange={(e) => {
-                  if (e.target.value) addDoctorEligibility(Number(e.target.value));
+                  const val = e.target.value;
+                  if (val === "all") {
+                    addManyDoctorEligibilities(notYetAddedDoctors.map((d) => d.id));
+                  } else if (val.startsWith("all:")) {
+                    const type = val.slice(4) as DoctorType;
+                    addManyDoctorEligibilities(
+                      notYetAddedDoctors.filter((d) => d.doctor_type === type).map((d) => d.id),
+                    );
+                  } else if (val) {
+                    addDoctorEligibility(Number(val));
+                  }
                   e.target.value = "";
                 }}
                 className="mt-2 rounded border border-border p-1 text-sm"
@@ -298,13 +337,17 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                 <option value="" disabled>
                   Add doctor...
                 </option>
-                {activeDoctors
-                  .filter((d) => !values.doctorEligibilities.some((row) => row.doctorId === d.id))
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.code}
-                    </option>
-                  ))}
+                {notYetAddedDoctors.length > 0 ? <option value="all">All doctors</option> : null}
+                {notYetAddedGroups.map((group) => (
+                  <optgroup key={group.type} label={group.label}>
+                    <option value={`all:${group.type}`}>All {group.type === "AHP" ? "AHP" : group.label.toLowerCase()}</option>
+                    {group.doctors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </fieldset>
 

@@ -45,6 +45,25 @@ describe("DutyPage", () => {
     expect(within(table).getByText("primary")).toBeInTheDocument();
   });
 
+  it("the add-row select groups doctors into type optgroups, alphabetical within type", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "EM", doctor_type: "Salaried", active: true }),
+        makeDoctor({ id: 2, code: "LB", doctor_type: "Salaried", active: true }),
+        makeDoctor({ id: 3, code: "CL", doctor_type: "Partner", active: true }),
+      ],
+    });
+    renderWithProviders(<DutyPage />);
+
+    const select = (await screen.findByLabelText("Doctor")) as HTMLSelectElement;
+    await within(select).findByRole("option", { name: "CL" });
+
+    const groups = Array.from(select.querySelectorAll("optgroup"));
+    expect(groups.map((g) => g.label)).toEqual(["Partners", "Salaried"]);
+    const salariedCodes = Array.from(groups[1].querySelectorAll("option")).map((o) => o.textContent);
+    expect(salariedCodes).toEqual(["EM", "LB"]);
+  });
+
   it("adding an assignment posts the selected fields", async () => {
     setUpServer();
     let capturedBody: unknown;

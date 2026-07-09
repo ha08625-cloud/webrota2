@@ -70,6 +70,46 @@ describe("LeavePage", () => {
     expect(within(addSelect).queryByRole("option", { name: /ZZ/ })).not.toBeInTheDocument();
   });
 
+  it("the filter select groups doctors into type optgroups in Partner, Salaried, Trainee, AHP order", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "TR1", doctor_type: "Trainee", active: true }),
+        makeDoctor({ id: 2, code: "PA1", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 3, code: "SA1", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    renderWithProviders(<LeavePage />);
+
+    const filter = (await screen.findByLabelText("Doctor", {
+      selector: "#leave-filter",
+    })) as HTMLSelectElement;
+    await within(filter).findByRole("option", { name: "PA1" });
+
+    const groupLabels = Array.from(filter.querySelectorAll("optgroup")).map((g) => g.label);
+    expect(groupLabels).toEqual(["Partners", "Salaried", "Trainees"]);
+  });
+
+  it("the add-row select groups doctors alphabetically within each type", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "LFM", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CL", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 3, code: "DT", doctor_type: "Partner", active: true }),
+      ],
+    });
+    renderWithProviders(<LeavePage />);
+
+    const addSelect = (await screen.findByLabelText("Doctor", {
+      selector: "#leave-add-doctor",
+    })) as HTMLSelectElement;
+    await within(addSelect).findByRole("option", { name: "CL" });
+
+    const group = addSelect.querySelector("optgroup");
+    expect(group?.label).toBe("Partners");
+    const optionCodes = Array.from(group?.querySelectorAll("option") ?? []).map((o) => o.textContent);
+    expect(optionCodes).toEqual(["CL", "DT", "LFM"]);
+  });
+
   it("selecting a doctor in the filter refetches with doctor_id", async () => {
     setUpServer();
     let capturedUrl = "";
