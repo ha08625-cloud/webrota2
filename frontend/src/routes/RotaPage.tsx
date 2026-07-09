@@ -1,9 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useGenerateRota, useRotaList } from "@/api/rota";
 import type { ApiError, FastApiValidationError, GenerateRotaIn, ValidationIssue } from "@/api/types";
-import { formatDate, formatDateTime, isMonday } from "@/lib/date";
+import { formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
+
+const UPCOMING_WEEK_COUNT = 12;
 
 function isValidationIssueList(detail: unknown): detail is ValidationIssue[] {
   return (
@@ -72,22 +74,12 @@ function GenerateErrorMessage({ error }: { error: ApiError }) {
 function GenerateRotaForm() {
   const navigate = useNavigate();
   const generateRota = useGenerateRota();
-  const [startDate, setStartDate] = useState("");
+  const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
+  const [startDate, setStartDate] = useState(upcomingMondays[0]);
   const [numWeeks, setNumWeeks] = useState<1 | 2 | 4>(1);
-  const [dateError, setDateError] = useState<string | null>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!startDate) {
-      setDateError("Choose a start date.");
-      return;
-    }
-    if (!isMonday(startDate)) {
-      setDateError("Start date must be a Monday.");
-      return;
-    }
-    setDateError(null);
 
     // template_start_week is intentionally not a form field - always 1
     // for now (product decision: hide it until there's a real need to
@@ -111,19 +103,20 @@ function GenerateRotaForm() {
 
       <div className="mt-3">
         <label className="block text-sm font-medium text-ink" htmlFor="start-date">
-          Start date (must be a Monday)
+          Week starting
         </label>
-        <input
+        <select
           id="start-date"
-          type="date"
           value={startDate}
-          onChange={(event) => {
-            setStartDate(event.target.value);
-            setDateError(null);
-          }}
+          onChange={(event) => setStartDate(event.target.value)}
           className="mt-1 rounded border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-        />
-        {dateError ? <p className="mt-1 text-sm text-red-700">{dateError}</p> : null}
+        >
+          {upcomingMondays.map((monday) => (
+            <option key={monday} value={monday}>
+              {formatWeekLabel(monday)}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="mt-3">
