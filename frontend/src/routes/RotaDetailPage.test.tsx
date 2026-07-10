@@ -237,7 +237,7 @@ describe("RotaDetailPage", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
-  it("undoing a WFH patch that cannot restore the room shows the caveat toast", async () => {
+  it("undoing a WFH patch that cleared the room now follows up with set-room and shows Undone, not a caveat", async () => {
     setUpGridServer();
     const session = makeRotaSession({
       session_id: 42,
@@ -251,14 +251,23 @@ describe("RotaDetailPage", () => {
       room_code: "D1",
     });
     const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [session] });
+    const setRoomBodies: unknown[] = [];
     server.use(
       http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)),
       http.patch("/api/v1/rota/:rotaId/sessions/:sessionId", async ({ request }) => {
         const body = (await request.json()) as { is_wfh: boolean; notes: string | null };
-        // Room stays cleared regardless of direction, simulating the
-        // documented gap: PATCH cannot restore a cleared room.
+        // Room stays cleared regardless of direction, matching the
+        // documented PATCH invariant: is_wfh=false never restores a room.
         return HttpResponse.json({
           session: { ...session, is_wfh: body.is_wfh, notes: body.notes, room_id: null, room_code: null },
+          issues: [],
+        });
+      }),
+      http.post("/api/v1/rota/:rotaId/sessions/:sessionId/set-room", async ({ request }) => {
+        setRoomBodies.push(await request.json());
+        return HttpResponse.json({
+          session: { ...session, room_id: 3, room_code: "D1" },
+          displaced_session: null,
           issues: [],
         });
       }),
@@ -275,9 +284,9 @@ describe("RotaDetailPage", () => {
     await screen.findByText("Applied");
     await user.click(undoButton);
 
-    expect(
-      await screen.findByText("Undone - room could not be restored, reassign it manually"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Undone")).toBeInTheDocument();
+    expect(screen.queryByText(/could not be restored/)).not.toBeInTheDocument();
+    expect(setRoomBodies).toEqual([{ room_id: 3 }]);
   });
 
   it("shows Undo failed and re-enables the button when the replay PATCH fails", async () => {
@@ -351,5 +360,55 @@ describe("RotaDetailPage", () => {
 
     expect(await screen.findByText("Could not apply that change")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+
+  it("undo replays a multi-call set-role sequence in order: displaced first, then the target", async () => {
+    setUpGridServer();
+    const target = makeRotaSession({
+      session_id: 42, doctor_id: 1, day: "Monday", period: "AM",
+      role: "clinic", clinic_type_id: 9, clinic_type_name: "Dragon", template_type: "requires_room",
+    });
+    const holder = makeRotaSession({
+      session_id: 99, doctor_id: 2, day: "Monday", period: "AM",
+      role: "duty_primary", template_type: "requires_room",
+    });
+    const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [target, holder] });
+    const setRoleCalls: string[] = [];
+    server.use(
+      http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)),
+      http.post("/api/v1/rota/:rotaId/sessions/:sessionId/set-role", async ({ params }) => {
+        const sessionId = params.sessionId as string;
+        setRoleCalls.push(sessionId);
+        if (setRoleCalls.length === 1) {
+          // Forward call: target steals the holder's duty_primary role.
+          return HttpResponse.json({
+            session: { ...target, role: "duty_primary", clinic_type_id: null },
+            displaced_session: { ...holder, role: null, clinic_type_id: null },
+            issues: [],
+          });
+        }
+        return HttpResponse.json({
+          session: sessionId === "99" ? holder : target,
+          displaced_session: null,
+          issues: [],
+        });
+      }),
+    );
+
+    renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Dragon"));
+    await user.click(await screen.findByText("Change role..."));
+    await user.click(await screen.findByText("Duty (primary)"));
+    await user.click(await screen.findByRole("button", { name: "Reassign" }));
+
+    await screen.findByText("Applied");
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByText("Undone")).toBeInTheDocument();
+    // Forward call hits the target (42) first; the undo replay then
+    // restores the displaced session (99) before the target (42).
+    expect(setRoleCalls).toEqual(["42", "99", "42"]);
   });
 });
