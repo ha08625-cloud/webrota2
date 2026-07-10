@@ -1,7 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { makeDoctor, makeLeaveEntry } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -29,6 +29,20 @@ function setUpServer({
  */
 async function selectAddRowDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
   const select = await screen.findByLabelText("Doctor", { selector: "#leave-add-doctor" });
+  const option = await within(select).findByRole("option", { name: code });
+  await user.selectOptions(select, option);
+  return select;
+}
+
+async function selectRangeAddDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
+  const select = await screen.findByLabelText("Doctor", { selector: "#leave-range-add-doctor" });
+  const option = await within(select).findByRole("option", { name: code });
+  await user.selectOptions(select, option);
+  return select;
+}
+
+async function selectRangeDeleteDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
+  const select = await screen.findByLabelText("Doctor", { selector: "#leave-range-delete-doctor" });
   const option = await within(select).findByRole("option", { name: code });
   await user.selectOptions(select, option);
   return select;
@@ -144,8 +158,8 @@ describe("LeavePage", () => {
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
     await selectAddRowDoctor(user, "AB");
-    await user.type(screen.getByLabelText("Date"), "2026-08-03");
-    await user.selectOptions(screen.getByLabelText("Period"), "BOTH");
+    await user.type(screen.getByLabelText("Date", { selector: "#leave-add-date" }), "2026-08-03");
+    await user.selectOptions(screen.getByLabelText("Period", { selector: "#leave-add-period" }), "BOTH");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() => expect(postedBodies).toHaveLength(2));
@@ -166,7 +180,7 @@ describe("LeavePage", () => {
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
     await selectAddRowDoctor(user, "AB");
-    await user.type(screen.getByLabelText("Date"), "2026-08-03");
+    await user.type(screen.getByLabelText("Date", { selector: "#leave-add-date" }), "2026-08-03");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() => expect(postedBodies).toHaveLength(1));
@@ -191,8 +205,8 @@ describe("LeavePage", () => {
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
     await selectAddRowDoctor(user, "AB");
-    await user.type(screen.getByLabelText("Date"), "2026-08-03");
-    await user.selectOptions(screen.getByLabelText("Period"), "BOTH");
+    await user.type(screen.getByLabelText("Date", { selector: "#leave-add-date" }), "2026-08-03");
+    await user.selectOptions(screen.getByLabelText("Period", { selector: "#leave-add-period" }), "BOTH");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     expect(await screen.findByText(/PM:.*already exists/)).toBeInTheDocument();
@@ -220,5 +234,133 @@ describe("LeavePage", () => {
 
     expect(deleted).toBe(true);
     expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+  });
+
+  describe("add a range", () => {
+    it("submits the range and shows a summary of created/duplicate/weekend counts", async () => {
+      setUpServer();
+      server.use(
+        http.post("/api/v1/leave/bulk", async () =>
+          HttpResponse.json({
+            created: [
+              makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-07-13", period: "AM" }),
+              makeLeaveEntry({ id: 2, doctor_id: 1, date: "2026-07-14", period: "AM" }),
+            ],
+            skipped: [
+              { date: "2026-07-11", period: "AM", reason: "weekend" },
+              { date: "2026-07-15", period: "AM", reason: "duplicate" },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectRangeAddDoctor(user, "AB");
+      await user.type(screen.getByLabelText("Start date", { selector: "#leave-range-add-start" }), "2026-07-13");
+      await user.type(screen.getByLabelText("End date", { selector: "#leave-range-add-end" }), "2026-07-17");
+      await user.click(screen.getByRole("button", { name: "Add range" }));
+
+      expect(await screen.findByText(/2 entries added/)).toBeInTheDocument();
+      expect(screen.getByText(/1 already existed/)).toBeInTheDocument();
+      expect(screen.getByText(/1 weekend slots skipped/)).toBeInTheDocument();
+    });
+
+    it("sends the doctor, dates and period in the request body", async () => {
+      setUpServer();
+      let capturedBody: unknown;
+      server.use(
+        http.post("/api/v1/leave/bulk", async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json({ created: [], skipped: [] });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectRangeAddDoctor(user, "AB");
+      await user.type(screen.getByLabelText("Start date", { selector: "#leave-range-add-start" }), "2026-07-13");
+      await user.type(screen.getByLabelText("End date", { selector: "#leave-range-add-end" }), "2026-07-17");
+      await user.selectOptions(screen.getByLabelText("Period", { selector: "#leave-range-add-period" }), "BOTH");
+      await user.click(screen.getByRole("button", { name: "Add range" }));
+
+      await waitFor(() =>
+        expect(capturedBody).toEqual({
+          doctor_id: 1,
+          start_date: "2026-07-13",
+          end_date: "2026-07-17",
+          period: "BOTH",
+        }),
+      );
+    });
+
+    it("shows the server error detail on failure", async () => {
+      setUpServer();
+      server.use(
+        http.post("/api/v1/leave/bulk", async () =>
+          HttpResponse.json({ detail: "range must not exceed 366 days" }, { status: 422 }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectRangeAddDoctor(user, "AB");
+      await user.type(screen.getByLabelText("Start date", { selector: "#leave-range-add-start" }), "2026-07-13");
+      await user.type(screen.getByLabelText("End date", { selector: "#leave-range-add-end" }), "2026-07-17");
+      await user.click(screen.getByRole("button", { name: "Add range" }));
+
+      expect(await screen.findByText("range must not exceed 366 days")).toBeInTheDocument();
+    });
+  });
+
+  describe("remove a range", () => {
+    it("asks for confirmation before calling bulk-delete, and shows a summary on confirm", async () => {
+      setUpServer();
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      let called = false;
+      server.use(
+        http.post("/api/v1/leave/bulk-delete", async () => {
+          called = true;
+          return HttpResponse.json({ deleted_count: 4 });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectRangeDeleteDoctor(user, "AB");
+      await user.type(screen.getByLabelText("Start date", { selector: "#leave-range-delete-start" }), "2026-07-13");
+      await user.type(screen.getByLabelText("End date", { selector: "#leave-range-delete-end" }), "2026-07-17");
+      await user.click(screen.getByRole("button", { name: "Remove range" }));
+
+      expect(window.confirm).toHaveBeenCalled();
+      expect(called).toBe(true);
+      expect(await screen.findByText("4 entries removed.")).toBeInTheDocument();
+
+      vi.restoreAllMocks();
+    });
+
+    it("does not call bulk-delete if the confirmation is declined", async () => {
+      setUpServer();
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      let called = false;
+      server.use(
+        http.post("/api/v1/leave/bulk-delete", async () => {
+          called = true;
+          return HttpResponse.json({ deleted_count: 4 });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectRangeDeleteDoctor(user, "AB");
+      await user.type(screen.getByLabelText("Start date", { selector: "#leave-range-delete-start" }), "2026-07-13");
+      await user.type(screen.getByLabelText("End date", { selector: "#leave-range-delete-end" }), "2026-07-17");
+      await user.click(screen.getByRole("button", { name: "Remove range" }));
+
+      expect(window.confirm).toHaveBeenCalled();
+      expect(called).toBe(false);
+
+      vi.restoreAllMocks();
+    });
   });
 });
