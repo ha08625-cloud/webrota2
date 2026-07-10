@@ -57,7 +57,7 @@ export function DutyPage() {
 
       <div className="mt-4">
         <label className="block text-xs font-medium text-ink/70" htmlFor="duty-week-select">
-          Week
+          Start week
         </label>
         <select
           id="duty-week-select"
@@ -74,7 +74,7 @@ export function DutyPage() {
       </div>
 
       <div className="mt-4">
-        <DutyGrid weekStartDate={selectedWeek} />
+        <DutyGrid startWeekDate={selectedWeek} />
       </div>
 
       <form
