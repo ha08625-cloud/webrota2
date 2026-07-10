@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
+import type { MasterSessionType, SessionRole } from "@/api/types";
+
 export type UndoEntry =
   | {
       kind: "swap-roles" | "swap-rooms";
@@ -20,6 +22,51 @@ export type UndoEntry =
        */
       previousRoomId: number | null;
       previousRoomCode: string | null;
+    }
+  | {
+      /**
+       * M4.1 Task 2. previousIsWfh/previousNotes exist because a room
+       * pick can clear is_wfh server-side; restoring it goes through
+       * PATCH, which needs both fields. displaced carries only what
+       * replay needs to restore the other side (its own previous
+       * room_id), not a full session snapshot.
+       */
+      kind: "set-room";
+      sessionId: number;
+      previousRoomId: number | null;
+      previousIsWfh: boolean;
+      previousNotes: string | null;
+      displaced: { sessionId: number; roomId: number | null } | null;
+    }
+  | {
+      /**
+       * M4.1 Task 2. set-role is a verbatim triple setter, so replay must
+       * echo back the full previous (role, clinicTypeId, templateType)
+       * triple for both the target and (if present) the displaced
+       * session - including previous.roomId, needed only alongside
+       * roomWasCleared to decide whether replay needs a trailing
+       * set-room call. roomWasCleared is read off the forward mutation's
+       * own response (RotaGrid.handleSetRole) rather than re-derived
+       * from the triple at replay time - it is true exactly when the
+       * server's auto-clear rule fired (role=null, template_type in
+       * no_surgery/admin_time), which set-role can only ever do, never
+       * undo, so replay must restore the room explicitly when it did.
+       */
+      kind: "set-role";
+      sessionId: number;
+      previous: {
+        role: SessionRole | null;
+        clinicTypeId: number | null;
+        templateType: MasterSessionType | null;
+        roomId: number | null;
+      };
+      roomWasCleared: boolean;
+      displaced: {
+        sessionId: number;
+        role: SessionRole | null;
+        clinicTypeId: number | null;
+        templateType: MasterSessionType | null;
+      } | null;
     };
 
 /**
