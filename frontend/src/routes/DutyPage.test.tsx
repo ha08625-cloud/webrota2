@@ -110,7 +110,7 @@ describe("DutyPage", () => {
     setUpServer();
     renderWithProviders(<DutyPage />);
 
-    const select = (await screen.findByLabelText("Week")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText("Start week")) as HTMLSelectElement;
     const options = Array.from(select.querySelectorAll("option"));
     expect(options).toHaveLength(12);
     // "w/c 13 Jul 2026" shape - exact date depends on today, so only the
@@ -119,13 +119,13 @@ describe("DutyPage", () => {
     expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
   });
 
-  it("mounts the duty grid for the selected week, above the existing table", async () => {
+  it("mounts the duty grid for the selected start week, showing all 4 weeks above the existing table", async () => {
     setUpServer();
     renderWithProviders(<DutyPage />);
 
-    expect(await screen.findByText("Mon (1st)")).toBeInTheDocument();
-    expect(screen.getByText("Mon (2nd)")).toBeInTheDocument();
-    expect(screen.getByText("Fri")).toBeInTheDocument();
+    expect(await screen.findAllByText("Mon (1st)")).toHaveLength(4);
+    expect(screen.getAllByText("Mon (2nd)")).toHaveLength(4);
+    expect(screen.getAllByText("Fri")).toHaveLength(4);
   });
 
   it("delete removes an assignment", async () => {
