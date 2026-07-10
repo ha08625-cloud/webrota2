@@ -119,6 +119,27 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     );
   }
 
+  function handlePopoverSave(session: RotaSession, isWfh: boolean, notes: string | null) {
+    const issuesBefore = issues?.length ?? 0;
+    patchSession.mutate(
+      { rotaId: rota.rota_id, sessionId: session.session_id, isWfh, notes },
+      {
+        onSuccess: (data) => {
+          const entry: UndoEntry = {
+            kind: "patch",
+            sessionId: session.session_id,
+            previousIsWfh: session.is_wfh,
+            previousNotes: session.notes,
+            previousRoomId: session.room_id,
+            previousRoomCode: session.room_code,
+          };
+          onMutationApplied?.(entry, mutationAppliedMessage(issuesBefore, data.issues.length));
+        },
+        onError: () => onMutationError?.(),
+      },
+    );
+  }
+
   function handleSetRoom(session: RotaSession, roomId: number | null, displaced: RotaSession | null) {
     const issuesBefore = issues?.length ?? 0;
     setRoom.mutate(
