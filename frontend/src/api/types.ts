@@ -338,6 +338,41 @@ export interface GenerateRotaOut {
   issues: ValidationIssue[];
 }
 
+// --- Cell edit menu (M4.1 Task 1) ---
+// set-room and set-role mirror backend_app_api_schemas_rota.py exactly.
+// Both endpoints return the target session, an optional displaced
+// session (the one they stole from), and a fresh issues list.
+
+export interface SetRoomIn {
+  room_id: number | null;
+}
+
+export interface SetRoomOut {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
+/**
+ * Verbatim setter of the full (role, clinic_type_id, template_type)
+ * triple - all three fields are required (nullable, but must be present).
+ * See SetRoleIn's backend docstring: the caller (this frontend) is
+ * responsible for echoing the session's current template_type when the
+ * menu shape is meant to preserve it (duty/clinic picks) versus
+ * overwriting it (no_surgery/admin_time picks).
+ */
+export interface SetRoleIn {
+  role: SessionRole | null;
+  clinic_type_id: number | null;
+  template_type: MasterSessionType | null;
+}
+
+export interface SetRoleOut {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
 // --- Master rota (schemas/master_rota.py) ---
 // Read-only view of the active template. Named session_id/template_id,
 // matching RotaSession/Rota's convention (not the plain `id` used by
