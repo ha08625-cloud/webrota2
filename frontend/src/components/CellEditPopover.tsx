@@ -143,7 +143,7 @@ export function CellEditPopover({
       <Popover.Portal>
         <Popover.Content
           sideOffset={5}
-          className="w-64 rounded border border-border bg-surface p-3 shadow-lg"
+          className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
         >
           {view === "main" ? (
             <MainView
@@ -189,7 +189,7 @@ export function CellEditPopover({
   );
 }
 
-// --- Main view: WFH/notes (unchanged from M4) plus submenu navigation ---
+// --- Main view: navigation rows first, then WFH/notes/save ---
 
 interface MainViewProps {
   isWfh: boolean;
@@ -205,8 +205,12 @@ interface MainViewProps {
 function MainView({ isWfh, setIsWfh, notes, setNotes, saving, onSave, onOpenRooms, onOpenRoles }: MainViewProps) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={isWfh} onChange={(e) => setIsWfh(e.target.checked)} />
+      <div className="border-b border-border pb-2">
+        <MenuRow label="Change room..." onClick={onOpenRooms} />
+        <MenuRow label="Change role..." onClick={onOpenRoles} />
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isWfh} onChange={(e) => setIsWfh(e.target.checked)} aria-label="Working from home" />
         Working from home
       </label>
       <label className="mt-2 block text-sm">
@@ -228,10 +232,6 @@ function MainView({ isWfh, setIsWfh, notes, setNotes, saving, onSave, onOpenRoom
         >
           Save
         </button>
-      </div>
-      <div className="mt-3 border-t border-border pt-2">
-        <MenuRow label="Change room..." onClick={onOpenRooms} />
-        <MenuRow label="Change role..." onClick={onOpenRoles} />
       </div>
     </div>
   );
