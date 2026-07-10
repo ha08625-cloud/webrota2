@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { LeaveEntry, LeaveIn } from "./types";
+import type {
+  LeaveBulkDeleteIn,
+  LeaveBulkDeleteOut,
+  LeaveBulkIn,
+  LeaveBulkOut,
+  LeaveEntry,
+  LeaveIn,
+} from "./types";
 
 export const leaveKeys = {
   all: ["leave"] as const,
@@ -31,6 +38,27 @@ export function useDeleteLeave() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => apiClient.delete<void>(`/leave/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+    },
+  });
+}
+
+export function useBulkCreateLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: LeaveBulkIn) => apiClient.post<LeaveBulkOut>("/leave/bulk", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+    },
+  });
+}
+
+export function useBulkDeleteLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: LeaveBulkDeleteIn) =>
+      apiClient.post<LeaveBulkDeleteOut>("/leave/bulk-delete", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.all });
     },
