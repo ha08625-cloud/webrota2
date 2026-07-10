@@ -11,12 +11,12 @@ import {
 } from "@dnd-kit/core";
 import { useMemo, useState } from "react";
 
-import { usePatchSession, useRotaIssues, useSwapRoles, useSwapRooms } from "@/api/rota";
+import { usePatchSession, useRotaIssues, useSetRole, useSetRoom, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { useClinicTypes } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
-import { CellEditPopover } from "@/components/CellEditPopover";
+import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
 import { type ChipType, canDrop } from "@/lib/dragRules";
@@ -72,6 +72,8 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();
   const patchSession = usePatchSession();
+  const setRoom = useSetRoom();
+  const setRole = useSetRole();
 
   const weeks = useMemo(() => weekNumbers(rota.num_weeks), [rota.num_weeks]);
   const [activeWeek, setActiveWeek] = useState(weeks[0] ?? 1);
@@ -117,19 +119,55 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     );
   }
 
-  function handlePopoverSave(session: RotaSession, isWfh: boolean, notes: string | null) {
+  function handleSetRoom(session: RotaSession, roomId: number | null, displaced: RotaSession | null) {
     const issuesBefore = issues?.length ?? 0;
-    patchSession.mutate(
-      { rotaId: rota.rota_id, sessionId: session.session_id, isWfh, notes },
+    setRoom.mutate(
+      { rotaId: rota.rota_id, sessionId: session.session_id, roomId },
       {
         onSuccess: (data) => {
           const entry: UndoEntry = {
-            kind: "patch",
+            kind: "set-room",
             sessionId: session.session_id,
+            previousRoomId: session.room_id,
             previousIsWfh: session.is_wfh,
             previousNotes: session.notes,
-            previousRoomId: session.room_id,
-            previousRoomCode: session.room_code,
+            displaced: displaced ? { sessionId: displaced.session_id, roomId: displaced.room_id } : null,
+          };
+          onMutationApplied?.(entry, mutationAppliedMessage(issuesBefore, data.issues.length));
+        },
+        onError: () => onMutationError?.(),
+      },
+    );
+  }
+
+  function handleSetRole(session: RotaSession, triple: RoleTriple, displaced: RotaSession | null) {
+    const issuesBefore = issues?.length ?? 0;
+    setRole.mutate(
+      { rotaId: rota.rota_id, sessionId: session.session_id, triple },
+      {
+        onSuccess: (data) => {
+          // roomWasCleared is read off this response, not predicted from
+          // the triple: it is true exactly when the server's own
+          // auto-clear rule fired (see set_role's docstring).
+          const roomWasCleared = session.room_id !== null && data.session.room_id === null;
+          const entry: UndoEntry = {
+            kind: "set-role",
+            sessionId: session.session_id,
+            previous: {
+              role: session.role,
+              clinicTypeId: session.clinic_type_id,
+              templateType: session.template_type,
+              roomId: session.room_id,
+            },
+            roomWasCleared,
+            displaced: displaced
+              ? {
+                  sessionId: displaced.session_id,
+                  role: displaced.role,
+                  clinicTypeId: displaced.clinic_type_id,
+                  templateType: displaced.template_type,
+                }
+              : null,
           };
           onMutationApplied?.(entry, mutationAppliedMessage(issuesBefore, data.issues.length));
         },
@@ -207,11 +245,16 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                       day={day}
                       period={period}
                       session={session}
+                      allSessions={rota.sessions}
+                      rooms={rooms ?? []}
+                      clinicTypes={clinicTypes ?? []}
                       roomsById={roomsById}
                       clinicTypesById={clinicTypesById}
                       activeChip={activeChip}
                       onSave={handlePopoverSave}
-                      saving={patchSession.isPending}
+                      onSetRoom={handleSetRoom}
+                      onSetRole={handleSetRole}
+                      saving={patchSession.isPending || setRoom.isPending || setRole.isPending}
                       dividerClassName={dividerClassName}
                     />
                   ) : (
@@ -340,10 +383,16 @@ interface EditableGridCellProps {
   day: Day;
   period: Period;
   session: RotaSession | undefined;
+  /** The rota's flat session list, threaded down to CellEditPopover for client-side steal detection. */
+  allSessions: RotaSession[];
+  rooms: Room[];
+  clinicTypes: ClinicType[];
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
   activeChip: ActiveChip | null;
   onSave: (session: RotaSession, isWfh: boolean, notes: string | null) => void;
+  onSetRoom: (session: RotaSession, roomId: number | null, displaced: RotaSession | null) => void;
+  onSetRole: (session: RotaSession, triple: RoleTriple, displaced: RotaSession | null) => void;
   saving: boolean;
   /** See ReadOnlyGridCellProps.dividerClassName. */
   dividerClassName: string;
@@ -355,10 +404,15 @@ function EditableGridCell({
   day,
   period,
   session,
+  allSessions,
+  rooms,
+  clinicTypes,
   roomsById,
   clinicTypesById,
   activeChip,
   onSave,
+  onSetRoom,
+  onSetRole,
   saving,
   dividerClassName,
 }: EditableGridCellProps) {
@@ -395,6 +449,21 @@ function EditableGridCell({
     <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} draggable />
   );
 
+  // Leave cells: the popover trigger is not rendered at all (M4.1 plan) -
+  // there is nothing to edit on a session the doctor isn't working.
+  if (session.is_on_leave) {
+    return (
+      <td
+        ref={setNodeRef}
+        className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""} ${dividerClassName}`}
+        data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+        data-week-day-period={`${week}-${day}-${period}`}
+      >
+        {cellBody}
+      </td>
+    );
+  }
+
   return (
     <td
       ref={setNodeRef}
@@ -402,7 +471,16 @@ function EditableGridCell({
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
       data-week-day-period={`${week}-${day}-${period}`}
     >
-      <CellEditPopover session={session} onSave={(isWfh, notes) => onSave(session, isWfh, notes)} saving={saving}>
+      <CellEditPopover
+        session={session}
+        sessions={allSessions}
+        rooms={rooms}
+        clinicTypes={clinicTypes}
+        onSave={(isWfh, notes) => onSave(session, isWfh, notes)}
+        onSetRoom={(roomId, displaced) => onSetRoom(session, roomId, displaced)}
+        onSetRole={(triple, displaced) => onSetRole(session, triple, displaced)}
+        saving={saving}
+      >
         <div>{cellBody}</div>
       </CellEditPopover>
     </td>
