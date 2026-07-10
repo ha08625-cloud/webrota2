@@ -354,3 +354,115 @@ describe("RotaGrid", () => {
     expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
   });
 });
+
+describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
+  it("draft rota: leave cells render without an edit popover trigger", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      is_on_leave: true,
+      role: "duty_primary",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("LEAVE"));
+
+    expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
+    expect(screen.queryByText("Change room...")).not.toBeInTheDocument();
+  });
+
+  it("picking a held room via the menu shows the confirm panel, and Reassign calls set-room with the displaced session reported in the undo entry", async () => {
+    setUpServer({ rooms: [makeRoom({ id: 5, code: "D1", room_type: "D" })] });
+    const target = makeRotaSession({
+      session_id: 1, doctor_id: 1, day: "Monday", period: "AM", role: "duty_primary", room_id: null,
+    });
+    const holder = makeRotaSession({
+      session_id: 2, doctor_id: 2, day: "Monday", period: "AM", room_id: 5, doctor_code: "CD",
+    });
+    const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [target, holder] });
+    let requestBody: unknown;
+    server.use(
+      http.post("/api/v1/rota/:rotaId/sessions/:sessionId/set-room", async ({ request }) => {
+        requestBody = await request.json();
+        return HttpResponse.json({
+          session: { ...target, room_id: 5, room_code: "D1" },
+          displaced_session: { ...holder, room_id: null, room_code: null },
+          issues: [],
+        });
+      }),
+    );
+
+    const onMutationApplied = vi.fn();
+    renderWithProviders(<RotaGrid rota={rota} onMutationApplied={onMutationApplied} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    await user.click(await screen.findByText("Change room..."));
+    await user.click(await screen.findByText("D1"));
+
+    expect(await screen.findByText(/CD/)).toBeInTheDocument();
+    expect(requestBody).toBeUndefined();
+
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+
+    expect(requestBody).toEqual({ room_id: 5 });
+    expect(onMutationApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "set-room",
+        sessionId: 1,
+        previousRoomId: null,
+        displaced: { sessionId: 2, roomId: 5 },
+      }),
+      "Applied",
+    );
+  });
+
+  it("picking a role via the menu calls set-role and the undo entry carries the previous triple", async () => {
+    setUpServer();
+    const target = makeRotaSession({
+      session_id: 1, doctor_id: 1, day: "Monday", period: "AM",
+      role: "clinic", clinic_type_id: 9, template_type: "requires_room",
+    });
+    const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [target] });
+    let requestBody: unknown;
+    server.use(
+      http.post("/api/v1/rota/:rotaId/sessions/:sessionId/set-role", async ({ request }) => {
+        requestBody = await request.json();
+        return HttpResponse.json({
+          session: { ...target, role: "duty_primary", clinic_type_id: null },
+          displaced_session: null,
+          issues: [],
+        });
+      }),
+    );
+
+    const onMutationApplied = vi.fn();
+    renderWithProviders(<RotaGrid rota={rota} onMutationApplied={onMutationApplied} />);
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Clinic"));
+    await user.click(await screen.findByText("Change role..."));
+    await user.click(await screen.findByText("Duty (primary)"));
+
+    expect(requestBody).toEqual({
+      role: "duty_primary",
+      clinic_type_id: null,
+      template_type: "requires_room",
+    });
+    expect(onMutationApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "set-role",
+        sessionId: 1,
+        previous: { role: "clinic", clinicTypeId: 9, templateType: "requires_room", roomId: null },
+        roomWasCleared: false,
+        displaced: null,
+      }),
+      "Applied",
+    );
+  });
+});
