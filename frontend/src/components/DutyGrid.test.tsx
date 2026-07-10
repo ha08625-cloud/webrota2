@@ -24,29 +24,53 @@ function setUpServer({
 }
 
 // A fixed Monday used across tests - matches the "w/c 13 Jul 2026" example
-// in the implementation plan.
+// in the implementation plan. The 4-week window this anchors runs
+// 2026-07-13 (week 1 Monday) through 2026-08-07 (week 4 Friday).
 const MONDAY = "2026-07-13";
+const WEEK_START_DATES = ["2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03"];
 
 describe("DutyGrid", () => {
-  it("renders 6 day/subtype columns x 2 periods = 12 cells", async () => {
+  it("renders all 4 weeks, each with 6 day/subtype columns x 2 periods = 12 cells", async () => {
     setUpServer();
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    await screen.findByText("Mon (1st)");
-    expect(screen.getByText("Mon (2nd)")).toBeInTheDocument();
-    expect(screen.getByText("Tue")).toBeInTheDocument();
-    expect(screen.getByText("Fri")).toBeInTheDocument();
+    for (const ws of WEEK_START_DATES) {
+      const weekBlock = await screen.findByTestId(`duty-week-${ws}`);
+      expect(within(weekBlock).getByText("Mon (1st)")).toBeInTheDocument();
+      expect(within(weekBlock).getByText("Mon (2nd)")).toBeInTheDocument();
+      expect(within(weekBlock).getByText("Tue")).toBeInTheDocument();
+      expect(within(weekBlock).getByText("Fri")).toBeInTheDocument();
+    }
 
-    // Tuesday is 2026-07-14, Friday is 2026-07-17.
+    // Tuesday of week 1 is 2026-07-14, Friday of week 4 is 2026-08-07.
     expect(screen.getByTestId("duty-cell-2026-07-13-AM-primary")).toBeInTheDocument();
-    expect(screen.getByTestId("duty-cell-2026-07-13-PM-secondary")).toBeInTheDocument();
     expect(screen.getByTestId("duty-cell-2026-07-14-AM-primary")).toBeInTheDocument();
-    expect(screen.getByTestId("duty-cell-2026-07-17-PM-primary")).toBeInTheDocument();
+    expect(screen.getByTestId("duty-cell-2026-08-07-PM-primary")).toBeInTheDocument();
+  });
+
+  it("labels each week block with its own w/c date", async () => {
+    setUpServer();
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    await screen.findByText("w/c 13 Jul 2026");
+    expect(screen.getByText("w/c 20 Jul 2026")).toBeInTheDocument();
+    expect(screen.getByText("w/c 27 Jul 2026")).toBeInTheDocument();
+    expect(screen.getByText("w/c 3 Aug 2026")).toBeInTheDocument();
+  });
+
+  it("shares one doctor palette across all 4 weeks, not one per week", async () => {
+    setUpServer();
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    await screen.findByTestId("duty-doctor-chip-1");
+    // Exactly one chip per doctor, even though there are 4 week grids.
+    expect(screen.getAllByTestId("duty-doctor-chip-1")).toHaveLength(1);
+    expect(screen.getAllByTestId("duty-doctor-chip-2")).toHaveLength(1);
   });
 
   it("only lists Partner/Salaried doctors as draggable, not Trainee/AHP", async () => {
     setUpServer();
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     await screen.findByTestId("duty-doctor-chip-1");
     expect(screen.getByTestId("duty-doctor-chip-2")).toBeInTheDocument();
@@ -55,7 +79,7 @@ describe("DutyGrid", () => {
 
   it("draggable doctor chips are drag-registered", async () => {
     setUpServer();
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     const chip = await screen.findByTestId("duty-doctor-chip-1");
     expect(chip.className).toContain("cursor-grab");
@@ -65,27 +89,39 @@ describe("DutyGrid", () => {
     setUpServer({
       duty: [makeDutyAssignment({ id: 5, doctor_id: 1, date: "2026-07-13", period: "AM", duty_type: "primary" })],
     });
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     expect(within(cell).getByText("AB")).toBeInTheDocument();
   });
 
-  it("only shows assignments that fall within the selected week", async () => {
+  it("renders an assignment that falls in any of the 4 weeks, not just the first", async () => {
+    setUpServer({
+      duty: [makeDutyAssignment({ id: 6, doctor_id: 2, date: "2026-07-20", period: "AM", duty_type: "primary" })],
+    });
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    // 2026-07-20 is week 2's Monday, inside the 4-week window.
+    const cell = await screen.findByTestId("duty-cell-2026-07-20-AM-primary");
+    expect(within(cell).getByText("CD")).toBeInTheDocument();
+  });
+
+  it("only shows assignments within the 4-week window", async () => {
     setUpServer({
       duty: [
         makeDutyAssignment({ id: 5, doctor_id: 1, date: "2026-07-13", period: "AM", duty_type: "primary" }),
-        makeDutyAssignment({ id: 6, doctor_id: 2, date: "2026-07-20", period: "AM", duty_type: "primary" }),
+        // 2026-08-10 is start + 28 days - the Monday of the week after
+        // the 4-week window closes (window ends 2026-08-07).
+        makeDutyAssignment({ id: 6, doctor_id: 2, date: "2026-08-10", period: "AM", duty_type: "primary" }),
       ],
     });
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     expect(within(cell).getByText("AB")).toBeInTheDocument();
-    // "CD" still appears once - as the sidebar's draggable doctor chip,
-    // which is unaffected by the selected week - just not a second time
-    // as an assigned chip in any grid cell, since that assignment falls
-    // outside the selected week.
+    // "CD" appears once - as the shared sidebar's draggable doctor chip -
+    // and not a second time as an assigned chip anywhere in the 4-week
+    // window, since that assignment falls outside it.
     expect(screen.getAllByText("CD")).toHaveLength(1);
   });
 
@@ -107,7 +143,7 @@ describe("DutyGrid", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     await user.click(within(cell).getByText("AB"));
 
@@ -117,7 +153,7 @@ describe("DutyGrid", () => {
 
   it("an empty slot renders no chip and no delete control", async () => {
     setUpServer();
-    renderWithProviders(<DutyGrid weekStartDate={MONDAY} />);
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     expect(within(cell).queryByRole("button")).not.toBeInTheDocument();
