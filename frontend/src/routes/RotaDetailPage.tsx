@@ -1,11 +1,11 @@
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useCommitRota, usePatchSession, useRota, useScrapRota, useSwapRoles, useSwapRooms } from "@/api/rota";
+import { useCommitRota, usePatchSession, useRota, useScrapRota, useSetRole, useSetRoom, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { buildReplayRequest } from "@/lib/replayUndo";
+import { buildReplayRequest, type ReplayRequest } from "@/lib/replayUndo";
 import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
 export function RotaDetailPage() {
@@ -21,7 +21,10 @@ export function RotaDetailPage() {
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();
   const patchSession = usePatchSession();
-  const undoPending = swapRoles.isPending || swapRooms.isPending || patchSession.isPending;
+  const setRoom = useSetRoom();
+  const setRole = useSetRole();
+  const undoPending =
+    swapRoles.isPending || swapRooms.isPending || patchSession.isPending || setRoom.isPending || setRole.isPending;
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -86,36 +89,66 @@ export function RotaDetailPage() {
     showToast("Could not apply that change");
   }
 
-  function handleUndo() {
+  /**
+   * Executes one replay request and, for a "patch" request only, returns
+   * the response's room_id so handleUndo can decide whether the upgraded
+   * follow-up set-room call is needed (see replayUndo.ts for why that
+   * decision can't be part of the pre-built sequence).
+   */
+  async function executeReplayRequest(request: ReplayRequest): Promise<number | null | undefined> {
+    if (request.kind === "patch") {
+      const data = await patchSession.mutateAsync(request.payload);
+      return data.session.room_id;
+    }
+    if (request.kind === "set-room") {
+      await setRoom.mutateAsync(request.payload);
+      return undefined;
+    }
+    if (request.kind === "set-role") {
+      await setRole.mutateAsync(request.payload);
+      return undefined;
+    }
+    const mutation = request.kind === "swap-roles" ? swapRoles : swapRooms;
+    await mutation.mutateAsync(request.payload);
+    return undefined;
+  }
+
+  async function handleUndo() {
     const entry = undoStack.consume();
     if (!entry) return;
 
-    const request = buildReplayRequest(entry, currentRotaId);
+    const requests = buildReplayRequest(entry, currentRotaId);
 
-    if (request.kind === "patch") {
-      patchSession.mutate(request.payload, {
-        onSuccess: (data) => {
-          const roomLost = entry.kind === "patch" && entry.previousRoomId !== null && data.session.room_id === null;
-          showToast(roomLost ? "Undone - room could not be restored, reassign it manually" : "Undone");
-        },
-        onError: () => {
-          // Nothing changed server-side, so the entry is still valid -
-          // re-push it so the user can retry.
-          undoStack.push(entry);
-          showToast("Undo failed");
-        },
-      });
-      return;
+    try {
+      let lastPatchRoomId: number | null | undefined;
+      for (const request of requests) {
+        const roomId = await executeReplayRequest(request);
+        if (request.kind === "patch") {
+          lastPatchRoomId = roomId;
+        }
+      }
+      // Upgraded patch replay (M4.1): PATCH is_wfh=false never restores a
+      // room by itself. If the entry had a room before the original edit
+      // and the PATCH replay's own response shows it's still missing,
+      // follow up with set-room - closing what used to be a permanent
+      // gap surfaced as a caveat toast (see usePatchSession's docstring).
+      if (entry.kind === "patch" && entry.previousRoomId !== null && lastPatchRoomId === null) {
+        await setRoom.mutateAsync({
+          rotaId: currentRotaId,
+          sessionId: entry.sessionId,
+          roomId: entry.previousRoomId,
+        });
+      }
+      showToast("Undone");
+    } catch {
+      // Every step in a replay sequence is idempotent-enough for a retry
+      // (re-clearing a cleared value, re-assigning a held value are
+      // no-ops) - re-push the whole entry so Undo retries the full
+      // sequence from the start, matching the single-call behaviour this
+      // replaces.
+      undoStack.push(entry);
+      showToast("Undo failed");
     }
-
-    const mutation = request.kind === "swap-roles" ? swapRoles : swapRooms;
-    mutation.mutate(request.payload, {
-      onSuccess: () => showToast("Undone"),
-      onError: () => {
-        undoStack.push(entry);
-        showToast("Undo failed");
-      },
-    });
   }
 
   return (
