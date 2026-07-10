@@ -228,6 +228,37 @@ export interface LeaveIn {
   period: Period;
 }
 
+export type PeriodOrBoth = Period | "BOTH";
+
+export interface LeaveBulkIn {
+  doctor_id: number;
+  start_date: string;
+  end_date: string;
+  period: PeriodOrBoth;
+}
+
+export interface LeaveBulkSkipped {
+  date: string;
+  period: Period;
+  reason: "weekend" | "duplicate";
+}
+
+export interface LeaveBulkOut {
+  created: LeaveEntry[];
+  skipped: LeaveBulkSkipped[];
+}
+
+export interface LeaveBulkDeleteIn {
+  doctor_id: number;
+  start_date: string;
+  end_date: string;
+  period: PeriodOrBoth;
+}
+
+export interface LeaveBulkDeleteOut {
+  deleted_count: number;
+}
+
 // --- Duty (schemas_duty.py) ---
 
 export type DutyType = "primary" | "secondary";
