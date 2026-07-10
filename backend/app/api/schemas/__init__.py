@@ -33,7 +33,15 @@ from .doctor import (
     PreferredRoomIn,
     PreferredRoomOut,
 )
-from .leave import LeaveIn, LeaveOut
+from .leave import (
+    LeaveBulkDeleteIn,
+    LeaveBulkDeleteOut,
+    LeaveBulkIn,
+    LeaveBulkOut,
+    LeaveBulkSkippedOut,
+    LeaveIn,
+    LeaveOut,
+)
 from .duty import DutyIn, DutyOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
@@ -48,6 +56,9 @@ __all__ = [
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
     "PreferredRoomIn", "PreferredRoomOut",
-    "LeaveIn", "LeaveOut", "DutyIn", "DutyOut",
+    "LeaveIn", "LeaveOut",
+    "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
+    "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
+    "DutyIn", "DutyOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
 ]
