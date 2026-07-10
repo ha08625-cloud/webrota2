@@ -14,13 +14,14 @@ import { Fragment, useMemo, useState } from "react";
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import { useDoctors } from "@/api/doctors";
 import type { Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
-import { addDays } from "@/lib/date";
+import { addDays, formatWeekLabel } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
 
 const TUE_FRI_DAYS = ["Tuesday", "Wednesday", "Thursday", "Friday"] as const;
 const TUE_FRI_OFFSETS = [1, 2, 3, 4];
 const PERIODS: Period[] = ["AM", "PM"];
+const WEEK_COUNT = 4;
 
 interface Column {
   key: string;
@@ -29,7 +30,7 @@ interface Column {
   dutyType: DutyType;
 }
 
-/** Builds the grid's 6 columns (Mon-primary, Mon-secondary, Tue..Fri) for a given week-start Monday. */
+/** Builds one week's 6 columns (Mon-primary, Mon-secondary, Tue..Fri) for a given week-start Monday. */
 function buildColumns(weekStartDate: string): Column[] {
   const columns: Column[] = [
     { key: "mon-primary", label: "Mon (1st)", date: weekStartDate, dutyType: "primary" },
@@ -56,22 +57,24 @@ function findAssignment(
 }
 
 interface DutyGridProps {
-  /** The selected week's Monday, "YYYY-MM-DD". */
-  weekStartDate: string;
+  /** The first of the 4 displayed weeks' Monday, "YYYY-MM-DD". */
+  startWeekDate: string;
 }
 
 /**
- * Drag-and-drop duty grid for one week: drag a doctor from the left-hand
- * list onto one of 12 slots (Monday primary/secondary AM+PM, Tuesday-
- * Friday primary-only AM+PM) to assign duty. Dropping onto an occupied
- * slot confirms with the user, then deletes the existing assignment and
- * creates the new one as two sequential calls (no combined endpoint
- * exists - same "independent calls, honest partial failure" pattern as
- * the flat table's existing Delete button and Leave's both-AM+PM add).
- * Clicking the chip in a filled cell removes it, same semantics as the
- * flat table's Delete button, just relocated onto the chip itself.
+ * Drag-and-drop duty board: 4 consecutive weeks (starting from
+ * startWeekDate), each its own 6-column x 2-period grid, stacked
+ * vertically, sharing one doctor palette and one DndContext so a chip
+ * can be dropped onto a slot in any of the 4 weeks. Dropping onto an
+ * occupied slot confirms with the user, then deletes the existing
+ * assignment and creates the new one as two sequential calls (no
+ * combined endpoint exists - same "independent calls, honest partial
+ * failure" pattern as the flat table's existing Delete button and
+ * Leave's both-AM+PM add). Clicking the chip in a filled cell removes
+ * it, same semantics as the flat table's Delete button, just relocated
+ * onto the chip itself.
  */
-export function DutyGrid({ weekStartDate }: DutyGridProps) {
+export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
   const createDuty = useCreateDuty();
@@ -79,13 +82,18 @@ export function DutyGrid({ weekStartDate }: DutyGridProps) {
 
   const [activeDoctor, setActiveDoctor] = useState<DraggableDoctor | null>(null);
 
-  const columns = useMemo(() => buildColumns(weekStartDate), [weekStartDate]);
-  const weekDates = useMemo(() => new Set(columns.map((c) => c.date)), [columns]);
-
-  const weekAssignments = useMemo(
-    () => (allAssignments ?? []).filter((a) => weekDates.has(a.date)),
-    [allAssignments, weekDates],
+  const weekStartDates = useMemo(
+    () => Array.from({ length: WEEK_COUNT }, (_, i) => addDays(startWeekDate, i * 7)),
+    [startWeekDate],
   );
+
+  // The full 4-week window's dates, so each DutyWeekTable can filter
+  // down to just its own 6 dates without re-fetching or re-deriving
+  // the window itself.
+  const windowAssignments = useMemo(() => {
+    const windowDates = new Set(weekStartDates.flatMap((ws) => buildColumns(ws).map((c) => c.date)));
+    return (allAssignments ?? []).filter((a) => windowDates.has(a.date));
+  }, [allAssignments, weekStartDates]);
 
   const doctorsById = useMemo(() => {
     const map = new Map<number, Doctor>();
@@ -170,45 +178,74 @@ export function DutyGrid({ weekStartDate }: DutyGridProps) {
           </div>
         </div>
 
-        <div>
-          <div
-            className="grid gap-px border border-border bg-border text-sm"
-            style={{ gridTemplateColumns: `3rem repeat(${columns.length}, minmax(3rem, 1fr))` }}
-          >
-            <div className="bg-background px-2 py-1" />
-            {columns.map((col) => (
-              <div
-                key={col.key}
-                className="bg-background px-2 py-1 text-center font-medium text-ink/70"
-              >
-                {col.label}
-              </div>
-            ))}
-            {PERIODS.map((period) => (
-              <Fragment key={period}>
-                <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
-                {columns.map((col) => {
-                  const assignment = findAssignment(weekAssignments, col.date, period, col.dutyType);
-                  return (
-                    <DutyDropCell
-                      key={col.key}
-                      date={col.date}
-                      period={period}
-                      dutyType={col.dutyType}
-                      assignment={assignment}
-                      doctorCode={assignment ? doctorsById.get(assignment.doctor_id)?.code ?? "?" : null}
-                      onRemove={handleRemove}
-                    />
-                  );
-                })}
-              </Fragment>
-            ))}
-          </div>
+        <div className="flex-1 space-y-6">
+          {weekStartDates.map((weekStartDate) => (
+            <DutyWeekTable
+              key={weekStartDate}
+              weekStartDate={weekStartDate}
+              assignments={windowAssignments}
+              doctorsById={doctorsById}
+              onRemove={handleRemove}
+            />
+          ))}
         </div>
       </div>
 
       <DragOverlay>{activeDoctor ? <ChipOverlayPreview doctorCode={activeDoctor.doctorCode} /> : null}</DragOverlay>
     </DndContext>
+  );
+}
+
+interface DutyWeekTableProps {
+  weekStartDate: string;
+  /** Assignments for the whole 4-week window - findAssignment matches by
+   * exact date, so passing the full window rather than a pre-filtered
+   * per-week slice is equally correct and one less thing to keep in sync. */
+  assignments: DutyAssignment[];
+  doctorsById: Map<number, Doctor>;
+  onRemove: (assignmentId: number) => void;
+}
+
+/** One week's 6-column x 2-period duty grid. Must be rendered inside an
+ * ancestor DndContext - it has no DndContext of its own, since DutyGrid
+ * shares one across all 4 weeks. */
+function DutyWeekTable({ weekStartDate, assignments, doctorsById, onRemove }: DutyWeekTableProps) {
+  const columns = useMemo(() => buildColumns(weekStartDate), [weekStartDate]);
+
+  return (
+    <div data-testid={`duty-week-${weekStartDate}`}>
+      <h3 className="text-xs font-medium text-ink/70">{formatWeekLabel(weekStartDate)}</h3>
+      <div
+        className="mt-1 grid gap-px border border-border bg-border text-sm"
+        style={{ gridTemplateColumns: `3rem repeat(${columns.length}, minmax(3rem, 1fr))` }}
+      >
+        <div className="bg-background px-2 py-1" />
+        {columns.map((col) => (
+          <div key={col.key} className="bg-background px-2 py-1 text-center font-medium text-ink/70">
+            {col.label}
+          </div>
+        ))}
+        {PERIODS.map((period) => (
+          <Fragment key={period}>
+            <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
+            {columns.map((col) => {
+              const assignment = findAssignment(assignments, col.date, period, col.dutyType);
+              return (
+                <DutyDropCell
+                  key={col.key}
+                  date={col.date}
+                  period={period}
+                  dutyType={col.dutyType}
+                  assignment={assignment}
+                  doctorCode={assignment ? doctorsById.get(assignment.doctor_id)?.code ?? "?" : null}
+                  onRemove={onRemove}
+                />
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+    </div>
   );
 }
 
