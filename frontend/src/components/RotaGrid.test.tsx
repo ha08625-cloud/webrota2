@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { HttpResponse, http } from "msw";
 import { screen, within } from "@testing-library/react";
