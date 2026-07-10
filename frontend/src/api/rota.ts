@@ -7,6 +7,8 @@ import type {
   Rota,
   RotaSession,
   RotaSummary,
+  SessionRole,
+  MasterSessionType,
   ValidationIssue,
 } from "./types";
 
@@ -182,13 +184,14 @@ interface PatchSessionResponse {
  * true subset.
  *
  * Setting is_wfh true clears room_id server-side; setting it back false
- * does NOT restore a room (SessionPatchIn's own docstring). There is no
- * API path to restore a cleared room at all - PATCH has no room_id
- * field, and swap-rooms 422s once neither session holds a room. This is
- * a genuine, permanent gap in the frozen M3.5 contract, not something
- * this hook can route around; RotaDetailPage's undo handling surfaces it
- * as a toast rather than silently returning a "successful" undo that
- * didn't fully restore state.
+ * does NOT restore a room (SessionPatchIn's own docstring) - PATCH has no
+ * room_id field. This was a permanent gap through M4: there was no API
+ * path to restore a cleared room at all, so RotaDetailPage's undo
+ * handling surfaced it as a caveat toast rather than silently returning
+ * a "successful" undo that didn't fully restore state. M4.1 Task 1's
+ * nullable set-room closes the gap - replayUndo's upgraded "patch" replay
+ * sequence now follows a PATCH restore with a set-room call when needed,
+ * and the caveat toast path has been removed.
  */
 export function usePatchSession() {
   const queryClient = useQueryClient();
@@ -200,6 +203,88 @@ export function usePatchSession() {
       }),
     onSuccess: (data, { rotaId }) => {
       updateRotaCache(queryClient, rotaId, [data.session]);
+      updateIssuesCache(queryClient, rotaId, data.issues);
+    },
+  });
+}
+
+// --- Cell edit menu: set-room / set-role (M4.1 Task 2) ---
+// Both mirror the PATCH/swap pattern above: splice the response session(s)
+// into the rota cache, write fresh issues, no invalidate/refetch.
+
+export interface SetRoomPayload {
+  rotaId: number;
+  sessionId: number;
+  roomId: number | null;
+}
+
+interface SetRoomResponse {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
+function updatedSessionsFrom(session: RotaSession, displaced: RotaSession | null): RotaSession[] {
+  return displaced === null ? [session] : [session, displaced];
+}
+
+/**
+ * One-sided room assign/clear with server-side displacement. room_id
+ * null clears the target's room. See backend set_room docstring for the
+ * steal/no-op semantics; this hook is a thin wire wrapper with no
+ * client-side displacement logic of its own (that lives in
+ * slotConflict.ts, and is advisory only - the server's own lookup is the
+ * source of truth for what actually happens).
+ */
+export function useSetRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId, sessionId, roomId }: SetRoomPayload) =>
+      apiClient.post<SetRoomResponse>(`/rota/${rotaId}/sessions/${sessionId}/set-room`, {
+        room_id: roomId,
+      }),
+    onSuccess: (data, { rotaId }) => {
+      updateRotaCache(queryClient, rotaId, updatedSessionsFrom(data.session, data.displaced_session));
+      updateIssuesCache(queryClient, rotaId, data.issues);
+    },
+  });
+}
+
+export interface SetRoleTriple {
+  role: SessionRole | null;
+  clinicTypeId: number | null;
+  templateType: MasterSessionType | null;
+}
+
+export interface SetRolePayload {
+  rotaId: number;
+  sessionId: number;
+  triple: SetRoleTriple;
+}
+
+interface SetRoleResponse {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
+/**
+ * Verbatim (role, clinic_type_id, template_type) triple setter with
+ * server-side displacement for steal-class assignments. The caller
+ * (CellEditPopover / RotaGrid / replayUndo) is responsible for the
+ * template_type it sends - this hook does not infer or preserve it.
+ */
+export function useSetRole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId, sessionId, triple }: SetRolePayload) =>
+      apiClient.post<SetRoleResponse>(`/rota/${rotaId}/sessions/${sessionId}/set-role`, {
+        role: triple.role,
+        clinic_type_id: triple.clinicTypeId,
+        template_type: triple.templateType,
+      }),
+    onSuccess: (data, { rotaId }) => {
+      updateRotaCache(queryClient, rotaId, updatedSessionsFrom(data.session, data.displaced_session));
       updateIssuesCache(queryClient, rotaId, data.issues);
     },
   });
