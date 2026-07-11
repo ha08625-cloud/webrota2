@@ -5,13 +5,20 @@ Field naming follows RotaSessionOut/RotaOut's convention, not the plain
 these objects sit in a list alongside other `_id` fields (doctor_id,
 room_id), so a bare `id` would be ambiguous. See schemas/rota.py.
 
-MasterSessionPatchIn/Out (M4.3 Task 1) add the single-session edit path
-on top of the original read-only GET. Both fields on the patch are
-always required, mirroring SetRoleIn's verbatim-triple philosophy: the
-endpoint is a plain pair setter, which is what makes undo replay on the
-frontend trivially expressible as another PATCH with the previous pair.
+MasterSessionPatchIn (M4.3 Task 1) added the single-session edit path on
+top of the original read-only GET. Both fields on the patch are always
+required, mirroring SetRoleIn's verbatim-triple philosophy: the endpoint
+is a plain pair setter, which is what makes undo replay on the frontend
+trivially expressible as another PATCH with the previous pair.
+
+M4.4 Task 1 adds MasterSessionCreateIn (POST, create a slot) alongside
+PATCH. The session_type/room_id pair validator is factored out onto
+MasterSessionPairIn so it isn't duplicated between the two; both PATCH
+and POST responses now share MasterSessionWriteOut (renamed from
+MasterSessionPatchOut -- no frontend code references the Python class
+name, only the JSON shape, so this rename is safe).
 """
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
 
@@ -59,18 +66,14 @@ _ROOM_FORBIDDEN: set[MasterSessionType] = {
 }
 
 
-class MasterSessionPatchIn(BaseModel):
-    """PATCH /master-rota/templates/{template_id}/sessions/{session_id}.
-
-    Both fields are always present -- a verbatim pair setter, not a partial
-    update -- so the frontend's undo replay can restore any previous
-    (session_type, room_id) pair with the same call shape the menu uses.
-    """
+class MasterSessionPairIn(BaseModel):
+    """Shared (session_type, room_id) pair validator -- the M4.3 PATCH
+    validator, factored out at M4.4 so POST doesn't duplicate it."""
     session_type: MasterSessionType
     room_id: int | None
 
     @model_validator(mode="after")
-    def _check_room_matches_type(self) -> "MasterSessionPatchIn":
+    def _check_room_matches_type(self) -> "MasterSessionPairIn":
         if self.session_type in _ROOM_REQUIRED and self.room_id is None:
             raise ValueError(
                 f"{self.session_type.value} requires a room_id"
@@ -82,6 +85,29 @@ class MasterSessionPatchIn(BaseModel):
         return self
 
 
-class MasterSessionPatchOut(BaseModel):
+class MasterSessionPatchIn(MasterSessionPairIn):
+    """PATCH /master-rota/templates/{template_id}/sessions/{session_id}.
+
+    Both fields are always present -- a verbatim pair setter, not a partial
+    update -- so the frontend's undo replay can restore any previous
+    (session_type, room_id) pair with the same call shape the menu uses.
+    """
+
+
+class MasterSessionCreateIn(MasterSessionPairIn):
+    """POST /master-rota/templates/{template_id}/sessions.
+
+    Adds the slot coordinates on top of the shared pair validator: PATCH
+    addresses an existing row by session_id, POST has no row yet so the
+    full (doctor_id, week, day, period) slot must be supplied."""
+    doctor_id: int
+    week: int = Field(ge=1, le=4)
+    day: Day
+    period: Period
+
+
+class MasterSessionWriteOut(BaseModel):
+    """Shared response shape for both PATCH and POST (M4.4 rename from
+    MasterSessionPatchOut -- identical shape, now also used by create)."""
     session: MasterRotaSessionOut
     displaced_session: MasterRotaSessionOut | None
