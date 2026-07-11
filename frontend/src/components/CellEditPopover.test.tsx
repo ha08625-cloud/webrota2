@@ -1,218 +1,277 @@
-import { screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeRoom } from "@/test/fixtures/reference";
-import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
-import { renderWithProviders } from "@/test/renderWithProviders";
+import { makeClinicType, makeRoom } from "@/test/fixtures/reference";
+import { makeRotaSession } from "@/test/fixtures/rota";
+import type { RotaSession } from "@/api/types";
 
-import { MasterCellEditPopover } from "./MasterCellEditPopover";
+import { CellEditPopover } from "./CellEditPopover";
 
-function openMenu() {
-  return userEvent.setup();
-}
-
-function renderPopover({
-  session = makeMasterRotaSession({ session_id: 1, session_type: "requires_room", room_id: null }),
-  sessions = [session],
-  rooms = [makeRoom({ id: 5, code: "D1" })],
-  onPick = vi.fn(),
-  saving = false,
+function renderPopover(overrides: {
+  session?: RotaSession;
+  sessions?: RotaSession[];
+  rooms?: ReturnType<typeof makeRoom>[];
+  clinicTypes?: ReturnType<typeof makeClinicType>[];
+  onSave?: ReturnType<typeof vi.fn>;
+  onSetRoom?: ReturnType<typeof vi.fn>;
+  onSetRole?: ReturnType<typeof vi.fn>;
+  saving?: boolean;
 } = {}) {
-  renderWithProviders(
-    <MasterCellEditPopover session={session} sessions={sessions} rooms={rooms} onPick={onPick} saving={saving}>
-      <button type="button">Cell</button>
-    </MasterCellEditPopover>,
+  const session = overrides.session ?? makeRotaSession();
+  const onSave = overrides.onSave ?? vi.fn();
+  const onSetRoom = overrides.onSetRoom ?? vi.fn();
+  const onSetRole = overrides.onSetRole ?? vi.fn();
+
+  render(
+    <CellEditPopover
+      session={session}
+      sessions={overrides.sessions ?? [session]}
+      rooms={overrides.rooms ?? []}
+      clinicTypes={overrides.clinicTypes ?? []}
+      onSave={onSave}
+      onSetRoom={onSetRoom}
+      onSetRole={onSetRole}
+      saving={overrides.saving ?? false}
+    >
+      <div>Cell content</div>
+    </CellEditPopover>,
   );
-  return { session, sessions, rooms, onPick };
+
+  return { session, onSave, onSetRoom, onSetRole };
 }
 
-describe("MasterCellEditPopover: menu", () => {
-  it("renders all five session-type options on open", async () => {
-    renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
+describe("CellEditPopover", () => {
+  // --- Main view: WFH/notes save path (unchanged from M4) ---
 
-    expect(await screen.findByText("Normal clinic")).toBeInTheDocument();
-    expect(screen.getByText("Pre-assigned room...")).toBeInTheDocument();
-    expect(screen.getByText("Admin time...")).toBeInTheDocument();
-    expect(screen.getByText("No surgery")).toBeInTheDocument();
-    expect(screen.getByText("WFH")).toBeInTheDocument();
-    // No WFH checkbox/toggle - the five options are the whole menu.
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  it("opens on click and shows the current WFH/notes values", async () => {
+    const user = userEvent.setup();
+    renderPopover({ session: makeRotaSession({ is_wfh: true, notes: "Covering for AB" }) });
+
+    await user.click(screen.getByText("Cell content"));
+
+    expect(await screen.findByLabelText("Working from home")).toBeChecked();
+    expect(screen.getByLabelText("Notes")).toHaveValue("Covering for AB");
   });
-});
 
-describe("MasterCellEditPopover: direct picks", () => {
-  it("Normal clinic calls onPick with requires_room and a null room, no confirm", async () => {
-    const { onPick } = renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
+  it("Save sends both fields explicitly, matching the edited form state", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderPopover({ session: makeRotaSession({ is_wfh: false, notes: null }) });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByLabelText("Working from home"));
+    await user.type(screen.getByLabelText("Notes"), "Back from leave");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(true, "Back from leave");
+  });
+
+  it("an emptied notes field is sent as null, not an empty string", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderPopover({ session: makeRotaSession({ is_wfh: false, notes: "Old note" }) });
+
+    await user.click(screen.getByText("Cell content"));
+    const notesField = await screen.findByLabelText("Notes");
+    await user.clear(notesField);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(false, null);
+  });
+
+  it("Cancel closes the popover without calling onSave", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderPopover();
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  // --- View navigation ---
+
+  it("navigates to the rooms submenu and back to main", async () => {
+    const user = userEvent.setup();
+    renderPopover({ rooms: [makeRoom({ id: 1, code: "D1" })] });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change room..."));
+    expect(await screen.findByText("D1")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Back"));
+    expect(await screen.findByLabelText("Working from home")).toBeInTheDocument();
+  });
+
+  it("navigates to the roles submenu and back to main", async () => {
+    const user = userEvent.setup();
+    renderPopover();
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
+    expect(await screen.findByText("Duty (primary)")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Back"));
+    expect(await screen.findByLabelText("Working from home")).toBeInTheDocument();
+  });
+
+  it("Clear room and Unassign are present in their respective submenus", async () => {
+    const user = userEvent.setup();
+    renderPopover({ rooms: [makeRoom({ id: 1, code: "D1" })] });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change room..."));
+    expect(await screen.findByText("Clear room")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Back"));
+    await user.click(await screen.findByText("Change role..."));
+    expect(await screen.findByText("Unassign")).toBeInTheDocument();
+  });
+
+  // --- Direct assign (no confirm) ---
+
+  it("picking a free room assigns directly, with no confirm panel, and closes the popover", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, room_id: null });
+    const { onSetRoom } = renderPopover({
+      session,
+      sessions: [session],
+      rooms: [makeRoom({ id: 5, code: "D1" })],
+    });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change room..."));
+    await user.click(await screen.findByText("D1"));
+
+    expect(onSetRoom).toHaveBeenCalledWith(5, null);
+    expect(screen.queryByText(/reassign/)).not.toBeInTheDocument();
+  });
+
+  it("clearing a room never shows a confirm panel", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, room_id: 5 });
+    const { onSetRoom } = renderPopover({
+      session,
+      sessions: [session],
+      rooms: [makeRoom({ id: 5, code: "D1" })],
+    });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change room..."));
+    await user.click(await screen.findByText("Clear room"));
+
+    expect(onSetRoom).toHaveBeenCalledWith(null, null);
+  });
+
+  it("picking Normal clinic assigns directly with no confirm, even with other clinic sessions in the slot", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM" });
+    const other = makeRotaSession({
+      session_id: 2, week: 1, day: "Monday", period: "AM", role: "clinic", clinic_type_id: 9,
+    });
+    const { onSetRole } = renderPopover({ session, sessions: [session, other] });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
     await user.click(await screen.findByText("Normal clinic"));
 
-    expect(onPick).toHaveBeenCalledWith("requires_room", null, null);
+    expect(onSetRole).toHaveBeenCalledWith(
+      { role: "clinic", clinicTypeId: null, templateType: session.template_type },
+      null,
+    );
   });
 
-  it("No surgery calls onPick with no_surgery and a null room", async () => {
-    const { onPick } = renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
+  it("picking No surgery sends the override template_type directly, no confirm", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1 });
+    const { onSetRole } = renderPopover({ session, sessions: [session] });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
     await user.click(await screen.findByText("No surgery"));
 
-    expect(onPick).toHaveBeenCalledWith("no_surgery", null, null);
+    expect(onSetRole).toHaveBeenCalledWith(
+      { role: null, clinicTypeId: null, templateType: "no_surgery" },
+      null,
+    );
   });
 
-  it("WFH calls onPick with wfh and a null room", async () => {
-    const { onPick } = renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("WFH"));
+  // --- Confirm-before-steal (steal-class only, and names the holder) ---
 
-    expect(onPick).toHaveBeenCalledWith("wfh", null, null);
-  });
-});
-
-describe("MasterCellEditPopover: room submenus", () => {
-  it("Pre-assigned room opens a room submenu with no 'No room' entry", async () => {
-    renderPopover({ rooms: [makeRoom({ id: 5, code: "D1" })] });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-
-    expect(await screen.findByText("D1")).toBeInTheDocument();
-    expect(screen.queryByText("No room")).not.toBeInTheDocument();
-  });
-
-  it("picking a free room from the pre-assigned submenu calls onPick directly, no confirm", async () => {
-    const session = makeMasterRotaSession({ session_id: 1, session_type: "requires_room", room_id: null });
-    const { onPick } = renderPopover({ session, sessions: [session], rooms: [makeRoom({ id: 5, code: "D1" })] });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
-
-    expect(onPick).toHaveBeenCalledWith("pre_assigned", 5, null);
-    expect(screen.queryByText(/displace/)).not.toBeInTheDocument();
-  });
-
-  it("Admin time opens a room submenu with a 'No room' entry at the top", async () => {
-    renderPopover({ rooms: [makeRoom({ id: 5, code: "D1" })] });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Admin time..."));
-
-    expect(await screen.findByText("No room")).toBeInTheDocument();
-    expect(screen.getByText("D1")).toBeInTheDocument();
-  });
-
-  it("Admin time 'No room' calls onPick with admin_time and a null room, no confirm (never a steal)", async () => {
-    const { onPick } = renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Admin time..."));
-    await user.click(await screen.findByText("No room"));
-
-    expect(onPick).toHaveBeenCalledWith("admin_time", null, null);
-  });
-
-  it("picking a free room from the admin-time submenu calls onPick with admin_time and the room", async () => {
-    const session = makeMasterRotaSession({ session_id: 1, session_type: "requires_room", room_id: null });
-    const { onPick } = renderPopover({ session, sessions: [session], rooms: [makeRoom({ id: 5, code: "D1" })] });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Admin time..."));
-    await user.click(await screen.findByText("D1"));
-
-    expect(onPick).toHaveBeenCalledWith("admin_time", 5, null);
-  });
-
-  it("back navigates from a room submenu to the main menu", async () => {
-    renderPopover();
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByLabelText("Back"));
-
-    expect(await screen.findByText("Normal clinic")).toBeInTheDocument();
-  });
-});
-
-describe("MasterCellEditPopover: confirm-before-steal", () => {
-  function heldRoomSetup() {
-    const target = makeMasterRotaSession({
-      session_id: 1, doctor_id: 1, week: 1, day: "Monday", period: "AM",
-      session_type: "requires_room", room_id: null,
+  it("picking a held room shows the confirm panel naming the holder, and Reassign fires onSetRoom with it", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM", room_id: null });
+    const holder = makeRotaSession({
+      session_id: 2, week: 1, day: "Monday", period: "AM", room_id: 5, doctor_code: "CD",
     });
-    const holder = makeMasterRotaSession({
-      session_id: 2, doctor_id: 2, doctor_code: "CD", week: 1, day: "Monday", period: "AM",
-      session_type: "pre_assigned", room_id: 5,
+    const { onSetRoom } = renderPopover({
+      session,
+      sessions: [session, holder],
+      rooms: [makeRoom({ id: 5, code: "D1" })],
     });
-    return { target, holder, rooms: [makeRoom({ id: 5, code: "D1" })] };
-  }
 
-  it("shows the confirm panel when the room is held by another session in the same slot", async () => {
-    const { target, holder, rooms } = heldRoomSetup();
-    const { onPick } = renderPopover({ session: target, sessions: [target, holder], rooms });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change room..."));
     await user.click(await screen.findByText("D1"));
 
     expect(await screen.findByText(/CD/)).toBeInTheDocument();
-    expect(await screen.findByText(/displace/)).toBeInTheDocument();
-    expect(onPick).not.toHaveBeenCalled();
+    expect(onSetRoom).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+    expect(onSetRoom).toHaveBeenCalledWith(5, holder);
   });
 
-  it("does not show confirm when the room is free", async () => {
-    const target = makeMasterRotaSession({
-      session_id: 1, week: 1, day: "Monday", period: "AM", session_type: "requires_room", room_id: null,
+  it("picking a held duty role shows the confirm panel, and Cancel returns to the roles submenu without calling onSetRole", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM" });
+    const holder = makeRotaSession({
+      session_id: 2, week: 1, day: "Monday", period: "AM", role: "duty_primary", doctor_code: "CD",
     });
-    renderPopover({ session: target, sessions: [target], rooms: [makeRoom({ id: 5, code: "D1" })] });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
+    const { onSetRole } = renderPopover({ session, sessions: [session, holder] });
 
-    expect(screen.queryByText(/displace/)).not.toBeInTheDocument();
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
+    await user.click(await screen.findByText("Duty (primary)"));
+
+    expect(await screen.findByText(/CD/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(await screen.findByText("Duty (primary)")).toBeInTheDocument();
+    expect(onSetRole).not.toHaveBeenCalled();
   });
 
-  it("Cancel returns to the room submenu and sends nothing", async () => {
-    const { target, holder, rooms } = heldRoomSetup();
-    const { onPick } = renderPopover({ session: target, sessions: [target, holder], rooms });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+  it("picking a held clinic type shows the confirm panel and Reassign fires onSetRole with the holder", async () => {
+    const user = userEvent.setup();
+    const ct = makeClinicType({ id: 9, name: "Dragon" });
+    const session = makeRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM" });
+    const holder = makeRotaSession({
+      session_id: 2, week: 1, day: "Monday", period: "AM", role: "clinic", clinic_type_id: 9, doctor_code: "CD",
+    });
+    const { onSetRole } = renderPopover({ session, sessions: [session, holder], clinicTypes: [ct] });
 
-    expect(onPick).not.toHaveBeenCalled();
-    expect(await screen.findByText("Pre-assigned room")).toBeInTheDocument();
-    expect(await screen.findByText("D1")).toBeInTheDocument();
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
+    await user.click(await screen.findByText("Dragon"));
+    expect(await screen.findByText(/CD/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+    expect(onSetRole).toHaveBeenCalledWith(
+      { role: "clinic", clinicTypeId: 9, templateType: session.template_type },
+      holder,
+    );
   });
 
-  it("Confirm calls onPick with the session type, room, and the holder passed through", async () => {
-    const { target, holder, rooms } = heldRoomSetup();
-    const { onPick } = renderPopover({ session: target, sessions: [target, holder], rooms });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
-    await user.click(await screen.findByRole("button", { name: "Confirm" }));
+  it("a duty role with no current holder assigns directly, no confirm", async () => {
+    const user = userEvent.setup();
+    const session = makeRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM" });
+    const { onSetRole } = renderPopover({ session, sessions: [session] });
 
-    expect(onPick).toHaveBeenCalledWith("pre_assigned", 5, holder);
-  });
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByText("Change role..."));
+    await user.click(await screen.findByText("Duty (primary)"));
 
-  it("confirm-before-steal also applies to a held room via the admin-time submenu", async () => {
-    const { target, holder, rooms } = heldRoomSetup();
-    const { onPick } = renderPopover({ session: target, sessions: [target, holder], rooms });
-    const user = openMenu();
-    await user.click(screen.getByText("Cell"));
-    await user.click(await screen.findByText("Admin time..."));
-    await user.click(await screen.findByText("D1"));
-
-    expect(await screen.findByText(/displace/)).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Confirm" }));
-
-    expect(onPick).toHaveBeenCalledWith("admin_time", 5, holder);
+    expect(onSetRole).toHaveBeenCalledWith(
+      { role: "duty_primary", clinicTypeId: null, templateType: session.template_type },
+      null,
+    );
   });
 });
