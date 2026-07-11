@@ -1,23 +1,72 @@
 import { useMemo, useState } from "react";
 
-import type { MasterRotaSession } from "@/api/types";
+import { useUpdateMasterSession } from "@/api/masterRota";
+import { useRooms } from "@/api/rooms";
+import type { MasterRotaSession, MasterSessionType } from "@/api/types";
+import { MasterCellEditPopover } from "@/components/MasterCellEditPopover";
+import type { MasterUndoEntry } from "@/lib/masterUndo";
+import { masterMutationAppliedMessage } from "@/lib/masterUndo";
 import { DAYS, PERIODS } from "@/lib/pivot";
 import { getMasterRotaCell, pivotMasterRota } from "@/lib/pivotMasterRota";
 
 interface MasterRotaGridProps {
   sessions: MasterRotaSession[];
+  templateId: number;
+  /** Called after any successful session edit, so MasterRotaPage can push an undo entry and show a toast. */
+  onMutationApplied?: (entry: MasterUndoEntry, toastMessage: string) => void;
+  /** Called on any mutation failure. */
+  onMutationError?: () => void;
 }
 
 /**
- * Doctor x (day, period) grid for the active master template. Template
- * editing is no longer categorically read-only as of M4.3 (see
- * api/masterRota.ts's useUpdateMasterSession), but this component hasn't
- * been wired for it yet - no popover, no drag chips, no edit handlers.
- * The cell-edit popover lands in M4.3 Task 3.
+ * Doctor x (day, period) grid for the active master template. Every cell
+ * with a session opens MasterCellEditPopover (M4.3 Task 4) - there is no
+ * draft/committed gate and no leave concept the way RotaGrid has, so
+ * unlike EditableGridCell there is no branch that suppresses the popover
+ * trigger. Absent cells (no session at all) stay inert - creating a new
+ * MasterRotaSession row is out of scope until M4.4.
  */
-export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
+export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMutationError }: MasterRotaGridProps) {
+  const { data: rooms, isLoading: roomsLoading } = useRooms();
+  const updateSession = useUpdateMasterSession();
+
   const grid = useMemo(() => pivotMasterRota(sessions), [sessions]);
   const [activeWeek, setActiveWeek] = useState(grid.weeks[0] ?? 1);
+
+  if (roomsLoading) {
+    return <p className="text-sm text-ink/70">Loading grid...</p>;
+  }
+
+  function handlePick(
+    session: MasterRotaSession,
+    sessionType: MasterSessionType,
+    roomId: number | null,
+    displaced: MasterRotaSession | null,
+  ) {
+    updateSession.mutate(
+      { templateId, sessionId: session.session_id, sessionType, roomId },
+      {
+        onSuccess: (data) => {
+          const entry: MasterUndoEntry = {
+            sessionId: session.session_id,
+            previous: { sessionType: session.session_type, roomId: session.room_id },
+            displaced: displaced
+              ? { sessionId: displaced.session_id, sessionType: displaced.session_type, roomId: displaced.room_id }
+              : null,
+          };
+          const message = masterMutationAppliedMessage(
+            data.session.doctor_code,
+            data.session.day,
+            data.session.period,
+            data.session.session_type,
+            data.session.room_code,
+          );
+          onMutationApplied?.(entry, message);
+        },
+        onError: () => onMutationError?.(),
+      },
+    );
+  }
 
   return (
     <div>
@@ -96,7 +145,19 @@ export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
                           className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
                           data-testid={`master-cell-${doctorId}-${activeWeek}-${day}-${period}`}
                         >
-                          {session ? <CellContent session={session} /> : null}
+                          {session ? (
+                            <MasterCellEditPopover
+                              session={session}
+                              sessions={sessions}
+                              rooms={rooms ?? []}
+                              onPick={(sessionType, roomId, displaced) => handlePick(session, sessionType, roomId, displaced)}
+                              saving={updateSession.isPending}
+                            >
+                              <div>
+                                <CellContent session={session} />
+                              </div>
+                            </MasterCellEditPopover>
+                          ) : null}
                         </td>
                       );
                     })}
