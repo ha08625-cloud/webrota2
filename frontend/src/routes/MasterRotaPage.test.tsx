@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { makeRoom } from "@/test/fixtures/reference";
+import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeMasterRotaSession, makeMasterRotaTemplate } from "@/test/fixtures/masterRota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -28,7 +28,10 @@ describe("MasterRotaPage", () => {
       name: "Default",
       sessions: [makeMasterRotaSession({ doctor_id: 1, doctor_code: "AB" })],
     });
-    server.use(http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)));
+    server.use(
+      http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
+      http.get("/api/v1/doctors", () => HttpResponse.json([makeDoctor({ id: 1, code: "AB", active: true })])),
+    );
 
     renderWithProviders(<MasterRotaPage />);
 
@@ -65,11 +68,13 @@ describe("MasterRotaPage: undo + toast (M4.3 Task 4)", () => {
       session_type: "requires_room", room_id: null, room_code: null,
     }),
     rooms = [makeRoom({ id: 5, code: "D1" })],
+    doctors = [makeDoctor({ id: 1, code: "AB", active: true })],
   } = {}) {
     const template = makeMasterRotaTemplate({ template_id: 5, sessions: [session] });
     server.use(
       http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
       http.get("/api/v1/rooms", () => HttpResponse.json(rooms)),
+      http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     );
     return { session, template };
   }
@@ -116,6 +121,12 @@ describe("MasterRotaPage: undo + toast (M4.3 Task 4)", () => {
     server.use(
       http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
       http.get("/api/v1/rooms", () => HttpResponse.json([makeRoom({ id: 5, code: "D1" })])),
+      http.get("/api/v1/doctors", () =>
+        HttpResponse.json([
+          makeDoctor({ id: 1, code: "AB", active: true }),
+          makeDoctor({ id: 2, code: "CD", active: true }),
+        ]),
+      ),
     );
 
     const requestBodies: unknown[] = [];
