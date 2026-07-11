@@ -2,17 +2,39 @@ import * as Popover from "@radix-ui/react-popover";
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-import type { MasterRotaSession, MasterSessionType, Room } from "@/api/types";
+import type { Day, MasterRotaSession, MasterSessionType, Period, Room } from "@/api/types";
 import { findMasterRoomHolder } from "@/lib/slotConflict";
 
 interface MasterCellEditPopoverProps {
-  session: MasterRotaSession;
+  /**
+   * null in create mode (M4.4 Task 3): an absent cell has no existing row
+   * to read the current value, week/day/period, or session_id off of, so
+   * those become required top-level props instead (see below) and every
+   * "current value" read in this file goes through session?. rather than
+   * session. - always false/no-highlight when null, which is exactly the
+   * create-mode behaviour (no option should appear pre-selected when
+   * there is nothing to compare against).
+   */
+  session: MasterRotaSession | null;
+  /** Slot coordinates. Always required (not read off session) since
+   * create mode has no session to read them from; in edit mode the
+   * caller passes the same triple session already carries. */
+  week: number;
+  day: Day;
+  period: Period;
   /** The template's flat session list, for client-side steal detection (advisory - see slotConflict.ts). */
   sessions: MasterRotaSession[];
   rooms: Room[];
   children: ReactNode;
   /** displaced is the client-detected holder, passed up so the page can build an undo entry without re-scanning. */
   onPick: (sessionType: MasterSessionType, roomId: number | null, displaced: MasterRotaSession | null) => void;
+  /**
+   * Edit mode only (session non-null). Direct action, no confirm dialog -
+   * unlike a room pick, removal is never a steal-class action, and the
+   * M4.1 apply-then-warn-with-undo philosophy reserves confirmation for
+   * steal-class actions only (flagged assumption, M4.4 Task 3 plan).
+   */
+  onDelete?: () => void;
   saving: boolean;
 }
 
@@ -29,8 +51,15 @@ interface PendingRoomPick {
  * template's data model (session_type + room_id only: no role, no
  * clinic_type, no is_wfh/notes, no leave concept) shares nothing with
  * RotaSession beyond "a cell that opens a popover" (M4.3 plan). Every
- * cell with a session is editable here - there is no draft/committed
- * gate and no leave-derived inert state the way RotaGrid has.
+ * cell is editable here - there is no draft/committed gate and no
+ * leave-derived inert state the way RotaGrid has.
+ *
+ * M4.4 Task 3 generalises this single component to also serve absent
+ * cells (session=null, create mode) rather than building a sibling
+ * "create popover" - the menu, room submenus, and confirm-before-steal
+ * flow are identical in both modes; only the current-value highlight,
+ * the Remove entry, and the exclude-self behaviour in the holder lookup
+ * differ, all of which fall out naturally from session being nullable.
  *
  * Five mutually-exclusive session_type options, no WFH toggle: a
  * five-value enum has no defined "off" state for a checkbox (rejected
@@ -44,10 +73,14 @@ interface PendingRoomPick {
  */
 export function MasterCellEditPopover({
   session,
+  week,
+  day,
+  period,
   sessions,
   rooms,
   children,
   onPick,
+  onDelete,
   saving,
 }: MasterCellEditPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -76,9 +109,10 @@ export function MasterCellEditPopover({
       setOpen(false);
       return;
     }
-    const holder = findMasterRoomHolder(
-      sessions, session.week, session.day, session.period, roomId, session.session_id,
-    );
+    // session?.session_id ?? null: create mode has no self to exclude -
+    // any session already in the slot holding the room is a genuine
+    // holder, matching the backend POST's exclude_id=None behaviour.
+    const holder = findMasterRoomHolder(sessions, week, day, period, roomId, session?.session_id ?? null);
     if (holder) {
       setPending({ sessionType, roomId, holder });
       setView("confirm");
@@ -101,6 +135,11 @@ export function MasterCellEditPopover({
     setView(returnView);
   }
 
+  function handleDelete() {
+    onDelete?.();
+    setOpen(false);
+  }
+
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>{children}</Popover.Trigger>
@@ -117,6 +156,7 @@ export function MasterCellEditPopover({
               onPickDirect={pickDirect}
               onOpenPreAssignedRoom={() => setView("preAssignedRoom")}
               onOpenAdminTimeRoom={() => setView("adminTimeRoom")}
+              onDelete={session !== null && onDelete ? handleDelete : null}
             />
           ) : null}
 
@@ -124,6 +164,9 @@ export function MasterCellEditPopover({
             <RoomSubmenu
               title="Pre-assigned room"
               session={session}
+              week={week}
+              day={day}
+              period={period}
               sessions={sessions}
               rooms={rooms}
               includeNoRoom={false}
@@ -136,6 +179,9 @@ export function MasterCellEditPopover({
             <RoomSubmenu
               title="Admin time"
               session={session}
+              week={week}
+              day={day}
+              period={period}
               sessions={sessions}
               rooms={rooms}
               includeNoRoom
@@ -155,49 +201,63 @@ export function MasterCellEditPopover({
   );
 }
 
-// --- Main view: five mutually-exclusive type options ---
+// --- Main view: five mutually-exclusive type options, plus Remove in edit mode ---
 
 interface MainViewProps {
-  session: MasterRotaSession;
+  session: MasterRotaSession | null;
   saving: boolean;
   onPickDirect: (sessionType: MasterSessionType) => void;
   onOpenPreAssignedRoom: () => void;
   onOpenAdminTimeRoom: () => void;
+  /** null when Remove shouldn't render at all (create mode, or no onDelete supplied). */
+  onDelete: (() => void) | null;
 }
 
-function MainView({ session, saving, onPickDirect, onOpenPreAssignedRoom, onOpenAdminTimeRoom }: MainViewProps) {
+function MainView({ session, saving, onPickDirect, onOpenPreAssignedRoom, onOpenAdminTimeRoom, onDelete }: MainViewProps) {
   return (
     <div>
       <MenuRow
         label="Normal clinic"
-        selected={session.session_type === "requires_room"}
+        selected={session?.session_type === "requires_room"}
         disabled={saving}
         onClick={() => onPickDirect("requires_room")}
       />
       <MenuRow
         label="Pre-assigned room..."
-        selected={session.session_type === "pre_assigned"}
+        selected={session?.session_type === "pre_assigned"}
         disabled={saving}
         onClick={onOpenPreAssignedRoom}
       />
       <MenuRow
         label="Admin time..."
-        selected={session.session_type === "admin_time"}
+        selected={session?.session_type === "admin_time"}
         disabled={saving}
         onClick={onOpenAdminTimeRoom}
       />
       <MenuRow
         label="No surgery"
-        selected={session.session_type === "no_surgery"}
+        selected={session?.session_type === "no_surgery"}
         disabled={saving}
         onClick={() => onPickDirect("no_surgery")}
       />
       <MenuRow
         label="WFH"
-        selected={session.session_type === "wfh"}
+        selected={session?.session_type === "wfh"}
         disabled={saving}
         onClick={() => onPickDirect("wfh")}
       />
+      {onDelete ? (
+        <div className="mt-2 border-t border-border pt-2">
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={saving}
+            className="block w-full rounded px-2 py-1 text-left text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+          >
+            Remove session
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -229,7 +289,10 @@ function MenuRow({
 
 interface RoomSubmenuProps {
   title: string;
-  session: MasterRotaSession;
+  session: MasterRotaSession | null;
+  week: number;
+  day: Day;
+  period: Period;
   sessions: MasterRotaSession[];
   rooms: Room[];
   /** Admin time only: a top "No room" entry, since roomless ADMIN_TIME is valid, real data. */
@@ -238,7 +301,7 @@ interface RoomSubmenuProps {
   onPick: (roomId: number | null) => void;
 }
 
-function RoomSubmenu({ title, session, sessions, rooms, includeNoRoom, onBack, onPick }: RoomSubmenuProps) {
+function RoomSubmenu({ title, session, week, day, period, sessions, rooms, includeNoRoom, onBack, onPick }: RoomSubmenuProps) {
   return (
     <div>
       <BackRow onBack={onBack} title={title} />
@@ -246,19 +309,17 @@ function RoomSubmenu({ title, session, sessions, rooms, includeNoRoom, onBack, o
         {includeNoRoom ? (
           <OptionRow
             label="No room"
-            selected={session.session_type === "admin_time" && session.room_id === null}
+            selected={session?.session_type === "admin_time" && session.room_id === null}
             onClick={() => onPick(null)}
           />
         ) : null}
         {rooms.map((room) => {
-          const holder = findMasterRoomHolder(
-            sessions, session.week, session.day, session.period, room.id, session.session_id,
-          );
+          const holder = findMasterRoomHolder(sessions, week, day, period, room.id, session?.session_id ?? null);
           return (
             <OptionRow
               key={room.id}
               label={room.code}
-              selected={session.room_id === room.id}
+              selected={session?.room_id === room.id}
               occupiedBy={holder?.doctor_code ?? null}
               onClick={() => onPick(room.id)}
             />
