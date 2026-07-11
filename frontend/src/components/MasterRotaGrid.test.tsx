@@ -4,18 +4,44 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { useActiveMasterRota } from "@/api/masterRota";
-import { makeRoom } from "@/test/fixtures/reference";
+import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeMasterRotaSession, makeMasterRotaTemplate } from "@/test/fixtures/masterRota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
 import { MasterRotaGrid } from "./MasterRotaGrid";
 
-function setUpServer({ rooms = [makeRoom({ id: 5, code: "D1" })] } = {}) {
-  server.use(http.get("/api/v1/rooms", () => HttpResponse.json(rooms)));
+function setUpServer({
+  rooms = [makeRoom({ id: 5, code: "D1" })],
+  doctors = [makeDoctor({ id: 1, code: "AB", active: true })],
+} = {}) {
+  server.use(
+    http.get("/api/v1/rooms", () => HttpResponse.json(rooms)),
+    http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
+  );
 }
 
 describe("MasterRotaGrid", () => {
+  it("gives an active doctor with zero template sessions a row (M4.4 groundwork)", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
+    renderWithProviders(<MasterRotaGrid sessions={[]} templateId={5} />);
+
+    expect(await screen.findByText("AB")).toBeInTheDocument();
+    expect(screen.queryByText("(inactive)")).not.toBeInTheDocument();
+  });
+
+  it("flags an inactive doctor who still has template sessions rather than dropping the row", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+    const session = makeMasterRotaSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "no_surgery", room_id: null, room_code: null,
+    });
+    renderWithProviders(<MasterRotaGrid sessions={[session]} templateId={5} />);
+
+    expect(await screen.findByText("AB")).toBeInTheDocument();
+    expect(screen.getByText("(inactive)")).toBeInTheDocument();
+  });
+
   it("renders an absent cell (day/period with no session for that doctor) with no popover trigger", async () => {
     setUpServer();
     const session = makeMasterRotaSession({
