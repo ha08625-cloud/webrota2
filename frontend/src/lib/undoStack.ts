@@ -75,22 +75,28 @@ export type UndoEntry =
  * edit history, and a page refresh loses it (both deliberate, per the M4
  * plan).
  *
+ * Generic over the entry type (M4.3 Task 4): RotaDetailPage instantiates
+ * this as `useUndoStack<UndoEntry>()`, MasterRotaPage as
+ * `useUndoStack<MasterUndoEntry>()` (see lib/masterUndo.ts) - the stack
+ * itself has no rota-specific behaviour, only push/consume/clear on
+ * whatever T the caller pushes.
+ *
  * `current` (state) drives the Undo button's visibility/enabled state.
  * `ref` mirrors it for consume() - reading and clearing in one call
  * without depending on when a setState updater callback happens to run,
  * which is an implementation-detail timing guarantee rather than a
  * documented one worth relying on here.
  */
-export function useUndoStack() {
-  const [current, setCurrent] = useState<UndoEntry | null>(null);
-  const ref = useRef<UndoEntry | null>(null);
+export function useUndoStack<T>() {
+  const [current, setCurrent] = useState<T | null>(null);
+  const ref = useRef<T | null>(null);
 
-  const push = useCallback((entry: UndoEntry) => {
+  const push = useCallback((entry: T) => {
     ref.current = entry;
     setCurrent(entry);
   }, []);
 
-  const consume = useCallback((): UndoEntry | null => {
+  const consume = useCallback((): T | null => {
     const entry = ref.current;
     ref.current = null;
     setCurrent(null);
