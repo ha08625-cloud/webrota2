@@ -15,37 +15,13 @@ import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import { useDoctors } from "@/api/doctors";
 import type { Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
 import { addDays, formatWeekLabel } from "@/lib/date";
+import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
+import { buildColumns } from "@/lib/dutyWeekSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
 
-const TUE_FRI_DAYS = ["Tuesday", "Wednesday", "Thursday", "Friday"] as const;
-const TUE_FRI_OFFSETS = [1, 2, 3, 4];
 const PERIODS: Period[] = ["AM", "PM"];
 const WEEK_COUNT = 4;
-
-interface Column {
-  key: string;
-  label: string;
-  date: string;
-  dutyType: DutyType;
-}
-
-/** Builds one week's 6 columns (Mon-primary, Mon-secondary, Tue..Fri) for a given week-start Monday. */
-function buildColumns(weekStartDate: string): Column[] {
-  const columns: Column[] = [
-    { key: "mon-primary", label: "Mon (1st)", date: weekStartDate, dutyType: "primary" },
-    { key: "mon-secondary", label: "Mon (2nd)", date: weekStartDate, dutyType: "secondary" },
-  ];
-  TUE_FRI_DAYS.forEach((day, i) => {
-    columns.push({
-      key: day,
-      label: day.slice(0, 3),
-      date: addDays(weekStartDate, TUE_FRI_OFFSETS[i]),
-      dutyType: "primary",
-    });
-  });
-  return columns;
-}
 
 function findAssignment(
   assignments: DutyAssignment[],
@@ -73,6 +49,9 @@ interface DutyGridProps {
  * Leave's both-AM+PM add). Clicking the chip in a filled cell removes
  * it, same semantics as the flat table's Delete button, just relocated
  * onto the chip itself.
+ *
+ * Column/slot enumeration lives in lib/dutyWeekSlots so the grid layout
+ * and the week-completion check share one definition of the 12 slots.
  */
 export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
@@ -198,9 +177,10 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
 
 interface DutyWeekTableProps {
   weekStartDate: string;
-  /** Assignments for the whole 4-week window - findAssignment matches by
-   * exact date, so passing the full window rather than a pre-filtered
-   * per-week slice is equally correct and one less thing to keep in sync. */
+  /** Assignments for the whole 4-week window - findAssignment and
+   * isDutyWeekComplete both match by exact date, so passing the full
+   * window rather than a pre-filtered per-week slice is equally correct
+   * and one less thing to keep in sync. */
   assignments: DutyAssignment[];
   doctorsById: Map<number, Doctor>;
   onRemove: (assignmentId: number) => void;
@@ -211,10 +191,28 @@ interface DutyWeekTableProps {
  * shares one across all 4 weeks. */
 function DutyWeekTable({ weekStartDate, assignments, doctorsById, onRemove }: DutyWeekTableProps) {
   const columns = useMemo(() => buildColumns(weekStartDate), [weekStartDate]);
+  // Advisory display state only: slot-based check that all 12 of this
+  // week's (date, period, duty_type) slots are assigned. The backend
+  // Phase 0 hard block (next ticket) re-implements the same rule
+  // server-side; nothing here enforces anything.
+  const complete = useMemo(
+    () => isDutyWeekComplete(weekStartDate, assignments),
+    [weekStartDate, assignments],
+  );
 
   return (
     <div data-testid={`duty-week-${weekStartDate}`}>
-      <h3 className="text-xs font-medium text-ink/70">{formatWeekLabel(weekStartDate)}</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-xs font-medium text-ink/70">{formatWeekLabel(weekStartDate)}</h3>
+        {complete ? (
+          <span
+            data-testid={`duty-week-complete-${weekStartDate}`}
+            className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
+          >
+            Fully staffed
+          </span>
+        ) : null}
+      </div>
       <div
         className="mt-1 grid gap-px border border-border bg-border text-sm"
         style={{ gridTemplateColumns: `3rem repeat(${columns.length}, minmax(3rem, 1fr))` }}
