@@ -1,4 +1,4 @@
-import type { Day, DoctorType, MasterRotaSession, Period } from "@/api/types";
+import type { Day, Doctor, MasterRotaSession, Period } from "@/api/types";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 import { weekNumbers } from "@/lib/pivot";
 
@@ -7,46 +7,55 @@ function slotKey(doctorId: number, week: number, day: Day, period: Period): stri
 }
 
 export interface MasterRotaGridRow {
-  doctorId: number;
-  doctorCode: string;
-  doctorType: DoctorType;
+  doctor: Doctor;
+  /** True if this doctor is inactive but has sessions in the viewed template. */
+  inactiveWithSessions: boolean;
 }
 
 export interface PivotedMasterRotaGrid {
   /**
-   * Rows grouped by doctor type (Partner, Salaried, Trainee, AHP) then
-   * alphabetical by code - see compareDoctorDisplayOrder - built
-   * directly from the distinct doctors present in the template's
-   * sessions (doctor_code/doctor_type already come with the join in
-   * MasterRotaSessionOut) - deliberately not fetched from /doctors.
-   * This is simpler than pivotRota's approach and has a real trade-off:
-   * it has no "inactive but present" badge concept. Accepted for this
-   * read-only view (M4 follow-up decision) rather than mirroring
-   * RotaGrid's active_only=false doctors fetch.
+   * Rows in display order: active doctors grouped by type (Partner,
+   * Salaried, Trainee, AHP) then alphabetical by code - see
+   * compareDoctorDisplayOrder - plus any inactive doctor who has
+   * sessions in this template, flagged. Built from the full /doctors
+   * list (active_only=false), mirroring pivotRota's GridRow exactly
+   * (M4.3 Task 5, groundwork for M4.4's create/delete-session work,
+   * which needs a real doctor row to attach a "create session" action
+   * to even when that doctor has no sessions yet). Previously this
+   * built rows only from the doctors present in the sessions themselves
+   * (doctor_code/doctor_type via the join) - that approach had no
+   * "doctor with zero sessions" or "inactive but present" concept,
+   * accepted at the time as a read-only-view trade-off that no longer
+   * holds now that the view is editable.
    */
   rows: MasterRotaGridRow[];
   /** Cell lookup, keyed by (doctor, week, day, period). Same "missing
-   * key is the expected absent-cell shape" invariant as pivot.ts. */
+   * key is the expected absent-cell shape" invariant as pivot.ts. Built
+   * from sessions alone - doctors are only needed for row construction. */
   cells: Map<string, MasterRotaSession>;
   /** Derived from the sessions actually present, since MasterRotaTemplate
    * has no num_weeks column (unlike RotaConfig) to read instead. */
   weeks: number[];
 }
 
-export function pivotMasterRota(sessions: MasterRotaSession[]): PivotedMasterRotaGrid {
+export function pivotMasterRota(sessions: MasterRotaSession[], doctors: Doctor[]): PivotedMasterRotaGrid {
   const cells = new Map<string, MasterRotaSession>();
-  const doctorsById = new Map<number, { doctorCode: string; doctorType: DoctorType }>();
+  const doctorIdsWithSessions = new Set<number>();
   let maxWeek = 1;
 
   for (const session of sessions) {
     cells.set(slotKey(session.doctor_id, session.week, session.day, session.period), session);
-    doctorsById.set(session.doctor_id, { doctorCode: session.doctor_code, doctorType: session.doctor_type });
+    doctorIdsWithSessions.add(session.doctor_id);
     if (session.week > maxWeek) maxWeek = session.week;
   }
 
-  const rows: MasterRotaGridRow[] = Array.from(doctorsById.entries())
-    .map(([doctorId, { doctorCode, doctorType }]) => ({ doctorId, doctorCode, doctorType }))
-    .sort((a, b) => compareDoctorDisplayOrder({ type: a.doctorType, code: a.doctorCode }, { type: b.doctorType, code: b.doctorCode }));
+  const rows: MasterRotaGridRow[] = doctors
+    .filter((doctor) => doctor.active || doctorIdsWithSessions.has(doctor.id))
+    .sort((a, b) => compareDoctorDisplayOrder({ type: a.doctor_type, code: a.code }, { type: b.doctor_type, code: b.code }))
+    .map((doctor) => ({
+      doctor,
+      inactiveWithSessions: !doctor.active && doctorIdsWithSessions.has(doctor.id),
+    }));
 
   return { rows, cells, weeks: weekNumbers(maxWeek) };
 }
