@@ -95,3 +95,10 @@ export function formatWeekLabel(dateString: string): string {
   const year = date.getFullYear();
   return `w/c ${day} ${month} ${year}`;
 }
+
+export function formatDateWithDay(dateString: string): string {
+  // Uses parseLocalDate to avoid the UTC midnight parsing bug 
+  // that occurs when using the native Date constructor on "YYYY-MM-DD" strings.
+  const dayName = parseLocalDate(dateString).toLocaleDateString("en-GB", { weekday: "short" });
+  return `${dayName}, ${dateString}`;
+}

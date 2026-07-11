@@ -64,7 +64,7 @@ describe("LeavePage", () => {
     renderWithProviders(<LeavePage />);
 
     const table = await screen.findByRole("table");
-    expect(within(table).getByText("2026-08-03")).toBeInTheDocument();
+    expect(screen.getByText("Mon, 2026-08-03")).toBeInTheDocument();
     expect(within(table).getByText("AB")).toBeInTheDocument();
   });
 

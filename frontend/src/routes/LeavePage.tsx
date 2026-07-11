@@ -18,6 +18,8 @@ import type {
 } from "@/lib/expandLeaveRange";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
+import { formatDateWithDay } from "@/lib/date";
+
 /** Mirrors MAX_BULK_RANGE_DAYS in schemas_leave.py, so the server's own 422 is never the first line of defence. */
 const MAX_RANGE_DAYS = 366;
 
@@ -461,7 +463,7 @@ export function LeavePage() {
           <tbody>
             {entries.map((entry) => (
               <tr key={entry.id} className="border-t border-border">
-                <td className="py-1 pr-4">{entry.date}</td>
+                <td className="py-1 pr-4">{formatDateWithDay(entry.date)}</td>
                 <td className="py-1 pr-4">{doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}</td>
                 <td className="py-1 pr-4">{entry.period}</td>
                 <td className="py-1">

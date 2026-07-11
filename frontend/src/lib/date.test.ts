@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { addDays, formatDate, formatWeekLabel, getUpcomingMondays, isMonday, parseLocalDate } from "./date";
 
+import { formatDateWithDay } from "./date";
+
+describe("formatDateWithDay", () => {
+  it("prepends the short weekday name to the ISO date string", () => {
+    // These tests rely on parseLocalDate to safely handle timezones,
+    // ensuring "2026-08-03" doesn't shift to Sunday in western timezones.
+    expect(formatDateWithDay("2026-08-03")).toBe("Mon, 2026-08-03");
+    expect(formatDateWithDay("2026-08-09")).toBe("Sun, 2026-08-09");
+  });
+});
+
 describe("parseLocalDate", () => {
   it("parses a date-only string as local midnight, not UTC", () => {
     const date = parseLocalDate("2026-07-13");
