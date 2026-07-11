@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { MasterRotaSession, MasterRotaTemplate, MasterSessionType } from "./types";
+import type { Day, MasterRotaSession, MasterRotaTemplate, MasterSessionType, Period } from "./types";
 
 export const masterRotaKeys = {
   all: ["master-rota"] as const,
@@ -33,7 +33,13 @@ export interface UpdateMasterSessionPayload {
   roomId: number | null;
 }
 
-interface UpdateMasterSessionResponse {
+/**
+ * Shared { session, displaced_session } response shape for PATCH, POST,
+ * and (implicitly) DELETE's absence of a body - mirrors the backend's
+ * M4.4 rename of MasterSessionPatchOut to MasterSessionWriteOut, since
+ * this is now the create response too, not just the patch response.
+ */
+interface MasterSessionWriteResponse {
   session: MasterRotaSession;
   displaced_session: MasterRotaSession | null;
 }
@@ -57,7 +63,7 @@ export function useUpdateMasterSession() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ templateId, sessionId, sessionType, roomId }: UpdateMasterSessionPayload) =>
-      apiClient.patch<UpdateMasterSessionResponse>(
+      apiClient.patch<MasterSessionWriteResponse>(
         `/master-rota/templates/${templateId}/sessions/${sessionId}`,
         { session_type: sessionType, room_id: roomId },
       ),
@@ -66,6 +72,82 @@ export function useUpdateMasterSession() {
       queryClient.setQueryData<MasterRotaTemplate | undefined>(masterRotaKeys.active(), (prev) => {
         if (prev === undefined) return prev;
         return { ...prev, sessions: spliceMasterSessions(prev.sessions, updated) };
+      });
+    },
+  });
+}
+
+// --- Session create/delete (M4.4 Task 2) ---
+// POST/DELETE mirror the same splice-in-place/no-invalidate philosophy as
+// PATCH above, but the cache operation differs: create has no existing row
+// to match by session_id, so the new session is appended rather than
+// spliced (a displaced session, if any, is still spliced in place via the
+// existing helper - only the new row itself needs the append). Delete
+// filters the row out entirely.
+
+export interface CreateMasterSessionPayload {
+  templateId: number;
+  doctorId: number;
+  week: number;
+  day: Day;
+  period: Period;
+  sessionType: MasterSessionType;
+  roomId: number | null;
+}
+
+/**
+ * Appends `created` to `sessions` and splices `displaced` into place if
+ * present, reusing spliceMasterSessions for the displaced half rather
+ * than duplicating its byId-map logic. Wraps rather than modifies the
+ * PATCH-era splice helper since PATCH has no append case of its own.
+ */
+function appendMasterSession(
+  sessions: MasterRotaSession[],
+  created: MasterRotaSession,
+  displaced: MasterRotaSession | null,
+): MasterRotaSession[] {
+  const withCreated = [...sessions, created];
+  return displaced === null ? withCreated : spliceMasterSessions(withCreated, [displaced]);
+}
+
+export function useCreateMasterSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, doctorId, week, day, period, sessionType, roomId }: CreateMasterSessionPayload) =>
+      apiClient.post<MasterSessionWriteResponse>(
+        `/master-rota/templates/${templateId}/sessions`,
+        {
+          doctor_id: doctorId,
+          week,
+          day,
+          period,
+          session_type: sessionType,
+          room_id: roomId,
+        },
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData<MasterRotaTemplate | undefined>(masterRotaKeys.active(), (prev) => {
+        if (prev === undefined) return prev;
+        return { ...prev, sessions: appendMasterSession(prev.sessions, data.session, data.displaced_session) };
+      });
+    },
+  });
+}
+
+export interface DeleteMasterSessionPayload {
+  templateId: number;
+  sessionId: number;
+}
+
+export function useDeleteMasterSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, sessionId }: DeleteMasterSessionPayload) =>
+      apiClient.delete<void>(`/master-rota/templates/${templateId}/sessions/${sessionId}`),
+    onSuccess: (_data, { sessionId }) => {
+      queryClient.setQueryData<MasterRotaTemplate | undefined>(masterRotaKeys.active(), (prev) => {
+        if (prev === undefined) return prev;
+        return { ...prev, sessions: prev.sessions.filter((s) => s.session_id !== sessionId) };
       });
     },
   });
