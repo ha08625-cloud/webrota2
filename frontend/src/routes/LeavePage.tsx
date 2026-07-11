@@ -299,7 +299,11 @@ export function LeavePage() {
           <select
             id="leave-range-doctor"
             value={formDoctorId}
-            onChange={(e) => setFormDoctorId(e.target.value === "" ? "" : Number(e.target.value))}
+            onChange={(e) => {
+                const value = e.target.value === "" ? "" : Number(e.target.value);
+                setFormDoctorId(value);
+                setFilterDoctorId(value === "" ? null : value);
+              }}
             className="mt-1 rounded border border-border p-1 text-sm"
           >
             <option value="">Select...</option>
