@@ -100,4 +100,10 @@ describe("findMasterRoomHolder", () => {
 
     expect(findMasterRoomHolder([differentWeek], 1, "Monday", "AM", 5, 99)).toBeUndefined();
   });
+
+  it("with a null excludeSessionId (create mode, no self yet), any session in the slot holding the room counts", () => {
+    const holder = makeMasterRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM", room_id: 5 });
+
+    expect(findMasterRoomHolder([holder], 1, "Monday", "AM", 5, null)).toBe(holder);
+  });
 });
