@@ -16,7 +16,7 @@ export function RotaDetailPage() {
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
 
-  const undoStack = useUndoStack();
+  const undoStack = useUndoStack<UndoEntry>();
   const { toast, showToast } = useToast();
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();
