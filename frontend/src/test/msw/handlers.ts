@@ -16,4 +16,21 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/counters/clinic", () => HttpResponse.json([])),
   http.get("/api/v1/counters/system", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),
+  http.patch("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
+    HttpResponse.json({
+      session: {
+        session_id: 1,
+        doctor_id: 1,
+        doctor_code: "AB",
+        doctor_type: "Partner",
+        week: 1,
+        day: "Monday",
+        period: "AM",
+        session_type: "requires_room",
+        room_id: null,
+        room_code: null,
+      },
+      displaced_session: null,
+    }),
+  ),
 ];

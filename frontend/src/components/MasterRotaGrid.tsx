@@ -9,10 +9,11 @@ interface MasterRotaGridProps {
 }
 
 /**
- * Read-only doctor x (day, period) grid for the active master template.
- * No DndContext, no popover, no drag chips - unlike RotaGrid this view
- * is never editable (master rota template editing is a deferred
- * milestone, see architecture.md).
+ * Doctor x (day, period) grid for the active master template. Template
+ * editing is no longer categorically read-only as of M4.3 (see
+ * api/masterRota.ts's useUpdateMasterSession), but this component hasn't
+ * been wired for it yet - no popover, no drag chips, no edit handlers.
+ * The cell-edit popover lands in M4.3 Task 3.
  */
 export function MasterRotaGrid({ sessions }: MasterRotaGridProps) {
   const grid = useMemo(() => pivotMasterRota(sessions), [sessions]);
