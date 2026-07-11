@@ -14,12 +14,15 @@ import { useMemo, useState } from "react";
 import { usePatchSession, useRotaIssues, useSetRole, useSetRoom, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { useClinicTypes } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
+import { useDuty } from "@/api/duty";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
 import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
+import { addDays } from "@/lib/date";
 import { type ChipType, canDrop } from "@/lib/dragRules";
+import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
 import { resolveDragOutcome } from "@/lib/resolveDrag";
 import type { UndoEntry } from "@/lib/undoStack";
@@ -68,6 +71,12 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
   const { data: issues } = useRotaIssues(rota.rota_id);
+  // Duty is assigned on its own page/board, keyed by calendar date rather
+  // than rota week - fetched here (same unfiltered query DutyGrid uses)
+  // purely to derive an advisory "is this week's duty fully staffed"
+  // marker alongside the week tabs, matching the marker already shown on
+  // the Duty page. Nothing here writes to duty; it's read-only display.
+  const { data: dutyAssignments } = useDuty();
 
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();
@@ -78,6 +87,19 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
   const weeks = useMemo(() => weekNumbers(rota.num_weeks), [rota.num_weeks]);
   const [activeWeek, setActiveWeek] = useState(weeks[0] ?? 1);
   const [activeChip, setActiveChip] = useState<ActiveChip | null>(null);
+
+  // The active week's Monday, derived from the rota's start_date (always
+  // a Monday) plus (week - 1) full weeks - the same convention the duty
+  // board's own week selector uses, so isDutyWeekComplete's date-keyed
+  // slot matching lines up correctly.
+  const activeWeekStartDate = useMemo(
+    () => addDays(rota.start_date, (activeWeek - 1) * 7),
+    [rota.start_date, activeWeek],
+  );
+  const dutyComplete = useMemo(
+    () => isDutyWeekComplete(activeWeekStartDate, dutyAssignments ?? []),
+    [activeWeekStartDate, dutyAssignments],
+  );
 
   const roomsById = useMemo(() => toIdMap(rooms), [rooms]);
   const clinicTypesById = useMemo(() => toIdMap(clinicTypes), [clinicTypes]);
@@ -305,24 +327,35 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
       {/* Week tabs always render, even for a single-week rota - keeps the
           tab UI consistent rather than conditionally reshaping around
           num_weeks. */}
-      <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Week">
-        {weeks.map((week) => (
-          <button
-            key={week}
-            type="button"
-            role="tab"
-            aria-selected={week === activeWeek}
-            onClick={() => setActiveWeek(week)}
-            className={`px-4 py-2 text-sm font-medium ${
-              week === activeWeek
-                ? "border-b-2 border-accent text-accent"
-                : "text-ink/60 hover:text-ink"
-            }`}
-          >
-            Week {week}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-2 border-b border-border">
+        <div className="flex gap-1" role="tablist" aria-label="Week">
+          {weeks.map((week) => (
+            <button
+              key={week}
+              type="button"
+              role="tab"
+              aria-selected={week === activeWeek}
+              onClick={() => setActiveWeek(week)}
+              className={`px-4 py-2 text-sm font-medium ${
+                week === activeWeek
+                  ? "border-b-2 border-accent text-accent"
+                  : "text-ink/60 hover:text-ink"
+              }`}
+            >
+              Week {week}
+            </button>
+          ))}
+        </div>
+        <span
+          data-testid={`rota-week-duty-status-${activeWeek}`}
+          className={`mr-2 shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${
+            dutyComplete ? "bg-green-100 text-green-900" : "bg-amber-100 text-amber-900"
+          }`}
+        >
+          {dutyComplete ? "Duty fully staffed" : "Duty not fully staffed"}
+        </span>
       </div>
+
 
       <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
         {editable ? (
