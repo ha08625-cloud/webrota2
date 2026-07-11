@@ -1,4 +1,4 @@
-import type { Day, Period, RotaSession, SessionRole } from "@/api/types";
+import type { Day, MasterRotaSession, Period, RotaSession, SessionRole } from "@/api/types";
 
 /**
  * Advisory only: used to decide whether the cell edit menu shows the
@@ -49,5 +49,32 @@ export function findRoleHolder(
       s.period === period &&
       s.role === role &&
       (clinicTypeId === null || s.clinic_type_id === clinicTypeId),
+  );
+}
+
+/**
+ * Master-template equivalent of findRoomHolder. Not a reuse of the
+ * RotaSession-typed helper above - MasterRotaSession shares only the
+ * (week, day, period, room_id) shape, none of the rota-only fields, and
+ * forcing one generic helper to serve both would need a wider parameter
+ * type that gains nothing (M4.3 Task 3 review). Same advisory-only
+ * caveat: the backend's own displacement lookup in the PATCH endpoint is
+ * the source of truth.
+ */
+export function findMasterRoomHolder(
+  sessions: MasterRotaSession[],
+  week: number,
+  day: Day,
+  period: Period,
+  roomId: number,
+  excludeSessionId: number,
+): MasterRotaSession | undefined {
+  return sessions.find(
+    (s) =>
+      s.session_id !== excludeSessionId &&
+      s.week === week &&
+      s.day === day &&
+      s.period === period &&
+      s.room_id === roomId,
   );
 }
