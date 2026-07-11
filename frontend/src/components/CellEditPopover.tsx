@@ -2,137 +2,101 @@ import * as Popover from "@radix-ui/react-popover";
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ClinicType, MasterSessionType, Room, RotaSession, SessionRole } from "@/api/types";
-import { findRoleHolder, findRoomHolder } from "@/lib/slotConflict";
+import type { MasterRotaSession, MasterSessionType, Room } from "@/api/types";
+import { findMasterRoomHolder } from "@/lib/slotConflict";
 
-export interface RoleTriple {
-  role: SessionRole | null;
-  clinicTypeId: number | null;
-  templateType: MasterSessionType | null;
-}
-
-interface CellEditPopoverProps {
-  session: RotaSession;
-  /** The rota's flat session list, for client-side steal detection (advisory - see slotConflict.ts). */
-  sessions: RotaSession[];
+interface MasterCellEditPopoverProps {
+  session: MasterRotaSession;
+  /** The template's flat session list, for client-side steal detection (advisory - see slotConflict.ts). */
+  sessions: MasterRotaSession[];
   rooms: Room[];
-  clinicTypes: ClinicType[];
   children: ReactNode;
-  onSave: (isWfh: boolean, notes: string | null) => void;
-  /** displaced is the client-detected holder, passed up so RotaGrid can build the undo entry without re-scanning. */
-  onSetRoom: (roomId: number | null, displaced: RotaSession | null) => void;
-  onSetRole: (triple: RoleTriple, displaced: RotaSession | null) => void;
+  /** displaced is the client-detected holder, passed up so the page can build an undo entry without re-scanning. */
+  onPick: (sessionType: MasterSessionType, roomId: number | null, displaced: MasterRotaSession | null) => void;
   saving: boolean;
 }
 
-type View = "main" | "rooms" | "roles" | "confirm";
+type View = "main" | "preAssignedRoom" | "adminTimeRoom" | "confirm";
 
-type PendingAction =
-  | { type: "room"; roomId: number; holder: RotaSession }
-  | { type: "role"; triple: RoleTriple; holder: RotaSession };
+interface PendingRoomPick {
+  sessionType: MasterSessionType;
+  roomId: number;
+  holder: MasterRotaSession;
+}
 
 /**
- * Wraps a cell's rendered content as the popover trigger. Four internal
- * views (M4.1): main (WFH/notes, unchanged from M4) plus room and role
- * submenus, plus a shared confirm view for steal-class picks. Stays
- * inside the single Radix Popover rather than nesting Radix menus - the
- * views are plain internal state.
+ * Sibling of CellEditPopover, not a generalisation of it - the master
+ * template's data model (session_type + room_id only: no role, no
+ * clinic_type, no is_wfh/notes, no leave concept) shares nothing with
+ * RotaSession beyond "a cell that opens a popover" (M4.3 plan). Every
+ * cell with a session is editable here - there is no draft/committed
+ * gate and no leave-derived inert state the way RotaGrid has.
  *
- * Save always sends both is_wfh and notes explicitly - SessionPatchIn
- * supports a partial update (only fields present in model_fields_set are
- * applied), but there's no correctness reason to diff against prior
- * values here: both fields are already known from the open form, so
- * sending both is simpler and behaviourally identical to a diffed subset
- * for this form. An empty notes textarea is sent as `notes: null`
- * (explicit clear), not omitted.
+ * Five mutually-exclusive session_type options, no WFH toggle: a
+ * five-value enum has no defined "off" state for a checkbox (rejected
+ * during review). Normal clinic / No surgery / WFH are direct picks;
+ * Pre-assigned room and Admin time open a room submenu (Admin time's
+ * submenu also has a "No room" entry at the top, since a roomless
+ * ADMIN_TIME is a valid, real state - see phase2's pre-occupying-types
+ * handling). Picking a room that's already held by another session in
+ * the same (week, day, period) shows the shared confirm view; picking
+ * "No room"/clearing is never a steal.
  */
-export function CellEditPopover({
+export function MasterCellEditPopover({
   session,
   sessions,
   rooms,
-  clinicTypes,
   children,
-  onSave,
-  onSetRoom,
-  onSetRole,
+  onPick,
   saving,
-}: CellEditPopoverProps) {
+}: MasterCellEditPopoverProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("main");
-  const [isWfh, setIsWfh] = useState(session.is_wfh);
-  const [notes, setNotes] = useState(session.notes ?? "");
-  const [pending, setPending] = useState<PendingAction | null>(null);
+  const [pending, setPending] = useState<PendingRoomPick | null>(null);
 
   function handleOpenChange(next: boolean) {
     if (next) {
-      // Reset to the session's current values each time it opens, in
-      // case a prior edit elsewhere changed them since the last open.
-      setIsWfh(session.is_wfh);
-      setNotes(session.notes ?? "");
+      // Reset to the main menu each time it opens, in case a prior edit
+      // elsewhere changed the session's current values since last open.
       setView("main");
       setPending(null);
     }
     setOpen(next);
   }
 
-  function handleSave() {
-    onSave(isWfh, notes.trim() === "" ? null : notes);
+  function pickDirect(sessionType: MasterSessionType) {
+    onPick(sessionType, null, null);
     setOpen(false);
   }
 
-  function pickRoom(roomId: number | null) {
+  function pickRoom(sessionType: MasterSessionType, roomId: number | null) {
     if (roomId === null) {
-      // Clear room: never a steal, direct assign.
-      onSetRoom(null, null);
+      // "No room" (admin_time only): never a steal, direct assign.
+      onPick(sessionType, null, null);
       setOpen(false);
       return;
     }
-    const holder = findRoomHolder(sessions, session.week, session.day, session.period, roomId, session.session_id);
+    const holder = findMasterRoomHolder(
+      sessions, session.week, session.day, session.period, roomId, session.session_id,
+    );
     if (holder) {
-      setPending({ type: "room", roomId, holder });
+      setPending({ sessionType, roomId, holder });
       setView("confirm");
       return;
     }
-    onSetRoom(roomId, null);
-    setOpen(false);
-  }
-
-  function pickRole(triple: RoleTriple) {
-    const isDutySteal = triple.role === "duty_primary" || triple.role === "duty_secondary";
-    const isClinicTypeSteal = triple.role === "clinic" && triple.clinicTypeId !== null;
-    if (isDutySteal || isClinicTypeSteal) {
-      const holder = findRoleHolder(
-        sessions,
-        session.week,
-        session.day,
-        session.period,
-        triple.role as SessionRole,
-        isClinicTypeSteal ? triple.clinicTypeId : null,
-        session.session_id,
-      );
-      if (holder) {
-        setPending({ type: "role", triple, holder });
-        setView("confirm");
-        return;
-      }
-    }
-    onSetRole(triple, null);
+    onPick(sessionType, roomId, null);
     setOpen(false);
   }
 
   function confirmPending() {
     if (!pending) return;
-    if (pending.type === "room") {
-      onSetRoom(pending.roomId, pending.holder);
-    } else {
-      onSetRole(pending.triple, pending.holder);
-    }
+    onPick(pending.sessionType, pending.roomId, pending.holder);
     setPending(null);
     setOpen(false);
   }
 
   function cancelConfirm() {
-    const returnView: View = pending?.type === "room" ? "rooms" : "roles";
+    const returnView: View = pending?.sessionType === "pre_assigned" ? "preAssignedRoom" : "adminTimeRoom";
     setPending(null);
     setView(returnView);
   }
@@ -147,34 +111,35 @@ export function CellEditPopover({
         >
           {view === "main" ? (
             <MainView
-              isWfh={isWfh}
-              setIsWfh={setIsWfh}
-              notes={notes}
-              setNotes={setNotes}
+              session={session}
               saving={saving}
-              onSave={handleSave}
-              onOpenRooms={() => setView("rooms")}
-              onOpenRoles={() => setView("roles")}
+              onPickDirect={pickDirect}
+              onOpenPreAssignedRoom={() => setView("preAssignedRoom")}
+              onOpenAdminTimeRoom={() => setView("adminTimeRoom")}
             />
           ) : null}
 
-          {view === "rooms" ? (
-            <RoomsView
+          {view === "preAssignedRoom" ? (
+            <RoomSubmenu
+              title="Pre-assigned room"
               session={session}
+              sessions={sessions}
               rooms={rooms}
-              sessions={sessions}
+              includeNoRoom={false}
               onBack={() => setView("main")}
-              onPick={pickRoom}
+              onPick={(roomId) => pickRoom("pre_assigned", roomId)}
             />
           ) : null}
 
-          {view === "roles" ? (
-            <RolesView
+          {view === "adminTimeRoom" ? (
+            <RoomSubmenu
+              title="Admin time"
               session={session}
-              clinicTypes={clinicTypes}
               sessions={sessions}
+              rooms={rooms}
+              includeNoRoom
               onBack={() => setView("main")}
-              onPick={pickRole}
+              onPick={(roomId) => pickRoom("admin_time", roomId)}
             />
           ) : null}
 
@@ -189,88 +154,105 @@ export function CellEditPopover({
   );
 }
 
-// --- Main view: navigation rows first, then WFH/notes/save ---
+// --- Main view: five mutually-exclusive type options ---
 
 interface MainViewProps {
-  isWfh: boolean;
-  setIsWfh: (v: boolean) => void;
-  notes: string;
-  setNotes: (v: string) => void;
+  session: MasterRotaSession;
   saving: boolean;
-  onSave: () => void;
-  onOpenRooms: () => void;
-  onOpenRoles: () => void;
+  onPickDirect: (sessionType: MasterSessionType) => void;
+  onOpenPreAssignedRoom: () => void;
+  onOpenAdminTimeRoom: () => void;
 }
 
-function MainView({ isWfh, setIsWfh, notes, setNotes, saving, onSave, onOpenRooms, onOpenRoles }: MainViewProps) {
+function MainView({ session, saving, onPickDirect, onOpenPreAssignedRoom, onOpenAdminTimeRoom }: MainViewProps) {
   return (
     <div>
-      <div className="border-b border-border pb-2">
-        <MenuRow label="Change room..." onClick={onOpenRooms} />
-        <MenuRow label="Change role..." onClick={onOpenRoles} />
-      </div>
-      <label className="mt-2 flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={isWfh} onChange={(e) => setIsWfh(e.target.checked)} aria-label="Working from home" />
-        Working from home
-      </label>
-      <label className="mt-2 block text-sm">
-        Notes
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          className="mt-1 w-full rounded border border-border p-1 text-sm"
-        />
-      </label>
-      <div className="mt-3 flex justify-end gap-2">
-        <Popover.Close className="rounded px-3 py-1 text-sm text-ink/70">Cancel</Popover.Close>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving}
-          className="rounded bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
-        >
-          Save
-        </button>
-      </div>
+      <MenuRow
+        label="Normal clinic"
+        selected={session.session_type === "requires_room"}
+        disabled={saving}
+        onClick={() => onPickDirect("requires_room")}
+      />
+      <MenuRow
+        label="Pre-assigned room..."
+        selected={session.session_type === "pre_assigned"}
+        disabled={saving}
+        onClick={onOpenPreAssignedRoom}
+      />
+      <MenuRow
+        label="Admin time..."
+        selected={session.session_type === "admin_time"}
+        disabled={saving}
+        onClick={onOpenAdminTimeRoom}
+      />
+      <MenuRow
+        label="No surgery"
+        selected={session.session_type === "no_surgery"}
+        disabled={saving}
+        onClick={() => onPickDirect("no_surgery")}
+      />
+      <MenuRow
+        label="WFH"
+        selected={session.session_type === "wfh"}
+        disabled={saving}
+        onClick={() => onPickDirect("wfh")}
+      />
     </div>
   );
 }
 
-function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
+function MenuRow({
+  label,
+  selected,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-ink/5"
+      disabled={disabled}
+      className={`block w-full rounded px-2 py-1 text-left text-sm hover:bg-ink/5 disabled:opacity-50 ${selected ? "font-semibold" : ""}`}
     >
       {label}
     </button>
   );
 }
 
-// --- Rooms submenu ---
+// --- Room submenu, shared by Pre-assigned room and Admin time ---
 
-interface RoomsViewProps {
-  session: RotaSession;
+interface RoomSubmenuProps {
+  title: string;
+  session: MasterRotaSession;
+  sessions: MasterRotaSession[];
   rooms: Room[];
-  sessions: RotaSession[];
+  /** Admin time only: a top "No room" entry, since roomless ADMIN_TIME is valid, real data. */
+  includeNoRoom: boolean;
   onBack: () => void;
   onPick: (roomId: number | null) => void;
 }
 
-function RoomsView({ session, rooms, sessions, onBack, onPick }: RoomsViewProps) {
+function RoomSubmenu({ title, session, sessions, rooms, includeNoRoom, onBack, onPick }: RoomSubmenuProps) {
   return (
     <div>
-      <BackRow onBack={onBack} title="Change room" />
+      <BackRow onBack={onBack} title={title} />
       <div className="mt-2 max-h-56 overflow-y-auto">
-        <OptionRow
-          label="Clear room"
-          selected={session.room_id === null}
-          onClick={() => onPick(null)}
-        />
+        {includeNoRoom ? (
+          <OptionRow
+            label="No room"
+            selected={session.session_type === "admin_time" && session.room_id === null}
+            onClick={() => onPick(null)}
+          />
+        ) : null}
         {rooms.map((room) => {
-          const holder = findRoomHolder(sessions, session.week, session.day, session.period, room.id, session.session_id);
+          const holder = findMasterRoomHolder(
+            sessions, session.week, session.day, session.period, room.id, session.session_id,
+          );
           return (
             <OptionRow
               key={room.id}
@@ -286,82 +268,6 @@ function RoomsView({ session, rooms, sessions, onBack, onPick }: RoomsViewProps)
   );
 }
 
-// --- Roles submenu ---
-
-interface RolesViewProps {
-  session: RotaSession;
-  clinicTypes: ClinicType[];
-  sessions: RotaSession[];
-  onBack: () => void;
-  onPick: (triple: RoleTriple) => void;
-}
-
-function RolesView({ session, clinicTypes, sessions, onBack, onPick }: RolesViewProps) {
-  const currentTemplateType = session.template_type;
-
-  const isCurrent = (triple: RoleTriple) =>
-    session.role === triple.role && session.clinic_type_id === triple.clinicTypeId;
-
-  return (
-    <div>
-      <BackRow onBack={onBack} title="Change role" />
-      <div className="mt-2 max-h-56 overflow-y-auto">
-        <OptionRow
-          label="Duty (primary)"
-          selected={isCurrent({ role: "duty_primary", clinicTypeId: null, templateType: currentTemplateType })}
-          occupiedBy={
-            findRoleHolder(sessions, session.week, session.day, session.period, "duty_primary", null, session.session_id)
-              ?.doctor_code ?? null
-          }
-          onClick={() => onPick({ role: "duty_primary", clinicTypeId: null, templateType: currentTemplateType })}
-        />
-        <OptionRow
-          label="Duty (secondary)"
-          selected={isCurrent({ role: "duty_secondary", clinicTypeId: null, templateType: currentTemplateType })}
-          occupiedBy={
-            findRoleHolder(sessions, session.week, session.day, session.period, "duty_secondary", null, session.session_id)
-              ?.doctor_code ?? null
-          }
-          onClick={() => onPick({ role: "duty_secondary", clinicTypeId: null, templateType: currentTemplateType })}
-        />
-        <OptionRow
-          label="Normal clinic"
-          selected={isCurrent({ role: "clinic", clinicTypeId: null, templateType: currentTemplateType })}
-          onClick={() => onPick({ role: "clinic", clinicTypeId: null, templateType: currentTemplateType })}
-        />
-        {clinicTypes.map((ct) => (
-          <OptionRow
-            key={ct.id}
-            label={ct.name}
-            selected={isCurrent({ role: "clinic", clinicTypeId: ct.id, templateType: currentTemplateType })}
-            occupiedBy={
-              findRoleHolder(sessions, session.week, session.day, session.period, "clinic", ct.id, session.session_id)
-                ?.doctor_code ?? null
-            }
-            onClick={() => onPick({ role: "clinic", clinicTypeId: ct.id, templateType: currentTemplateType })}
-          />
-        ))}
-        <div className="my-1 border-t border-border" />
-        <OptionRow
-          label="No surgery"
-          selected={session.role === null && currentTemplateType === "no_surgery"}
-          onClick={() => onPick({ role: null, clinicTypeId: null, templateType: "no_surgery" })}
-        />
-        <OptionRow
-          label="Admin time"
-          selected={session.role === null && currentTemplateType === "admin_time"}
-          onClick={() => onPick({ role: null, clinicTypeId: null, templateType: "admin_time" })}
-        />
-        <OptionRow
-          label="Unassign"
-          selected={session.role === null && currentTemplateType !== "no_surgery" && currentTemplateType !== "admin_time"}
-          onClick={() => onPick({ role: null, clinicTypeId: null, templateType: currentTemplateType })}
-        />
-      </div>
-    </div>
-  );
-}
-
 // --- Confirm-before-steal ---
 
 function ConfirmView({
@@ -369,16 +275,15 @@ function ConfirmView({
   onConfirm,
   onCancel,
 }: {
-  pending: PendingAction;
+  pending: PendingRoomPick;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const targetLabel = pending.type === "room" ? "This room" : "This role";
   return (
     <div>
       <p className="text-sm text-ink">
-        {targetLabel} is currently assigned to <span className="font-medium">{pending.holder.doctor_code}</span> -
-        reassign?
+        This room is currently held by <span className="font-medium">{pending.holder.doctor_code}</span> -
+        displace?
       </p>
       <div className="mt-3 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded px-3 py-1 text-sm text-ink/70">
@@ -389,7 +294,7 @@ function ConfirmView({
           onClick={onConfirm}
           className="rounded bg-accent px-3 py-1 text-sm font-medium text-white"
         >
-          Reassign
+          Confirm
         </button>
       </div>
     </div>
