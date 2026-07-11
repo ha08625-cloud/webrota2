@@ -1,7 +1,8 @@
-import { screen, within } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { MasterRotaSession, Room } from "@/api/types";
 import { makeRoom } from "@/test/fixtures/reference";
 import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -12,13 +13,21 @@ function openMenu() {
   return userEvent.setup();
 }
 
-function renderPopover({
-  session = makeMasterRotaSession({ session_id: 1, session_type: "requires_room", room_id: null }),
-  sessions = [session],
-  rooms = [makeRoom({ id: 5, code: "D1" })],
-  onPick = vi.fn(),
-  saving = false,
-} = {}) {
+interface RenderPopoverOptions {
+  session?: MasterRotaSession;
+  sessions?: MasterRotaSession[];
+  rooms?: Room[];
+  onPick?: ReturnType<typeof vi.fn>;
+  saving?: boolean;
+}
+
+function renderPopover(options: RenderPopoverOptions = {}) {
+  const session = options.session ?? makeMasterRotaSession({ session_id: 1, session_type: "requires_room", room_id: null });
+  const sessions = options.sessions ?? [session];
+  const rooms = options.rooms ?? [makeRoom({ id: 5, code: "D1" })];
+  const onPick = options.onPick ?? vi.fn();
+  const saving = options.saving ?? false;
+
   renderWithProviders(
     <MasterCellEditPopover session={session} sessions={sessions} rooms={rooms} onPick={onPick} saving={saving}>
       <button type="button">Cell</button>
