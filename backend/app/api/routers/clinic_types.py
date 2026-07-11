@@ -85,8 +85,9 @@ def _apply(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     ct.room_eligibilities = room_eligs
 
 
-def _commit_or_409(db: Session, payload: ClinicTypeIn) -> None:
+def _apply_and_commit(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     try:
+        _apply(db, ct, payload)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -117,8 +118,7 @@ def create_clinic_type(
 ) -> ClinicType:
     ct = ClinicType()
     db.add(ct)
-    _apply(db, ct, payload)
-    _commit_or_409(db, payload)
+    _apply_and_commit(db, ct, payload)
     db.refresh(ct)
     return ct
 
@@ -140,8 +140,7 @@ def replace_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = _get_or_404(db, clinic_type_id)
-    _apply(db, ct, payload)
-    _commit_or_409(db, payload)
+    _apply_and_commit(db, ct, payload)
     db.refresh(ct)
     return ct
 
