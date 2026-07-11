@@ -48,8 +48,9 @@ from .counter import ClinicCounterOut, SystemCounterOut
 from .master_rota import (
     MasterRotaSessionOut,
     MasterRotaTemplateOut,
+    MasterSessionCreateIn,
     MasterSessionPatchIn,
-    MasterSessionPatchOut,
+    MasterSessionWriteOut,
 )
 
 __all__ = [
@@ -67,5 +68,5 @@ __all__ = [
     "DutyIn", "DutyOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
-    "MasterSessionPatchIn", "MasterSessionPatchOut",
+    "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
 ]
