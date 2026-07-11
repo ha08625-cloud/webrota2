@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 import { makeRotaSession } from "@/test/fixtures/rota";
 
-import { findRoleHolder, findRoomHolder } from "./slotConflict";
+import { findMasterRoomHolder, findRoleHolder, findRoomHolder } from "./slotConflict";
 
 describe("findRoomHolder", () => {
   it("finds the session in the same slot holding the room", () => {
@@ -63,5 +64,40 @@ describe("findRoleHolder", () => {
     const other = makeRotaSession({ session_id: 2, week: 1, day: "Monday", period: "AM", role: null });
 
     expect(findRoleHolder([other], 1, "Monday", "AM", "duty_primary", null, 99)).toBeUndefined();
+  });
+});
+
+describe("findMasterRoomHolder", () => {
+  it("finds the master session in the same slot holding the room", () => {
+    const holder = makeMasterRotaSession({
+      session_id: 1, week: 1, day: "Monday", period: "AM", room_id: 5,
+    });
+    const other = makeMasterRotaSession({ session_id: 2, week: 1, day: "Monday", period: "AM", room_id: null });
+
+    expect(findMasterRoomHolder([holder, other], 1, "Monday", "AM", 5, 99)).toBe(holder);
+  });
+
+  it("returns undefined when nobody in the slot holds the room", () => {
+    const other = makeMasterRotaSession({ session_id: 2, week: 1, day: "Monday", period: "AM", room_id: null });
+
+    expect(findMasterRoomHolder([other], 1, "Monday", "AM", 5, 99)).toBeUndefined();
+  });
+
+  it("excludes the target session itself", () => {
+    const self = makeMasterRotaSession({ session_id: 1, week: 1, day: "Monday", period: "AM", room_id: 5 });
+
+    expect(findMasterRoomHolder([self], 1, "Monday", "AM", 5, 1)).toBeUndefined();
+  });
+
+  it("ignores holders in a different slot", () => {
+    const elsewhere = makeMasterRotaSession({ session_id: 2, week: 1, day: "Monday", period: "PM", room_id: 5 });
+
+    expect(findMasterRoomHolder([elsewhere], 1, "Monday", "AM", 5, 99)).toBeUndefined();
+  });
+
+  it("ignores holders in a different week", () => {
+    const differentWeek = makeMasterRotaSession({ session_id: 2, week: 2, day: "Monday", period: "AM", room_id: 5 });
+
+    expect(findMasterRoomHolder([differentWeek], 1, "Monday", "AM", 5, 99)).toBeUndefined();
   });
 });
