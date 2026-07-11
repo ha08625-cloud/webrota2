@@ -58,8 +58,12 @@ export function findRoleHolder(
  * (week, day, period, room_id) shape, none of the rota-only fields, and
  * forcing one generic helper to serve both would need a wider parameter
  * type that gains nothing (M4.3 Task 3 review). Same advisory-only
- * caveat: the backend's own displacement lookup in the PATCH endpoint is
- * the source of truth.
+ * caveat: the backend's own displacement lookup in the PATCH/POST
+ * endpoints is the source of truth.
+ *
+ * excludeSessionId is nullable (M4.4 Task 3): create mode has no self
+ * row yet, so every session already in the slot holding the room counts
+ * as a holder, matching the backend POST's exclude_id=None behaviour.
  */
 export function findMasterRoomHolder(
   sessions: MasterRotaSession[],
@@ -67,7 +71,7 @@ export function findMasterRoomHolder(
   day: Day,
   period: Period,
   roomId: number,
-  excludeSessionId: number,
+  excludeSessionId: number | null,
 ): MasterRotaSession | undefined {
   return sessions.find(
     (s) =>
