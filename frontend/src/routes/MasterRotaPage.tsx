@@ -1,4 +1,4 @@
-import { useUpdateMasterSession, useActiveMasterRota } from "@/api/masterRota";
+import { useCreateMasterSession, useDeleteMasterSession, useUpdateMasterSession, useActiveMasterRota } from "@/api/masterRota";
 import { MasterRotaGrid } from "@/components/MasterRotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { buildMasterReplaySteps, type MasterUndoEntry } from "@/lib/masterUndo";
@@ -8,10 +8,15 @@ export function MasterRotaPage() {
   const { data: template, isLoading, isError, error } = useActiveMasterRota();
   const undoStack = useUndoStack<MasterUndoEntry>();
   const { toast, showToast } = useToast();
-  // Own instance, separate from MasterRotaGrid's - used only to execute
+  // Own instances, separate from MasterRotaGrid's - used only to execute
   // undo replay steps, same pattern as RotaDetailPage's page-level
   // mutation instances alongside RotaGrid's own forward-edit instances.
+  // Three hooks (M4.4 Task 3 addendum), matching the three replay-step
+  // actions buildMasterReplaySteps can now produce (patch/create/delete).
   const updateSession = useUpdateMasterSession();
+  const createSession = useCreateMasterSession();
+  const deleteSession = useDeleteMasterSession();
+  const undoing = updateSession.isPending || createSession.isPending || deleteSession.isPending;
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading master rota...</p>;
@@ -55,18 +60,32 @@ export function MasterRotaPage() {
 
     try {
       for (const step of steps) {
-        await updateSession.mutateAsync({
-          templateId: currentTemplateId,
-          sessionId: step.sessionId,
-          sessionType: step.sessionType,
-          roomId: step.roomId,
-        });
+        if (step.action === "patch") {
+          await updateSession.mutateAsync({
+            templateId: currentTemplateId,
+            sessionId: step.sessionId,
+            sessionType: step.sessionType,
+            roomId: step.roomId,
+          });
+        } else if (step.action === "delete") {
+          await deleteSession.mutateAsync({ templateId: currentTemplateId, sessionId: step.sessionId });
+        } else {
+          await createSession.mutateAsync({
+            templateId: currentTemplateId,
+            doctorId: step.doctorId,
+            week: step.week,
+            day: step.day,
+            period: step.period,
+            sessionType: step.sessionType,
+            roomId: step.roomId,
+          });
+        }
       }
       showToast("Undone");
     } catch {
       // Same re-push-and-retry-from-the-start convention as
-      // RotaDetailPage.handleUndo - both replay steps are idempotent-
-      // enough for a full retry.
+      // RotaDetailPage.handleUndo - all three replay actions are
+      // idempotent-enough for a full retry.
       undoStack.push(entry);
       showToast("Undo failed");
     }
@@ -81,7 +100,7 @@ export function MasterRotaPage() {
         <button
           type="button"
           onClick={handleUndo}
-          disabled={undoStack.current === null || updateSession.isPending}
+          disabled={undoStack.current === null || undoing}
           className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
         >
           Undo
