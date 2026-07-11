@@ -45,7 +45,12 @@ from .leave import (
 from .duty import DutyIn, DutyOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
-from .master_rota import MasterRotaSessionOut, MasterRotaTemplateOut
+from .master_rota import (
+    MasterRotaSessionOut,
+    MasterRotaTemplateOut,
+    MasterSessionPatchIn,
+    MasterSessionPatchOut,
+)
 
 __all__ = [
     "ValidationIssueOut",
@@ -61,4 +66,6 @@ __all__ = [
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
     "DutyIn", "DutyOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
+    "MasterRotaSessionOut", "MasterRotaTemplateOut",
+    "MasterSessionPatchIn", "MasterSessionPatchOut",
 ]

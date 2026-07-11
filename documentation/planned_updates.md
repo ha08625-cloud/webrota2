@@ -1,14 +1,13 @@
 Small tasks
-Rename Rota to Generate Rota
 add information to generate rota page: duty fully assigned, clinics enabled, 
 Leave page: selecting doctor on the top dropdown automatically selects them on the lower drop down
 Add preferred rooms as an extra column on Doctors page
 Have an up down selector for sessions on Doctor page
-Rename Doctors tab to Staff
 Counteres only need to include Partners and Salaried doctors
 Sessions only need to exist for partners and salaried docs
 Add duty counters
 Clinic page information: remove category.  add toggles for room required and enabled
+Displacing someone in the generated room - displace, swap or cancel
 
 Big tasks
 audit log
