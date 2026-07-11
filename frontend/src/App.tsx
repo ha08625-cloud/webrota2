@@ -10,12 +10,12 @@ import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
 
 const NAV_ITEMS = [
-  { to: "/", label: "Rota", end: true },
+  { to: "/", label: "Generate new rotas", end: true },
   { to: "/master-rota", label: "Master Rota", end: false },
   { to: "/clinic-types", label: "Clinic Types", end: false },
-  { to: "/doctors", label: "Doctors", end: false },
-  { to: "/leave", label: "Leave", end: false },
-  { to: "/duty", label: "Duty", end: false },
+  { to: "/doctors", label: "Staff", end: false },
+  { to: "/leave", label: "Assign Leave", end: false },
+  { to: "/duty", label: "Assign Duty", end: false },
   { to: "/counters", label: "Counters", end: false },
 ] as const;
 
