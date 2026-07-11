@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { makeRoom } from "@/test/fixtures/reference";
@@ -33,7 +33,7 @@ describe("MasterRotaPage", () => {
     renderWithProviders(<MasterRotaPage />);
 
     expect(await screen.findByText("Master Rota - Default")).toBeInTheDocument();
-    expect(screen.getByText("AB")).toBeInTheDocument();
+    expect(await screen.findByText("AB")).toBeInTheDocument();
   });
 
   it("shows a generic error message on a non-404 failure", async () => {
@@ -141,9 +141,10 @@ describe("MasterRotaPage: undo + toast (M4.3 Task 4)", () => {
     const cell = await screen.findByTestId("master-cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(cell.querySelector("div") as HTMLElement);
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
-    await user.click(await screen.findByRole("button", { name: "Confirm" }));
+    const popover = await screen.findByTestId("master-cell-edit-popover");
+    await user.click(await within(popover).findByText("Pre-assigned room..."));
+    await user.click(await within(popover).findByText("D1"));
+    await user.click(await within(popover).findByRole("button", { name: "Confirm" }));
 
     await screen.findByText(/AB Monday AM set to Pre-assigned D1/);
     requestBodies.length = 0; // Only care about the undo replay's own calls from here.
