@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useUpdateMasterSession } from "@/api/masterRota";
+import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { MasterRotaSession, MasterSessionType } from "@/api/types";
 import { MasterCellEditPopover } from "@/components/MasterCellEditPopover";
@@ -25,15 +26,23 @@ interface MasterRotaGridProps {
  * unlike EditableGridCell there is no branch that suppresses the popover
  * trigger. Absent cells (no session at all) stay inert - creating a new
  * MasterRotaSession row is out of scope until M4.4.
+ *
+ * Rows come from /doctors (active_only=false), like RotaGrid, not from
+ * the sessions payload's join fields (M4.3 Task 5, M4.4 groundwork) - a
+ * doctor with zero template sessions still gets a row, and an inactive
+ * doctor with sessions is flagged rather than silently dropped. See
+ * pivotMasterRota's docstring for why this replaced the simpler
+ * sessions-only approach.
  */
 export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMutationError }: MasterRotaGridProps) {
+  const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const updateSession = useUpdateMasterSession();
 
-  const grid = useMemo(() => pivotMasterRota(sessions), [sessions]);
+  const grid = useMemo(() => pivotMasterRota(sessions, doctors ?? []), [sessions, doctors]);
   const [activeWeek, setActiveWeek] = useState(grid.weeks[0] ?? 1);
 
-  if (roomsLoading) {
+  if (doctorsLoading || roomsLoading) {
     return <p className="text-sm text-ink/70">Loading grid...</p>;
   }
 
@@ -112,7 +121,7 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
             </tr>
           </thead>
           <tbody>
-            {grid.rows.map(({ doctorId, doctorCode }, rowIndex) => {
+            {grid.rows.map(({ doctor, inactiveWithSessions }, rowIndex) => {
               const isLastDoctor = rowIndex === grid.rows.length - 1;
               // See RotaGrid.tsx for why this can't reuse the per-row
               // groupDividerClass below - the doctor cell only renders
@@ -122,13 +131,16 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
                 const isGroupEnd = periodIndex === PERIODS.length - 1 && !isLastDoctor;
                 const groupDividerClass = isGroupEnd ? "border-b-2 border-ink/40" : "";
                 return (
-                  <tr key={`${doctorId}-${period}`}>
+                  <tr key={`${doctor.id}-${period}`}>
                     {periodIndex === 0 ? (
                       <td
                         rowSpan={PERIODS.length}
                         className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass}`}
                       >
-                        {doctorCode}
+                        <div>{doctor.code}</div>
+                        {inactiveWithSessions ? (
+                          <div className="text-xs text-ink/50">(inactive)</div>
+                        ) : null}
                       </td>
                     ) : null}
                     <td
@@ -137,13 +149,13 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
                       {period}
                     </td>
                     {DAYS.map((day, dayIndex) => {
-                      const session = getMasterRotaCell(grid, doctorId, activeWeek, day, period);
+                      const session = getMasterRotaCell(grid, doctor.id, activeWeek, day, period);
                       const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
                       return (
                         <td
                           key={day}
                           className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
-                          data-testid={`master-cell-${doctorId}-${activeWeek}-${day}-${period}`}
+                          data-testid={`master-cell-${doctor.id}-${activeWeek}-${day}-${period}`}
                         >
                           {session ? (
                             <MasterCellEditPopover
