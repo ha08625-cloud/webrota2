@@ -1,5 +1,6 @@
-"""Master rota router: read-only view of the active template, plus the
-M4.3 Task 1 per-session PATCH.
+"""Master rota router: read-only view of the active template, the M4.3
+Task 1 per-session PATCH, and the M4.4 Task 1 POST/DELETE (session
+create/delete).
 
 Editing is deliberately not draft-gated the way rota-session edits are --
 the template has no draft/committed concept (see MasterRotaSession's
@@ -21,8 +22,9 @@ from ..deps import get_current_user, get_db
 from ..schemas import (
     MasterRotaSessionOut,
     MasterRotaTemplateOut,
+    MasterSessionCreateIn,
     MasterSessionPatchIn,
-    MasterSessionPatchOut,
+    MasterSessionWriteOut,
 )
 
 router = APIRouter(prefix="/master-rota", tags=["master_rota"])
@@ -59,25 +61,34 @@ def _session_outs(
 
 
 def _find_room_holder(
-    db: Session, template_id: int, week: int, day, period, room_id: int, exclude_id: int
+    db: Session,
+    template_id: int,
+    week: int,
+    day,
+    period,
+    room_id: int,
+    exclude_id: int | None = None,
 ) -> MasterRotaSession | None:
     """Session in the same template slot already holding room_id, excluding
     self. Same-week only: a room held in a different week is not displaced.
     Ordered by id and fetched with .first() rather than scalar_one_or_none(),
     matching the rota-side _find_room_holder -- a duplicate holder should be
     impossible by construction, but raising on dirty data is worse than
-    displacing one of them."""
+    displacing one of them.
+
+    exclude_id is optional (None) for POST/create, where no self row exists
+    yet -- PATCH always passes the target session's own id."""
+    conditions = [
+        MasterRotaSession.template_id == template_id,
+        MasterRotaSession.week == week,
+        MasterRotaSession.day == day,
+        MasterRotaSession.period == period,
+        MasterRotaSession.room_id == room_id,
+    ]
+    if exclude_id is not None:
+        conditions.append(MasterRotaSession.id != exclude_id)
     return db.execute(
-        select(MasterRotaSession)
-        .where(
-            MasterRotaSession.template_id == template_id,
-            MasterRotaSession.week == week,
-            MasterRotaSession.day == day,
-            MasterRotaSession.period == period,
-            MasterRotaSession.room_id == room_id,
-            MasterRotaSession.id != exclude_id,
-        )
-        .order_by(MasterRotaSession.id)
+        select(MasterRotaSession).where(*conditions).order_by(MasterRotaSession.id)
     ).scalars().first()
 
 
@@ -111,7 +122,7 @@ def get_active_template(
 
 @router.patch(
     "/templates/{template_id}/sessions/{session_id}",
-    response_model=MasterSessionPatchOut,
+    response_model=MasterSessionWriteOut,
 )
 def patch_session(
     template_id: int,
@@ -119,7 +130,7 @@ def patch_session(
     payload: MasterSessionPatchIn,
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
-) -> MasterSessionPatchOut:
+) -> MasterSessionWriteOut:
     """Verbatim (session_type, room_id) pair setter with room displacement
     (M4.3 Task 1).
 
@@ -169,7 +180,127 @@ def patch_session(
 
     to_serialise = [target] if displaced is None else [target, displaced]
     outs = {s.session_id: s for s in _session_outs(db, to_serialise)}
-    return MasterSessionPatchOut(
+    return MasterSessionWriteOut(
         session=outs[target.id],
         displaced_session=outs.get(displaced.id) if displaced is not None else None,
     )
+
+
+@router.post(
+    "/templates/{template_id}/sessions",
+    response_model=MasterSessionWriteOut,
+    status_code=201,
+)
+def create_session(
+    template_id: int,
+    payload: MasterSessionCreateIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> MasterSessionWriteOut:
+    """Create a new slot in the template (M4.4 Task 1).
+
+    Same displacement rule as PATCH (see patch_session's docstring), run
+    before insert since there's no self row to exclude yet. No
+    doctor-active check here -- the server stays a permissive verbatim
+    writer (the M4.3 philosophy); the frontend gates the "add session"
+    affordance to active doctors. This also keeps undo-recreate working
+    if a doctor is deactivated mid-session.
+    """
+    if db.get(MasterRotaTemplate, template_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Template {template_id} not found"
+        )
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
+        raise HTTPException(
+            status_code=404, detail=f"Doctor {payload.doctor_id} not found"
+        )
+
+    existing = db.execute(
+        select(MasterRotaSession).where(
+            MasterRotaSession.template_id == template_id,
+            MasterRotaSession.doctor_id == payload.doctor_id,
+            MasterRotaSession.week == payload.week,
+            MasterRotaSession.day == payload.day,
+            MasterRotaSession.period == payload.period,
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Doctor {payload.doctor_id} already has a session in "
+                f"template {template_id} at week {payload.week} "
+                f"{payload.day.value} {payload.period.value}"
+            ),
+        )
+
+    displaced: MasterRotaSession | None = None
+    if payload.room_id is not None:
+        room = db.get(Room, payload.room_id)
+        if room is None:
+            raise HTTPException(
+                status_code=404, detail=f"Room {payload.room_id} not found"
+            )
+        displaced = _find_room_holder(
+            db, template_id, payload.week, payload.day, payload.period,
+            payload.room_id,
+        )
+        if displaced is not None:
+            displaced.room_id = None
+            if displaced.session_type == MasterSessionType.PRE_ASSIGNED:
+                displaced.session_type = MasterSessionType.REQUIRES_ROOM
+
+    target = MasterRotaSession(
+        template_id=template_id,
+        doctor_id=payload.doctor_id,
+        week=payload.week,
+        day=payload.day,
+        period=payload.period,
+        session_type=payload.session_type,
+        room_id=payload.room_id,
+    )
+    db.add(target)
+
+    db.flush()
+    db.commit()
+
+    to_serialise = [target] if displaced is None else [target, displaced]
+    outs = {s.session_id: s for s in _session_outs(db, to_serialise)}
+    return MasterSessionWriteOut(
+        session=outs[target.id],
+        displaced_session=outs.get(displaced.id) if displaced is not None else None,
+    )
+
+
+@router.delete(
+    "/templates/{template_id}/sessions/{session_id}",
+    status_code=204,
+)
+def delete_session(
+    template_id: int,
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> None:
+    """Delete a slot from the template (M4.4 Task 1).
+
+    Hard delete -- MasterRotaSession has no children and the template has
+    no draft/committed lifecycle, so there's nothing to cascade or gate.
+    No response body: the frontend captures undo data from the in-memory
+    session before issuing the request (the M4.3 convention), and
+    apiClient's request() already special-cases 204 to return undefined.
+    """
+    if db.get(MasterRotaTemplate, template_id) is None:
+        raise HTTPException(
+            status_code=404, detail=f"Template {template_id} not found"
+        )
+    target = db.get(MasterRotaSession, session_id)
+    if target is None or target.template_id != template_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in template {template_id}",
+        )
+
+    db.delete(target)
+    db.commit()
