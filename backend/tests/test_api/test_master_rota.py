@@ -1,5 +1,6 @@
-"""Master rota router tests: GET /master-rota/active and the M4.3 Task 1
-PATCH /master-rota/templates/{template_id}/sessions/{session_id}."""
+"""Master rota router tests: GET /master-rota/active, the M4.3 Task 1
+PATCH /master-rota/templates/{template_id}/sessions/{session_id}, and the
+M4.4 Task 1 POST/DELETE on the same collection."""
 from app.models import MasterRotaSession, MasterRotaTemplate
 from app.models.enums import Day, MasterSessionType, Period
 
@@ -339,3 +340,271 @@ class TestMasterRotaSessionPatch:
         out = resp.json()
         assert out["session"]["room_id"] == seeded["room_c1"]
         assert out["displaced_session"] is None
+
+
+class TestMasterRotaSessionCreate:
+    """M4.4 Task 1: POST /master-rota/templates/{template_id}/sessions.
+
+    seeded only gives AA/BB Monday AM+PM, so Tuesday (or any other
+    day/period) is always a free slot to create into."""
+
+    def _create(self, client, template_id, **payload):
+        return client.post(
+            f"/api/v1/master-rota/templates/{template_id}/sessions",
+            json=payload,
+        )
+
+    # -- Happy path per type ------------------------------------------------
+
+    def test_create_requires_room(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="requires_room", room_id=None,
+        )
+        assert resp.status_code == 201, resp.text
+        out = resp.json()
+        assert out["session"]["session_type"] == "requires_room"
+        assert out["session"]["room_id"] is None
+        assert out["session"]["doctor_code"] == "AA"
+        assert out["session"]["doctor_type"] == "Partner"
+        assert out["displaced_session"] is None
+
+    def test_create_pre_assigned_with_room(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=seeded["room_c1"],
+        )
+        assert resp.status_code == 201, resp.text
+        out = resp.json()["session"]
+        assert out["session_type"] == "pre_assigned"
+        assert out["room_id"] == seeded["room_c1"]
+        assert out["room_code"] == "C1"
+
+    def test_create_admin_time_without_room(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="admin_time", room_id=None,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["session"]["session_type"] == "admin_time"
+
+    def test_create_admin_time_with_room(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="admin_time", room_id=seeded["room_d1"],
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["session"]["room_id"] == seeded["room_d1"]
+
+    def test_create_no_surgery(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["session"]["session_type"] == "no_surgery"
+
+    def test_create_wfh(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="wfh", room_id=None,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["session"]["session_type"] == "wfh"
+
+    # -- 422s -----------------------------------------------------------
+
+    def test_create_pre_assigned_without_room_422(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=None,
+        )
+        assert resp.status_code == 422
+
+    def test_create_requires_room_with_room_422(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="requires_room", room_id=seeded["room_c1"],
+        )
+        assert resp.status_code == 422
+
+    def test_create_week_zero_422(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=0, day="Tuesday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 422
+
+    def test_create_week_five_422(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=5, day="Tuesday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 422
+
+    # -- 404s -------------------------------------------------------------
+
+    def test_create_unknown_template_404(self, client, seeded):
+        resp = self._create(
+            client, 999999,
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 404
+
+    def test_create_unknown_doctor_404(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=999999, week=1, day="Tuesday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 404
+
+    def test_create_unknown_room_404(self, client, seeded):
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=999999,
+        )
+        assert resp.status_code == 404
+
+    # -- 409 duplicate slot ------------------------------------------------
+
+    def test_create_duplicate_slot_409(self, client, seeded):
+        # AA already has Monday AM (seeded).
+        resp = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Monday", period="AM",
+            session_type="no_surgery", room_id=None,
+        )
+        assert resp.status_code == 409
+
+        # The pre-existing row is untouched.
+        body = client.get("/api/v1/master-rota/active").json()
+        aa_am = next(
+            s for s in body["sessions"]
+            if s["doctor_id"] == seeded["doctor_aa"] and s["day"] == "Monday"
+            and s["period"] == "AM"
+        )
+        assert aa_am["session_type"] == "requires_room"
+
+    # -- Displacement -------------------------------------------------------
+
+    def test_create_displaces_same_slot_holder(self, client, seeded):
+        # BB takes C1 on Tuesday AM week 1 first.
+        r1 = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_bb"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=seeded["room_c1"],
+        )
+        assert r1.status_code == 201, r1.text
+        bb_session_id = r1.json()["session"]["session_id"]
+
+        # AA is created into the same slot taking C1 -- BB is displaced.
+        r2 = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=seeded["room_c1"],
+        )
+        assert r2.status_code == 201, r2.text
+        out = r2.json()
+        assert out["session"]["room_id"] == seeded["room_c1"]
+        assert out["displaced_session"]["session_id"] == bb_session_id
+        assert out["displaced_session"]["room_id"] is None
+        assert out["displaced_session"]["session_type"] == "requires_room"
+
+    def test_create_different_week_holder_not_displaced(self, client, seeded):
+        r1 = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_bb"], week=2, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=seeded["room_c1"],
+        )
+        assert r1.status_code == 201, r1.text
+        bb_session_id = r1.json()["session"]["session_id"]
+
+        r2 = self._create(
+            client, seeded["template"],
+            doctor_id=seeded["doctor_aa"], week=1, day="Tuesday", period="AM",
+            session_type="pre_assigned", room_id=seeded["room_c1"],
+        )
+        assert r2.status_code == 201, r2.text
+        assert r2.json()["displaced_session"] is None
+
+        still_holds = client.get("/api/v1/master-rota/active").json()
+        bb_session = next(
+            s for s in still_holds["sessions"] if s["session_id"] == bb_session_id
+        )
+        assert bb_session["room_id"] == seeded["room_c1"]
+
+
+class TestMasterRotaSessionDelete:
+    """M4.4 Task 1: DELETE /master-rota/templates/{template_id}/sessions/{session_id}."""
+
+    def _delete(self, client, template_id, session_id):
+        return client.delete(
+            f"/api/v1/master-rota/templates/{template_id}/sessions/{session_id}"
+        )
+
+    def test_delete_happy_path(self, client, seeded):
+        body = client.get("/api/v1/master-rota/active").json()
+        aa_am = _session_id(body, seeded["doctor_aa"], "AM")
+
+        resp = self._delete(client, seeded["template"], aa_am)
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+        after = client.get("/api/v1/master-rota/active").json()
+        assert all(s["session_id"] != aa_am for s in after["sessions"])
+        assert len(after["sessions"]) == 3
+
+    def test_delete_unknown_session_404(self, client, seeded):
+        resp = self._delete(client, seeded["template"], 999999)
+        assert resp.status_code == 404
+
+    def test_delete_wrong_template_404(self, client, seeded, db_session):
+        other = MasterRotaTemplate(name="Other", is_active=False)
+        db_session.add(other)
+        db_session.commit()
+        body = client.get("/api/v1/master-rota/active").json()
+        aa_am = _session_id(body, seeded["doctor_aa"], "AM")
+
+        resp = self._delete(client, other.id, aa_am)
+        assert resp.status_code == 404
+
+        # Row untouched.
+        still_there = client.get("/api/v1/master-rota/active").json()
+        assert any(s["session_id"] == aa_am for s in still_there["sessions"])
+
+    def test_delete_unknown_template_404(self, client, seeded):
+        body = client.get("/api/v1/master-rota/active").json()
+        aa_am = _session_id(body, seeded["doctor_aa"], "AM")
+        resp = self._delete(client, 999999, aa_am)
+        assert resp.status_code == 404
+
+    def test_delete_then_recreate_same_slot_succeeds(self, client, seeded):
+        body = client.get("/api/v1/master-rota/active").json()
+        aa_am = _session_id(body, seeded["doctor_aa"], "AM")
+
+        del_resp = self._delete(client, seeded["template"], aa_am)
+        assert del_resp.status_code == 204
+
+        recreate = client.post(
+            f"/api/v1/master-rota/templates/{seeded['template']}/sessions",
+            json={
+                "doctor_id": seeded["doctor_aa"], "week": 1,
+                "day": "Monday", "period": "AM",
+                "session_type": "no_surgery", "room_id": None,
+            },
+        )
+        assert recreate.status_code == 201, recreate.text
+        assert recreate.json()["session"]["session_type"] == "no_surgery"
