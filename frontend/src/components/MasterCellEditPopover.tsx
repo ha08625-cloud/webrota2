@@ -107,6 +107,7 @@ export function MasterCellEditPopover({
       <Popover.Portal>
         <Popover.Content
           sideOffset={5}
+          data-testid="master-cell-edit-popover"
           className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
         >
           {view === "main" ? (
