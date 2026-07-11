@@ -491,7 +491,7 @@ describe("LeavePage", () => {
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
     const table = await screen.findByRole("table");
-    within(table).getByText("2026-08-03");
+    within(table).getByText("Mon, 2026-08-03");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
