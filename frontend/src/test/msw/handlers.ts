@@ -33,4 +33,27 @@ export const handlers: HttpHandler[] = [
       displaced_session: null,
     }),
   ),
+  http.post("/api/v1/master-rota/templates/:templateId/sessions", () =>
+    HttpResponse.json(
+      {
+        session: {
+          session_id: 999,
+          doctor_id: 1,
+          doctor_code: "AB",
+          doctor_type: "Partner",
+          week: 1,
+          day: "Monday",
+          period: "AM",
+          session_type: "requires_room",
+          room_id: null,
+          room_code: null,
+        },
+        displaced_session: null,
+      },
+      { status: 201 },
+    ),
+  ),
+  http.delete("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
 ];
