@@ -167,7 +167,7 @@ describe("MasterRotaGrid", () => {
 
     expect(capturedMessage).toBe("AB Monday AM set to No surgery");
     expect(capturedEntry).toEqual({
-      kind: "edit",
+      kind: "patch",
       sessionId: 1,
       previous: { sessionType: "requires_room", roomId: null },
       displaced: null,
@@ -341,10 +341,8 @@ describe("MasterRotaGrid: delete (M4.4 Task 3)", () => {
     expect(capturedMessage).toBe("AB Monday AM session removed");
     expect(capturedEntry).toEqual({
       kind: "delete",
-      deleted: {
-        doctorId: 1, week: 1, day: "Monday", period: "AM",
-        sessionType: "pre_assigned", roomId: 5,
-      },
+      doctorId: 1, week: 1, day: "Monday", period: "AM",
+      previous: { sessionType: "pre_assigned", roomId: 5 },
     });
   });
 
