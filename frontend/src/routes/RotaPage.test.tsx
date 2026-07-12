@@ -10,7 +10,7 @@ import { makeDutyAssignment } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
-import { addDays } from "@/lib/date";
+import { addDays, getUpcomingMondays } from "@/lib/date";
 import { weekDutySlots } from "@/lib/dutyWeekSlots";
 
 import { RotaPage } from "./RotaPage";
@@ -216,15 +216,20 @@ describe("RotaPage", () => {
     it("shows 'fully staffed' once every slot for the selected week is assigned", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
 
+      // Precompute the same default week RotaPage's own getUpcomingMondays
+      // call will land on, and register the duty handler with it *before*
+      // rendering - useDuty fetches once on mount and won't refetch just
+      // because a later server.use() changes what the handler returns.
+      const [defaultWeek] = getUpcomingMondays(1);
+      server.use(
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(defaultWeek))),
+      );
+
       renderWithProviders(<RotaPage />);
       await screen.findByText("Generate a rota");
 
       const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
-      const defaultWeek = weekSelect.value;
-
-      server.use(
-        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(defaultWeek))),
-      );
+      expect(weekSelect.value).toBe(defaultWeek);
 
       const badge = await screen.findByTestId(`generate-week-duty-status-${defaultWeek}`);
       await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
@@ -233,17 +238,17 @@ describe("RotaPage", () => {
     it("shows one independently-computed marker per week for a multi-week selection", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
 
-      renderWithProviders(<RotaPage />);
-      await screen.findByText("Generate a rota");
-
-      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
-      const week1 = weekSelect.value;
+      const [week1] = getUpcomingMondays(1);
       const week2 = addDays(week1, 7);
 
-      // Week 1 fully staffed, week 2 left empty.
+      // Week 1 fully staffed, week 2 left empty - registered before render
+      // for the same reason as above.
       server.use(
         http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(week1))),
       );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
 
       const user = userEvent.setup();
       await user.selectOptions(screen.getByLabelText("Number of weeks"), "2");
@@ -260,16 +265,20 @@ describe("RotaPage", () => {
     it("updates the marker when a different week is selected", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
 
+      // The duty query has no per-week key, so it fetches the full list
+      // once on mount and switching weeks only re-derives the marker
+      // client-side from that same cached list - the handler must already
+      // cover the week we're about to select, before render.
+      const upcomingMondays = getUpcomingMondays(12);
+      const otherWeek = upcomingMondays[2];
+      server.use(
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(otherWeek))),
+      );
+
       renderWithProviders(<RotaPage />);
       await screen.findByText("Generate a rota");
 
       const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
-      const weekOptions = within(weekSelect).getAllByRole("option") as HTMLOptionElement[];
-      const otherWeek = weekOptions[2].value;
-
-      server.use(
-        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(otherWeek))),
-      );
 
       const user = userEvent.setup();
       await user.selectOptions(weekSelect, otherWeek);
