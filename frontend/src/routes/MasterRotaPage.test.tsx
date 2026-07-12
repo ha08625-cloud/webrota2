@@ -293,9 +293,10 @@ describe("MasterRotaPage: create/delete undo (M4.4 Task 4)", () => {
     const cell = await screen.findByTestId("master-cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(await within(cell).findByLabelText("Add session for AB Monday AM"));
-    await user.click(await screen.findByText("Pre-assigned room..."));
-    await user.click(await screen.findByText("D1"));
-    await user.click(await screen.findByRole("button", { name: "Confirm" }));
+    const popover = await screen.findByTestId("master-cell-edit-popover");
+    await user.click(await within(popover).findByText("Pre-assigned room..."));
+    await user.click(await within(popover).findByText("D1"));
+    await user.click(await within(popover).findByRole("button", { name: "Confirm" }));
 
     await screen.findByText(/AB Monday AM session added/);
 
