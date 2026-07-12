@@ -107,6 +107,69 @@ The seeders are **not idempotent and have no designed rerun guard**. In practice
 
 Deliberately not seeded: **clinic types** (and their children) — entered via the frontend — and **clinic counters** (created lazily). `setup.csv` also remains in the repo as reference data. Production seeding is a manual run from a local machine against Railway's public Postgres URL; it has been run once.
 
+## REST API
+
+`backend/app/api/` — FastAPI over the models and the generation engine. All routers are registered under `/api/v1`; `GET /health` sits at the app root for Railway's health check.
+
+```
+api/
+  main.py       app factory: CORS, router registration, /health, frontend static mount
+  deps.py       get_db() session dependency; get_current_user() auth seam
+  routers/      rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota
+  schemas/      Pydantic models, one module per resource + common (ValidationIssueOut)
+```
+
+## Infrastructure and request lifecycle
+
+- **Auth seam.** `get_current_user()` is a shared-token shim attached as a per-endpoint `Depends()` on every router handler — deliberately not middleware, so real auth (outstanding, M5) swaps out this one dependency with zero changes to route handlers or business logic. If the `API_TOKEN` env var is set, requests must carry a matching `X-API-Token` header (constant-time comparison, 401 otherwise); the var is read per-request, so rotation needs no redeploy. **Fail-open by design:** if the var is unset, the API is open — this keeps local dev, tests, and CI working with no fixtures, but means forgetting to set it in production silently leaves the API open. A 401-without-header check belongs on every deployment checklist. `/health`, `/docs`, and `/openapi.json` live outside the routers and stay open.
+- **Frontend SPA mount.** `mount_frontend()` mounts `frontend/dist` at `/` (path from `FRONTEND_DIST`, defaulting to a `__file__`-relative resolution, so working-directory independent), only if the directory *and its `index.html`* exist — a half-built dist never mounts. `SPAStaticFiles` falls back to `index.html` for unknown non-API paths (client-side routes survive a hard refresh) while `/api/*` 404s stay real JSON 404s; registered routes always beat the mount. No cache-control headers are set — if stale-frontend-after-deploy ever appears, look here.
+- **CORS** origins come from `CORS_ORIGINS` (comma-separated; default `*` for dev). Production is same-origin, so the production value is a hardening measure, not a functional one.
+
+## Router surface
+
+| Router | Responsibility | Key behaviour |
+|---|---|---|
+| `/rota` | Generation lifecycle and all draft editing | See the two sections below — this is the core of the API |
+| `/master-rota` | The master template: read and edit | `GET /active` returns the single active template with its flat session list; `PATCH`/`POST`/`DELETE` on `/templates/{template_id}/sessions[/{session_id}]` edit it — see "Master rota write surface" below |
+| `/doctors` | Doctor profiles and preferred rooms | `DELETE` is a soft delete (`active=False`), 409-blocked if the doctor has sessions on any *committed* rota (draft sessions don't block); preferred rooms are replaced wholesale via a dedicated `PUT` |
+| `/clinic-types` | Clinic type CRUD | Writes are single nested requests (parent + schedules + doctor/room eligibilities in one payload, one transaction); `PUT` uses replace-children — safe for counter history because `ClinicCounter` is keyed on values, never on child-row FKs |
+| `/leave` | Leave entries | List/add/delete plus `POST /bulk` and `POST /bulk-delete` for date ranges (capped at 366 days). Bulk add inserts weekdays only, reporting weekend and duplicate dates as `skipped` rather than dropping them silently; bulk delete does *not* weekday-filter, so stray weekend entries remain clearable |
+| `/duty` | Pre-planned duty assignments | A generation input, not an audit trail — draft edits never write back here (see "Editing endpoints") |
+| `/rooms` | Physical rooms | Read-only by design (seeded, 14 rooms). Room types needed by the frontend's colour rules come from this one fetch, deliberately not duplicated onto rota payloads |
+| `/counters` | Clinic and system counters | Read-only views (joined with doctor/clinic names) of live values — committed baseline plus any in-progress draft's edits |
+
+## Rota lifecycle
+
+A `GeneratedRota` is `draft` or `committed`, and **one draft exists globally** — generate returns 409 while any draft exists. All mutation endpoints are **draft-only** (409 on committed rotas).
+
+The counter snapshot mechanism is what makes the lifecycle safe: when generation persists, it first snapshots every existing `ClinicCounter`/`SystemCounter` value into the two snapshot tables (before counters are written, so values are exactly pre-generation), then writes counters and sessions in the same transaction. **Commit** deletes the snapshots — the live values become the baseline for future generations. **Scrap** (`DELETE /rota/{id}`) restores every snapshotted value, deletes counter rows created after the snapshot, and deletes the rota, its sessions, and the snapshots, all in one transaction. Scrap therefore also undoes counter edits made by draft editing, and scrap-then-regenerate is equivalent to generating once from the original baseline — this snapshot lifecycle, not recalculation, is what prevents incremental counter updates from drifting.
+
+A Phase 0 generation failure returns 422 with the issues; nothing is committed, so the `RotaConfig` row is discarded along with everything else. `GET /rota` lists all rotas newest first (`created_at DESC, id DESC` — the id tiebreak matters for same-second creation), metadata only; the frontend derives the active draft and committed history from it. No pagination (volume is tens per year). `GET /rota/{id}/issues` re-runs Phase 12 and works on both draft and committed rotas.
+
+## Editing endpoints and re-validation
+
+Every editing endpoint follows the same contract: mutate, re-run Phase 12 (via `engine/grid_utils.py` — a fresh grid rebuilt from persisted `RotaSession` rows per request, no caching, trusting the persisted `template_type` where present), and return the fresh issues in the response. **Eligibility is deliberately not checked server-side**: a force-assignment to an ineligible doctor succeeds and comes back with warnings — apply-then-warn with undo is the frontend's job. Duty role edits never write back to `DutyAssignment` (a generation input, not an audit trail); Phase 12 reads roles from the rebuilt grid, so re-validation stays correct regardless.
+
+- **`PATCH /rota/{id}/sessions/{session_id}`** — partial update of `is_wfh` and/or `notes`, with field presence detected via `model_fields_set` (`notes: null` clears; an absent field is untouched; an empty body is 422). Setting `is_wfh` true also **clears `room_id`** — room freeness is derived from session rows, so WFH must actually free the room. Toggling it off does *not* restore a room; the slot warns `unresolved_room` until one is assigned. This endpoint has no `room_id` field and never displaces — its "safe partial update, no side effects on other rows" contract is why the set-room/set-role operations live on separate endpoints.
+- **`POST .../swap-roles` and `.../swap-rooms`** — exchange `(role, clinic_type_id)` or `room_id` between two sessions. **One side may be empty, making the swap a move** — documented contract with tests, not an accident; both sides empty is 422. `swap-roles` adjusts `ClinicCounter` rows (get-or-create upsert, floored at 0 on decrement; a same-clinic-type swap is a counter no-op); `swap-rooms` never touches counters. A room move deliberately leaves the source warning `unresolved_room` if its slot is `REQUIRES_ROOM` — the signal to reassign. Because the field exchange is symmetric (counters included), repeating the identical call is a true inverse, which is what the frontend's undo relies on.
+- **`POST .../sessions/{session_id}/set-room`** — one-sided room assign/clear with displacement. `room_id: null` clears with no displacement lookup and no `is_wfh` change. A set `room_id` displaces any same-slot holder — its room is **cleared to blank, not reverse-swapped**; the blank/`unresolved_room` state plus the returned warnings are the honest signal — and clears the target's `is_wfh` if set (the PATCH rule in reverse). Unknown rooms 404 via explicit lookup (FK errors would surface as 500s on Postgres at flush). No counter effect. Returns `{session, displaced_session, issues}`.
+- **`POST .../sessions/{session_id}/set-role`** — a **verbatim `(role, clinic_type_id, template_type)` triple setter**: it always writes the given triple exactly, which is what makes every frontend undo expressible as another call to it. Displacement applies only to steal-class assignments (duty roles; `role=clinic` with a specific `clinic_type_id`) — the displaced side is cleared to `None`/`None`, one-sided. If the written triple ends as `role=None` with `template_type` in `no_surgery`/`admin_time`, the target's room is also cleared (a no-surgery session silently holding a room would block it with no warning). Counter adjustments mirror `swap-roles`, with a same-clinic-type reassignment guarded to a no-op. Same response shape as `set-room`.
+
+## Master rota write surface
+
+The template has no draft/committed lifecycle, so its editing endpoints are **not draft-gated and never run Phase 12** — the per-endpoint displacement rule is the only conflict-avoidance mechanism. Edits affect future generations only: `RotaSession` snapshots `template_type` at generation time, so existing drafts and committed rotas are untouched by a template edit made afterwards.
+
+- **`GET /master-rota/active`** — the single active template with its flat session list, joined to doctor/room codes. `MasterRotaTemplate.is_active` is not schema-enforced unique, so the endpoint orders by `id` and takes the first match rather than `.scalar_one()`: a second active row resolves deterministically instead of 500ing the page.
+- **`PATCH /templates/{template_id}/sessions/{session_id}`** — a verbatim `(session_type, room_id)` **pair setter** (both fields always required, not a partial update — undo replay is just another PATCH). Works on any template, active or not. A set `room_id` displaces any same-slot-same-week holder: its room clears, and a displaced `PRE_ASSIGNED` becomes `REQUIRES_ROOM` (a roomless `PRE_ASSIGNED` means nothing to Phase 2) while a displaced `ADMIN_TIME` keeps its type.
+- **`POST /templates/{template_id}/sessions`** and **`DELETE .../sessions/{session_id}`** — cell *existence* is itself the data (a doctor with no row for a slot simply doesn't work it), so editing a working pattern needs row create/delete, not just the pair setter. POST shares PATCH's displacement rule and validator (`MasterSessionPairIn` base, enforcing the `session_type`/`room_id` pairing: `PRE_ASSIGNED` requires a room, `ADMIN_TIME` optionally has one, `REQUIRES_ROOM`/`NO_SURGERY`/`WFH` must not), and pre-checks the slot for a 409 rather than letting the unique constraint raise. DELETE is a hard delete returning 204 (no children, nothing to cascade). **The server is a permissive verbatim writer** — no doctor-active check server-side; the frontend gates the add-session affordance to active doctors, and the permissiveness is what keeps undo-recreate working if a doctor is deactivated mid-session. PATCH and POST share one response shape, `MasterSessionWriteOut` (`{session, displaced_session}` — no `issues` field, since Phase 12 doesn't apply here).
+
+## Conventions
+
+- **Transaction boundaries:** each mutating endpoint commits explicitly on success; a raised `HTTPException` leaves the session uncommitted, so partial work is discarded.
+- **Duplicate detection** is via catching `IntegrityError` on commit (race-free), mapped to 409 — not pre-checking. The one exception is the master-rota session POST above, which pre-checks to produce a descriptive 409.
+- **The room_id/room_type XOR** on room eligibilities and preferred rooms is enforced at the API boundary (Pydantic validators, 422) as well as by the DB check constraints.
+- **Field naming:** objects embedded in lists alongside other `_id` fields use prefixed ids (`rota_id`, `session_id`, `template_id`) — a bare `id` would be ambiguous there; standalone CRUD entity schemas (`DoctorOut`, `RoomOut`, ...) use plain `id`. The frontend's types mirror wire names exactly, no client-side renaming.
+
 ## Domain: Frontend Reference Pages & Application Shell
 
 The application's shell (layout, routing, providers), the authentication boundary, the shared API layer, and the pages for managing the reference data the generation engine consumes.
