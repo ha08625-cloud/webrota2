@@ -8,27 +8,16 @@ import type { Day, MasterSessionType, Period } from "@/api/types";
  * template's three write endpoints (PATCH/POST/DELETE) have their own,
  * much smaller replay logic below.
  *
- * M4.4 Task 3 widens this from a single shape (PATCH-only) into a
- * discriminated union, mirroring lib/undoStack.ts's UndoEntry "kind"
- * convention: "edit" is the original M4.3 shape unchanged (renamed to
- * MasterEditUndoEntry), "create"/"delete" are new. Note on scope: the
- * plan attributes the full undo/replay wiring to a later "Task 4", but
- * MasterRotaGrid's create/delete handlers (this task) have a hard
- * compile-time dependency on typed entries to pass to onMutationApplied
- * - so the type definitions, message helpers, and replay-step building
- * below are implemented now, out of strict task order, rather than
- * leaving the grid unable to type-check. MasterRotaPage's handleUndo is
- * updated to match (see that file) so the app stays in a working state
- * end-to-end; treat this as provisional pending Task 4's own review
- * (toast wording, replay ordering assumptions) rather than a closed
- * decision.
- *
- * previous/displaced/deleted are captured from the grid's pre-mutation
- * session objects at click time, same convention as the rota entries in
- * undoStack.ts.
+ * A discriminated union (M4.4 Task 4), mirroring lib/undoStack.ts's
+ * UndoEntry "kind" convention: "patch" is the M4.3 shape (renamed from
+ * an interim "edit" used while this was being built ahead of the plan's
+ * own task order - see Task 3's note, now resolved by this task's exact
+ * naming), "create"/"delete" are new. previous/displaced are captured
+ * from the grid's pre-mutation session objects at click time, same
+ * convention as the rota entries in undoStack.ts.
  */
-export interface MasterEditUndoEntry {
-  kind: "edit";
+export interface MasterPatchUndoEntry {
+  kind: "patch";
   sessionId: number;
   previous: { sessionType: MasterSessionType; roomId: number | null };
   displaced: {
@@ -44,9 +33,9 @@ export interface MasterEditUndoEntry {
 
 export interface MasterCreateUndoEntry {
   kind: "create";
-  /** The session the forward create produced - undo deletes it. */
+  /** The session id from the POST response - undo deletes it. */
   createdSessionId: number;
-  /** Same shape/semantics as MasterEditUndoEntry.displaced - a session
+  /** Same shape/semantics as MasterPatchUndoEntry.displaced - a session
    * displaced by the create, if any, restored before the created row is
    * deleted (see buildMasterReplaySteps for the ordering rationale). */
   displaced: {
@@ -58,60 +47,65 @@ export interface MasterCreateUndoEntry {
 
 export interface MasterDeleteUndoEntry {
   kind: "delete";
-  /** Full pre-delete session data - undo recreates it via POST with
-   * these exact fields. "Remove session" (the forward action) is a
-   * direct, unconfirmed, non-steal action (M4.4 Task 3), so there is no
-   * displaced session to also restore here. */
-  deleted: {
-    doctorId: number;
-    week: number;
-    day: Day;
-    period: Period;
-    sessionType: MasterSessionType;
-    roomId: number | null;
-  };
+  /** The deleted session's slot coordinates - undo recreates a row at
+   * this exact slot via POST. Flat, not nested (unlike patch/create's
+   * displaced), since there's only ever one thing to restore here: the
+   * "Remove session" forward action is direct/unconfirmed and never
+   * displaces anything (M4.4 Task 3), so there's no displaced sibling
+   * to also carry. */
+  doctorId: number;
+  week: number;
+  day: Day;
+  period: Period;
+  previous: { sessionType: MasterSessionType; roomId: number | null };
 }
 
-export type MasterUndoEntry = MasterEditUndoEntry | MasterCreateUndoEntry | MasterDeleteUndoEntry;
+export type MasterUndoEntry = MasterPatchUndoEntry | MasterCreateUndoEntry | MasterDeleteUndoEntry;
 
 export type MasterReplayStep =
-  | { action: "patch"; sessionId: number; sessionType: MasterSessionType; roomId: number | null }
-  | { action: "create"; doctorId: number; week: number; day: Day; period: Period; sessionType: MasterSessionType; roomId: number | null }
-  | { action: "delete"; sessionId: number };
+  | { op: "patch"; sessionId: number; sessionType: MasterSessionType; roomId: number | null }
+  | { op: "create"; doctorId: number; week: number; day: Day; period: Period; sessionType: MasterSessionType; roomId: number | null }
+  | { op: "delete"; sessionId: number };
 
 /**
- * Builds the ordered replay actions for any MasterUndoEntry kind.
+ * Builds the ordered replay steps for any MasterUndoEntry kind.
+ * Displaced-first ordering is preserved across all three kinds - restore
+ * whatever was stolen from before undoing the action that stole it:
  *
- * "edit": displaced first, then target - the original M4.3 ordering
- * (restore the session that got stolen from before restoring the one
- * that did the stealing). Restoring the displaced session to
- * PRE_ASSIGNED + its room will itself auto-displace the target
- * server-side (still holding that room from the forward edit) - harmless,
- * because the very next step overwrites the target with its exact
- * previous pair, which is not the room that was just re-displaced.
+ * "patch": the original M4.3 ordering - restore the displaced session's
+ * pair, then the target's own previous pair. Restoring the displaced
+ * session to PRE_ASSIGNED + its room will itself auto-displace the
+ * target server-side (still holding that room from the forward edit) -
+ * harmless, because the very next step overwrites the target with its
+ * exact previous pair, which is not the room that was just re-displaced.
  *
- * "create": same displaced-first rationale applies - restoring the
- * displaced session's room will auto-displace the still-live created
- * session (clearing its room), which is immaterial since the following
- * step deletes that row outright.
+ * "create": same rationale - restoring a displaced session's room will
+ * auto-displace the still-live created session (clearing its room),
+ * which is immaterial since the following step deletes that row
+ * outright.
  *
- * "delete": a single recreate step - "Remove session" never displaces
- * anything (direct action, no room-steal concept for a plain removal),
- * so there is nothing else to restore.
+ * "delete": a single create step recreating the row at its original
+ * slot with its previous pair. There is no displaced session to restore
+ * first (Remove never displaces anything). If another session has since
+ * taken that room, the server's own displacement rule fires exactly as
+ * it would for a fresh create - acceptable under the single-user
+ * assumption. The recreated row gets a new session_id; nothing in the
+ * client still references the old one after the cache filter ran, so
+ * this is safe.
  */
 export function buildMasterReplaySteps(entry: MasterUndoEntry): MasterReplayStep[] {
-  if (entry.kind === "edit") {
+  if (entry.kind === "patch") {
     const steps: MasterReplayStep[] = [];
     if (entry.displaced) {
       steps.push({
-        action: "patch",
+        op: "patch",
         sessionId: entry.displaced.sessionId,
         sessionType: entry.displaced.sessionType,
         roomId: entry.displaced.roomId,
       });
     }
     steps.push({
-      action: "patch",
+      op: "patch",
       sessionId: entry.sessionId,
       sessionType: entry.previous.sessionType,
       roomId: entry.previous.roomId,
@@ -123,25 +117,25 @@ export function buildMasterReplaySteps(entry: MasterUndoEntry): MasterReplayStep
     const steps: MasterReplayStep[] = [];
     if (entry.displaced) {
       steps.push({
-        action: "patch",
+        op: "patch",
         sessionId: entry.displaced.sessionId,
         sessionType: entry.displaced.sessionType,
         roomId: entry.displaced.roomId,
       });
     }
-    steps.push({ action: "delete", sessionId: entry.createdSessionId });
+    steps.push({ op: "delete", sessionId: entry.createdSessionId });
     return steps;
   }
 
   return [
     {
-      action: "create",
-      doctorId: entry.deleted.doctorId,
-      week: entry.deleted.week,
-      day: entry.deleted.day,
-      period: entry.deleted.period,
-      sessionType: entry.deleted.sessionType,
-      roomId: entry.deleted.roomId,
+      op: "create",
+      doctorId: entry.doctorId,
+      week: entry.week,
+      day: entry.day,
+      period: entry.period,
+      sessionType: entry.previous.sessionType,
+      roomId: entry.previous.roomId,
     },
   ];
 }
