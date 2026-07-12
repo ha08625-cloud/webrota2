@@ -1,0 +1,324 @@
+## Generation Engine
+
+`backend/app/engine/` — pure Python, no FastAPI dependency. Transforms the active master template plus reference data into a fully assigned draft rota via a strictly sequential pipeline: an immutable context in, a mutable grid through the phases, one write at the end.
+
+```
+engine/
+  datatypes.py    SessionSlot, RotaGrid, CounterState, GenerationContext, ValidationIssue, GenerationResult
+  week_map.py     generation-week <-> template-week <-> calendar-date mapping
+  context.py      load_context(): one read-only snapshot of all reference data per run
+  grid_utils.py   rebuild_rota_grid() / run_phase12_for_rota(): reconstruct a grid from persisted rows for the edit endpoints
+  phases/         phase0, phase2, phase4, phase5, phase7_9a, phase9b, phase12
+  generate.py     orchestrator + draft lifecycle (get_active_draft, commit_rota, scrap_rota)
+```
+
+Phase numbering (0, 2, 4, 5, 7–9A, 9B, 12) is inherited from the original GAS scripts; the gaps are not missing phases. Phase 9C (trainee supervision) is the one genuinely unimplemented phase — deferred post-project, along with the Phase 12 check that depends on it (see Outstanding Tasks).
+
+### Core data structures (`datatypes.py`)
+
+- **`GenerationContext`** — frozen dataclass holding all reference data for one run (doctors, rooms, clinic types, leave set, duty map, week/date mappings, template sessions), built once by `load_context()`. Nothing in it is mutated during generation. Two load-time guarantees the phases depend on: `preferred_rooms_by_doctor` is flattened and ordered, with `room_type` preference rows expanded to concrete rooms at that preference position; and `ClinicTypeInfo.schedules` is deterministically sorted (weekday, then period), because Phase 5's counter fairness depends on a deterministic processing order.
+- **`RotaGrid`** — the mutable workspace: a dict of `SessionSlot`s keyed `(doctor_id, week, day, period)`, plus two synchronised occupancy indexes (`_room_occupancy` and `_doctor_room`) giving O(1) answers to both "is this room free" and "what room does this doctor hold" — the displacement logic in Phases 5 and 7–9A needs *who* occupies a room, not just whether it is free. `assign_room()`/`free_room()` keep the indexes and the slot's `assigned_room_id` in lockstep.
+- **`CounterState`** — in-memory working copy of clinic and system counters. Clinic counters are **shared**: keyed `(doctor_id, clinic_type_id)` with no day/period dimension (an earlier per-slot design was rejected before M2). The weighted score used for assignment tie-breaking is `raw_count / sessions_per_week`; a doctor with `spw = 0` scores infinity and is therefore never preferred. `CounterState` also tracks which clinic keys are new this run, so the final write knows INSERT from UPDATE without re-querying.
+- **`ValidationIssue`** — one finding from a phase. Only Phase 0 ever emits `severity="error"`; everything else is a warning.
+
+### Pipeline (`generate.py` orchestrating `phases/`)
+
+`generate(db, config_id)` loads the context, then runs the phases in fixed order. **Only Phase 0 can stop the run**: any Phase 0 error returns `status="failed"` before a grid exists or anything is written. Phases 2–12 cannot fail — every subsequent finding is a collected warning, and the result status is `success` (no warnings) or `partial` (warnings present), both with a persisted draft.
+
+- **Phase 0 — pre-flight validation.** Hard errors (abort) include a duty doctor pre-planned onto a `NO_SURGERY`/`ADMIN_TIME` template slot (`duty_on_incompatible_slot`) and duty-on-leave. WFH template slots are deliberately exempt from the incompatible-slot block: a WFH slot is realistically overridable — the doctor comes in for duty.
+- **Phase 2 — grid and counter initialisation.** Builds the grid from the active template (a doctor with no template entry for a slot gets **no** `SessionSlot` — cell absence is data, the part-time-doctor case) and loads `ClinicCounter`/`SystemCounter` rows into `CounterState` (the one phase needing DB access).
+- **Phase 4 — pre-planned duty application.** Applies `DutyAssignment` rows as roles on the grid.
+- **Phase 5 — clinic assignment and clinic room resolution.** Iterates clinic type (by `clinic_priority`) -> schedule -> generation week; picks the eligible doctor by priority tier, then weighted counter, then alphabetical, and increments the shared counter. Room resolution for `room_required` clinics is **preference-list-only** — no room-type fallback. It may displace a lower-priority occupant, but never one who is on leave, on duty, or running a higher-priority clinic, and only if the occupant can be relocated to a free room from their own preference list (excluding D-type rooms when the room being claimed is D-type).
+- **Phases 7–9A — room resolution.** Three passes: Trainee/AHP full-day displacement, then single-session displacement, then a Partner/Salaried fallback pass. The two displacement passes get the C/W/SR free-room fallback when relocating a displaced doctor; Pass 3 does **not** — it only ever walks the doctor's own preference list. This asymmetric scoping is deliberate, not an inconsistency.
+- **Phase 9B — room swap elimination.** Resolves AM/PM room-pair swaps per a priority table. Row 5 of the original table was dropped as unreachable under strict first-match evaluation of rows 1–4 (user-confirmed decision: the scenario falls through to the same default as rows 6/7). "Preference match" means the room appears anywhere in the doctor's preference list, not top-preference-only.
+- **Phase 12 — validation (warnings only).** Four checks: **duty coverage** (exactly 1 primary per session every day; 1 secondary Monday AM/PM only, 0 elsewhere), **clinic coverage**, **unresolved rooms** (a `REQUIRES_ROOM` slot with no room — skipping on-leave and WFH slots, since neither needs a room; the warning re-surfaces when WFH is toggled off), and **`role_on_incompatible_slot`** (any role, duty or clinic, on a `NO_SURGERY`/`ADMIN_TIME`/on-leave/WFH slot). The last check is what keeps forced edits honest: the edit endpoints have no eligibility checks of their own and re-run Phase 12 instead.
+
+### Transaction and persistence model
+
+The engine **never commits** — `_write_to_db()` only flushes; the caller (the rota router) owns the transaction. This is what guarantees an uncaught exception rolls back everything, counter writes included.
+
+`_write_to_db()` runs once, at the end of a successful pipeline, and in this order:
+
+1. Creates the `GeneratedRota` header with `status=DRAFT`.
+2. **Snapshots every existing `ClinicCounter`/`SystemCounter` row** into `RotaClinicCounterSnapshot`/`RotaSystemCounterSnapshot` — all rows, not just those this run touches, because draft-period swap edits can change counters the generation never looked at, and scrap must restore those too. The snapshot is taken *before* counters are written, so it holds exact pre-generation values.
+3. Writes every `SessionSlot` as a `RotaSession` row, including template-type-only slots (`NO_SURGERY`/`ADMIN_TIME`/WFH with no role). `template_type` is persisted directly on the row — sessions are self-contained snapshots, never re-derived from the master template at read time (which would silently rewrite historical rotas when the template is edited).
+4. Upserts counters: INSERT for keys `CounterState` marked new, UPDATE otherwise. System counter updates use `.scalar_one()` deliberately — the seed guarantees a row per active doctor and counter type, and a violated guarantee should raise, not silently create rows.
+
+### Draft lifecycle (also in `generate.py`)
+
+At most **one draft exists globally**; `get_active_draft()` is how the API layer finds it (the 409-on-generate enforcement itself is the router's). **Commit** deletes the snapshots and flips status — the live counter values (generation increments plus any draft-period edits) become the baseline for future generations. **Scrap** restores every snapshotted counter value wholesale, deletes counter rows created after the snapshot, recreates any snapshotted row that was deleted during the draft period, and deletes the rota (sessions cascade) and snapshots — all in the caller's transaction. Scrap therefore also undoes counter drift from manual edits, and scrap-then-regenerate is equivalent to generating once from the original baseline; this snapshot lifecycle is why the edit endpoints can safely use incremental counter updates rather than full recalculation.
+
+### Grid rebuild for edits (`grid_utils.py`)
+
+`rebuild_rota_grid()` reconstructs a `RotaGrid` from persisted `RotaSession` rows with a fresh `GenerationContext` per request (no caching); `run_phase12_for_rota()` re-validates it. Every edit endpoint (swaps, session PATCH, `set-room`/`set-role`) and `/issues` goes through this — `/issues` works on both draft and committed rotas. The `template_type` rule: the **persisted value is trusted when present**, including a manually overridden one; re-derivation from the active template is only the fallback for a null (legacy pre-`template_type`) value, and if the template entry no longer exists either, the slot falls back to `NO_SURGERY` — role-based checks stay accurate and the slot opts out of the unresolved-room check rather than warning against a template entry that no longer exists.
+
+# Data Layer and Seeds
+
+SQLAlchemy 2.0 models (`Mapped` / `mapped_column` style) under `backend/app/models/`, two Alembic migrations under `backend/alembic/`, seed scripts under `backend/seed/`. The models and migrations are the authoritative schema record; this section records only what is not obvious from reading them.
+
+## Connectivity
+
+`app/database.py` owns the engine, `SessionLocal` factory, and declarative `Base`. `DATABASE_URL` defaults to a local SQLite file (`./rota.db`); setting the env var (Postgres on Railway) switches the engine with no code change. SQLite gets `check_same_thread=False` so FastAPI can use sessions across threads. Session hand-out to request handlers is the API layer's job (`deps.get_db`).
+
+**SQLite foreign keys are enforced only in the test engines.** Both test conftests attach a connect-event listener issuing `PRAGMA foreign_keys=ON`; the dev engine in `database.py` does not. A local SQLite dev database therefore silently accepts FK violations that Postgres (and the test suite) would reject.
+
+## Enums
+
+All enums are Python `str` enums in `models/enums.py`, stored by **value** (`"Partner"`, `"AM"`, `"no_surgery"`), not member name. `enum_col()` wraps one for column use and **caches one shared SQLAlchemy `Enum` instance per Python enum** — on Postgres each native enum type is a `CREATE TYPE`, and a fresh instance per column would attempt to create the same named type once per table, breaking `create_all` and `alembic upgrade`. One shared instance lets `Base.metadata` deduplicate. SQLite is unaffected (renders VARCHAR + CHECK).
+
+## Tables (18)
+
+**Reference data.** `rooms`: the 14 physical rooms (8 D-rooms at SHC, C1–C3 at Cutteslowe, W1–W2 at Wolvercote, SR at SHC), unique `code`, `room_type` (D/C/W/SR) and `site` — the type letters mirror room codes and carry no further semantics in the data layer. `doctors`: unique `code`, `doctor_type` (Partner/Salaried/Trainee/AHP), soft delete via `active`, and `sessions_per_week` (`Numeric(4,1)`, default 10.0) — this is the divisor for weighted counter scores, not a capacity limit enforced anywhere in the schema. `doctor_preferred_rooms`: an ordered preference list; each row is exactly one of a concrete `room_id` or a generic `room_type` token, enforced by a check constraint (`ck_dpr_room_xor`), with `(doctor_id, preference_order)` unique.
+
+**Clinic configuration.** `clinic_types` plus three cascading child tables, all populated via the API/frontend, never seeded. `clinic_type_schedules`: unique `(clinic_type_id, day, period)`. `clinic_type_doctor_eligibilities`: per-doctor `doctor_priority` (default 1000, lower is stronger). `clinic_type_room_eligibilities`: the same room_id/room_type XOR check as preferred rooms (`ck_ctre_room_xor`), plus uniques on `(clinic_type_id, room_id)` and `(clinic_type_id, room_type)`. `ClinicType.category` is free text; the `"duty_helper"` value the frontend colours specially is a data convention, not a constraint.
+
+**Generation inputs.** `leave_entries`: half-day granularity, unique `(doctor_id, date, period)`; weekday-only is an API rule, not a schema one, so stray weekend rows are representable. `duty_assignments`: unique `(date, period, duty_type)` — at most one primary and one secondary row per session globally. This table is a generation input only; manual duty edits on a generated rota do not write back to it.
+
+**Master template.** `master_rota_templates` / `master_rota_sessions`. **`is_active` is not schema-enforced unique** — single-active-template is app logic, and readers must (and do) resolve multiple active rows deterministically rather than assume one. Sessions: `ck_mrs_week` (week 1–4), unique `(template_id, doctor_id, week, day, period)`, `session_type` (requires_room / no_surgery / admin_time / pre_assigned / wfh), nullable `room_id`. **Row existence is itself the data**: a doctor with no row for a slot does not work that slot — Phase 2 creates no grid slot for it — so editing a working pattern means creating/deleting rows, not just updating them.
+
+**Generated rotas.** `rota_configs` (start date; `num_weeks IN (1,2,4)`; `template_start_week` 1–4), `generated_rotas` (`status` draft/committed; **at most one draft globally, enforced at the API layer, not the schema**), `rota_sessions`. Session rows are unique per `(rota_id, doctor_id, week, day, period)`, and the standing invariant is: a row exists iff a template entry existed for that slot at generation time — edits mutate rows but never create or delete them (the frontend pivot relies on this). `template_type` (nullable, added by migration 002) snapshots the slot's `MasterSessionType` at generation time so later template edits cannot rewrite how historical rotas read; since M4.1 the cell edit menu may manually overwrite it, so its precise meaning is "generation-time snapshot, possibly manually overridden". Null (pre-002 rows only) reads as a normal session. `is_on_leave` is not stored — derived from `leave_entries` at read time. Sessions on a draft are freely mutable; "committed rotas are immutable" is an API-layer 409, not a data-layer property.
+
+## Counters and snapshots
+
+`clinic_counters` (unique `(doctor_id, clinic_type_id)`) and `system_counters` (unique `(doctor_id, counter_type)`, types `room_move` / `supervision`) store **raw counts only**. The fairness metric, weighted score = `raw_count / sessions_per_week`, is computed in the engine (`CounterState`) and mirrored in the frontend (`weightedScore.ts`); it is never stored and no SQL computes it. Clinic counters are deliberately **shared-only** — one row per (doctor, clinic type) regardless of how many schedule slots the type has; an earlier per-slot design was reversed before M2 and never shipped. Counter rows are created lazily (get-or-create in the engine and swap endpoints), not seeded — only system counters are seeded.
+
+`rota_clinic_counter_snapshots` / `rota_system_counter_snapshots` support the draft lifecycle. On generation, every existing counter row's value is snapshotted (pre-generation values) against the new rota before any counter write. While the rota is a draft, all mutations — generation increments and manual-edit adjustments — hit the live counter tables. **Commit** deletes the snapshots, making live values the new baseline. **Scrap** restores every snapshotted value, deletes counter rows created after the snapshot, and deletes the rota — so scrap-then-regenerate equals generating once from the original baseline, and any drift from incremental edit adjustments is bounded by the draft's lifetime. Snapshot rows are write-once, and since at most one draft exists, at most one rota's snapshots exist at a time.
+
+## Migrations
+
+`alembic/env.py` targets `Base.metadata` and reuses the application's `DATABASE_URL`/engine, so `alembic upgrade head` behaves identically on SQLite (dev, `render_as_batch=True`) and Postgres (prod).
+
+**`001_initial_schema.py` is a frozen baseline** (all 18 tables). Through M1–M3 it was regenerated rather than incrementally migrated; the version deployed to Railway is permanent, and all schema change since is additive-only. Its Postgres enum handling: every native type is created explicitly once with `checkfirst` at the top of `upgrade()`, then columns reference the types without re-creating them (`postgresql.ENUM(create_type=False)` on Postgres, plain `sa.Enum` on SQLite).
+
+**`002_rota_session_template_type.py`** adds the single nullable `rota_sessions.template_type` column, no backfill (null has a defined meaning). It reuses the existing `master_session_type` Postgres type with `create_type=False`, and its `downgrade()` deliberately drops only the column — the enum type must survive because `master_rota_sessions.session_type` still uses it.
+
+CI validates an upgrade/downgrade/upgrade round trip against a Postgres 16 service container on every push.
+
+## Seeds
+
+`seed/run_all.py` runs four seeders in dependency order inside one transaction (commit at the end, rollback on any error):
+
+1. `seed_rooms.py` — the 14 rooms, hardcoded.
+2. `seed_doctors.py` — from `seed/data/setup.csv`. Preferred-room cells resolve to a `room_id` when they match a room code, otherwise to a `room_type` token; anything else raises. `sessions_per_week` is seeded as the 10.0 placeholder for every doctor.
+3. `seed_system_counters.py` — one zero-valued `room_move` and one `supervision` row per active doctor.
+4. `seed_master_rota.py` — one template ("Default", active) from `seed/data/master_rota.csv`, whose rigid format is documented in the module docstring (two rows per doctor AM/PM, four fixed week-column blocks, a closed cell vocabulary: room codes, `D?`, `No surgery`, `Admin time [room]`, `Working from home`); any unrecognised cell or structural deviation raises.
+
+The seeders are **not idempotent and have no designed rerun guard**. In practice a rerun fails immediately on `rooms.code` uniqueness and the transaction rolls back — adequate protection, but incidental, and it depends on `seed_rooms` running first (`master_rota_templates.name` has no unique constraint, so a template-only rerun would happily create a second active template).
+
+Deliberately not seeded: **clinic types** (and their children) — entered via the frontend — and **clinic counters** (created lazily). `setup.csv` also remains in the repo as reference data. Production seeding is a manual run from a local machine against Railway's public Postgres URL; it has been run once.
+
+## Domain: Frontend Reference Pages & Application Shell
+
+The application's shell (layout, routing, providers), the authentication boundary, the shared API layer, and the pages for managing the reference data the generation engine consumes.
+
+### Application Shell & Providers
+
+- **main.tsx** — the composition root. Creates the `QueryClient` (custom retry policy: no retries on any 4xx, since they will not succeed on retry; 5xx/network capped at 2 — so a 401 surfaces the token prompt immediately) and renders `QueryClientProvider > TokenGate > App`.
+- **App.tsx** — routing and layout only, no providers: `BrowserRouter` (React Router v7, declarative mode — TanStack Query owns all server state, so no router loaders/actions), a fixed left nav, and the eight routes (Rota list/detail, Master Rota, Clinic Types, Doctors, Leave, Duty, Counters).
+
+### Authentication Boundary
+
+Enforcement is server-side (the shared-token shim in `deps.py`); the frontend's job is attaching the token and recovering when it is missing or wrong.
+
+- **client.ts** attaches `X-API-Token` to **every** request (the whole API is gated, reads included), from `tokenStore.ts` (localStorage, so the token survives reloads). On any 401 it invokes the single listener registered via `onUnauthorized()`.
+- **TokenGate.tsx** wraps the entire app and is purely 401-reactive: normally renders children untouched; on a 401 it replaces the app with a full-screen token prompt. On submit it stores the token and calls `queryClient.resetQueries()` explicitly — deliberately not relying on unmount/remount to trigger refetches, which works today only incidentally.
+
+### API Communication
+
+- **client.ts** — centralised HTTP client over `/api/v1` (relative base by default: Vite proxy in dev, same-origin static mount in production; `VITE_API_BASE_URL` overrides). Non-2xx responses throw a plain `ApiError` object (`{status, detail}`), never an `Error` instance; 204 resolves to `undefined`.
+- **types.ts** — hand-written mirrors of the wire contract (the Pydantic schemas' JSON shapes, with `Out` suffixes dropped: `ValidationIssue`, `Doctor`, `RotaSession`, ...). Enum types mirror `enums.py` by *value* (`"draft"`, not `"DRAFT"`). Also carries the TanStack Query `Register` augmentation setting `defaultError: ApiError`, so every `useQuery`/`useMutation` error is typed correctly with no per-hook generics. These mirrors drift silently until a `tsc` failure forces a fix — the known cost of not generating them from the OpenAPI spec.
+- **Per-resource hook modules** (`api/doctors.ts`, `api/clinicTypes.ts`, `api/leave.ts`, `api/duty.ts`, `api/counters.ts`) — TanStack Query hooks with hierarchical query keys; mutations invalidate their resource's key root rather than splicing caches (the rota and master-rota grids use cache splicing instead; reference data is cheap to refetch).
+
+### Reference Data Pages
+
+- **DoctorsPage** — active-only management table plus `DoctorFormDialog` (Zod `doctorSchema` validation; preferred-room list ordered via `reorderPreferredRooms`, order being meaningful to Phase 5/7–9A room resolution). Deactivation is the backend's soft-delete DELETE (sets `active=False`; 409 when the doctor has sessions on a committed rota). On that 409 the page surfaces a "Deactivate instead" button firing `PATCH {active: false}` — the remedy the 409 message names. There is deliberately no show-inactive toggle or reactivate path in the UI; a deactivated doctor is recoverable only via the API.
+- **ClinicTypesPage** — CRUD over clinic types via `ClinicTypeFormDialog`: name, category (free text; `"duty_helper"` is the colouring convention, explained as inline help text since the form is the only place a non-technical admin would learn it), priority, `room_required`, schedules, and doctor/room eligibilities. Updates are the PUT replace-children pattern, one nested payload per save. Zod (`clinicTypeSchema`) validates form state, not the wire shape — room-eligibility rows carry a client-only `kind` discriminant making the room/room-type XOR structurally unrepresentable; `mapValidationErrors` maps server 422s back onto form fields.
+- **LeavePage** — one Timetastic-style range form (date range, edge half-day options, Add/Remove mode toggle) replacing the original three forms, plus the filterable table with per-row delete. Submissions expand via `expandLeaveRange` (below) onto `POST /leave/bulk` / `bulk-delete`, fired concurrently via `Promise.allSettled` with per-segment failure reporting — no rollback, no faked atomicity. **LeaveRangePreview** renders a read-only mini-calendar (Mon–Fri, AM/PM split cells, max 4 months) of what the pending submission will do against existing leave.
+- **DutyPage** — manages `DutyAssignment` rows (the pre-planned duty inputs: validated by Phase 0's `duty_on_leave`/`duty_on_incompatible_slot` checks, applied to the grid by Phase 4) through **DutyGrid**, a week-at-a-time editable grid. Week completeness (`dutyWeekSlots.ts` / `dutyWeekComplete.ts`: 1 primary per session, secondary Monday AM/PM only) is computed client-side and shared with RotaPage, which shows the same incomplete-duty-week warning before generation.
+- **CountersPage** — read-only view of live `ClinicCounter`/`SystemCounter` values (committed baseline plus any in-progress draft's edits), joined with doctor/clinic names by the API. Each row also shows a client-computed weighted score (`weightedScore.ts`), mirroring the engine's `raw / sessions_per_week` allocation scoring exactly — including `sessions_per_week == 0` scoring as infinite (never preferred), kept distinct from the genuine no-data case.
+
+### Shared Utilities
+
+- **expandLeaveRange.ts** — pure function expanding a date range plus edge options into 1–3 **disjoint contiguous segments** (`{start_date, end_date, period}` — exactly the bulk endpoint body shapes). Per-day row expansion happens server-side, not here; the client also does no weekend logic (bulk add skips and reports weekends; bulk delete does not weekday-filter). Disjointness is what makes concurrent segment submission safe, and is asserted as a property in its tests. The contradictory single-day PM+AM edge pair throws — unreachable from the UI, guarded against programmatic callers.
+- **date.ts** — date-only strings are parsed by manual Y/M/D construction, never `new Date(dateString)` (which parses as UTC midnight and renders as the previous day in negative-UTC-offset timezones); `isMonday` gates generation start dates.
+- **groupDoctors.ts** — the canonical doctor display order (Partner, Salaried, Trainee, AHP; alphabetical by code within type), shared by both rota grids and the reference pages.
+
+## Frontend: Master Rota
+
+The `/master-rota` route is the interface for viewing and editing the active master template — the fixed 4-week repeating pattern every generation run reads from. All edits persist to the backend immediately (there is no draft/committed lifecycle and no Phase 12 validation on the template); the page states "Changes apply to future generated rotas only", because generated rotas snapshot the template at generation time and are never rewritten by template edits.
+
+### Page and grid
+
+**`MasterRotaPage` (routes/MasterRotaPage.tsx)** fetches the active template via `useActiveMasterRota()` (404 renders a "no active template" state) and owns the undo stack (`useUndoStack<MasterUndoEntry>`), the toast, and the Undo button. It holds its own instances of the three mutation hooks, used only to execute undo replay — the same page-level/grid-level mutation split as `RotaDetailPage`/`RotaGrid`. It does not perform forward edits.
+
+**`MasterRotaGrid` (components/MasterRotaGrid.tsx)** renders the doctor x (day, period) matrix for one week at a time, with week tabs fixed to a constant 1–4 (`MASTER_ROTA_WEEKS` in `pivotMasterRota`). The week domain is defined by backend constraints (`ck_mrs_week`, `template_start_week`), not derived from the session list — deriving it broke once create/delete existed: an empty week had no tab to click into to populate it, and deleting the last session in a week collapsed the tab out from under `activeWeek` state.
+
+Grid rows come from `/doctors` (`useDoctors(false)`), not from the doctors present in the sessions payload: active doctors grouped by type then alphabetical by code (so a newly added doctor with zero template sessions gets a row), plus any inactive doctor who still has sessions, flagged with the same `(inactive)` badge as `RotaGrid`. Cell rendering is plain (no Q13 colour language here): `no_surgery`/`admin_time`/`wfh` get a label badge, `requires_room`/`pre_assigned` render as the room code alone (or blank).
+
+The grid owns all forward mutations (patch/create/delete hooks) and reports each success upward via `onMutationApplied(entry, toastMessage)` with a pre-built undo entry — `previous`/`displaced` values are captured from the in-memory session objects at click time.
+
+### Cell editing — `MasterCellEditPopover`
+
+A sibling of `CellEditPopover`, not a generalisation of it: the two data models (`session_type` + `room_id` only vs. role/clinic type/WFH/notes/leave) share nothing but the popover shell. One component serves both modes via a nullable `session` prop:
+
+- **Edit mode** (`session` non-null): every cell with a session is editable — there is no draft/committed gate and no leave concept to suppress the trigger.
+- **Create mode** (`session: null`): absent cells on an *active* doctor's row show a faint "+" affordance opening the same popover; an inactive doctor's absent cells stay inert (you don't build a new working pattern for a leaver). Slot coordinates (`week`/`day`/`period`) are explicit props since create mode has no session to read them from.
+
+The menu is five mutually exclusive `session_type` options — Normal clinic, Pre-assigned room, Admin time, No surgery, WFH — with deliberately no WFH toggle: a five-value enum has no defined "off" state for a checkbox. Pre-assigned room and Admin time open a room submenu; Admin time's alone gets a "No room" entry, since roomless `ADMIN_TIME` is valid, real data.
+
+**Confirm-before-steal:** picking a room already held by another session in the same `(week, day, period)` shows a confirm view before applying. Detection is client-side and advisory via `findMasterRoomHolder` in `slotConflict.ts` — a deliberately separate function from the rota-side `findRoomHolder` (same sibling-not-generalisation reasoning as the popover); the server's own displacement lookup remains the source of truth. Its `excludeSessionId` is nullable for create mode, matching the backend POST's `exclude_id=None`.
+
+**"Remove session"** (edit mode only) is a destructive-styled entry at the bottom of the menu, applied directly with no confirm dialog — a deliberate departure from the steal pattern: confirmation is reserved for steal-class actions, and removal is fully undoable.
+
+**Drag-and-drop was considered and deliberately cut** — the popover covers every operation, swap semantics on a template are unclear, and DnD's cost (context wiring, a `resolveMasterDrag`, a backend swap endpoint) was the largest item for the least value. Revisit only if actually missed.
+
+### API layer and cache — `api/masterRota.ts`
+
+`useActiveMasterRota()` fetches `GET /master-rota/active` into the `masterRotaKeys.active()` cache. Three mutation hooks wrap the write endpoints, all following the splice-in-place/no-invalidate pattern (`setQueryData`, never a refetch — same convention as the rota side's `updateRotaCache`):
+
+- **`useUpdateMasterSession`** (PATCH, a verbatim `(session_type, room_id)` pair setter) splices the response `session` and any `displaced_session` into the cached list, matched by `session_id`.
+- **`useCreateMasterSession`** (POST) *appends* the created session (no existing row to match) and still splices any `displaced_session` in place.
+- **`useDeleteMasterSession`** (DELETE) filters the cached list by `session_id`.
+
+PATCH and POST share one `{session, displaced_session}` response shape (`MasterSessionWriteOut` server-side).
+
+### Pivot — `pivotMasterRota.ts`
+
+`pivotMasterRota(sessions, doctors)` transforms the backend's flat session list into `{rows, cells, weeks}`: rows built from the doctors list as described above (mirroring `pivotRota`'s `GridRow` shape, including `inactiveWithSessions`), cells keyed by `(doctor_id, week, day, period)` for O(1) lookup via `getMasterRotaCell`, and `weeks` the exported constant `MASTER_ROTA_WEEKS = [1, 2, 3, 4]`.
+
+### Undo — `lib/masterUndo.ts` + the shared `lib/undoStack.ts`
+
+Undo is **replay of inverse API calls against live server state** — nothing is staged client-side, since every forward edit persists immediately. There is no redo. `MasterUndoEntry` is a three-way discriminated union (`kind: "patch" | "create" | "delete"`), deliberately **not** folded into the rota `UndoEntry` union and not routed through `replayUndo.ts` — `buildReplayRequest` is rota-scoped (every branch takes a `rotaId` and builds `RotaSession`-shaped payloads), and the template's write surface shares no branching logic with it. The generic `useUndoStack<T>` is the shared piece.
+
+`buildMasterReplaySteps` preserves displaced-first ordering across all three kinds — restore whatever was stolen before undoing the action that stole it:
+
+- **Undo a patch:** 1–2 PATCHes — restore the displaced session's previous pair first (this may re-displace the target server-side, harmless because the next call overwrites the target with its own exact previous pair), then the target's.
+- **Undo a create:** restore any displaced session via PATCH, then DELETE the created row (a re-displacement from the restore is immaterial — the row is deleted next regardless).
+- **Undo a delete:** a single POST recreating the row at its original slot with its previous pair. The recreated row gets a new `session_id` (nothing in the client references the old one after the cache filter ran); if another session has since taken the room, the server's ordinary displacement fires as it would for any fresh create — accepted under the single-admin-user assumption. Remove itself never displaces, so there is no displaced side to restore first.
+
+A failed replay re-pushes the consumed entry (undo stays retryable) and shows an "Undo failed" toast. Success toasts are plain descriptions of what changed ("AB Monday AM set to Pre-assigned D1") — there is no issue-count delta here, since Phase 12 never runs on the template.
+
+## Frontend: Generated Rota Grid & Editing
+
+The interactive surface for reviewing and hand-editing a generated rota before commit. `RotaDetailPage` owns page-level state (undo stack, toast, commit/scrap actions); `RotaGrid` owns the grid, drag-and-drop, and cell mutations; the business rules live in pure, unit-testable modules under `src/lib/`. All editing is draft-only — the backend 409s edits on committed rotas, and the frontend renders committed rotas without edit affordances.
+
+### Module map
+
+| Module | Role |
+|---|---|
+| `RotaDetailPage.tsx` | Undo stack + toast instantiation, replay execution, Commit/Scrap |
+| `RotaGrid.tsx` | Grid layout, week tabs, DnD context, dispatches all five mutation types |
+| `CellEditPopover.tsx` | Cell edit menu: WFH/notes, Change room / Change role submenus, confirm view |
+| `IssuesPanel.tsx` | Aggregated Phase 12 warnings with scroll-to-cell navigation |
+| `pivot.ts` | Session list → `(doctor row, week/day/period)` cell lookup |
+| `cellStyle.ts` | Q13 colour rules, single source of truth |
+| `dragRules.ts` / `resolveDrag.ts` | Drop eligibility; pure resolution of a drag into a swap call + undo entry |
+| `slotConflict.ts` (`findRoomHolder`) | Client-side steal detection for confirm-before-steal |
+| `undoStack.ts` / `replayUndo.ts` | Generic undo stack (`useUndoStack<T>`); entry → replay request sequence |
+| `Toast.tsx` | Single-slot custom toast (no queue — one admin edits one draft at a time) |
+
+### Pivot invariant
+
+A `RotaSession` row exists if and only if a template entry existed for that `(doctor, template_week, day, period)` at generation time — `phase2._build_grid` skips slot creation with no template entry (the part-time-doctor case), and no edit endpoint ever creates or deletes a session row. A missing key in `pivot.ts`'s lookup is therefore the real "absent" state; there is deliberately no fallback that reconstructs a cell from `/master-rota`. Grid rows come from `/doctors` (active doctors grouped by type then code, plus inactive doctors who still have sessions, badged `inactiveWithSessions`).
+
+### Cell colouring (`cellStyle.ts`)
+
+One function, one fixed precedence: **leave > WFH > role colouring (duty / duty-helper / named clinic) > `NO_SURGERY`/`ADMIN_TIME` grey > default**. The grey branch is only reachable when no role is present — a role on an incompatible slot renders as a normal role-coloured cell, and Phase 12's `role_on_incompatible_slot` warning is what surfaces the conflict, not the cell's appearance. WFH's background is unconditionally blank regardless of role; the badge carries the signal. Font colour is derived from the assigned room's type (C = red, W = blue, D/SR = black) — it encodes room location, nothing else; unresolved rooms have no cell-level styling and surface only via the issues panel. Duty-helper colouring is a data convention, not a schema rule: `category === "duty_helper"` on the clinic type renders light blue, anything else renders as a named clinic — a mis-categorised type rendering green is the accepted failure mode for a cosmetic mapping.
+
+### Editing model
+
+Five mutation types, all draft-only, all returning fresh Phase 12 issues alongside the mutated session(s): `swap-roles`, `swap-rooms` (two-sided, or one-sided as a move), `set-room`, `set-role` (one-sided assigns with server-side displacement), and the session PATCH (`is_wfh`/`notes` only). Responses are **spliced into the TanStack Query cache** (`setQueryData`, matched by `session_id`) — never invalidate-and-refetch — so the grid and issues panel update from the response payload alone.
+
+The philosophy is **apply-then-warn with undo**, not ask-first: the server performs any edit it's told to (no eligibility checks on edit endpoints) and returns warnings; the frontend applies immediately and surfaces the result. The single exception is **confirm-before-steal**: taking a room, duty role, or specific clinic type currently held by another session in the same slot shows a confirm view first. Steal detection is client-side against the in-memory grid (`findRoomHolder`), but the server's own displacement lookup remains authoritative for what actually happens. Direct actions (normal clinic, No surgery, Admin time, unassign, clear room) get no confirm.
+
+Duty/clinic picks preserve the persisted `template_type` snapshot; No surgery / Admin time picks overwrite it — the accepted trade-off that weakens the M3.6 invariant to "generation-time snapshot, possibly manually overridden". The popover is not rendered at all on leave cells; it is available on WFH cells, where picking a room clears `is_wfh` (the PATCH rule in reverse).
+
+### Drag-and-drop
+
+`@dnd-kit/core` — deliberately the older of the two active dnd-kit generations, chosen for stability over the pre-1.0 `@dnd-kit/react` rewrite; revisit only if `core` is actually deprecated. Each cell renders up to two explicitly typed chips (role, room); the chip type determines the endpoint — nothing is inferred from the drop. Eligibility (`dragRules.ts`): same day **and** period, target present and not leave/WFH, not self. The day/period check must be explicit — only the active week's cells are mounted (making cross-week drops structurally impossible), but all ten day/period columns are mounted simultaneously, and the API would happily apply a cross-slot swap if the client didn't reject it. A chip is only draggable when its own value is present, so the backend's both-sides-empty 422 is unreachable from this UI. `resolveDrag.ts` keeps the resolution logic pure and unit-testable — real dnd-kit pointer simulation needs bounding rects jsdom doesn't provide.
+
+### Undo
+
+`useUndoStack<T>` is a generic stack; this page instantiates it with the rota `UndoEntry` union (`swap-roles`/`swap-rooms`, `patch`, `set-room`, `set-role`). `replayUndo.ts` builds each entry's replay as a sequence of 1–3 requests, executed serially by `RotaDetailPage`, **displaced session restored first, then the target** (a re-displacement from the first call is harmless — the next call overwrites the target exactly). Swaps and moves replay as the identical call repeated — both swap endpoints are self-inverse, including their clinic-counter increment/decrement pairs, so "repeat the call" and "move it back" are one mechanism. A `set-role` undo appends a trailing `set-room` when the forward op auto-cleared the room, decided by a `roomWasCleared` flag captured from the forward mutation's response at push time, not re-derived at replay time. A failed replay re-pushes the consumed entry (undo stays retryable) with an "Undo failed" toast. The Undo button is always rendered for drafts, disabled when the stack is empty; absent for committed rotas.
+
+**One permanent limitation:** a room cleared by toggling `is_wfh: true` via PATCH cannot be restored by undoing that patch — the PATCH has no `room_id` field and `swap-rooms` 422s when neither side holds a room, so no API path back exists. The undo toast says so explicitly ("room could not be restored, reassign it manually") rather than overstating what happened. Whether that follow-up is needed is inspected from the PATCH replay's actual response in `RotaDetailPage.handleUndo`, not pre-built into the replay sequence. The nullable `set-room` closes this gap for the menu's own `set-room`/`set-role` entry kinds only.
+
+### Validation feedback
+
+The "N new warnings" toast is a **count delta, not a set diff** — `ValidationIssueOut` has no stable identity across Phase 12 re-runs, so "which warnings are new" isn't computable client-side; the issues panel always reflects true current state regardless. (A composite `check`+`week`+`day`+`period`+`message` key would give a workable diff without backend changes if this ever needs tightening.) Issues panel navigation is scroll plus a CSS flash targeting a `data-week-day-period` attribute — the panel and grid share no React state for it. Week tabs always render, even for a one-week rota.
+
+### Counter effects of edits
+
+Edits adjust `ClinicCounter` rows only (get-or-create upsert, floored at 0 on decrement; same-clinic-type reassignments are a no-op). System counters are written at generation time and never touched by edits. Draft-period counter drift is prevented by the snapshot lifecycle, not recalculation: scrap restores the pre-generation snapshot wholesale, commit makes live values the new baseline.
+
+# Rota Generator — Architecture Hub
+
+## Overview
+
+A rota generator for a medical practice: generates a working rota from a master template over a configurable 1–4 week period, applying annual leave, duty assignments, clinic assignments, and room allocations, with interactive editing (drag-and-drop, cell edit menus, WFH, undo) in a web UI. Ported from a Google Apps Script project attached to a Google Spreadsheet, which it replaces; the port removed GAS's 6-minute execution limit.
+
+**Status:** feature-complete and deployed to production (Railway, PostgreSQL), seeded, and verified end to end — a non-technical admin can generate, edit, and validate a rota without touching the API. Access is gated by a shared-token shim pending real auth. Outstanding work is listed below.
+
+## Outstanding Tasks
+
+| Task | Scope | Priority | Notes |
+|---|---|---|---|
+| M5 — auth (real) | Python only | Deferred post-project | Replaces the shared-token shim with users/login. Enforcement lives entirely in `get_current_user()` at the router layer, so M5 requires zero changes to route handlers or business logic. Done when the app rejects unauthenticated requests and the 2–3 admin users can log in (simple username/password first) |
+| Phase 9C — supervision assignment | Python only | Deferred post-project | Phase 12 Check 4 depends on it; spec lives in phase-pipeline.md |
+| Phase 12 Check 4 — supervision validation | Python only | Deferred post-project | Depends on Phase 9C existing |
+| Master rota bulk row operations | Python + React | Low | "Remove all of a leaver's sessions", "copy week 1 to weeks 2–4", "populate a new doctor's full week". Single-slot create/delete covers the common case; revisit only if the per-slot workflow proves too slow in practice |
+| Master rota multi-template management | Python + React | Low | Create/activate/rename templates. Currently the single seeded active template (`MasterRotaTemplate.is_active`, resolved deterministically by the GET) |
+| Add role information to room rota cells | Python | Medium | Room-centric view is a deferred frontend transformation; cells should display doctor role alongside code |
+| Bank holiday weeks | Python | Medium | No special handling currently for weeks containing bank holidays |
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.12, FastAPI under `/api/v1`, SQLAlchemy 2.0, Alembic |
+| Database | PostgreSQL (production, Railway) / SQLite (dev and tests) |
+| Generation engine | Pure Python (`backend/app/engine/`), no FastAPI dependency |
+| Frontend | React 18 + Vite + TypeScript + Tailwind CSS v3.4, served same-origin by FastAPI from `frontend/dist` |
+| Server state | TanStack Query |
+| Drag-and-drop | `@dnd-kit/core` (the older, stable dnd-kit generation, chosen over the pre-1.0 `@dnd-kit/react` rewrite) |
+| Forms | Zod for validation; plain React state, no form library |
+| UI primitives | Radix UI, installed per-primitive (`react-popover`, `react-dialog`) |
+| Auth | Shared-token shim: `X-API-Token` header vs `API_TOKEN` env var; real auth is M5 |
+| Packaging | `uv` + `pyproject.toml` (hatchling) backend; `npm` frontend, Node 24 pinned via `engines` and matched in CI |
+| Testing | pytest (engine + API, SQLite) + Postgres migration round trip, via GitHub Actions; Vitest + React Testing Library + MSW for the frontend |
+
+## CI (`ci.yml`)
+
+Three independent jobs on every push and pull request:
+
+1. **Backend test suite** — `uv sync --extra dev`, then the full pytest suite (engine + API) on in-memory SQLite. API tests run `TestClient` with `get_db` dependency-overridden to a fresh SQLite engine per test; auth-shim tests monkeypatch `API_TOKEN`, and one explicitly deletes it so the suite stays green even if the var is exported in the environment.
+2. **Postgres migration validation** — upgrade/downgrade/upgrade round trip against a `postgres:16` service container, proving both migration directions and native enum type cleanup against a real Postgres before Railway ever runs a migration.
+3. **Frontend gate** — Node 24, `npm ci` (requires `frontend/package-lock.json` committed), then typecheck / vitest / build, in that order so a fast typecheck failure doesn't wait on the slower build.
+
+## Deployment
+
+Single Railway service deployed from the GitHub repo, Root Directory `/` (repo root — both `backend/` and `frontend/` must be inside one build context, since FastAPI serves the built frontend same-origin).
+
+**Build (`nixpacks.toml`, repo root).** Drives the Nixpacks build plan explicitly rather than relying on provider auto-detection, since neither `backend/pyproject.toml` nor `frontend/package.json` sits at the scanned root — `providers = ["python", "node"]` only puts the runtimes on PATH; every install/build command is written out with an explicit `cd`. Python installs into a manually created venv at `/opt/venv` (the nixpkgs `python3` has no bundled pip; `python3 -m venv` bootstraps one), which persists into the runtime image but is not on PATH at runtime. `frontend/dist` is built here. Deliberately no `[start]` section — the start command lives in exactly one place.
+
+**Run (`railway.toml`, repo root).** `[deploy] startCommand` runs migrate-then-serve: `cd backend && alembic upgrade head && uvicorn app.api.main:app` — idempotent, so repeat deploys are safe. Health check on `/health`. [UNRESOLVED: the project copy of `railway.toml` uses bare `alembic`/`uvicorn`, but `nixpacks.toml` documents that the venv is not on runtime PATH and the start command must call `/opt/venv/bin/*` explicitly. One file is stale — confirm against the repo and correct this paragraph.]
+
+**Serving.** FastAPI mounts `frontend/dist` at `/` (`mount_frontend()`; path overridable via `FRONTEND_DIST`) only if the directory and its `index.html` both exist, so a half-built dist never mounts. Registered routes always beat the mount; `SPAStaticFiles` serves `index.html` as the fallback for unknown non-API paths so client-side routes survive a hard refresh, while `/api/*` misses stay real JSON 404s. No cache-control headers are set — if stale-frontend-after-deploy ever appears, that is where to look.
+
+**Environment variables** (Railway dashboard):
+
+- `DATABASE_URL` — the Railway Postgres service; must use the `postgresql://` scheme, not `postgres://`.
+- `CORS_ORIGINS` — the production origin. Same-origin serving means the SPA never makes a cross-origin request, so this is hardening only; a correct value can only be verified via a cross-origin `curl`, not by watching the app work.
+- `API_TOKEN` — enables the auth shim. **Fail-open by design:** if unset, the API is open (keeps local dev, tests, and CI working with zero fixture changes, and makes enabling auth an env-var change with no deploy). The var is read per-request, so it can be rotated without redeploy. When set, every router endpoint — reads included — requires a matching `X-API-Token` header (constant-time comparison); `/health` and `/docs` live outside the routers and stay open. The operational consequence: forgetting to set it in production silently leaves the API open, so a 401-without-header check is part of the deployment checklist.
+
+**Seeding.** `seed/run_all.py` (rooms, doctors, system counters, master template) is run manually from a local machine against Railway's public Postgres URL (`DATABASE_PUBLIC_URL`). There is deliberately no clinic-type seed — clinic types are entered via the frontend. `setup.csv` remains in the repo as reference data only.
+
+## Document Index
+
+| Document | Contents |
+|---|---|
+| docs/domain-model.md | Doctor types, room types, session structure, WFH, counter types, clinic types, eligibility and displacement rules — platform-agnostic |
+| docs/phase-pipeline.md | Phase sequence 0–12 as implemented: purpose, reads/writes, execution order; also carries the Phase 9C supervision specification |
+| docs/M*_implementation_plan.md | Per-milestone implementation plans (M1–M4.3), all complete. Historical records; the sections above and the code are authoritative for current state. M4.4 has no plan doc (its plan only ever existed as chat text) |
+
+Retired documents (deleted from `docs/`, recoverable from git history): `algorithms.md`, `python-roadmap.md` — superseded by code, tests, and the design decisions recorded in this document.
