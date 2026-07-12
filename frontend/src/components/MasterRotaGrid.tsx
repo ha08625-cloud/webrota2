@@ -280,6 +280,10 @@ function CellContent({ session }: { session: MasterRotaSession }) {
   return (
     <>
       <SessionTypeBadge sessionType={session.session_type} />
+      {session.session_type !== "no_surgery" && session.session_type !== "admin_time" &&
+        session.session_type !== "wfh" && !session.room_code ? (
+        <span className="rounded bg-ink/10 px-1 text-xs font-medium">No room</span>
+      ) : null}
       {session.room_code ? (
         <div className="text-xs font-medium">{session.room_code}</div>
       ) : null}
@@ -287,8 +291,9 @@ function CellContent({ session }: { session: MasterRotaSession }) {
   );
 }
 
-/** REQUIRES_ROOM and PRE_ASSIGNED render as blank (room code, if any, is
- * the whole content); NO_SURGERY/ADMIN_TIME/WFH get a label badge. */
+/** REQUIRES_ROOM and PRE_ASSIGNED render a "No room" badge when unassigned
+ * (room code, if any, is the whole content otherwise); NO_SURGERY/ADMIN_TIME/WFH
+ * get their own label badge instead. */
 function SessionTypeBadge({ sessionType }: { sessionType: MasterRotaSession["session_type"] }) {
   if (sessionType === "no_surgery") {
     return <span className="rounded bg-ink/10 px-1 text-xs font-medium">No surgery</span>;

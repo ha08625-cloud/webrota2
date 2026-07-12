@@ -529,6 +529,11 @@ function CellContent({ session, fontColorClass, draggable = false }: CellContent
       {!session.is_on_leave && !session.is_wfh && session.role === null && session.template_type === "admin_time" ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">Admin</span>
       ) : null}
+      {!session.is_on_leave && !session.is_wfh && session.role === null &&
+        session.template_type !== "no_surgery" && session.template_type !== "admin_time" &&
+        !session.room_code ? (
+        <span className="rounded bg-ink/10 px-1 text-xs font-medium">No room</span>
+      ) : null}
       {!session.is_on_leave ? (
         draggable && session.role !== null ? (
           <DraggableChip type="role" session={session} />
