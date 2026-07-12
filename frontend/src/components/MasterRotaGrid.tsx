@@ -68,7 +68,7 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
       {
         onSuccess: (data) => {
           const entry: MasterUndoEntry = {
-            kind: "edit",
+            kind: "patch",
             sessionId: session.session_id,
             previous: { sessionType: session.session_type, roomId: session.room_id },
             displaced: displaced
@@ -130,14 +130,11 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
         onSuccess: () => {
           const entry: MasterUndoEntry = {
             kind: "delete",
-            deleted: {
-              doctorId: session.doctor_id,
-              week: session.week,
-              day: session.day,
-              period: session.period,
-              sessionType: session.session_type,
-              roomId: session.room_id,
-            },
+            doctorId: session.doctor_id,
+            week: session.week,
+            day: session.day,
+            period: session.period,
+            previous: { sessionType: session.session_type, roomId: session.room_id },
           };
           const message = masterSessionDeletedMessage(session.doctor_code, session.day, session.period);
           onMutationApplied?.(entry, message);
