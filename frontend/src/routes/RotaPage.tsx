@@ -1,9 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { useDuty } from "@/api/duty";
 import { useGenerateRota, useRotaList } from "@/api/rota";
 import type { ApiError, FastApiValidationError, GenerateRotaIn, ValidationIssue } from "@/api/types";
-import { formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
+import { addDays, formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
+import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 
 const UPCOMING_WEEK_COUNT = 12;
 
@@ -71,6 +73,55 @@ function GenerateErrorMessage({ error }: { error: ApiError }) {
   );
 }
 
+/**
+ * Advisory duty-staffing status for every week the selected (startDate,
+ * numWeeks) combination would cover - read-only, matches the marker
+ * already shown on the Duty page (same isDutyWeekComplete rule), so a
+ * user picking a start week can see up front whether duty still needs
+ * filling in before they generate against it. Nothing here blocks
+ * generation; the backend has no such check either.
+ */
+function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: number }) {
+  const { data: dutyAssignments, isLoading, isError } = useDuty();
+
+  const weekStartDates = useMemo(
+    () => Array.from({ length: numWeeks }, (_, i) => addDays(startDate, i * 7)),
+    [startDate, numWeeks],
+  );
+
+  if (isLoading) {
+    return <p className="mt-3 text-xs text-ink/50">Checking duty status...</p>;
+  }
+
+  if (isError) {
+    return <p className="mt-3 text-xs text-red-700">Could not load duty status.</p>;
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="text-sm font-medium text-ink">Duty status</p>
+      <ul className="mt-1 space-y-1">
+        {weekStartDates.map((weekStart) => {
+          const complete = isDutyWeekComplete(weekStart, dutyAssignments ?? []);
+          return (
+            <li key={weekStart} className="flex items-center gap-2">
+              <span className="text-sm text-ink/70">{formatWeekLabel(weekStart)}</span>
+              <span
+                data-testid={`generate-week-duty-status-${weekStart}`}
+                className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+                  complete ? "bg-green-100 text-green-900" : "bg-amber-100 text-amber-900"
+                }`}
+              >
+                {complete ? "Duty fully staffed" : "Duty not fully staffed"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function GenerateRotaForm() {
   const navigate = useNavigate();
   const generateRota = useGenerateRota();
@@ -134,6 +185,8 @@ function GenerateRotaForm() {
           <option value={4}>4</option>
         </select>
       </div>
+
+      <DutyStatusList startDate={startDate} numWeeks={numWeeks} />
 
       <button
         type="submit"
