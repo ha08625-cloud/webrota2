@@ -67,15 +67,15 @@ describe("pivotMasterRota", () => {
     expect(grid.rows).toEqual([]);
   });
 
-  it("derives the week list from the max week present, not a hardcoded 1-4", () => {
+  it("always returns the fixed 1-4 week domain regardless of which weeks have sessions (M4.4 Task 5)", () => {
     const sessions = [makeMasterRotaSession({ week: 2 })];
     const grid = pivotMasterRota(sessions, []);
-    expect(grid.weeks).toEqual([1, 2]);
+    expect(grid.weeks).toEqual([1, 2, 3, 4]);
   });
 
-  it("defaults to week 1 only when no sessions are present", () => {
+  it("still returns all four weeks with no sessions at all", () => {
     const grid = pivotMasterRota([], []);
-    expect(grid.weeks).toEqual([1]);
+    expect(grid.weeks).toEqual([1, 2, 3, 4]);
   });
 
   it("looks a session up by its exact (doctor, week, day, period) key", () => {

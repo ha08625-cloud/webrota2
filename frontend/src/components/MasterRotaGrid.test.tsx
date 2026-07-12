@@ -22,6 +22,31 @@ function setUpServer({
 }
 
 describe("MasterRotaGrid", () => {
+  it("renders all four week tabs even with sessions only in week 1 (M4.4 Task 5)", async () => {
+    setUpServer();
+    const session = makeMasterRotaSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "no_surgery", room_id: null, room_code: null,
+    });
+    renderWithProviders(<MasterRotaGrid sessions={[session]} templateId={5} />);
+
+    await screen.findByRole("tab", { name: "Week 1" });
+    for (const week of [1, 2, 3, 4]) {
+      expect(screen.getByRole("tab", { name: `Week ${week}` })).toBeInTheDocument();
+    }
+  });
+
+  it("clicking into an empty week tab still lets you use the add affordance (a sparse/empty week is populatable)", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
+    renderWithProviders(<MasterRotaGrid sessions={[]} templateId={5} />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "Week 4" }));
+
+    const cell = await screen.findByTestId("master-cell-1-4-Monday-AM");
+    expect(within(cell).getByLabelText("Add session for AB Monday AM")).toBeInTheDocument();
+  });
+
   it("gives an active doctor with zero template sessions a row (M4.4 groundwork)", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     renderWithProviders(<MasterRotaGrid sessions={[]} templateId={5} />);

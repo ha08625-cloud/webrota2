@@ -1,6 +1,17 @@
 import type { Day, Doctor, MasterRotaSession, Period } from "@/api/types";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
-import { weekNumbers } from "@/lib/pivot";
+
+/** The template's week domain is a fixed 1-4 rotation, not a derived
+ * range - see ck_mrs_week and template_start_week (1-4) on the backend
+ * model. Constant, not exported as a function of the sessions passed in
+ * (M4.4 Task 5): deriving `weeks` from the max week present broke once
+ * create/delete existed - an empty/sparse week had no tab to click into
+ * to populate it, and deleting the last session in week 4 collapsed the
+ * tab out from under `activeWeek` state still pointing at it. The real
+ * seeded template is 4 weeks already, so this changes nothing visually
+ * today; it only fixes the two edge cases above. The generated-rota grid
+ * is untouched - RotaConfig.num_weeks remains pivot.ts's source there. */
+export const MASTER_ROTA_WEEKS = [1, 2, 3, 4] as const;
 
 function slotKey(doctorId: number, week: number, day: Day, period: Period): string {
   return `${doctorId}:${week}:${day}:${period}`;
@@ -33,20 +44,18 @@ export interface PivotedMasterRotaGrid {
    * key is the expected absent-cell shape" invariant as pivot.ts. Built
    * from sessions alone - doctors are only needed for row construction. */
   cells: Map<string, MasterRotaSession>;
-  /** Derived from the sessions actually present, since MasterRotaTemplate
-   * has no num_weeks column (unlike RotaConfig) to read instead. */
-  weeks: number[];
+  /** Fixed 1-4 (M4.4 Task 5) - see MASTER_ROTA_WEEKS's docstring for why
+   * this is no longer derived from the sessions passed in. */
+  weeks: readonly number[];
 }
 
 export function pivotMasterRota(sessions: MasterRotaSession[], doctors: Doctor[]): PivotedMasterRotaGrid {
   const cells = new Map<string, MasterRotaSession>();
   const doctorIdsWithSessions = new Set<number>();
-  let maxWeek = 1;
 
   for (const session of sessions) {
     cells.set(slotKey(session.doctor_id, session.week, session.day, session.period), session);
     doctorIdsWithSessions.add(session.doctor_id);
-    if (session.week > maxWeek) maxWeek = session.week;
   }
 
   const rows: MasterRotaGridRow[] = doctors
@@ -57,7 +66,7 @@ export function pivotMasterRota(sessions: MasterRotaSession[], doctors: Doctor[]
       inactiveWithSessions: !doctor.active && doctorIdsWithSessions.has(doctor.id),
     }));
 
-  return { rows, cells, weeks: weekNumbers(maxWeek) };
+  return { rows, cells, weeks: MASTER_ROTA_WEEKS };
 }
 
 export function getMasterRotaCell(

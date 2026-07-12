@@ -5,15 +5,28 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useParams } from "react-router-dom";
 
+import type { DutyAssignment } from "@/api/types";
+import { makeDutyAssignment } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
+import { addDays } from "@/lib/date";
+import { weekDutySlots } from "@/lib/dutyWeekSlots";
 
 import { RotaPage } from "./RotaPage";
 
 function DetailProbe() {
   const params = useParams<{ id: string }>();
   return <div data-testid="detail-probe">detail:{params.id}</div>;
+}
+
+/** Builds one DutyAssignment per slot returned by weekDutySlots, so the
+ * given week reads as fully staffed by isDutyWeekComplete - mirrors how
+ * DutyGrid_test/dutyWeekComplete_test build a "complete" week. */
+function makeFullWeekAssignments(weekStartDate: string): DutyAssignment[] {
+  return weekDutySlots(weekStartDate).map((slot) =>
+    makeDutyAssignment({ date: slot.date, period: slot.period, duty_type: slot.dutyType }),
+  );
 }
 
 describe("RotaPage", () => {
@@ -181,5 +194,88 @@ describe("RotaPage", () => {
     await user.click(screen.getByRole("button", { name: "Generate rota" }));
 
     expect(await screen.findByText("field required")).toBeInTheDocument();
+  });
+
+  describe("duty status", () => {
+    it("shows one 'not fully staffed' marker for the default single week when no duty exists", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      server.use(http.get("/api/v1/duty", () => HttpResponse.json([])));
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
+      const defaultWeek = weekSelect.value;
+
+      const badge = await screen.findByTestId(`generate-week-duty-status-${defaultWeek}`);
+      expect(badge).toHaveTextContent("Duty not fully staffed");
+      // Only one week in range at the default num_weeks=1.
+      expect(screen.getAllByText(/Duty (not )?fully staffed/)).toHaveLength(1);
+    });
+
+    it("shows 'fully staffed' once every slot for the selected week is assigned", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
+      const defaultWeek = weekSelect.value;
+
+      server.use(
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(defaultWeek))),
+      );
+
+      const badge = await screen.findByTestId(`generate-week-duty-status-${defaultWeek}`);
+      await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
+    });
+
+    it("shows one independently-computed marker per week for a multi-week selection", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
+      const week1 = weekSelect.value;
+      const week2 = addDays(week1, 7);
+
+      // Week 1 fully staffed, week 2 left empty.
+      server.use(
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(week1))),
+      );
+
+      const user = userEvent.setup();
+      await user.selectOptions(screen.getByLabelText("Number of weeks"), "2");
+
+      const week1Badge = await screen.findByTestId(`generate-week-duty-status-${week1}`);
+      const week2Badge = await screen.findByTestId(`generate-week-duty-status-${week2}`);
+
+      await waitFor(() => {
+        expect(week1Badge).toHaveTextContent("Duty fully staffed");
+        expect(week2Badge).toHaveTextContent("Duty not fully staffed");
+      });
+    });
+
+    it("updates the marker when a different week is selected", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
+      const weekOptions = within(weekSelect).getAllByRole("option") as HTMLOptionElement[];
+      const otherWeek = weekOptions[2].value;
+
+      server.use(
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(otherWeek))),
+      );
+
+      const user = userEvent.setup();
+      await user.selectOptions(weekSelect, otherWeek);
+
+      const badge = await screen.findByTestId(`generate-week-duty-status-${otherWeek}`);
+      await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
+    });
   });
 });
