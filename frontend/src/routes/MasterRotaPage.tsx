@@ -1,303 +1,122 @@
-import { useMemo, useState } from "react";
+import { useCreateMasterSession, useDeleteMasterSession, useUpdateMasterSession, useActiveMasterRota } from "@/api/masterRota";
+import { MasterRotaGrid } from "@/components/MasterRotaGrid";
+import { ToastDisplay, useToast } from "@/components/Toast";
+import { buildMasterReplaySteps, type MasterUndoEntry } from "@/lib/masterUndo";
+import { useUndoStack } from "@/lib/undoStack";
 
-import { useCreateMasterSession, useDeleteMasterSession, useUpdateMasterSession } from "@/api/masterRota";
-import { useDoctors } from "@/api/doctors";
-import { useRooms } from "@/api/rooms";
-import type { Day, MasterRotaSession, MasterSessionType, Period } from "@/api/types";
-import { MasterCellEditPopover } from "@/components/MasterCellEditPopover";
-import type { MasterUndoEntry } from "@/lib/masterUndo";
-import { masterMutationAppliedMessage, masterSessionCreatedMessage, masterSessionDeletedMessage } from "@/lib/masterUndo";
-import { DAYS, PERIODS } from "@/lib/pivot";
-import { getMasterRotaCell, pivotMasterRota } from "@/lib/pivotMasterRota";
-
-interface MasterRotaGridProps {
-  sessions: MasterRotaSession[];
-  templateId: number;
-  /** Called after any successful session edit/create/delete, so MasterRotaPage can push an undo entry and show a toast. */
-  onMutationApplied?: (entry: MasterUndoEntry, toastMessage: string) => void;
-  /** Called on any mutation failure. */
-  onMutationError?: () => void;
-}
-
-/**
- * Doctor x (day, period) grid for the active master template. Every cell
- * with a session opens MasterCellEditPopover (M4.3 Task 4) - there is no
- * draft/committed gate and no leave concept the way RotaGrid has, so
- * unlike EditableGridCell there is no branch that suppresses the popover
- * trigger.
- *
- * M4.4 Task 3: absent cells are no longer universally inert. An absent
- * cell on an *active* doctor's row gets a faint "+" affordance opening
- * the same popover in create mode (session=null); an absent cell on an
- * inactive-flagged row stays inert (flagged assumption in the plan: you
- * don't build a new working pattern for a leaver). "Active" here reads
- * doctor.active directly rather than inactiveWithSessions, since the
- * latter is specifically about doctors who already have sessions -
- * an inactive doctor with zero sessions this week is still inactive.
- *
- * Rows come from /doctors (active_only=false), like RotaGrid, not from
- * the sessions payload's join fields (M4.3 Task 5, M4.4 groundwork) - a
- * doctor with zero template sessions still gets a row, and an inactive
- * doctor with sessions is flagged rather than silently dropped. See
- * pivotMasterRota's docstring for why this replaced the simpler
- * sessions-only approach.
- */
-export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMutationError }: MasterRotaGridProps) {
-  const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
-  const { data: rooms, isLoading: roomsLoading } = useRooms();
+export function MasterRotaPage() {
+  const { data: template, isLoading, isError, error } = useActiveMasterRota();
+  const undoStack = useUndoStack<MasterUndoEntry>();
+  const { toast, showToast } = useToast();
+  // Own instances, separate from MasterRotaGrid's - used only to execute
+  // undo replay steps, same pattern as RotaDetailPage's page-level
+  // mutation instances alongside RotaGrid's own forward-edit instances.
+  // Three hooks (M4.4 Task 4), matching the three replay-step ops
+  // buildMasterReplaySteps can produce (patch/create/delete).
   const updateSession = useUpdateMasterSession();
   const createSession = useCreateMasterSession();
   const deleteSession = useDeleteMasterSession();
-  const saving = updateSession.isPending || createSession.isPending || deleteSession.isPending;
+  const undoing = updateSession.isPending || createSession.isPending || deleteSession.isPending;
 
-  const grid = useMemo(() => pivotMasterRota(sessions, doctors ?? []), [sessions, doctors]);
-  const [activeWeek, setActiveWeek] = useState(grid.weeks[0] ?? 1);
-
-  if (doctorsLoading || roomsLoading) {
-    return <p className="text-sm text-ink/70">Loading grid...</p>;
+  if (isLoading) {
+    return <p className="text-sm text-ink/70">Loading master rota...</p>;
   }
 
-  function handlePick(
-    session: MasterRotaSession,
-    sessionType: MasterSessionType,
-    roomId: number | null,
-    displaced: MasterRotaSession | null,
-  ) {
-    updateSession.mutate(
-      { templateId, sessionId: session.session_id, sessionType, roomId },
-      {
-        onSuccess: (data) => {
-          const entry: MasterUndoEntry = {
-            kind: "patch",
-            sessionId: session.session_id,
-            previous: { sessionType: session.session_type, roomId: session.room_id },
-            displaced: displaced
-              ? { sessionId: displaced.session_id, sessionType: displaced.session_type, roomId: displaced.room_id }
-              : null,
-          };
-          const message = masterMutationAppliedMessage(
-            data.session.doctor_code,
-            data.session.day,
-            data.session.period,
-            data.session.session_type,
-            data.session.room_code,
-          );
-          onMutationApplied?.(entry, message);
-        },
-        onError: () => onMutationError?.(),
-      },
-    );
+  if (isError) {
+    if (error.status === 404) {
+      return (
+        <div className="max-w-2xl">
+          <p className="text-sm text-ink/70">No active master rota template.</p>
+        </div>
+      );
+    }
+    return <p className="text-sm text-red-700">Could not load the master rota.</p>;
   }
 
-  function handleCreate(
-    doctorId: number,
-    week: number,
-    day: Day,
-    period: Period,
-    sessionType: MasterSessionType,
-    roomId: number | null,
-    displaced: MasterRotaSession | null,
-  ) {
-    createSession.mutate(
-      { templateId, doctorId, week, day, period, sessionType, roomId },
-      {
-        onSuccess: (data) => {
-          const entry: MasterUndoEntry = {
-            kind: "create",
-            createdSessionId: data.session.session_id,
-            displaced: displaced
-              ? { sessionId: displaced.session_id, sessionType: displaced.session_type, roomId: displaced.room_id }
-              : null,
-          };
-          const message = masterSessionCreatedMessage(
-            data.session.doctor_code,
-            data.session.day,
-            data.session.period,
-            data.session.session_type,
-            data.session.room_code,
-          );
-          onMutationApplied?.(entry, message);
-        },
-        onError: () => onMutationError?.(),
-      },
-    );
+  if (!template) {
+    return null;
   }
 
-  function handleDelete(session: MasterRotaSession) {
-    deleteSession.mutate(
-      { templateId, sessionId: session.session_id },
-      {
-        onSuccess: () => {
-          const entry: MasterUndoEntry = {
-            kind: "delete",
-            doctorId: session.doctor_id,
-            week: session.week,
-            day: session.day,
-            period: session.period,
-            previous: { sessionType: session.session_type, roomId: session.room_id },
-          };
-          const message = masterSessionDeletedMessage(session.doctor_code, session.day, session.period);
-          onMutationApplied?.(entry, message);
-        },
-        onError: () => onMutationError?.(),
-      },
-    );
+  // See RotaDetailPage's currentRotaId for why this is pulled out as a
+  // plain number rather than referencing template.template_id inside the
+  // handlers below - narrowing from the `if (!template) return null`
+  // check above doesn't survive into nested function declarations.
+  const currentTemplateId = template.template_id;
+
+  function handleMutationApplied(entry: MasterUndoEntry, message: string) {
+    undoStack.push(entry);
+    showToast(message);
+  }
+
+  function handleMutationError() {
+    showToast("Could not apply that change");
+  }
+
+  async function handleUndo() {
+    const entry = undoStack.consume();
+    if (!entry) return;
+
+    const steps = buildMasterReplaySteps(entry);
+
+    try {
+      for (const step of steps) {
+        if (step.op === "patch") {
+          await updateSession.mutateAsync({
+            templateId: currentTemplateId,
+            sessionId: step.sessionId,
+            sessionType: step.sessionType,
+            roomId: step.roomId,
+          });
+        } else if (step.op === "delete") {
+          await deleteSession.mutateAsync({ templateId: currentTemplateId, sessionId: step.sessionId });
+        } else {
+          await createSession.mutateAsync({
+            templateId: currentTemplateId,
+            doctorId: step.doctorId,
+            week: step.week,
+            day: step.day,
+            period: step.period,
+            sessionType: step.sessionType,
+            roomId: step.roomId,
+          });
+        }
+      }
+      showToast("Undone");
+    } catch {
+      // Same re-push-and-retry-from-the-start convention as
+      // RotaDetailPage.handleUndo - all three replay ops are
+      // idempotent-enough for a full retry.
+      undoStack.push(entry);
+      showToast("Undo failed");
+    }
   }
 
   return (
     <div>
-      <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Week">
-        {grid.weeks.map((week) => (
-          <button
-            key={week}
-            type="button"
-            role="tab"
-            aria-selected={week === activeWeek}
-            onClick={() => setActiveWeek(week)}
-            className={`px-4 py-2 text-sm font-medium ${
-              week === activeWeek
-                ? "border-b-2 border-accent text-accent"
-                : "text-ink/60 hover:text-ink"
-            }`}
-          >
-            Week {week}
-          </button>
-        ))}
+      <h1 className="text-lg font-semibold">Master Rota - {template.name}</h1>
+      <p className="mt-1 text-sm text-ink/70">Changes apply to future generated rotas only.</p>
+
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={handleUndo}
+          disabled={undoStack.current === null || undoing}
+          className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+        >
+          Undo
+        </button>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
-                Doctor
-              </th>
-              <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
-                Session
-              </th>
-              {DAYS.map((day, dayIndex) => (
-                <th
-                  key={day}
-                  className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium text-ink/70 ${
-                    dayIndex === DAYS.length - 1 ? "" : "border-r-2"
-                  }`}
-                >
-                  {day}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {grid.rows.map(({ doctor, inactiveWithSessions }, rowIndex) => {
-              const isLastDoctor = rowIndex === grid.rows.length - 1;
-              // See RotaGrid.tsx for why this can't reuse the per-row
-              // groupDividerClass below - the doctor cell only renders
-              // once (rowSpan, at periodIndex 0).
-              const doctorCellGroupDividerClass = isLastDoctor ? "" : "border-b-2";
-              return PERIODS.map((period, periodIndex) => {
-                const isGroupEnd = periodIndex === PERIODS.length - 1 && !isLastDoctor;
-                const groupDividerClass = isGroupEnd ? "border-b-2 border-ink/40" : "";
-                return (
-                  <tr key={`${doctor.id}-${period}`}>
-                    {periodIndex === 0 ? (
-                      <td
-                        rowSpan={PERIODS.length}
-                        className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass}`}
-                      >
-                        <div>{doctor.code}</div>
-                        {inactiveWithSessions ? (
-                          <div className="text-xs text-ink/50">(inactive)</div>
-                        ) : null}
-                      </td>
-                    ) : null}
-                    <td
-                      className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
-                    >
-                      {period}
-                    </td>
-                    {DAYS.map((day, dayIndex) => {
-                      const session = getMasterRotaCell(grid, doctor.id, activeWeek, day, period);
-                      const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
-                      return (
-                        <td
-                          key={day}
-                          className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
-                          data-testid={`master-cell-${doctor.id}-${activeWeek}-${day}-${period}`}
-                        >
-                          {session ? (
-                            <MasterCellEditPopover
-                              session={session}
-                              week={activeWeek}
-                              day={day}
-                              period={period}
-                              sessions={sessions}
-                              rooms={rooms ?? []}
-                              onPick={(sessionType, roomId, displaced) => handlePick(session, sessionType, roomId, displaced)}
-                              onDelete={() => handleDelete(session)}
-                              saving={saving}
-                            >
-                              <div>
-                                <CellContent session={session} />
-                              </div>
-                            </MasterCellEditPopover>
-                          ) : doctor.active ? (
-                            <MasterCellEditPopover
-                              session={null}
-                              week={activeWeek}
-                              day={day}
-                              period={period}
-                              sessions={sessions}
-                              rooms={rooms ?? []}
-                              onPick={(sessionType, roomId, displaced) =>
-                                handleCreate(doctor.id, activeWeek, day, period, sessionType, roomId, displaced)
-                              }
-                              saving={saving}
-                            >
-                              <button
-                                type="button"
-                                aria-label={`Add session for ${doctor.code} ${day} ${period}`}
-                                className="flex h-full w-full items-center justify-center text-ink/30 hover:text-ink/50"
-                              >
-                                +
-                              </button>
-                            </MasterCellEditPopover>
-                          ) : null}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              });
-            })}
-          </tbody>
-        </table>
+      <div className="mt-6">
+        <MasterRotaGrid
+          sessions={template.sessions}
+          templateId={currentTemplateId}
+          onMutationApplied={handleMutationApplied}
+          onMutationError={handleMutationError}
+        />
       </div>
+
+      <ToastDisplay message={toast?.message} />
     </div>
   );
-}
-
-function CellContent({ session }: { session: MasterRotaSession }) {
-  return (
-    <>
-      <SessionTypeBadge sessionType={session.session_type} />
-      {session.room_code ? (
-        <div className="text-xs font-medium">{session.room_code}</div>
-      ) : null}
-    </>
-  );
-}
-
-/** REQUIRES_ROOM and PRE_ASSIGNED render as blank (room code, if any, is
- * the whole content); NO_SURGERY/ADMIN_TIME/WFH get a label badge. */
-function SessionTypeBadge({ sessionType }: { sessionType: MasterRotaSession["session_type"] }) {
-  if (sessionType === "no_surgery") {
-    return <span className="rounded bg-ink/10 px-1 text-xs font-medium">No surgery</span>;
-  }
-  if (sessionType === "admin_time") {
-    return <span className="rounded bg-ink/10 px-1 text-xs font-medium">Admin</span>;
-  }
-  if (sessionType === "wfh") {
-    return <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>;
-  }
-  return null;
 }
