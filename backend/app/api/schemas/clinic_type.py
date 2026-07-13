@@ -1,4 +1,4 @@
-"""ClinicType schemas: full nested create/replace."""
+"""ClinicType schemas: full nested create/replace (M3 plan design decision)."""
 from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, Period, RoomType
