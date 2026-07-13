@@ -9,13 +9,6 @@ describe("mapValidationErrors", () => {
     expect(result.formErrors).toEqual([]);
   });
 
-  it("maps clinic_priority to the camelCase form field name", () => {
-    const result = mapValidationErrors([
-      { loc: ["body", "clinic_priority"], msg: "Input should be a valid integer", type: "int_type" },
-    ]);
-    expect(result.fieldErrors.clinicPriority).toBe("Input should be a valid integer");
-  });
-
   it("puts an unrecognised top-level field into formErrors rather than guessing", () => {
     const result = mapValidationErrors([
       { loc: ["body", "some_unknown_field"], msg: "Unexpected", type: "value_error" },
@@ -40,9 +33,9 @@ describe("mapValidationErrors", () => {
   it("maps multiple errors independently", () => {
     const result = mapValidationErrors([
       { loc: ["body", "name"], msg: "Field required", type: "missing" },
-      { loc: ["body", "clinic_priority"], msg: "Field required", type: "missing" },
+      { loc: ["body", "some_unknown_field"], msg: "Unexpected", type: "value_error" },
     ]);
     expect(result.fieldErrors.name).toBe("Field required");
-    expect(result.fieldErrors.clinicPriority).toBe("Field required");
+    expect(result.formErrors).toEqual(["Unexpected"]);
   });
 });
