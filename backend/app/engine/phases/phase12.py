@@ -4,20 +4,32 @@ Runs after every other phase, purely to surface data-quality findings for
 the admin to review. Never mutates the grid or counters, and every finding
 here is a warning -- nothing in Phase 12 aborts generation.
 
-Check 4 (supervision) is explicitly out of scope for M2 -- see the M2 plan's
-"Open item" section; sequenced after the M3 bulk.
-
 Check 3 excludes on-leave slots: a doctor on leave still gets a
 REQUIRES_ROOM SessionSlot from Phase 2 (the template doesn't know they're on
 leave), and Phases 7-9A correctly never give them a room. Without this
 exclusion every leave day would register as a spurious "unresolved room"
 finding -- flagged as a known gap back in step 7 (phase7_9a.py), resolved
 here.
+
+Check 4 (supervision, Phase 9C implementation plan section 3) reuses
+`count_supervisable_trainees` and `is_eligible_supervisor` from phase9c.py
+so the assignment rule and the validation rule cannot drift apart. Two
+prongs:
+  - supervision_missing: a session has supervisable trainees but no slot
+    both flags is_supervising AND is currently eligible. A flag on an
+    ineligible slot does not count -- this is what keeps forced edits
+    honest, mirroring role_on_incompatible_slot.
+  - supervision_on_incompatible_slot: any is_supervising slot that fails
+    eligibility, regardless of whether trainees are present.
+A session edited into a bad state can trigger both at once (the flagged
+supervisor is now invalid AND no valid supervisor remains) -- correct, not
+a duplicate.
 """
 from __future__ import annotations
 
 from ...models.enums import Day, MasterSessionType, Period, SessionRole
 from ..datatypes import GenerationContext, RotaGrid, ValidationIssue
+from .phase9c import count_supervisable_trainees, is_eligible_supervisor
 
 PHASE = "phase12"
 
@@ -31,6 +43,8 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
     issues.extend(_check_clinic_coverage(context, grid))
     issues.extend(_check_unresolved_rooms(context, grid))
     issues.extend(_check_role_on_incompatible_slot(context, grid))
+    issues.extend(_check_supervision_missing(context, grid))
+    issues.extend(_check_supervision_on_incompatible_slot(context, grid))
     return issues
 
 
@@ -157,6 +171,65 @@ def _check_role_on_incompatible_slot(
             "role_on_incompatible_slot", slot.week, slot.day, slot.period,
             f"{code} has role {slot.role.value} on {slot.day.value} "
             f"{slot.period.value} (week {slot.week}), but {'; '.join(reasons)}.",
+        ))
+    return issues
+
+
+def _check_supervision_missing(
+    context: GenerationContext, grid: RotaGrid
+) -> list[ValidationIssue]:
+    """Warn if a session has supervisable trainees but no slot both flags
+    is_supervising AND is currently an eligible supervisor. A flag on a
+    slot that has since become ineligible (e.g. via a later edit) does not
+    satisfy this -- it is instead caught by
+    `_check_supervision_on_incompatible_slot` below.
+    """
+    issues: list[ValidationIssue] = []
+    num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
+
+    for gen_week in range(1, num_weeks + 1):
+        for day in _DAYS:
+            for period in _PERIODS:
+                n = count_supervisable_trainees(context, grid, gen_week, day, period)
+                if n == 0:
+                    continue
+
+                sessions = grid.sessions_for_slot(gen_week, day, period)
+                has_valid_supervisor = any(
+                    slot.is_supervising and is_eligible_supervisor(context, grid, slot)
+                    for slot in sessions
+                )
+                if not has_valid_supervisor:
+                    issues.append(_warning(
+                        "supervision_missing", gen_week, day, period,
+                        f"{n} trainee(s) require supervision on {day.value} "
+                        f"{period.value} (week {gen_week}), but no valid supervisor "
+                        f"is assigned.",
+                    ))
+    return issues
+
+
+def _check_supervision_on_incompatible_slot(
+    context: GenerationContext, grid: RotaGrid
+) -> list[ValidationIssue]:
+    """Warn if any is_supervising slot fails is_eligible_supervisor, whether
+    or not trainees are present in the session -- mirrors
+    role_on_incompatible_slot, keeping the manual-edit escape hatch honest.
+    """
+    issues: list[ValidationIssue] = []
+    for slot in grid.slots.values():
+        if not slot.is_supervising:
+            continue
+        if is_eligible_supervisor(context, grid, slot):
+            continue
+
+        doctor = context.doctor_by_id.get(slot.doctor_id)
+        code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
+        issues.append(_warning(
+            "supervision_on_incompatible_slot", slot.week, slot.day, slot.period,
+            f"{code} is flagged as supervising on {slot.day.value} "
+            f"{slot.period.value} (week {slot.week}), but is not an eligible "
+            f"supervisor there.",
         ))
     return issues
 
