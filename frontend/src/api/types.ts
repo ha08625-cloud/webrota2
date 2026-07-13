@@ -161,6 +161,15 @@ export interface ClinicTypeIn {
   room_eligibilities: RoomEligIn[];
 }
 
+/** Body for PUT /clinic-types/reorder - the full set of enabled clinic
+ * type ids in the desired order. The server rejects anything that isn't
+ * exactly the current enabled set (missing id, extra id, duplicate,
+ * or a disabled id included) with a 409.
+ */
+export interface ClinicTypeReorderIn {
+  ordered_ids: number[];
+}
+
 // --- Doctors (schemas_doctor.py) ---
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
