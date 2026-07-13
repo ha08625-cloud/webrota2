@@ -207,10 +207,21 @@ describe("RotaDetailPage", () => {
     server.use(
       http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)),
       http.patch("/api/v1/rota/:rotaId/sessions/:sessionId", async ({ request }) => {
-        const body = (await request.json()) as { is_wfh: boolean; notes: string | null };
+        const body = (await request.json()) as {
+          is_wfh: boolean;
+          notes: string | null;
+          is_supervising?: boolean;
+        };
         patchBodies.push(body);
         return HttpResponse.json({
-          session: { ...session, is_wfh: body.is_wfh, notes: body.notes, room_id: null, room_code: null },
+          session: {
+            ...session,
+            is_wfh: body.is_wfh,
+            notes: body.notes,
+            is_supervising: body.is_supervising ?? session.is_supervising,
+            room_id: null,
+            room_code: null,
+          },
           issues: [],
         });
       }),
@@ -231,8 +242,8 @@ describe("RotaDetailPage", () => {
 
     expect(await screen.findByText("Undone")).toBeInTheDocument();
     expect(patchBodies).toEqual([
-      { is_wfh: true, notes: null },
-      { is_wfh: false, notes: null },
+      { is_wfh: true, notes: null, is_supervising: false },
+      { is_wfh: false, notes: null, is_supervising: false },
     ]);
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });

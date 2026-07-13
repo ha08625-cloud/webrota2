@@ -42,40 +42,73 @@ function renderPopover(overrides: {
 }
 
 describe("CellEditPopover", () => {
-  // --- Main view: WFH/notes save path (unchanged from M4) ---
+  // --- Main view: WFH/notes/supervising save path ---
 
-  it("opens on click and shows the current WFH/notes values", async () => {
+  it("opens on click and shows the current WFH/notes/supervising values", async () => {
     const user = userEvent.setup();
-    renderPopover({ session: makeRotaSession({ is_wfh: true, notes: "Covering for AB" }) });
+    renderPopover({
+      session: makeRotaSession({ is_wfh: true, notes: "Covering for AB", is_supervising: true }),
+    });
 
     await user.click(screen.getByText("Cell content"));
 
     expect(await screen.findByLabelText("Working from home")).toBeChecked();
     expect(screen.getByLabelText("Notes")).toHaveValue("Covering for AB");
+    expect(screen.getByLabelText("Supervising")).toBeChecked();
   });
 
-  it("Save sends both fields explicitly, matching the edited form state", async () => {
+  it("Save sends all three fields explicitly, matching the edited form state", async () => {
     const user = userEvent.setup();
-    const { onSave } = renderPopover({ session: makeRotaSession({ is_wfh: false, notes: null }) });
+    const { onSave } = renderPopover({
+      session: makeRotaSession({ is_wfh: false, notes: null, is_supervising: false }),
+    });
 
     await user.click(screen.getByText("Cell content"));
     await user.click(await screen.findByLabelText("Working from home"));
     await user.type(screen.getByLabelText("Notes"), "Back from leave");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith(true, "Back from leave");
+    expect(onSave).toHaveBeenCalledWith(true, "Back from leave", false);
   });
 
   it("an emptied notes field is sent as null, not an empty string", async () => {
     const user = userEvent.setup();
-    const { onSave } = renderPopover({ session: makeRotaSession({ is_wfh: false, notes: "Old note" }) });
+    const { onSave } = renderPopover({
+      session: makeRotaSession({ is_wfh: false, notes: "Old note", is_supervising: false }),
+    });
 
     await user.click(screen.getByText("Cell content"));
     const notesField = await screen.findByLabelText("Notes");
     await user.clear(notesField);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith(false, null);
+    expect(onSave).toHaveBeenCalledWith(false, null, false);
+  });
+
+  it("toggling Supervising on sends true, independently of WFH/notes", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderPopover({
+      session: makeRotaSession({ is_wfh: false, notes: null, is_supervising: false }),
+    });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByLabelText("Supervising"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(false, null, true);
+  });
+
+  it("toggling Supervising off sends false when the session started supervising", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderPopover({
+      session: makeRotaSession({ is_wfh: false, notes: null, is_supervising: true }),
+    });
+
+    await user.click(screen.getByText("Cell content"));
+    await user.click(await screen.findByLabelText("Supervising"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(false, null, false);
   });
 
   it("Cancel closes the popover without calling onSave", async () => {
