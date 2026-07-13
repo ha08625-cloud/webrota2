@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
 import type { Doctor } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
-import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 
 interface DialogState {
   open: boolean;
@@ -23,18 +22,28 @@ export function DoctorsPage() {
   // "Deactivate instead" action below) drops out of this list and is not
   // recoverable from the UI until that toggle exists - a deliberate,
   // known limitation, not an oversight.
-  const { data: doctorsData, isLoading, isError } = useDoctors(true);
-  // Same display convention as the rota grids: Partner/Salaried/Trainee/AHP
-  // groups in that fixed order, alphabetical by code within each group.
-  const doctors = doctorsData
-    ? [...doctorsData].sort((a, b) =>
-        compareDoctorDisplayOrder({ type: a.doctor_type, code: a.code }, { type: b.doctor_type, code: b.code }),
-      )
-    : doctorsData;
+  const { data: doctors, isLoading, isError } = useDoctors(true);
   const softDeleteDoctor = useSoftDeleteDoctor();
   const updateDoctor = useUpdateDoctor();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
   const [deleteError, setDeleteError] = useState<DeleteErrorState | null>(null);
+
+  /**
+   * Sessions/week step size. Assumption: sessions are counted in half-day
+   * units, so +/- 0.5 per click. sessions_per_week is Decimal(4,1) and
+   * has no server-side lower bound other than nonnegative (zod mirrors
+   * that with .nonnegative()), so the only client-side clamp needed here
+   * is a floor of 0.
+   */
+  const SESSION_STEP = 0.5;
+
+  function adjustSessions(doctor: Doctor, direction: 1 | -1) {
+    if (updateDoctor.isPending) return;
+    const current = Number(doctor.sessions_per_week);
+    const next = Math.max(0, current + direction * SESSION_STEP);
+    if (next === current) return;
+    updateDoctor.mutate({ id: doctor.id, payload: { sessions_per_week: next.toFixed(1) } });
+  }
 
   function openCreate() {
     setDeleteError(null);
@@ -128,7 +137,31 @@ export function DoctorsPage() {
               <tr key={d.id} className="border-t border-border">
                 <td className="py-1 pr-4">{d.code}</td>
                 <td className="py-1 pr-4">{d.doctor_type}</td>
-                <td className="py-1 pr-4">{d.sessions_per_week}</td>
+                <td className="py-1 pr-4">
+                  <div className="flex items-center gap-1">
+                    <span className="tabular-nums">{d.sessions_per_week}</span>
+                    <div className="flex flex-col leading-none">
+                      <button
+                        type="button"
+                        onClick={() => adjustSessions(d, 1)}
+                        disabled={updateDoctor.isPending}
+                        aria-label={`Increase sessions per week for ${d.code}`}
+                        className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => adjustSessions(d, -1)}
+                        disabled={updateDoctor.isPending}
+                        aria-label={`Decrease sessions per week for ${d.code}`}
+                        className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
+                </td>
                 <td className="py-1">
                   <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
                     Edit
