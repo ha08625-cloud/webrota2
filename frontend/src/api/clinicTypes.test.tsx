@@ -44,7 +44,6 @@ describe("useCreateClinicType", () => {
 
     result.current.create.mutate({
       name: "New clinic",
-      clinic_priority: 1000,
       is_enabled: true,
       room_required: false,
       category: null,
@@ -77,7 +76,6 @@ describe("useUpdateClinicType", () => {
       id: 4,
       payload: {
         name: "Updated",
-        clinic_priority: 1000,
         is_enabled: true,
         room_required: false,
         category: null,
