@@ -92,6 +92,7 @@ def rebuild_rota_grid(
             is_on_leave=is_on_leave,
             is_wfh=row.is_wfh,
             notes=row.notes,
+            is_supervising=row.is_supervising,
         )
         grid.add_slot(slot)
         # assign_room (rather than setting assigned_room_id directly) keeps

@@ -99,5 +99,6 @@ class RotaSession(Base):
     )
     is_wfh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_supervising: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     rota: Mapped["GeneratedRota"] = relationship(back_populates="sessions")

@@ -75,6 +75,7 @@ class SessionSlot:
     is_on_leave: bool = False
     is_wfh: bool = False
     notes: str | None = None
+    is_supervising: bool = False
 
     @property
     def key(self) -> tuple[int, int, Day, Period]:

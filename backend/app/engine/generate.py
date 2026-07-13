@@ -103,6 +103,7 @@ def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterS
             template_type=slot.template_type,
             is_wfh=slot.is_wfh,
             notes=slot.notes,
+            is_supervising=slot.is_supervising,
         ))
 
     _write_counters(db, counters)
