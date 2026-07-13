@@ -38,6 +38,7 @@ from .phases import (
     run_phase5,
     run_phase7_to_9a,
     run_phase9b,
+    run_phase9c,
     run_phase12,
 )
 
@@ -60,6 +61,7 @@ def generate(db: Session, config_id: int) -> GenerationResult:
     issues.extend(run_phase5(context, grid, counters))
     issues.extend(run_phase7_to_9a(context, grid, counters))
     issues.extend(run_phase9b(context, grid))
+    issues.extend(run_phase9c(context, grid, counters))
     issues.extend(run_phase12(context, grid))
 
     rota_id = _write_to_db(db, config_id, grid, counters)

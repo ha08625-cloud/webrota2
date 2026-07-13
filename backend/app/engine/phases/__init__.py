@@ -21,6 +21,7 @@ from .phase4 import run_phase4
 from .phase5 import run_phase5
 from .phase7_9a import run_phase7_to_9a
 from .phase9b import run_phase9b
+from .phase9c import run_phase9c
 from .phase12 import run_phase12
 
 __all__ = [
