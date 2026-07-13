@@ -191,11 +191,10 @@ export interface DoctorIn {
 
 /**
  * PATCH /doctors/{id} body - every field optional, only supplied fields
- * are applied (DoctorPatch in schemas_doctor.py). Task 6 only ever sends
- * `active` with this (the "Deactivate instead" action on the soft-delete
- * 409 banner) - code/doctor_type/sessions_per_week edits go through the
- * same endpoint but are always sent together as a full set from
- * DoctorFormDialog, never partially.
+ * are applied (DoctorPatch in schemas_doctor.py). DoctorFormDialog sends
+ * code/doctor_type/sessions_per_week together as a full set; the
+ * "Deactivate instead" action sends `active` alone; the DoctorsPage
+ * sessions/week stepper sends `sessions_per_week` alone.
  */
 export interface DoctorPatch {
   code?: string;
