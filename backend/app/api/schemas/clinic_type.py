@@ -1,4 +1,4 @@
-"""ClinicType schemas: full nested create/replace (M3 plan design decision)."""
+"""ClinicType schemas: full nested create/replace."""
 from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, Period, RoomType
@@ -28,13 +28,20 @@ class RoomEligIn(BaseModel):
 
 class ClinicTypeIn(BaseModel):
     name: str = Field(min_length=1)
-    clinic_priority: int
     is_enabled: bool = True
     room_required: bool = False
     category: str | None = None
     schedules: list[ScheduleIn] = []
     doctor_eligibilities: list[DoctorEligIn] = []
     room_eligibilities: list[RoomEligIn] = []
+
+
+class ClinicTypeReorderIn(BaseModel):
+    """Body for PUT /clinic-types/reorder: the full set of enabled clinic
+    type ids in the desired order. The server validates this is exactly the
+    current enabled set before applying it -- see the router.
+    """
+    ordered_ids: list[int]
 
 
 class ScheduleOut(ScheduleIn):
