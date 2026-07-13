@@ -27,12 +27,16 @@ describe("buildReplayRequest", () => {
       sessionId: 42,
       previousIsWfh: false,
       previousNotes: "on call",
+      previousIsSupervising: true,
       previousRoomId: 3,
       previousRoomCode: "D1",
     };
 
     expect(buildReplayRequest(entry, 7)).toEqual([
-      { kind: "patch", payload: { rotaId: 7, sessionId: 42, isWfh: false, notes: "on call" } },
+      {
+        kind: "patch",
+        payload: { rotaId: 7, sessionId: 42, isWfh: false, notes: "on call", isSupervising: true },
+      },
     ]);
   });
 
@@ -42,12 +46,16 @@ describe("buildReplayRequest", () => {
       sessionId: 42,
       previousIsWfh: true,
       previousNotes: null,
+      previousIsSupervising: false,
       previousRoomId: null,
       previousRoomCode: null,
     };
 
     expect(buildReplayRequest(entry, 7)).toEqual([
-      { kind: "patch", payload: { rotaId: 7, sessionId: 42, isWfh: true, notes: null } },
+      {
+        kind: "patch",
+        payload: { rotaId: 7, sessionId: 42, isWfh: true, notes: null, isSupervising: false },
+      },
     ]);
   });
 
