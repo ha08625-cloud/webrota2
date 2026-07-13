@@ -343,6 +343,7 @@ export interface RotaSession {
    */
   template_type: MasterSessionType | null;
   is_wfh: boolean;
+  is_supervising: boolean;
   is_on_leave: boolean;
   notes: string | null;
 }

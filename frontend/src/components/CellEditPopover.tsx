@@ -18,7 +18,7 @@ interface CellEditPopoverProps {
   rooms: Room[];
   clinicTypes: ClinicType[];
   children: ReactNode;
-  onSave: (isWfh: boolean, notes: string | null) => void;
+  onSave: (isWfh: boolean, notes: string | null, isSupervising: boolean) => void;
   /** displaced is the client-detected holder, passed up so RotaGrid can build the undo entry without re-scanning. */
   onSetRoom: (roomId: number | null, displaced: RotaSession | null) => void;
   onSetRole: (triple: RoleTriple, displaced: RotaSession | null) => void;
@@ -33,18 +33,19 @@ type PendingAction =
 
 /**
  * Wraps a cell's rendered content as the popover trigger. Four internal
- * views (M4.1): main (WFH/notes, unchanged from M4) plus room and role
+ * views (M4.1): main (WFH/notes/supervising, unchanged in shape since
+ * M4 aside from the Phase 9C supervising toggle) plus room and role
  * submenus, plus a shared confirm view for steal-class picks. Stays
  * inside the single Radix Popover rather than nesting Radix menus - the
  * views are plain internal state.
  *
- * Save always sends both is_wfh and notes explicitly - SessionPatchIn
- * supports a partial update (only fields present in model_fields_set are
- * applied), but there's no correctness reason to diff against prior
- * values here: both fields are already known from the open form, so
- * sending both is simpler and behaviourally identical to a diffed subset
- * for this form. An empty notes textarea is sent as `notes: null`
- * (explicit clear), not omitted.
+ * Save always sends is_wfh, notes, and is_supervising explicitly -
+ * SessionPatchIn supports a partial update (only fields present in
+ * model_fields_set are applied), but there's no correctness reason to
+ * diff against prior values here: all three are already known from the
+ * open form, so sending all three is simpler and behaviourally identical
+ * to a diffed subset for this form. An empty notes textarea is sent as
+ * `notes: null` (explicit clear), not omitted.
  */
 export function CellEditPopover({
   session,
@@ -61,6 +62,7 @@ export function CellEditPopover({
   const [view, setView] = useState<View>("main");
   const [isWfh, setIsWfh] = useState(session.is_wfh);
   const [notes, setNotes] = useState(session.notes ?? "");
+  const [isSupervising, setIsSupervising] = useState(session.is_supervising);
   const [pending, setPending] = useState<PendingAction | null>(null);
 
   function handleOpenChange(next: boolean) {
@@ -69,6 +71,7 @@ export function CellEditPopover({
       // case a prior edit elsewhere changed them since the last open.
       setIsWfh(session.is_wfh);
       setNotes(session.notes ?? "");
+      setIsSupervising(session.is_supervising);
       setView("main");
       setPending(null);
     }
@@ -76,7 +79,7 @@ export function CellEditPopover({
   }
 
   function handleSave() {
-    onSave(isWfh, notes.trim() === "" ? null : notes);
+    onSave(isWfh, notes.trim() === "" ? null : notes, isSupervising);
     setOpen(false);
   }
 
@@ -151,6 +154,8 @@ export function CellEditPopover({
               setIsWfh={setIsWfh}
               notes={notes}
               setNotes={setNotes}
+              isSupervising={isSupervising}
+              setIsSupervising={setIsSupervising}
               saving={saving}
               onSave={handleSave}
               onOpenRooms={() => setView("rooms")}
@@ -189,20 +194,33 @@ export function CellEditPopover({
   );
 }
 
-// --- Main view: navigation rows first, then WFH/notes/save ---
+// --- Main view: navigation rows first, then WFH/supervising/notes/save ---
 
 interface MainViewProps {
   isWfh: boolean;
   setIsWfh: (v: boolean) => void;
   notes: string;
   setNotes: (v: string) => void;
+  isSupervising: boolean;
+  setIsSupervising: (v: boolean) => void;
   saving: boolean;
   onSave: () => void;
   onOpenRooms: () => void;
   onOpenRoles: () => void;
 }
 
-function MainView({ isWfh, setIsWfh, notes, setNotes, saving, onSave, onOpenRooms, onOpenRoles }: MainViewProps) {
+function MainView({
+  isWfh,
+  setIsWfh,
+  notes,
+  setNotes,
+  isSupervising,
+  setIsSupervising,
+  saving,
+  onSave,
+  onOpenRooms,
+  onOpenRoles,
+}: MainViewProps) {
   return (
     <div>
       <div className="border-b border-border pb-2">
@@ -212,6 +230,15 @@ function MainView({ isWfh, setIsWfh, notes, setNotes, saving, onSave, onOpenRoom
       <label className="mt-2 flex items-center gap-2 text-sm">
         <input type="checkbox" checked={isWfh} onChange={(e) => setIsWfh(e.target.checked)} aria-label="Working from home" />
         Working from home
+      </label>
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={isSupervising}
+          onChange={(e) => setIsSupervising(e.target.checked)}
+          aria-label="Supervising"
+        />
+        Supervising
       </label>
       <label className="mt-2 block text-sm">
         Notes

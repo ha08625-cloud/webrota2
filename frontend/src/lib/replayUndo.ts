@@ -6,8 +6,8 @@ import type { UndoEntry } from "@/lib/undoStack";
  * the identical call with the same two session ids - both endpoints are
  * self-inverse for swaps and moves alike (see rota.ts docstrings on
  * useSwapRoles/useSwapRooms). patch replays with the entry's *previous*
- * is_wfh/notes, restoring the pre-edit state rather than repeating
- * anything.
+ * is_wfh/notes/is_supervising, restoring the pre-edit state rather than
+ * repeating anything.
  *
  * set-room and set-role can replay as up to two/three calls -
  * buildReplayRequest returns the full sequence (length 1 for the three
@@ -45,6 +45,7 @@ export function buildReplayRequest(entry: UndoEntry, rotaId: number): ReplayRequ
           sessionId: entry.sessionId,
           isWfh: entry.previousIsWfh,
           notes: entry.previousNotes,
+          isSupervising: entry.previousIsSupervising,
         },
       },
     ];
@@ -61,7 +62,10 @@ export function buildReplayRequest(entry: UndoEntry, rotaId: number): ReplayRequ
     // WFH implies the previous room was null (the PATCH invariant), and
     // setting WFH back on clears whatever room the forward op assigned -
     // so restoring WFH via PATCH is sufficient; no set-room call is
-    // needed for the target at all in that branch.
+    // needed for the target at all in that branch. isSupervising is
+    // deliberately omitted from this follow-up payload: set-room never
+    // touches it, so there is nothing to restore (PatchSessionPayload's
+    // isSupervising is optional for exactly this case).
     if (entry.previousIsWfh) {
       requests.push({
         kind: "patch",

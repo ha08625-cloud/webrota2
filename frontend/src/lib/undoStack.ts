@@ -14,6 +14,14 @@ export type UndoEntry =
       previousIsWfh: boolean;
       previousNotes: string | null;
       /**
+       * Captured unconditionally at patch time (Phase 9C plan, section 5):
+       * required, like previousIsWfh, so typecheck forces every push site
+       * to supply it. The session PATCH never has side effects on
+       * is_supervising in either direction, so replaying it is a plain
+       * restore of this value, no derived logic needed.
+       */
+      previousIsSupervising: boolean;
+      /**
        * Captured unconditionally at patch time, regardless of what the
        * forward patch itself changed - simplest correct behaviour, since
        * the check for whether undo can actually restore the room happens
@@ -30,6 +38,11 @@ export type UndoEntry =
        * PATCH, which needs both fields. displaced carries only what
        * replay needs to restore the other side (its own previous
        * room_id), not a full session snapshot.
+       *
+       * No previousIsSupervising here: set-room never touches
+       * is_supervising, so the WFH-restore follow-up patch this kind can
+       * trigger (see replayUndo.ts) omits the field entirely rather than
+       * carrying a value there is nothing to restore.
        */
       kind: "set-room";
       sessionId: number;

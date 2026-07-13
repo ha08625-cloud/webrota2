@@ -169,6 +169,14 @@ export interface PatchSessionPayload {
   sessionId: number;
   isWfh: boolean;
   notes: string | null;
+  /**
+   * Optional, unlike isWfh/notes (Phase 9C plan, section 5): the
+   * popover's always-send-all-three contract needs it present, but
+   * set-room's WFH-restore follow-up patch (replayUndo.ts) has no
+   * previous value to supply and must not overwrite is_supervising with
+   * a stale one. Included in the request body only when defined.
+   */
+  isSupervising?: boolean;
 }
 
 interface PatchSessionResponse {
@@ -177,11 +185,14 @@ interface PatchSessionResponse {
 }
 
 /**
- * Partial update of is_wfh and/or notes. This hook's own payload always
- * sends both fields (see CellEditPopover) - the endpoint's
- * model_fields_set-based partial-update support is a backend capability
- * this hook doesn't need to expose, since nothing in Task 4's UI sends a
- * true subset.
+ * Partial update of is_wfh, notes, and/or is_supervising. The popover's
+ * own payload always sends all three (see CellEditPopover) - the
+ * endpoint's model_fields_set-based partial-update support is a backend
+ * capability this hook doesn't need to expose for that caller, since
+ * nothing in the menu UI sends a true subset. isSupervising is the one
+ * exception: it's genuinely optional here because the set-room
+ * WFH-restore follow-up (replayUndo.ts) reuses this same mutation with
+ * no previous is_supervising value to send.
  *
  * Setting is_wfh true clears room_id server-side; setting it back false
  * does NOT restore a room (SessionPatchIn's own docstring) - PATCH has no
@@ -196,10 +207,11 @@ interface PatchSessionResponse {
 export function usePatchSession() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ rotaId, sessionId, isWfh, notes }: PatchSessionPayload) =>
+    mutationFn: ({ rotaId, sessionId, isWfh, notes, isSupervising }: PatchSessionPayload) =>
       apiClient.patch<PatchSessionResponse>(`/rota/${rotaId}/sessions/${sessionId}`, {
         is_wfh: isWfh,
         notes,
+        ...(isSupervising !== undefined ? { is_supervising: isSupervising } : {}),
       }),
     onSuccess: (data, { rotaId }) => {
       updateRotaCache(queryClient, rotaId, [data.session]);

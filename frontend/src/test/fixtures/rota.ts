@@ -42,6 +42,7 @@ export function makeRotaSession(overrides: Partial<RotaSession> = {}): RotaSessi
     role: null,
     template_type: "requires_room",
     is_wfh: false,
+    is_supervising: false,
     is_on_leave: false,
     notes: null,
     ...overrides,

@@ -22,6 +22,7 @@ import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle"
 import { type ChipType, canDrop } from "@/lib/dragRules";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
 import { resolveDragOutcome } from "@/lib/resolveDrag";
+import { countSupervisableTrainees } from "@/lib/superviseeCount";
 import type { UndoEntry } from "@/lib/undoStack";
 
 const BACKGROUND_CLASS: Record<CellBackground, string> = {
@@ -51,6 +52,10 @@ interface RotaGridProps {
 interface ActiveChip {
   type: ChipType;
   session: RotaSession;
+}
+
+function supervisedCountKey(week: number, day: Day, period: Period): string {
+  return `${week}:${day}:${period}`;
 }
 
 /**
@@ -86,6 +91,29 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     [rota.sessions, doctors],
   );
 
+  /**
+   * Supervising badge counts (Phase 9C plan, section 5): computed once
+   * per (week, day, period) here, not per cell render - every cell in a
+   * session shares the same count, and only the flagged supervisor's
+   * cell ever displays it. Keyed rather than threaded as a nested
+   * structure so the render loop below can do an O(1) lookup per cell.
+   */
+  const supervisedCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    const doctorList = doctors ?? [];
+    for (const week of weeks) {
+      for (const day of DAYS) {
+        for (const period of PERIODS) {
+          map.set(
+            supervisedCountKey(week, day, period),
+            countSupervisableTrainees(rota.sessions, doctorList, week, day, period),
+          );
+        }
+      }
+    }
+    return map;
+  }, [rota.sessions, doctors, weeks]);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   if (doctorsLoading || roomsLoading || clinicTypesLoading) {
@@ -119,10 +147,10 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     );
   }
 
-  function handlePopoverSave(session: RotaSession, isWfh: boolean, notes: string | null) {
+  function handlePopoverSave(session: RotaSession, isWfh: boolean, notes: string | null, isSupervising: boolean) {
     const issuesBefore = issues?.length ?? 0;
     patchSession.mutate(
-      { rotaId: rota.rota_id, sessionId: session.session_id, isWfh, notes },
+      { rotaId: rota.rota_id, sessionId: session.session_id, isWfh, notes, isSupervising },
       {
         onSuccess: (data) => {
           const entry: UndoEntry = {
@@ -130,6 +158,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
             sessionId: session.session_id,
             previousIsWfh: session.is_wfh,
             previousNotes: session.notes,
+            previousIsSupervising: session.is_supervising,
             previousRoomId: session.room_id,
             previousRoomCode: session.room_code,
           };
@@ -258,6 +287,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                   // Right divider between every day column, except the
                   // last (Friday), where the outer frame takes over.
                   const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
+                  const supervisedCount = supervisedCounts.get(supervisedCountKey(activeWeek, day, period)) ?? 0;
                   return editable ? (
                     <EditableGridCell
                       key={day}
@@ -266,6 +296,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                       day={day}
                       period={period}
                       session={session}
+                      supervisedCount={supervisedCount}
                       allSessions={rota.sessions}
                       rooms={rooms ?? []}
                       clinicTypes={clinicTypes ?? []}
@@ -286,6 +317,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
                       day={day}
                       period={period}
                       session={session}
+                      supervisedCount={supervisedCount}
                       roomsById={roomsById}
                       clinicTypesById={clinicTypesById}
                       dividerClassName={dividerClassName}
@@ -354,6 +386,8 @@ interface ReadOnlyGridCellProps {
   day: Day;
   period: Period;
   session: RotaSession | undefined;
+  /** See RotaGrid's supervisedCounts memo - one lookup per (week, day, period), shared by every cell in the session. */
+  supervisedCount: number;
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
   /** Heavier border-r/border-b classes for the column-to-column and
@@ -369,6 +403,7 @@ function ReadOnlyGridCell({
   day,
   period,
   session,
+  supervisedCount,
   roomsById,
   clinicTypesById,
   dividerClassName,
@@ -391,7 +426,7 @@ function ReadOnlyGridCell({
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
       data-week-day-period={`${week}-${day}-${period}`}
     >
-      <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} />
+      <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} supervisedCount={supervisedCount} />
     </td>
   );
 }
@@ -404,6 +439,8 @@ interface EditableGridCellProps {
   day: Day;
   period: Period;
   session: RotaSession | undefined;
+  /** See RotaGrid's supervisedCounts memo - one lookup per (week, day, period), shared by every cell in the session. */
+  supervisedCount: number;
   /** The rota's flat session list, threaded down to CellEditPopover for client-side steal detection. */
   allSessions: RotaSession[];
   rooms: Room[];
@@ -411,7 +448,7 @@ interface EditableGridCellProps {
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
   activeChip: ActiveChip | null;
-  onSave: (session: RotaSession, isWfh: boolean, notes: string | null) => void;
+  onSave: (session: RotaSession, isWfh: boolean, notes: string | null, isSupervising: boolean) => void;
   onSetRoom: (session: RotaSession, roomId: number | null, displaced: RotaSession | null) => void;
   onSetRole: (session: RotaSession, triple: RoleTriple, displaced: RotaSession | null) => void;
   saving: boolean;
@@ -425,6 +462,7 @@ function EditableGridCell({
   day,
   period,
   session,
+  supervisedCount,
   allSessions,
   rooms,
   clinicTypes,
@@ -467,7 +505,7 @@ function EditableGridCell({
       : "";
 
   const cellBody = (
-    <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} draggable />
+    <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} supervisedCount={supervisedCount} draggable />
   );
 
   // Leave cells: the popover trigger is not rendered at all (M4.1 plan) -
@@ -497,7 +535,7 @@ function EditableGridCell({
         sessions={allSessions}
         rooms={rooms}
         clinicTypes={clinicTypes}
-        onSave={(isWfh, notes) => onSave(session, isWfh, notes)}
+        onSave={(isWfh, notes, isSupervising) => onSave(session, isWfh, notes, isSupervising)}
         onSetRoom={(roomId, displaced) => onSetRoom(session, roomId, displaced)}
         onSetRole={(triple, displaced) => onSetRole(session, triple, displaced)}
         saving={saving}
@@ -513,26 +551,34 @@ function EditableGridCell({
 interface CellContentProps {
   session: RotaSession;
   fontColorClass: string;
+  /** See RotaGrid's supervisedCounts memo. Only rendered when session.is_supervising is true. */
+  supervisedCount: number;
   draggable?: boolean;
 }
 
-function CellContent({ session, fontColorClass, draggable = false }: CellContentProps) {
+function CellContent({ session, fontColorClass, supervisedCount, draggable = false }: CellContentProps) {
   return (
     <>
       {session.is_on_leave ? <span className="text-xs font-medium text-ink/70">LEAVE</span> : null}
       {!session.is_on_leave && session.is_wfh ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>
       ) : null}
+      {!session.is_on_leave && session.is_supervising ? (
+        <span className="rounded bg-ink/10 px-1 text-xs font-medium">
+          {/* supervisedCount can be 0 if leave added after generation removes
+              every countable trainee - shown plainly as "Supervising" rather
+              than "Supervising x 0", which would read as a bug. The flag is
+              still shown honestly regardless of eligibility; the issues
+              panel carries any conflict (supervision_on_incompatible_slot),
+              matching the role_on_incompatible_slot rendering philosophy. */}
+          {supervisedCount > 0 ? `Supervising x ${supervisedCount}` : "Supervising"}
+        </span>
+      ) : null}
       {!session.is_on_leave && !session.is_wfh && session.role === null && session.template_type === "no_surgery" ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">No surgery</span>
       ) : null}
       {!session.is_on_leave && !session.is_wfh && session.role === null && session.template_type === "admin_time" ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">Admin</span>
-      ) : null}
-      {!session.is_on_leave && !session.is_wfh && session.role === null &&
-        session.template_type !== "no_surgery" && session.template_type !== "admin_time" &&
-        !session.room_code ? (
-        <span className="rounded bg-ink/10 px-1 text-xs font-medium">No room</span>
       ) : null}
       {!session.is_on_leave ? (
         draggable && session.role !== null ? (
