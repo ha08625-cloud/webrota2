@@ -24,6 +24,7 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_duty_doctors_not_on_leave(context))
     issues.extend(_check_duty_on_incompatible_template_slot(context, config))
     issues.extend(_check_template_doctors_active(context))
+    issues.extend(_check_duty_on_closed_date(context))
 
     return issues
 
@@ -169,6 +170,36 @@ def _check_template_doctors_active(context: GenerationContext) -> list[Validatio
             message=(
                 f"Doctor {code} is referenced by the active master rota "
                 f"template but is not active."
+            ),
+        ))
+    return issues
+
+
+def _check_duty_on_closed_date(context: GenerationContext) -> list[ValidationIssue]:
+    """Error if a pre-planned duty assignment falls on a closed date (M5).
+
+    Same tier as duty-on-leave and duty-on-incompatible-slot: a closed date
+    has no sessions and nothing for a duty role to attach to, so this is a
+    pre-flight data error, not a generation-time tradeoff. The Duty page is
+    expected to prevent this at entry, but the engine cannot rely on that --
+    a closure can be added after a duty assignment already exists.
+    """
+    issues: list[ValidationIssue] = []
+    for (date_, period, duty_type), doctor_id in sorted(
+        context.duty_map.items(), key=lambda kv: (kv[0][0], kv[0][1].value, kv[0][2].value)
+    ):
+        if date_ not in context.closed_dates:
+            continue
+        genslot = context.date_to_genslot.get(date_)
+        gen_week, day = genslot if genslot is not None else (None, None)
+        doctor = context.doctor_by_id.get(doctor_id)
+        code = doctor.code if doctor is not None else f"id={doctor_id}"
+        issues.append(ValidationIssue(
+            severity="error", phase=PHASE, check="duty_on_closed_date",
+            week=gen_week, day=day, period=period,
+            message=(
+                f"Duty doctor {code} ({duty_type.value}) is assigned on "
+                f"{date_.isoformat()} {period.value}, which is a closed date."
             ),
         ))
     return issues

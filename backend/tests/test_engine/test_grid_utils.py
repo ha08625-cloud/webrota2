@@ -4,13 +4,16 @@ M3.7: a persisted RotaSession.template_type must survive the active
 template being edited after generation - reconstruction judges past edits
 against the template as it stood at generation time, not as it stands now.
 """
+import datetime
+
 from sqlalchemy import select
 
-from app.engine.grid_utils import rebuild_rota_grid
-from app.models import GeneratedRota, MasterRotaSession, RotaConfig, RotaSession
-from app.models.enums import Day, MasterSessionType, Period
+from app.engine.generate import generate
+from app.engine.grid_utils import rebuild_rota_grid, run_phase12_for_rota
+from app.models import GeneratedRota, MasterRotaSession, PracticeClosure, RotaConfig, RotaSession
+from app.models.enums import Day, DutyType, MasterSessionType, Period
 
-from .factories import make_doctor, make_master_session, make_template
+from .factories import make_closure, make_doctor, make_duty, make_master_session, make_template
 
 
 def _make_rota(session, config):
@@ -70,3 +73,90 @@ class TestRebuildRotaGridTemplateType:
         _ctx, grid = rebuild_rota_grid(session, rota.id)
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.template_type == MasterSessionType.NO_SURGERY
+
+
+class TestClosureSnapshotIsolation:
+    """M5 plan review note 1: rebuild_rota_grid() must read closed dates
+    from the rota's own RotaClosure snapshot, not the current PracticeClosure
+    table, so a closure added or removed after generation cannot change how
+    an existing rota renders or validates.
+    """
+
+    def test_deleting_practice_closure_after_generation_does_not_change_issues(
+        self, session, monday
+    ):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.TUESDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        closure = make_closure(session, monday)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert result.rota_id is not None
+
+        issues_before = run_phase12_for_rota(session, result.rota_id)
+
+        # Delete the global closure entirely -- the snapshot must be immune.
+        session.delete(session.get(PracticeClosure, closure.id))
+        session.flush()
+
+        issues_after = run_phase12_for_rota(session, result.rota_id)
+
+        before_keys = sorted((i.check, i.week, i.day, i.period) for i in issues_before)
+        after_keys = sorted((i.check, i.week, i.day, i.period) for i in issues_after)
+        assert before_keys == after_keys
+
+    def test_rebuild_uses_rota_closure_snapshot_not_current_practice_closures(
+        self, session, monday
+    ):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        closure = make_closure(session, monday)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        # Add a brand-new closure to PracticeClosure *after* generation --
+        # the reconstructed context must not pick it up.
+        new_closure_date = monday + datetime.timedelta(days=1)
+        make_closure(session, new_closure_date)
+
+        ctx, _grid = rebuild_rota_grid(session, result.rota_id)
+
+        assert ctx.closed_dates == {monday}  # the original snapshot only
+        assert new_closure_date not in ctx.closed_dates
+
+    def test_duty_on_closed_date_still_blocks_a_later_generation(self, session, monday):
+        """Sanity check that the snapshot isolation above does not weaken
+        Phase 0's own closure check for a *fresh* generation run, which
+        correctly reads the live PracticeClosure table via load_context()."""
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday)
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.status == "failed"
+        assert any(i.check == "duty_on_closed_date" for i in result.issues)

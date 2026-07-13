@@ -42,6 +42,12 @@ def run_phase5(
                 date_ = context.week_dates.get((gen_week, day))
                 if date_ is None:
                     continue  # defensive: should always be present for 1..num_weeks
+                if date_ in context.closed_dates:
+                    # M5: no slots exist here (Phase 2 built none), so there
+                    # is nothing to assign and no warning to raise -- unlike
+                    # a genuinely uncovered slot, a closed date is expected
+                    # to have zero coverage.
+                    continue
 
                 eligible = _eligible_doctors(context, grid, clinic, gen_week, day, period)
                 if not eligible:

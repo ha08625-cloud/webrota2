@@ -1,7 +1,9 @@
+import datetime
+
 from sqlalchemy import select
 
 from app.engine.generate import generate
-from app.models import ClinicCounter, RotaConfig, RotaSession, SystemCounter
+from app.models import ClinicCounter, RotaClosure, RotaConfig, RotaSession, SystemCounter
 from app.models.enums import (
     Day,
     DoctorType,
@@ -14,6 +16,7 @@ from app.models.enums import (
 
 from .factories import (
     make_clinic_type,
+    make_closure,
     make_doctor,
     make_duty,
     make_leave,
@@ -290,3 +293,94 @@ class TestPhase0DutyIncompatibleSlot:
         assert result.status in ("success", "partial")
         assert result.rota_id is not None
         assert not any(i.check == "duty_on_incompatible_slot" for i in result.issues)
+
+
+class TestGenerateClosures:
+    """M5: _write_to_db snapshots every closed date inside the run's range
+    onto RotaClosure, independent of the RotaSession rows themselves (which
+    simply omit closed-date slots per Phase 2)."""
+
+    def test_closure_in_range_written_as_rota_closure(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.TUESDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday, name="Bank Holiday")
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        closures = session.execute(
+            select(RotaClosure).where(RotaClosure.rota_id == result.rota_id)
+        ).scalars().all()
+        assert [c.date for c in closures] == [monday]
+
+    def test_closure_outside_range_not_written(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday + datetime.timedelta(days=7))  # outside a 1wk run
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        closures = session.execute(
+            select(RotaClosure).where(RotaClosure.rota_id == result.rota_id)
+        ).scalars().all()
+        assert closures == []
+
+    def test_no_closures_writes_no_rota_closure_rows(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        closures = session.execute(
+            select(RotaClosure).where(RotaClosure.rota_id == result.rota_id)
+        ).scalars().all()
+        assert closures == []
+
+    def test_closed_date_produces_no_session_rows(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_master_session(
+            session, t, doctor, week=1, day=Day.TUESDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        rota_sessions = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+        assert len(rota_sessions) == 1
+        assert rota_sessions[0].day == Day.TUESDAY

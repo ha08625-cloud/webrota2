@@ -21,6 +21,7 @@ from app.models import (
     LeaveEntry,
     MasterRotaSession,
     MasterRotaTemplate,
+    PracticeClosure,
     Room,
     SystemCounter,
 )
@@ -140,3 +141,10 @@ def make_preferred_room(
     session.add(p)
     session.flush()
     return p
+
+
+def make_closure(session, date_: datetime.date, name=None) -> PracticeClosure:
+    c = PracticeClosure(date=date_, name=name)
+    session.add(c)
+    session.flush()
+    return c

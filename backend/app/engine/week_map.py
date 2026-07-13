@@ -50,3 +50,29 @@ def build_date_to_genslot(
 ) -> dict[date, tuple[int, Day]]:
     """Invert `week_dates` for the reverse lookup used by Phase 4 (duty)."""
     return {d: genslot for genslot, d in week_dates.items()}
+
+
+def build_first_open_weekday(
+    week_dates: dict[tuple[int, Day], date],
+    closed_dates: frozenset[date],
+) -> dict[int, Day | None]:
+    """For each generation week present in `week_dates`, the first weekday
+    (Monday..Friday, in that order) whose calendar date is not closed.
+
+    `None` if every weekday in that generation week is closed. This is the
+    M5 generalisation of "secondary duty is Monday only": secondary duty now
+    expects coverage on the first *open* weekday of each generation week,
+    which degrades to the plain Monday rule when nothing is closed, and to
+    "no secondary expected" for a fully closed week.
+    """
+    weeks = sorted({gen_week for gen_week, _day in week_dates.keys()})
+    result: dict[int, Day | None] = {}
+    for gen_week in weeks:
+        first_open: Day | None = None
+        for day in DAY_ORDER:  # dict preserves Monday..Friday insertion order
+            d = week_dates.get((gen_week, day))
+            if d is not None and d not in closed_dates:
+                first_open = day
+                break
+        result[gen_week] = first_open
+    return result

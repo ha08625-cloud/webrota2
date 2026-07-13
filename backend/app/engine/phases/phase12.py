@@ -48,7 +48,9 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
     return issues
 
 
-def _expected_duty_counts(day: Day) -> tuple[int, int]:
+def _expected_duty_counts(
+    context: GenerationContext, gen_week: int, day: Day
+) -> tuple[int, int]:
     """(expected primary count, expected secondary count) for one session.
 
     Exactly 1 primary duty doctor per session, every weekday -- the
@@ -56,12 +58,23 @@ def _expected_duty_counts(day: Day) -> tuple[int, int]:
     structurally forbids more than one row per session regardless of day,
     so a "2 primary on Monday" check (the M2 plan's original wording) can
     never be satisfied and was a bug, caught by CI hitting the constraint
-    directly. 1 secondary duty doctor per session on Monday only (0
-    elsewhere), per domain_model.md's Duty Assignments table -- confirmed
-    with the user.
+    directly.
+
+    M5: both counts are closure-aware. Primary is not expected at all on a
+    closed day (0, not 1) -- primary duty simply does not relocate the way
+    secondary does. Secondary is expected on the first *open* weekday of
+    each generation week (0 elsewhere), per
+    `context.first_open_weekday_by_week` -- this generalises the original
+    "Monday only" rule (user: "it moves to Tuesday" when Monday is closed)
+    and degrades to "no secondary expected" for a fully closed week, where
+    `first_open_weekday_by_week[gen_week]` is None and can never equal a
+    real `day`.
     """
-    expected_secondary = 1 if day == Day.MONDAY else 0
-    return 1, expected_secondary
+    date_ = context.week_dates.get((gen_week, day))
+    is_closed = date_ is not None and date_ in context.closed_dates
+    expected_primary = 0 if is_closed else 1
+    expected_secondary = 1 if day == context.first_open_weekday_by_week.get(gen_week) else 0
+    return expected_primary, expected_secondary
 
 
 def _check_duty_coverage(context: GenerationContext, grid: RotaGrid) -> list[ValidationIssue]:
@@ -70,7 +83,7 @@ def _check_duty_coverage(context: GenerationContext, grid: RotaGrid) -> list[Val
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
-            expected_primary, expected_secondary = _expected_duty_counts(day)
+            expected_primary, expected_secondary = _expected_duty_counts(context, gen_week, day)
             for period in _PERIODS:
                 sessions = grid.sessions_for_slot(gen_week, day, period)
                 primary_count = sum(1 for s in sessions if s.role == SessionRole.DUTY_PRIMARY)
@@ -103,6 +116,11 @@ def _check_clinic_coverage(context: GenerationContext, grid: RotaGrid) -> list[V
     for clinic in context.clinic_types:
         for schedule in clinic.schedules:
             for gen_week in range(1, num_weeks + 1):
+                date_ = context.week_dates.get((gen_week, schedule.day))
+                if date_ is not None and date_ in context.closed_dates:
+                    # M5: mirrors Phase 5 -- no slots exist here, nothing
+                    # was or could be assigned, so no coverage warning.
+                    continue
                 sessions = grid.sessions_for_slot(gen_week, schedule.day, schedule.period)
                 count = sum(1 for s in sessions if s.clinic_type_id == clinic.id)
                 if count != 1:

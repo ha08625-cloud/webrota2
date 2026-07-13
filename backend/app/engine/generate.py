@@ -23,6 +23,7 @@ from ..models import (
     ClinicCounter,
     GeneratedRota,
     RotaClinicCounterSnapshot,
+    RotaClosure,
     RotaConfig,
     RotaSession,
     RotaSystemCounterSnapshot,
@@ -64,16 +65,22 @@ def generate(db: Session, config_id: int) -> GenerationResult:
     issues.extend(run_phase9c(context, grid, counters))
     issues.extend(run_phase12(context, grid))
 
-    rota_id = _write_to_db(db, config_id, grid, counters)
+    rota_id = _write_to_db(db, config_id, grid, counters, context.closed_dates)
 
     status = "partial" if any(i.severity == "warning" for i in issues) else "success"
     return GenerationResult(rota_id=rota_id, issues=tuple(issues), status=status)
 
 
-def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterState) -> int:
+def _write_to_db(
+    db: Session,
+    config_id: int,
+    grid: RotaGrid,
+    counters: CounterState,
+    closed_dates: frozenset,
+) -> int:
     """Persist one generation run: the rota header, a snapshot of every
-    pre-existing counter row, every session, and the updated counters.
-    Called once, at the end of a successful pipeline.
+    pre-existing counter row, every session, the closed-date snapshot, and
+    the updated counters. Called once, at the end of a successful pipeline.
 
     Snapshot ordering matters (M3 plan, resolution 3): the snapshot is taken
     from the DB *before* _write_counters mutates any counter row, so it holds
@@ -107,6 +114,14 @@ def _write_to_db(db: Session, config_id: int, grid: RotaGrid, counters: CounterS
             notes=slot.notes,
             is_supervising=slot.is_supervising,
         ))
+
+    # M5: snapshot every closed date that fell inside this run's range, so
+    # grid_utils.rebuild_rota_grid() can later reconstruct this rota's
+    # closures from RotaClosure rather than the (possibly since-edited)
+    # PracticeClosure table -- deleting or adding a closure after this rota
+    # exists must not change how it renders or validates.
+    for closed_date in sorted(closed_dates):
+        db.add(RotaClosure(rota_id=rota.id, date=closed_date))
 
     _write_counters(db, counters)
 

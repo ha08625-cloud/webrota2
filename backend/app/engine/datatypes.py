@@ -276,6 +276,19 @@ class GenerationContext:
     leave_set: frozenset[tuple[int, date, Period]]
     duty_map: dict[tuple[date, Period, DutyType], int]
 
+    # M5 bank-holiday weeks: dates the practice is closed within this run's
+    # range, and, per generation week, the first weekday not in that set
+    # (None if the whole week is closed). Phase 2 builds no slots on a
+    # closed date; Phase 12 uses first_open_weekday_by_week to relocate the
+    # secondary-duty expectation off a closed Monday. Populated from
+    # PracticeClosure by context.load_context() for a fresh generation run,
+    # and overridden from the RotaClosure snapshot by
+    # grid_utils.rebuild_rota_grid() when reconstructing a persisted rota,
+    # so a closure added or removed after generation cannot change how an
+    # existing draft/committed rota renders or validates.
+    closed_dates: frozenset[date]
+    first_open_weekday_by_week: dict[int, Day | None]
+
     week_dates: dict[tuple[int, Day], date]
     date_to_genslot: dict[date, tuple[int, Day]]
 
