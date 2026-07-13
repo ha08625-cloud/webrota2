@@ -73,6 +73,9 @@ class GeneratedRota(Base):
     sessions: Mapped[list["RotaSession"]] = relationship(
         back_populates="rota", cascade="all, delete-orphan"
     )
+    closures: Mapped[list["RotaClosure"]] = relationship(
+        back_populates="rota", cascade="all, delete-orphan"
+    )
 
 
 class RotaSession(Base):
@@ -99,6 +102,5 @@ class RotaSession(Base):
     )
     is_wfh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_supervising: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     rota: Mapped["GeneratedRota"] = relationship(back_populates="sessions")

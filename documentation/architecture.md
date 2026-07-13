@@ -383,6 +383,3 @@ Single Railway service deployed from the GitHub repo, Root Directory `/` (repo r
 |---|---|
 | docs/domain-model.md | Doctor types, room types, session structure, WFH, counter types, clinic types, eligibility and displacement rules — platform-agnostic |
 | docs/phase-pipeline.md | Phase sequence 0–12 as implemented: purpose, reads/writes, execution order, including Phase 9C's supervision assignment and Phase 12's six validation checks |
-| docs/M*_implementation_plan.md | Per-milestone implementation plans (M1–M4.3), all complete. Historical records; the sections above and the code are authoritative for current state. M4.4 has no plan doc (its plan only ever existed as chat text) |
-
-Retired documents (deleted from `docs/`, recoverable from git history): `algorithms.md`, `python-roadmap.md` — superseded by code, tests, and the design decisions recorded in this document.

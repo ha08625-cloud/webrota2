@@ -10,9 +10,12 @@ from app.models import (
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
+    GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
+    PracticeClosure,
     Room,
+    RotaClosure,
     RotaConfig,
 )
 from app.models.enums import (
@@ -21,6 +24,7 @@ from app.models.enums import (
     MasterSessionType,
     Period,
     RoomType,
+    RotaStatus,
     Site,
 )
 
@@ -167,3 +171,72 @@ def test_weighted_clinic_score(session):
     session.flush()
     weighted = cc.raw_count / float(d.sessions_per_week)
     assert weighted == 0.5
+
+
+# --- PracticeClosure / RotaClosure (M5 bank-holiday weeks) ---
+
+def _rota(session, start=datetime.date(2026, 1, 5)):
+    config = RotaConfig(start_date=start, num_weeks=1, template_start_week=1)
+    session.add(config)
+    session.flush()
+    rota = GeneratedRota(config_id=config.id, status=RotaStatus.DRAFT)
+    session.add(rota)
+    session.flush()
+    return rota
+
+
+def test_practice_closure_date_unique(session):
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), name="Easter Monday"))
+    session.flush()
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6)))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_rota_closure_unique_per_rota_and_date(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.flush()
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_rota_closure_same_date_different_rota_allowed(session):
+    rota_a = _rota(session)
+    rota_b = _rota(session)
+    session.add(RotaClosure(rota_id=rota_a.id, date=datetime.date(2026, 1, 5)))
+    session.add(RotaClosure(rota_id=rota_b.id, date=datetime.date(2026, 1, 5)))
+    session.flush()  # no error: uniqueness is per (rota_id, date)
+
+
+def test_rota_closure_cascades_on_rota_delete(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(RotaClosure).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session):
+    """Decision 4 / plan review item 1: PracticeClosure and RotaClosure are
+    independent tables at the model layer -- there is no FK between them, so
+    deleting a PracticeClosure can never cascade into or orphan a
+    RotaClosure snapshot row."""
+    pc = PracticeClosure(date=datetime.date(2026, 1, 5), name="Test closure")
+    session.add(pc)
+    session.flush()
+
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.flush()
+
+    session.delete(pc)
+    session.flush()
+
+    snapshot = session.query(RotaClosure).filter_by(rota_id=rota.id).one()
+    assert snapshot.date == datetime.date(2026, 1, 5)

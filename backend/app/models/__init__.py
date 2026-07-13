@@ -29,6 +29,7 @@ from .leave import LeaveEntry
 from .duty import DutyAssignment
 from .master_rota import MasterRotaTemplate, MasterRotaSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
+from .closure import PracticeClosure, RotaClosure
 
 __all__ = [
     # enums
@@ -41,4 +42,5 @@ __all__ = [
     "SystemCounter", "LeaveEntry", "DutyAssignment", "MasterRotaTemplate",
     "MasterRotaSession", "RotaConfig", "GeneratedRota", "RotaSession",
     "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",
+    "PracticeClosure", "RotaClosure",
 ]

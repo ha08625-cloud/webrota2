@@ -2,7 +2,7 @@ Small tasks
 add information to generate rota page: duty fully assigned, clinics enabled, 
 Add preferred rooms as an extra column on Doctors page
 Have an up down selector for sessions on Doctor page
-Counteres only need to include Partners and Salaried doctors
+
 Sessions only need to exist for partners and salaried docs
 Add duty counters
 Clinic page information: remove category.  add toggles for room required and enabled
