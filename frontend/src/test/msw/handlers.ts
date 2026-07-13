@@ -13,6 +13,7 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
   http.get("/api/v1/duty", () => HttpResponse.json([])),
+  http.get("/api/v1/closures", () => HttpResponse.json([])),
   http.get("/api/v1/counters/clinic", () => HttpResponse.json([])),
   http.get("/api/v1/counters/system", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),

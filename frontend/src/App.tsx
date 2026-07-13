@@ -1,6 +1,7 @@
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
+import { ClosuresPage } from "@/routes/ClosuresPage";
 import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { to: "/doctors", label: "Staff", end: false },
   { to: "/leave", label: "Assign Leave", end: false },
   { to: "/duty", label: "Assign Duty", end: false },
+  { to: "/closures", label: "Closures", end: false },
   { to: "/counters", label: "Counters", end: false },
 ] as const;
 
@@ -52,6 +54,7 @@ export function App() {
             <Route path="/doctors" element={<DoctorsPage />} />
             <Route path="/leave" element={<LeavePage />} />
             <Route path="/duty" element={<DutyPage />} />
+            <Route path="/closures" element={<ClosuresPage />} />
             <Route path="/counters" element={<CountersPage />} />
           </Routes>
         </main>

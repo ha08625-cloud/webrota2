@@ -1,11 +1,9 @@
 """FastAPI app: CORS, router registration, health check, frontend mount.
 
 CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
-"*" for development. All routers are registered under /api/v1. Routers are
-created as stubs in Task 2 and populated in Tasks 3-6, so this file does not
-change as endpoints are added.
+"*" for development. All routers are registered under /api/v1. 
 
-M3.5 Task 6: if a built frontend exists (FRONTEND_DIST env var, defaulting
+If a built frontend exists (FRONTEND_DIST env var, defaulting
 to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
 so /api/v1/* and /health always win. The mount serves index.html as an SPA
 fallback for unknown non-API paths (client-side routes survive a refresh)
@@ -22,6 +20,7 @@ from starlette.exceptions import HTTPException
 
 from .routers import (
     clinic_types,
+    closures,
     counters,
     doctors,
     duty,
@@ -45,7 +44,7 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api/v1"
-for module in (rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota):
+for module in (rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, closures):
     app.include_router(module.router, prefix=API_PREFIX)
 
 
@@ -55,7 +54,7 @@ def health() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Frontend static serving (M3.5 Task 6)
+# Frontend static serving
 # ---------------------------------------------------------------------------
 
 class SPAStaticFiles(StaticFiles):

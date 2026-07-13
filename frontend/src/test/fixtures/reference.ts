@@ -1,6 +1,7 @@
 import type {
   ClinicCounter,
   ClinicType,
+  Closure,
   Doctor,
   DoctorDetail,
   DutyAssignment,
@@ -80,6 +81,17 @@ export function makeDutyAssignment(overrides: Partial<DutyAssignment> = {}): Dut
     period: "AM",
     doctor_id: 1,
     duty_type: "primary",
+    ...overrides,
+  };
+}
+
+let closureIdCounter = 1;
+
+export function makeClosure(overrides: Partial<Closure> = {}): Closure {
+  return {
+    id: closureIdCounter++,
+    date: "2026-04-06",
+    name: "Easter Monday",
     ...overrides,
   };
 }

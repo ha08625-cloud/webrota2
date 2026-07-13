@@ -278,6 +278,23 @@ export interface DutyIn {
   duty_type: DutyType;
 }
 
+// --- Practice closures (schemas/closure.py, M5 bank-holiday weeks) ---
+// Global planning data, independent of any generated rota - see
+// backend_app_models_closure.py. A rota's own closed_dates (Rota.closed_dates,
+// added in M5 Task 5) is a separate, per-rota snapshot taken at generation
+// time, not derived from this list at read time.
+
+export interface Closure {
+  id: number;
+  date: string;
+  name: string | null;
+}
+
+export interface ClosureIn {
+  date: string;
+  name?: string | null;
+}
+
 // --- Counters (schemas_counter.py) ---
 // Read-only: "mutation happens only through generation and swap-roles"
 // (routers_counters.py docstring) - no write hooks in api/counters.ts.
