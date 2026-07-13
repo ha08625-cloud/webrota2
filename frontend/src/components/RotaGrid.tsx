@@ -563,6 +563,9 @@ function CellContent({ session, fontColorClass, supervisedCount, draggable = fal
       {!session.is_on_leave && session.is_wfh ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>
       ) : null}
+      {!session.is_on_leave && !session.is_wfh && session.role === null && session.template_type !== "no_surgery" && session.template_type !== "admin_time" && !session.room_code ? (
+        <span className="rounded bg-ink/10 px-1 text-xs font-medium">No room</span>
+      ) : null}
       {!session.is_on_leave && session.is_supervising ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">
           {/* supervisedCount can be 0 if leave added after generation removes

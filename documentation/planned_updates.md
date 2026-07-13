@@ -1,6 +1,5 @@
 Small tasks
 add information to generate rota page: duty fully assigned, clinics enabled, 
-Leave page: selecting doctor on the top dropdown automatically selects them on the lower drop down
 Add preferred rooms as an extra column on Doctors page
 Have an up down selector for sessions on Doctor page
 Counteres only need to include Partners and Salaried doctors
@@ -11,7 +10,8 @@ Displacing someone in the generated room - displace, swap or cancel
 trainees off aite needs validation or local supervisors
 
 Big tasks
-audit log
+audit log
+
 Make clinic pririty numbers mutually exclusive and then order them
 validation - expand and also rename the warnings to make them clearer
 supervision

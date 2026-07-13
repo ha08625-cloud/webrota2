@@ -4,15 +4,6 @@ Each module exposes a single `run_phaseN(...)` function operating on a
 `GenerationContext` (and, from Phase 2 onward, a `RotaGrid`/`CounterState`).
 See ../datatypes.py for the shared types passed between them.
 
-All M2 phases are implemented:
-  3. phase0.py
-  4. phase2.py
-  5. phase4.py
-  6. phase5.py
-  7. phase7_9a.py
-  8. phase9b.py
-  9. phase12.py    <- this step
-
 Orchestration lives in ../generate.py.
 """
 from .phase0 import run_phase0
