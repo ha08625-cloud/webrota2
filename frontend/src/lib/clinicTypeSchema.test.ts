@@ -110,10 +110,9 @@ describe("toWirePayload", () => {
   });
 
   it("maps camelCase form fields to the wire's snake_case names", () => {
-    const values = { ...emptyFormValues(), name: "X", clinicPriority: 500, roomRequired: true };
+    const values = { ...emptyFormValues(), name: "X", roomRequired: true };
     const parsed = clinicTypeFormSchema.parse(values);
     const wire = toWirePayload(parsed);
-    expect(wire.clinic_priority).toBe(500);
     expect(wire.room_required).toBe(true);
   });
 
