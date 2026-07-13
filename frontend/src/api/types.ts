@@ -123,6 +123,11 @@ export interface ClinicType {
 // plain boolean with no counterpart, despite what an earlier plan draft
 // assumed; confirmed directly against clinic_type.py, schemas_clinic_type.py,
 // and routers_clinic_types.py, none of which reference such a field.
+//
+// clinic_priority is deliberately absent here: it is server-managed (a
+// contiguous 1..N sequence over enabled clinic types, maintained by the
+// router and the dedicated PUT /clinic-types/reorder endpoint), not
+// client-settable. It still appears on ClinicType (the read shape) below.
 
 export interface ScheduleIn {
   day: Day;
@@ -148,7 +153,6 @@ export interface RoomEligIn {
 
 export interface ClinicTypeIn {
   name: string;
-  clinic_priority: number;
   is_enabled: boolean;
   room_required: boolean;
   category: string | null;
