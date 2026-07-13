@@ -126,6 +126,7 @@ def _session_outs(
             role=s.role,
             template_type=s.template_type,
             is_wfh=s.is_wfh,
+            is_supervising=s.is_supervising,
             is_on_leave=(
                 session_date is not None
                 and (s.doctor_id, session_date, s.period) in leave
@@ -372,13 +373,18 @@ def patch_session(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> SessionPatchOut:
-    """Draft-only partial update: is_wfh and/or notes (M3.5 Task 2).
+    """Draft-only partial update: is_wfh, notes, and/or is_supervising
+    (M3.5 Task 2; is_supervising added by the Phase 9C plan, section 4).
 
     Setting is_wfh true also clears room_id (Q3 decision); the freed room
     is immediately free for that week/day/period since freeness is derived
     from session rows. Setting is_wfh false does NOT restore a room -- the
-    slot warns unresolved_room until a room is dragged on. Phase 12 re-runs
-    and its fresh issues are returned, matching the swap endpoints.
+    slot warns unresolved_room until a room is dragged on. is_supervising
+    has no side effects in either direction: toggling is_wfh does not
+    clear it (Phase 12's supervision_on_incompatible_slot check warns
+    instead), and it does not adjust the SUPERVISION system counter --
+    that counter is written at generation time only. Phase 12 re-runs and
+    its fresh issues are returned, matching the swap endpoints.
     """
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
@@ -391,7 +397,10 @@ def patch_session(
 
     fields = payload.model_fields_set
     if not fields:
-        raise HTTPException(status_code=422, detail="Empty patch: provide is_wfh and/or notes")
+        raise HTTPException(
+            status_code=422,
+            detail="Empty patch: provide is_wfh, notes, and/or is_supervising",
+        )
 
     if "is_wfh" in fields and payload.is_wfh is not None:
         s.is_wfh = payload.is_wfh
@@ -399,6 +408,8 @@ def patch_session(
             s.room_id = None
     if "notes" in fields:
         s.notes = payload.notes
+    if "is_supervising" in fields and payload.is_supervising is not None:
+        s.is_supervising = payload.is_supervising
 
     db.flush()
     issues = _issues_out(db, rota_id)
@@ -574,6 +585,12 @@ def set_role(
     cleared (a no-surgery session silently holding a room would block it
     with no warning). Counter adjustments mirror swap-roles, with the
     same != guard making a same-clinic-type reassignment a no-op. Draft-only.
+
+    is_supervising is untouched by this endpoint (Phase 9C plan, section
+    4): an edit that invalidates a supervisor -- assigning them a clinic,
+    moving them off a D/SR room, swapping their role -- is caught by Phase
+    12's supervision_on_incompatible_slot check on the re-run this endpoint
+    already triggers, not by any special-casing here.
     """
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)

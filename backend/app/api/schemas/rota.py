@@ -39,6 +39,7 @@ class RotaSessionOut(BaseModel):
     role: SessionRole | None = None
     template_type: MasterSessionType | None = None
     is_wfh: bool
+    is_supervising: bool
     is_on_leave: bool
     notes: str | None = None
 
@@ -70,6 +71,7 @@ class SessionPatchIn(BaseModel):
     in the request body are applied (checked via model_fields_set), so
     `notes: null` clears notes while an absent `notes` leaves them alone."""
     is_wfh: bool | None = None
+    is_supervising: bool | None = None
     notes: str | None = None
 
 
