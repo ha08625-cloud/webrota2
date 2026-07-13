@@ -26,6 +26,8 @@ arbitrary permutation, using a two-phase negative-placeholder update).
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -133,18 +135,27 @@ def _apply(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     ct.room_eligibilities = room_eligs
 
 
-def _commit_or_409(db: Session, payload: ClinicTypeIn) -> None:
+@contextmanager
+def _integrity_guard(db: Session, detail: str):
+    """Wrap a write endpoint's whole apply-through-commit sequence.
+
+    _apply() flushes internally to sequence child-row deletes before
+    inserts (see its docstring), and the priority helpers flush per row.
+    A plain UNIQUE constraint is checked by SQLite and Postgres at
+    statement-execution time -- i.e. whichever flush happens to send that
+    particular INSERT/UPDATE, not necessarily the final commit(). A create
+    with a duplicate name, for example, is inserted by _apply()'s internal
+    flush, not by commit(). Catching IntegrityError only around commit()
+    therefore misses violations surfaced by an earlier flush, letting them
+    escape as an unhandled 500 instead of a 409. This guard wraps the
+    entire sequence so it doesn't matter which flush trips the constraint.
+    """
     try:
+        yield
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"ClinicType '{payload.name}' violates a uniqueness constraint "
-                "(duplicate name, schedule slot, doctor, or room eligibility)"
-            ),
-        ) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
 
 
 @router.get("", response_model=list[ClinicTypeOut])
@@ -164,16 +175,20 @@ def create_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = ClinicType()
-    # Assign before _apply()/add() so the NOT NULL column is always
-    # satisfied and the append value is computed against existing rows
-    # only, never against this not-yet-flushed one. A disabled create also
-    # gets an appended value -- harmless, since disabled rows sit outside
-    # the partial unique index, and it means the value is already sane the
-    # moment the row is enabled.
-    ct.clinic_priority = _next_priority(db)
-    db.add(ct)
-    _apply(db, ct, payload)
-    _commit_or_409(db, payload)
+    detail = (
+        f"ClinicType '{payload.name}' violates a uniqueness constraint "
+        "(duplicate name, schedule slot, doctor, or room eligibility)"
+    )
+    with _integrity_guard(db, detail):
+        # Assign before _apply()/add() so the NOT NULL column is always
+        # satisfied and the append value is computed against existing rows
+        # only, never against this not-yet-flushed one. A disabled create
+        # also gets an appended value -- harmless, since disabled rows sit
+        # outside the partial unique index, and it means the value is
+        # already sane the moment the row is enabled.
+        ct.clinic_priority = _next_priority(db)
+        db.add(ct)
+        _apply(db, ct, payload)
     db.refresh(ct)
     return ct
 
@@ -232,20 +247,13 @@ def reorder_clinic_types(
     # fully-negative state visible to the index before phase 2 writes any
     # positive value. Phase 2 then flips every row's sign onto its real,
     # again-distinct target.
-    for position, clinic_type_id in enumerate(ordered_ids, start=1):
-        rows_by_id[clinic_type_id].clinic_priority = -position
-    db.flush()
+    with _integrity_guard(db, "reorder failed a uniqueness check"):
+        for position, clinic_type_id in enumerate(ordered_ids, start=1):
+            rows_by_id[clinic_type_id].clinic_priority = -position
+        db.flush()
 
-    for row in rows_by_id.values():
-        row.clinic_priority = -row.clinic_priority
-
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=409, detail="reorder failed a uniqueness check"
-        ) from exc
+        for row in rows_by_id.values():
+            row.clinic_priority = -row.clinic_priority
 
     for row in rows_by_id.values():
         db.refresh(row)
@@ -265,27 +273,31 @@ def replace_clinic_type(
     old_priority = ct.clinic_priority
     now_enabled = payload.is_enabled
 
-    if not was_enabled and now_enabled:
-        # Disabled -> enabled: assign the appended value now, before
-        # _apply() flips is_enabled to True and flushes. _apply()'s
-        # internal flush would otherwise briefly persist an enabled row
-        # still holding its old, stale (possibly colliding) priority,
-        # tripping the partial unique index before we get a chance to
-        # reassign it.
-        ct.clinic_priority = _next_priority(db)
+    detail = (
+        f"ClinicType '{payload.name}' violates a uniqueness constraint "
+        "(duplicate name, schedule slot, doctor, or room eligibility)"
+    )
+    with _integrity_guard(db, detail):
+        if not was_enabled and now_enabled:
+            # Disabled -> enabled: assign the appended value now, before
+            # _apply() flips is_enabled to True and flushes. _apply()'s
+            # internal flush would otherwise briefly persist an enabled row
+            # still holding its old, stale (possibly colliding) priority,
+            # tripping the partial unique index before we get a chance to
+            # reassign it.
+            ct.clinic_priority = _next_priority(db)
 
-    _apply(db, ct, payload)
+        _apply(db, ct, payload)
 
-    if was_enabled and not now_enabled:
-        # Enabled -> disabled: _apply()'s internal flush has already
-        # persisted is_enabled=False, so this row is already outside the
-        # index's scope -- safe to gap-close the rows that were above it.
-        db.flush()
-        _close_gap(db, old_priority)
+        if was_enabled and not now_enabled:
+            # Enabled -> disabled: _apply()'s internal flush has already
+            # persisted is_enabled=False, so this row is already outside
+            # the index's scope -- safe to gap-close the rows above it.
+            db.flush()
+            _close_gap(db, old_priority)
 
-    # enabled -> enabled or disabled -> disabled: clinic_priority untouched.
+        # enabled -> enabled or disabled -> disabled: priority untouched.
 
-    _commit_or_409(db, payload)
     db.refresh(ct)
     return ct
 
@@ -299,18 +311,12 @@ def delete_clinic_type(
     ct = _get_or_404(db, clinic_type_id)
     was_enabled = ct.is_enabled
     priority = ct.clinic_priority
-    db.delete(ct)  # ORM cascade removes all child rows
-    db.flush()
-    if was_enabled:
-        _close_gap(db, priority)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"ClinicType {clinic_type_id} is referenced by counter or rota "
-                "rows and cannot be deleted"
-            ),
-        ) from exc
+    detail = (
+        f"ClinicType {clinic_type_id} is referenced by counter or rota "
+        "rows and cannot be deleted"
+    )
+    with _integrity_guard(db, detail):
+        db.delete(ct)  # ORM cascade removes all child rows
+        db.flush()
+        if was_enabled:
+            _close_gap(db, priority)
