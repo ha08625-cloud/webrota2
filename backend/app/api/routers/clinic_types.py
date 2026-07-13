@@ -1,4 +1,4 @@
-"""ClinicType router
+"""ClinicType router (M3 Task 4; clinic_priority reorder work).
 
 Writes accept the full nested object (parent + schedules +
 doctor_eligibilities + room_eligibilities) in one transaction, per the M3
@@ -13,11 +13,21 @@ delete-orphan children are flushed before the INSERTs for a reassigned
 collection on the same table, so an edit that keeps even one schedule slot,
 doctor, or room unchanged can otherwise trigger a spurious unique-constraint
 IntegrityError.
+
+clinic_priority is server-managed, not client-settable: ClinicTypeIn has no
+such field, so a stale client that still sends one is silently ignored by
+Pydantic's default extra-field handling. The database enforces a contiguous
+1..N sequence over enabled rows only via a partial unique index (migration
+005). Three helpers maintain that invariant: `_next_priority` (append at the
+end, used on create and on a disabled-to-enabled transition), `_close_gap`
+(used on delete of an enabled row and on an enabled-to-disabled transition),
+and the dedicated `PUT /clinic-types/reorder` endpoint (the only genuine
+arbitrary permutation, using a two-phase negative-placeholder update).
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,7 +38,7 @@ from ...models import (
     ClinicTypeSchedule,
 )
 from ..deps import get_current_user, get_db
-from ..schemas import ClinicTypeIn, ClinicTypeOut
+from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypeReorderIn
 
 router = APIRouter(prefix="/clinic-types", tags=["clinic_types"])
 
@@ -40,6 +50,45 @@ def _get_or_404(db: Session, clinic_type_id: int) -> ClinicType:
             status_code=404, detail=f"ClinicType {clinic_type_id} not found"
         )
     return ct
+
+
+def _next_priority(db: Session) -> int:
+    """max(enabled priorities) + 1, or 1 if none are enabled.
+
+    max+1 rather than count+1: tolerant of a gap ever existing (there
+    shouldn't be one under the invariants this router maintains, but max+1
+    costs nothing extra, whereas count+1 would collide with an existing
+    priority and 409 every subsequent create if a gap ever appeared).
+    """
+    max_priority = db.execute(
+        select(func.max(ClinicType.clinic_priority)).where(
+            ClinicType.is_enabled.is_(True)
+        )
+    ).scalar_one()
+    return (max_priority or 0) + 1
+
+
+def _close_gap(db: Session, vacated_priority: int) -> None:
+    """Shift every enabled row with priority > vacated_priority down by 1.
+
+    Per-row updates in ascending priority order, flushing between rows --
+    NOT a single bulk UPDATE. Postgres checks a non-deferrable unique index
+    per row in whatever order it visits them, so a bulk decrement can
+    spuriously collide with itself; ascending per-row updates always move a
+    row into a value just vacated by the previous update, so no placeholder
+    is needed.
+    """
+    rows = db.execute(
+        select(ClinicType)
+        .where(
+            ClinicType.is_enabled.is_(True),
+            ClinicType.clinic_priority > vacated_priority,
+        )
+        .order_by(ClinicType.clinic_priority)
+    ).scalars().all()
+    for row in rows:
+        row.clinic_priority -= 1
+        db.flush()
 
 
 def _children_from_payload(payload: ClinicTypeIn) -> tuple[list, list, list]:
@@ -61,7 +110,6 @@ def _children_from_payload(payload: ClinicTypeIn) -> tuple[list, list, list]:
 
 def _apply(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     ct.name = payload.name
-    ct.clinic_priority = payload.clinic_priority
     ct.is_enabled = payload.is_enabled
     ct.room_required = payload.room_required
     ct.category = payload.category
@@ -85,9 +133,8 @@ def _apply(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
     ct.room_eligibilities = room_eligs
 
 
-def _apply_and_commit(db: Session, ct: ClinicType, payload: ClinicTypeIn) -> None:
+def _commit_or_409(db: Session, payload: ClinicTypeIn) -> None:
     try:
-        _apply(db, ct, payload)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -117,8 +164,16 @@ def create_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = ClinicType()
+    # Assign before _apply()/add() so the NOT NULL column is always
+    # satisfied and the append value is computed against existing rows
+    # only, never against this not-yet-flushed one. A disabled create also
+    # gets an appended value -- harmless, since disabled rows sit outside
+    # the partial unique index, and it means the value is already sane the
+    # moment the row is enabled.
+    ct.clinic_priority = _next_priority(db)
     db.add(ct)
-    _apply_and_commit(db, ct, payload)
+    _apply(db, ct, payload)
+    _commit_or_409(db, payload)
     db.refresh(ct)
     return ct
 
@@ -132,6 +187,71 @@ def get_clinic_type(
     return _get_or_404(db, clinic_type_id)
 
 
+@router.put("/reorder", response_model=list[ClinicTypeOut])
+def reorder_clinic_types(
+    payload: ClinicTypeReorderIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[ClinicType]:
+    # Registered before PUT /{clinic_type_id}: if that route were declared
+    # first, "reorder" would be attempted as the int path parameter and
+    # fail validation with a 422 instead of ever reaching this handler.
+    ordered_ids = payload.ordered_ids
+
+    if len(ordered_ids) != len(set(ordered_ids)):
+        raise HTTPException(
+            status_code=409, detail="ordered_ids contains a duplicate id"
+        )
+
+    current_enabled_ids = set(
+        db.execute(
+            select(ClinicType.id).where(ClinicType.is_enabled.is_(True))
+        ).scalars().all()
+    )
+    if set(ordered_ids) != current_enabled_ids:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "ordered_ids must contain exactly the current set of "
+                "enabled clinic type ids, no more and no fewer"
+            ),
+        )
+
+    rows_by_id = {
+        row.id: row
+        for row in db.execute(
+            select(ClinicType).where(ClinicType.id.in_(ordered_ids))
+        ).scalars().all()
+    }
+
+    # Two-phase negative-placeholder update: a drag-and-drop reorder is a
+    # genuine arbitrary permutation, so one row's target can already be
+    # another row's current value. Phase 1 parks every affected row at
+    # -(new_priority) -- distinct negatives that can never collide with
+    # each other or with any current positive value. A flush makes that
+    # fully-negative state visible to the index before phase 2 writes any
+    # positive value. Phase 2 then flips every row's sign onto its real,
+    # again-distinct target.
+    for position, clinic_type_id in enumerate(ordered_ids, start=1):
+        rows_by_id[clinic_type_id].clinic_priority = -position
+    db.flush()
+
+    for row in rows_by_id.values():
+        row.clinic_priority = -row.clinic_priority
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="reorder failed a uniqueness check"
+        ) from exc
+
+    for row in rows_by_id.values():
+        db.refresh(row)
+    return [rows_by_id[cid] for cid in ordered_ids]
+
+
 @router.put("/{clinic_type_id}", response_model=ClinicTypeOut)
 def replace_clinic_type(
     clinic_type_id: int,
@@ -140,7 +260,32 @@ def replace_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> ClinicType:
     ct = _get_or_404(db, clinic_type_id)
-    _apply_and_commit(db, ct, payload)
+    # Captured before _apply() overwrites is_enabled.
+    was_enabled = ct.is_enabled
+    old_priority = ct.clinic_priority
+    now_enabled = payload.is_enabled
+
+    if not was_enabled and now_enabled:
+        # Disabled -> enabled: assign the appended value now, before
+        # _apply() flips is_enabled to True and flushes. _apply()'s
+        # internal flush would otherwise briefly persist an enabled row
+        # still holding its old, stale (possibly colliding) priority,
+        # tripping the partial unique index before we get a chance to
+        # reassign it.
+        ct.clinic_priority = _next_priority(db)
+
+    _apply(db, ct, payload)
+
+    if was_enabled and not now_enabled:
+        # Enabled -> disabled: _apply()'s internal flush has already
+        # persisted is_enabled=False, so this row is already outside the
+        # index's scope -- safe to gap-close the rows that were above it.
+        db.flush()
+        _close_gap(db, old_priority)
+
+    # enabled -> enabled or disabled -> disabled: clinic_priority untouched.
+
+    _commit_or_409(db, payload)
     db.refresh(ct)
     return ct
 
@@ -152,7 +297,12 @@ def delete_clinic_type(
     user: dict = Depends(get_current_user),
 ) -> None:
     ct = _get_or_404(db, clinic_type_id)
+    was_enabled = ct.is_enabled
+    priority = ct.clinic_priority
     db.delete(ct)  # ORM cascade removes all child rows
+    db.flush()
+    if was_enabled:
+        _close_gap(db, priority)
     try:
         db.commit()
     except IntegrityError as exc:
