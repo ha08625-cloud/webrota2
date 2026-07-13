@@ -3,7 +3,6 @@ import type { FastApiValidationError } from "@/api/types";
 /** Wire field name -> form field name (camelCase). Only top-level scalars. */
 const LOC_TO_FIELD: Record<string, string> = {
   name: "name",
-  clinic_priority: "clinicPriority",
 };
 
 export interface MappedValidationErrors {
