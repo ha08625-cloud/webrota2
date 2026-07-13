@@ -140,8 +140,8 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
     const result = clinicTypeFormSchema.safeParse(values);
     if (!result.success) {
       // Every issue this schema can produce has a path of length 1 -
-      // either a top-level scalar field ("name", "clinicPriority") or
-      // one of the two array-level refine keys ("doctorEligibilities",
+      // either a top-level scalar field ("name") or one of the two
+      // array-level refine keys ("doctorEligibilities",
       // "roomEligibilities"). mapZodFieldErrors covers all of them, so
       // there's no remaining case that needs a separate top-of-form
       // message here.
@@ -196,22 +196,6 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                 className="mt-1 w-full rounded border border-border p-1 text-sm"
               />
               {fieldErrors.name ? <p className="mt-1 text-xs text-red-700">{fieldErrors.name}</p> : null}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium" htmlFor="ct-priority">
-                Priority
-              </label>
-              <input
-                id="ct-priority"
-                type="number"
-                value={values.clinicPriority}
-                onChange={(e) => setValues((v) => ({ ...v, clinicPriority: Number(e.target.value) }))}
-                className="mt-1 w-full rounded border border-border p-1 text-sm"
-              />
-              {fieldErrors.clinicPriority ? (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.clinicPriority}</p>
-              ) : null}
             </div>
 
             <div>
