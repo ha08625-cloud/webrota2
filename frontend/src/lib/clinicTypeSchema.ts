@@ -33,7 +33,6 @@ const roomEligSchema = z.discriminatedUnion("kind", [
 
 export const clinicTypeFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  clinicPriority: z.number().int("Priority must be a whole number"),
   isEnabled: z.boolean(),
   roomRequired: z.boolean(),
   /** Empty string means "no category" (null on the wire) - see toWirePayload. */
@@ -59,9 +58,8 @@ export type ClinicTypeFormValues = z.infer<typeof clinicTypeFormSchema>;
 export function emptyFormValues(): ClinicTypeFormValues {
   return {
     name: "",
-    clinicPriority: 1000,
     isEnabled: true,
-    roomRequired: true,
+    roomRequired: false,
     category: "",
     schedules: [],
     doctorEligibilities: [],
@@ -81,7 +79,6 @@ export function emptyFormValues(): ClinicTypeFormValues {
 export function formValuesFromClinicType(clinicType: ClinicType): ClinicTypeFormValues {
   return {
     name: clinicType.name,
-    clinicPriority: clinicType.clinic_priority,
     isEnabled: clinicType.is_enabled,
     roomRequired: clinicType.room_required,
     category: clinicType.category ?? "",
@@ -101,7 +98,6 @@ export function formValuesFromClinicType(clinicType: ClinicType): ClinicTypeForm
 export function toWirePayload(values: ClinicTypeFormValues): ClinicTypeIn {
   return {
     name: values.name,
-    clinic_priority: values.clinicPriority,
     is_enabled: values.isEnabled,
     room_required: values.roomRequired,
     category: values.category.trim() === "" ? null : values.category,
