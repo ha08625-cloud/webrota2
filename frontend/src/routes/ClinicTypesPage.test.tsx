@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -128,5 +128,89 @@ describe("ClinicTypesPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(await screen.findByLabelText("Name")).toHaveValue("Diabetic clinic");
+  });
+
+  // -- Enabled/disabled split and drag-and-drop reordering ---------------
+  //
+  // dnd-kit's PointerSensor isn't reliably simulable through userEvent in
+  // jsdom - DoctorFormDialog_test.tsx, which uses the identical
+  // DndContext/useSortable pattern for preferred rooms, doesn't attempt a
+  // real drag gesture either. These tests cover what's actually
+  // observable without one: section membership, sort order, and which
+  // rows expose a drag handle.
+
+  it("splits enabled and disabled clinic types into separate sections", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Enabled clinic", is_enabled: true }),
+        makeClinicType({ id: 2, name: "Disabled clinic", is_enabled: false }),
+      ],
+    });
+    renderWithProviders(<ClinicTypesPage />);
+
+    expect(await screen.findByRole("heading", { name: "Enabled" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Disabled" })).toBeInTheDocument();
+    expect(screen.getByText("Enabled clinic")).toBeInTheDocument();
+    expect(screen.getByText("Disabled clinic")).toBeInTheDocument();
+  });
+
+  it("does not render a Disabled section when every clinic type is enabled", async () => {
+    setUpServer({ clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: true })] });
+    renderWithProviders(<ClinicTypesPage />);
+
+    await screen.findByText("Diabetic clinic");
+    expect(screen.queryByRole("heading", { name: "Disabled" })).not.toBeInTheDocument();
+  });
+
+  it("shows 'No enabled clinic types' when every clinic type is disabled, without hiding the disabled section", async () => {
+    setUpServer({ clinicTypes: [makeClinicType({ id: 1, name: "Old clinic", is_enabled: false })] });
+    renderWithProviders(<ClinicTypesPage />);
+
+    expect(await screen.findByText("No enabled clinic types.")).toBeInTheDocument();
+    expect(screen.getByText("Old clinic")).toBeInTheDocument();
+  });
+
+  it("sorts the disabled section by name, independent of priority or creation order", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Zebra clinic", is_enabled: false }),
+        makeClinicType({ id: 2, name: "Alpha clinic", is_enabled: false }),
+      ],
+    });
+    renderWithProviders(<ClinicTypesPage />);
+
+    await screen.findByText("Zebra clinic");
+    const rows = screen.getAllByRole("row").filter((r) => within(r).queryByText(/clinic$/));
+    const names = rows.map((r) => within(r).getByText(/clinic$/).textContent);
+    expect(names).toEqual(["Alpha clinic", "Zebra clinic"]);
+  });
+
+  it("only enabled rows expose a drag handle", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Enabled clinic", is_enabled: true }),
+        makeClinicType({ id: 2, name: "Disabled clinic", is_enabled: false }),
+      ],
+    });
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("Enabled clinic");
+
+    expect(screen.getByLabelText("Reorder Enabled clinic")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Reorder Disabled clinic")).not.toBeInTheDocument();
+  });
+
+  it("enabled clinic types render in server-provided (priority) order, not alphabetically", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Zebra clinic", is_enabled: true }),
+        makeClinicType({ id: 2, name: "Alpha clinic", is_enabled: true }),
+      ],
+    });
+    renderWithProviders(<ClinicTypesPage />);
+
+    await screen.findByText("Zebra clinic");
+    const rows = screen.getAllByRole("row").filter((r) => within(r).queryByText(/clinic$/));
+    const names = rows.map((r) => within(r).getByText(/clinic$/).textContent);
+    expect(names).toEqual(["Zebra clinic", "Alpha clinic"]);
   });
 });
