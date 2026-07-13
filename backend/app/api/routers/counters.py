@@ -11,10 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models import ClinicCounter, ClinicType, Doctor, SystemCounter
+from ...models.enums import DoctorType
 from ..deps import get_current_user, get_db
 from ..schemas import ClinicCounterOut, SystemCounterOut
 
 router = APIRouter(prefix="/counters", tags=["counters"])
+
+_COUNTED_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 
 
 @router.get("/clinic", response_model=list[ClinicCounterOut])
@@ -26,6 +29,7 @@ def list_clinic_counters(
         select(ClinicCounter, Doctor.code, ClinicType.name)
         .join(Doctor, ClinicCounter.doctor_id == Doctor.id)
         .join(ClinicType, ClinicCounter.clinic_type_id == ClinicType.id)
+        .where(Doctor.doctor_type.in_(_COUNTED_TYPES))
         .order_by(Doctor.code, ClinicType.name)
     ).all()
     return [
@@ -46,6 +50,7 @@ def list_system_counters(
     rows = db.execute(
         select(SystemCounter, Doctor.code)
         .join(Doctor, SystemCounter.doctor_id == Doctor.id)
+        .where(Doctor.doctor_type.in_(_COUNTED_TYPES))
         .order_by(Doctor.code, SystemCounter.counter_type)
     ).all()
     return [
