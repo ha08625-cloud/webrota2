@@ -14,7 +14,7 @@ const DAY_OFFSETS: Record<Day, number> = {
 /**
  * Maps a rota's (generation week, day) onto a calendar date, given the
  * rota's start_date (a Monday) - the frontend mirror of the backend's
- * week_map.build_week_dates (M5 plan review note 3). RotaGrid needs this
+ * week_map.build_week_dates. RotaGrid needs this
  * to know which calendar date a given day column represents, so it can
  * check that date against rota.closed_dates.
  *

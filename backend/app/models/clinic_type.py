@@ -12,9 +12,11 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +26,18 @@ from .enums import Day, Period, RoomType, enum_col
 
 class ClinicType(Base):
     __tablename__ = "clinic_types"
+    __table_args__ = (
+        # clinic_priority is server-managed: contiguous 1..N over enabled
+        # rows only. Disabled rows keep their stale value, which is outside
+        # this index, so it never blocks a disable/re-enable cycle.
+        Index(
+            "uq_clinic_types_priority_enabled",
+            "clinic_priority",
+            unique=True,
+            sqlite_where=text("is_enabled"),
+            postgresql_where=text("is_enabled"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)

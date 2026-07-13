@@ -7,6 +7,7 @@ Each function adds and flushes so the returned object always has an `id`.
 from __future__ import annotations
 
 import datetime
+import itertools
 from decimal import Decimal
 
 from app.models import (
@@ -26,6 +27,14 @@ from app.models import (
     SystemCounter,
 )
 from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, Site
+
+# clinic_types.clinic_priority now has a partial unique index over enabled
+# rows (migration 005). Tests that don't care about a specific priority
+# value should not all default to the same number -- this counter hands out
+# a fresh value each call so multiple enabled ClinicType rows in one test
+# never collide. Tests asserting priority-dependent behaviour still pass an
+# explicit clinic_priority and are unaffected.
+_priority_counter = itertools.count(1)
 
 
 def make_room(session, code="D1", room_type=RoomType.D, site=Site.SHC) -> Room:
@@ -50,7 +59,7 @@ def make_doctor(
 def make_clinic_type(
     session,
     name="Dragon",
-    clinic_priority=10,
+    clinic_priority=None,
     is_enabled=True,
     room_required=False,
     category=None,
@@ -59,6 +68,8 @@ def make_clinic_type(
     room_ids=(),              # iterable of concrete room_id
     room_types=(),            # iterable of RoomType
 ) -> ClinicType:
+    if clinic_priority is None:
+        clinic_priority = next(_priority_counter)
     ct = ClinicType(
         name=name, clinic_priority=clinic_priority, is_enabled=is_enabled,
         room_required=room_required, category=category,
