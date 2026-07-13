@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.models import (
     ClinicCounter,
     GeneratedRota,
+    PracticeClosure,
     RotaClinicCounterSnapshot,
     RotaSession,
     RotaSystemCounterSnapshot,
@@ -256,3 +257,57 @@ class TestRoleOnIncompatibleSlotApi:
         assert resp.status_code == 200, resp.text
         checks = {i["check"] for i in resp.json()["issues"]}
         assert "role_on_incompatible_slot" in checks
+
+
+class TestClosuresApi:
+    """M5 Task 4: RotaOut.closed_dates, end to end through the API. The
+    `seeded` fixture only templates Monday, so closing Monday empties the
+    rota entirely -- a deliberately simple fixture that still exercises the
+    full path (closed_dates populated, no sessions, no coverage warnings
+    for the closed day).
+    """
+
+    def test_generate_over_closed_monday(self, client, db_session, seeded):
+        db_session.add(PracticeClosure(date=MONDAY, name="Bank Holiday"))
+        db_session.commit()
+
+        out = generate_rota(client)
+
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        assert rota["closed_dates"] == [MONDAY.isoformat()]
+        assert rota["sessions"] == []
+
+        checks = {
+            (i["check"], i.get("day")) for i in out["issues"]
+        }
+        assert ("duty_coverage_primary", "Monday") not in checks
+        assert ("duty_coverage_secondary", "Monday") not in checks
+
+    def test_generate_without_closures_returns_empty_list(self, client, seeded):
+        out = generate_rota(client)
+
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        assert rota["closed_dates"] == []
+
+    def test_closed_dates_survive_commit(self, client, db_session, seeded):
+        db_session.add(PracticeClosure(date=MONDAY))
+        db_session.commit()
+        out = generate_rota(client)
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        assert resp.status_code == 200
+        assert resp.json()["closed_dates"] == [MONDAY.isoformat()]
+
+    def test_deleting_closure_after_generation_does_not_change_rota(
+        self, client, db_session, seeded
+    ):
+        closure = PracticeClosure(date=MONDAY)
+        db_session.add(closure)
+        db_session.commit()
+        out = generate_rota(client)
+
+        db_session.delete(db_session.get(PracticeClosure, closure.id))
+        db_session.commit()
+
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        assert rota["closed_dates"] == [MONDAY.isoformat()]

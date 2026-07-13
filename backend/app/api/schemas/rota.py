@@ -56,7 +56,14 @@ class RotaSummaryOut(BaseModel):
 
 
 class RotaOut(BaseModel):
-    """GET /rota/{id}: metadata plus the flat session list."""
+    """GET /rota/{id}: metadata plus the flat session list.
+
+    closed_dates (M5) is read from RotaClosure -- the snapshot taken at
+    generation time, not the live PracticeClosure table -- so a closure
+    added or removed afterwards cannot change what an existing rota
+    reports here. Sorted ascending; empty for a rota generated with no
+    closures in range.
+    """
     rota_id: int
     status: RotaStatus
     created_at: datetime.datetime
@@ -64,6 +71,7 @@ class RotaOut(BaseModel):
     num_weeks: int
     template_start_week: int
     sessions: list[RotaSessionOut]
+    closed_dates: list[datetime.date] = Field(default_factory=list)
 
 
 class SessionPatchIn(BaseModel):
