@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { ClinicType, ClinicTypeIn } from "./types";
+import type { ClinicType, ClinicTypeIn, ClinicTypeReorderIn } from "./types";
 
 export const clinicTypeKeys = {
   all: ["clinicTypes"] as const,
@@ -52,6 +52,27 @@ export function useDeleteClinicType() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => apiClient.delete<void>(`/clinic-types/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clinicTypeKeys.list() });
+    },
+  });
+}
+
+/**
+ * PUT /clinic-types/reorder - takes the full ordered list of enabled
+ * clinic type ids and applies it as the new 1..N priority sequence. The
+ * caller (ClinicTypesPage) is responsible for optimistic local reordering
+ * and rolling that back on error; this hook just invalidates the list on
+ * success so the server's canonical order (and everyone else's view of
+ * it) wins once the mutation actually lands.
+ */
+export function useReorderClinicTypes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderedIds: number[]) =>
+      apiClient.put<ClinicType[]>("/clinic-types/reorder", {
+        ordered_ids: orderedIds,
+      } satisfies ClinicTypeReorderIn),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clinicTypeKeys.list() });
     },
