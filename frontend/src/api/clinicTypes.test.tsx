@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeClinicType } from "@/test/fixtures/reference";
 
-import { clinicTypeKeys, useClinicTypes, useCreateClinicType, useDeleteClinicType, useUpdateClinicType } from "./clinicTypes";
+import { clinicTypeKeys, useClinicTypes, useCreateClinicType, useDeleteClinicType, useReorderClinicTypes, useUpdateClinicType } from "./clinicTypes";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -120,6 +120,65 @@ describe("useDeleteClinicType", () => {
 
     const { result } = renderHook(() => useDeleteClinicType(), { wrapper: makeWrapper(queryClient) });
     result.current.mutate(4);
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.status).toBe(409);
+  });
+});
+
+describe("useReorderClinicTypes", () => {
+  it("PUTs the ordered id list to /clinic-types/reorder and invalidates the list", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown;
+    let refetched = false;
+    server.use(
+      http.put("/api/v1/clinic-types/reorder", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json([
+          makeClinicType({ id: 3, clinic_priority: 1 }),
+          makeClinicType({ id: 1, clinic_priority: 2 }),
+          makeClinicType({ id: 2, clinic_priority: 3 }),
+        ]);
+      }),
+      http.get("/api/v1/clinic-types", () => {
+        refetched = true;
+        return HttpResponse.json([]);
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(clinicTypeKeys.list(), []);
+
+    // Same reasoning as useCreateClinicType's test: mount the list query
+    // alongside the mutation so invalidateQueries has something actively
+    // observed to refetch.
+    const { result } = renderHook(
+      () => ({ list: useClinicTypes(), reorder: useReorderClinicTypes() }),
+      { wrapper: makeWrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+
+    result.current.reorder.mutate([3, 1, 2]);
+
+    await waitFor(() => expect(result.current.reorder.isSuccess).toBe(true));
+    expect(capturedUrl).toContain("/api/v1/clinic-types/reorder");
+    expect(capturedBody).toEqual({ ordered_ids: [3, 1, 2] });
+    await waitFor(() => expect(refetched).toBe(true));
+  });
+
+  it("surfaces a 409 (mismatched id set) as the mutation error", async () => {
+    server.use(
+      http.put("/api/v1/clinic-types/reorder", () =>
+        HttpResponse.json(
+          { detail: "ordered_ids must contain exactly the current set of enabled clinic type ids, no more and no fewer" },
+          { status: 409 },
+        ),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => useReorderClinicTypes(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate([1, 2]);
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.status).toBe(409);
