@@ -125,10 +125,13 @@ def seeded(client, db_session):
 
 
 def make_clinic_type_via_api(client, seeded, name="Dragon"):
-    """POST a clinic type scheduled Monday AM, AA-eligible, C1-eligible."""
+    """POST a clinic type scheduled Monday AM, AA-eligible, C1-eligible.
+
+    clinic_priority is server-managed and not part of the request body --
+    the created row is appended at the end of the enabled sequence.
+    """
     resp = client.post("/api/v1/clinic-types", json={
         "name": name,
-        "clinic_priority": 10,
         "room_required": True,
         "schedules": [{"day": "Monday", "period": "AM"}],
         "doctor_eligibilities": [{"doctor_id": seeded["doctor_aa"], "doctor_priority": 1}],
