@@ -12,8 +12,9 @@ import {
 import { Fragment, useMemo, useState } from "react";
 
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
+import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
-import type { Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
+import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
 import { addDays, formatWeekLabel } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
@@ -51,11 +52,15 @@ interface DutyGridProps {
  * onto the chip itself.
  *
  * Column/slot enumeration lives in lib/dutyWeekSlots so the grid layout
- * and the week-completion check share one definition of the 12 slots.
+ * and the week-completion check share one definition of the required
+ * slots - normally 12 (6 columns x 2 periods), fewer when a weekday is
+ * closed (M5): a closed day's column still renders (inert, greyed, no
+ * drop target) but contributes no required slot.
  */
 export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
+  const { data: closures } = useClosures();
   const createDuty = useCreateDuty();
   const deleteDuty = useDeleteDuty();
 
@@ -68,11 +73,15 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
 
   // The full 4-week window's dates, so each DutyWeekTable can filter
   // down to just its own 6 dates without re-fetching or re-deriving
-  // the window itself.
+  // the window itself. Closures don't change which dates appear here -
+  // buildColumns always emits one column per weekday regardless of
+  // closure state - only threaded through for clarity.
   const windowAssignments = useMemo(() => {
-    const windowDates = new Set(weekStartDates.flatMap((ws) => buildColumns(ws).map((c) => c.date)));
+    const windowDates = new Set(
+      weekStartDates.flatMap((ws) => buildColumns(ws, closures ?? []).map((c) => c.date)),
+    );
     return (allAssignments ?? []).filter((a) => windowDates.has(a.date));
-  }, [allAssignments, weekStartDates]);
+  }, [allAssignments, weekStartDates, closures]);
 
   const doctorsById = useMemo(() => {
     const map = new Map<number, Doctor>();
@@ -163,6 +172,7 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
               key={weekStartDate}
               weekStartDate={weekStartDate}
               assignments={windowAssignments}
+              closures={closures ?? []}
               doctorsById={doctorsById}
               onRemove={handleRemove}
             />
@@ -182,22 +192,27 @@ interface DutyWeekTableProps {
    * window rather than a pre-filtered per-week slice is equally correct
    * and one less thing to keep in sync. */
   assignments: DutyAssignment[];
+  /** All practice closures (M5), unfiltered - buildColumns/isDutyWeekComplete
+   * only look at the dates relevant to this week. */
+  closures: Closure[];
   doctorsById: Map<number, Doctor>;
   onRemove: (assignmentId: number) => void;
 }
 
-/** One week's 6-column x 2-period duty grid. Must be rendered inside an
- * ancestor DndContext - it has no DndContext of its own, since DutyGrid
- * shares one across all 4 weeks. */
-function DutyWeekTable({ weekStartDate, assignments, doctorsById, onRemove }: DutyWeekTableProps) {
-  const columns = useMemo(() => buildColumns(weekStartDate), [weekStartDate]);
-  // Advisory display state only: slot-based check that all 12 of this
-  // week's (date, period, duty_type) slots are assigned. The backend
-  // Phase 0 hard block (next ticket) re-implements the same rule
-  // server-side; nothing here enforces anything.
+/** One week's 6-column x 2-period duty grid (5 columns if the whole week
+ * is closed - see buildColumns). Must be rendered inside an ancestor
+ * DndContext - it has no DndContext of its own, since DutyGrid shares one
+ * across all 4 weeks. */
+function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRemove }: DutyWeekTableProps) {
+  const columns = useMemo(() => buildColumns(weekStartDate, closures), [weekStartDate, closures]);
+  // Advisory display state only: slot-based check that all of this
+  // week's required (date, period, duty_type) slots are assigned -
+  // closure-aware via isDutyWeekComplete/weekDutySlots (M5). The backend
+  // Phase 0 hard block re-implements the same rule server-side; nothing
+  // here enforces anything.
   const complete = useMemo(
-    () => isDutyWeekComplete(weekStartDate, assignments),
-    [weekStartDate, assignments],
+    () => isDutyWeekComplete(weekStartDate, assignments, closures),
+    [weekStartDate, assignments, closures],
   );
 
   return (
@@ -219,21 +234,38 @@ function DutyWeekTable({ weekStartDate, assignments, doctorsById, onRemove }: Du
       >
         <div className="bg-background px-2 py-1" />
         {columns.map((col) => (
-          <div key={col.key} className="bg-background px-2 py-1 text-center font-medium text-ink/70">
+          <div
+            key={col.key}
+            data-testid={`duty-column-header-${col.date}`}
+            className={`px-2 py-1 text-center font-medium ${
+              col.closed ? "bg-gray-200 text-ink/40" : "bg-background text-ink/70"
+            }`}
+          >
             {col.label}
+            {col.closed ? <div className="text-[10px] font-normal">closed</div> : null}
           </div>
         ))}
         {PERIODS.map((period) => (
           <Fragment key={period}>
             <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
             {columns.map((col) => {
-              const assignment = findAssignment(assignments, col.date, period, col.dutyType);
+              if (col.closed) {
+                return (
+                  <div
+                    key={col.key}
+                    data-testid={`duty-cell-closed-${col.date}-${period}`}
+                    className="bg-gray-100 px-2 py-1"
+                  />
+                );
+              }
+              const dutyType = col.dutyType as DutyType;
+              const assignment = findAssignment(assignments, col.date, period, dutyType);
               return (
                 <DutyDropCell
                   key={col.key}
                   date={col.date}
                   period={period}
-                  dutyType={col.dutyType}
+                  dutyType={dutyType}
                   assignment={assignment}
                   doctorCode={assignment ? doctorsById.get(assignment.doctor_id)?.code ?? "?" : null}
                   onRemove={onRemove}

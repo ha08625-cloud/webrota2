@@ -373,6 +373,13 @@ export interface Rota {
   num_weeks: number;
   template_start_week: number;
   sessions: RotaSession[];
+  /**
+   * M5: closed dates snapshotted at generation time (RotaClosure, not the
+   * live PracticeClosure table) - deleting or adding a closure afterwards
+   * does not change what this rota reports. Empty for a rota generated
+   * with no closures in range.
+   */
+  closed_dates: string[];
 }
 
 export interface GenerateRotaIn {

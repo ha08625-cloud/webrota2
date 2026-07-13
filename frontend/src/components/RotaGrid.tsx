@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 
 import { usePatchSession, useRotaIssues, useSetRole, useSetRoom, useSwapRoles, useSwapRooms } from "@/api/rota";
 import { useClinicTypes } from "@/api/clinicTypes";
+import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
@@ -24,6 +25,7 @@ import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
 import { resolveDragOutcome } from "@/lib/resolveDrag";
 import { countSupervisableTrainees } from "@/lib/superviseeCount";
 import type { UndoEntry } from "@/lib/undoStack";
+import { rotaDate } from "@/lib/weekDates";
 
 const BACKGROUND_CLASS: Record<CellBackground, string> = {
   leave: "bg-gray-200",
@@ -73,6 +75,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
   const { data: issues } = useRotaIssues(rota.rota_id);
+  const { data: closures } = useClosures();
 
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();
@@ -90,6 +93,30 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
     () => pivotRota(rota.sessions, doctors ?? []),
     [rota.sessions, doctors],
   );
+
+  /**
+   * Which calendar dates are closed for this rota (M5) - authoritative
+   * from rota.closed_dates, the RotaClosure snapshot taken at generation
+   * time, never the live PracticeClosure table (see RotaOut docstring):
+   * a closure added or removed afterwards must not change how an
+   * already-generated rota renders.
+   */
+  const closedDatesSet = useMemo(() => new Set(rota.closed_dates), [rota.closed_dates]);
+
+  /**
+   * Closure name lookup, purely cosmetic (M5 plan: "column header may
+   * show the closure name if present"). Deliberately sourced from the
+   * *live* closures list, unlike closedDatesSet above - a closure's name
+   * is display-only trivia, not part of what makes a date "closed" for
+   * this rota, so falling back to no name (rather than snapshotting it)
+   * if the closure is later renamed or deleted is an acceptable, low-risk
+   * cosmetic gap.
+   */
+  const closureNameByDate = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const c of closures ?? []) map.set(c.date, c.name);
+    return map;
+  }, [closures]);
 
   /**
    * Supervising badge counts (Phase 9C plan, section 5): computed once
@@ -236,16 +263,25 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
           <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
             Session
           </th>
-          {DAYS.map((day, dayIndex) => (
-            <th
-              key={day}
-              className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium text-ink/70 ${
-                dayIndex === DAYS.length - 1 ? "" : "border-r-2"
-              }`}
-            >
-              {day}
-            </th>
-          ))}
+          {DAYS.map((day, dayIndex) => {
+            const date = rotaDate(rota.start_date, activeWeek, day);
+            const closed = closedDatesSet.has(date);
+            const closureName = closureNameByDate.get(date);
+            return (
+              <th
+                key={day}
+                data-testid={`day-header-${day}`}
+                className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium ${
+                  closed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                } ${dayIndex === DAYS.length - 1 ? "" : "border-r-2"}`}
+              >
+                {day}
+                {closed ? (
+                  <div className="text-[10px] font-normal">{closureName ? closureName : "closed"}</div>
+                ) : null}
+              </th>
+            );
+          })}
         </tr>
       </thead>
       <tbody>
@@ -562,9 +598,6 @@ function CellContent({ session, fontColorClass, supervisedCount, draggable = fal
       {session.is_on_leave ? <span className="text-xs font-medium text-ink/70">LEAVE</span> : null}
       {!session.is_on_leave && session.is_wfh ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">WFH</span>
-      ) : null}
-      {!session.is_on_leave && !session.is_wfh && session.role === null && session.template_type !== "no_surgery" && session.template_type !== "admin_time" && !session.room_code ? (
-        <span className="rounded bg-ink/10 px-1 text-xs font-medium">No room</span>
       ) : null}
       {!session.is_on_leave && session.is_supervising ? (
         <span className="rounded bg-ink/10 px-1 text-xs font-medium">

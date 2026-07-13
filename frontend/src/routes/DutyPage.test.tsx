@@ -3,7 +3,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeClosure, makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
+import { getUpcomingMondays } from "@/lib/date";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -33,6 +34,17 @@ describe("DutyPage", () => {
     renderWithProviders(<DutyPage />);
 
     expect(await screen.findByText("No duty assignments.")).toBeInTheDocument();
+  });
+
+  it("mounts its embedded duty grid with a closed day greyed out (M5)", async () => {
+    const [firstMonday] = getUpcomingMondays(1);
+    setUpServer();
+    server.use(
+      http.get("/api/v1/closures", () => HttpResponse.json([makeClosure({ date: firstMonday })])),
+    );
+    renderWithProviders(<DutyPage />);
+
+    expect(await screen.findAllByText("closed")).not.toHaveLength(0);
   });
 
   it("renders a row per assignment", async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isDutyWeekComplete } from './dutyWeekComplete';
-import { makeDutyAssignment } from '../test/fixtures/reference';
+import { makeClosure, makeDutyAssignment } from '../test/fixtures/reference';
 
 describe('isDutyWeekComplete', () => {
   const MONDAY = '2026-01-05';
@@ -58,5 +58,31 @@ describe('isDutyWeekComplete', () => {
 
   it('returns false for an empty assignment list', () => {
     expect(isDutyWeekComplete(MONDAY, [])).toBe(false);
+  });
+
+  it('a closed Monday needs no Monday assignments at all to read as complete', () => {
+    // Monday closed: required slots are Tue(1st+2nd) + Wed + Thu + Fri = 10.
+    const assignments = [
+      makeDutyAssignment({ date: '2026-01-06', period: 'AM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-06', period: 'PM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-06', period: 'AM', duty_type: 'secondary' }),
+      makeDutyAssignment({ date: '2026-01-06', period: 'PM', duty_type: 'secondary' }),
+      makeDutyAssignment({ date: '2026-01-07', period: 'AM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-07', period: 'PM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-08', period: 'AM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-08', period: 'PM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-09', period: 'AM', duty_type: 'primary' }),
+      makeDutyAssignment({ date: '2026-01-09', period: 'PM', duty_type: 'primary' }),
+    ];
+    const closures = [makeClosure({ date: MONDAY })];
+
+    expect(isDutyWeekComplete(MONDAY, assignments, closures)).toBe(true);
+  });
+
+  it('a fully closed week is complete with zero assignments', () => {
+    const closures = ['2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08', '2026-01-09'].map((date) =>
+      makeClosure({ date }),
+    );
+    expect(isDutyWeekComplete(MONDAY, [], closures)).toBe(true);
   });
 });

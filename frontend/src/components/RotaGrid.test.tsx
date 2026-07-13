@@ -5,7 +5,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { useRota } from "@/api/rota";
-import { makeClinicType, makeDoctor, makeRoom } from "@/test/fixtures/reference";
+import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -16,11 +16,13 @@ function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB" })],
   rooms = [makeRoom({ id: 1, code: "D1", room_type: "D" })],
   clinicTypes = [] as ReturnType<typeof makeClinicType>[],
+  closures = [] as ReturnType<typeof makeClosure>[],
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/rooms", () => HttpResponse.json(rooms)),
     http.get("/api/v1/clinic-types", () => HttpResponse.json(clinicTypes)),
+    http.get("/api/v1/closures", () => HttpResponse.json(closures)),
   );
 }
 
@@ -464,5 +466,76 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
       }),
       "Applied",
     );
+  });
+});
+
+describe("RotaGrid closures (M5)", () => {
+  it("greys out and labels a closed day's header", async () => {
+    setUpServer();
+    // rota.start_date "2026-07-06" is a Monday; closed_dates is the
+    // RotaClosure snapshot, independent of the live closures API.
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.textContent).toContain("closed");
+    const tuesdayHeader = screen.getByTestId("day-header-Tuesday");
+    expect(tuesdayHeader.textContent).not.toContain("closed");
+  });
+
+  it("shows the closure's name in the header when the live closures list has a match", async () => {
+    setUpServer({ closures: [makeClosure({ date: "2026-07-06", name: "Bank Holiday" })] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.textContent).toContain("Bank Holiday");
+  });
+
+  it("falls back to a generic label when no matching closure name is available", async () => {
+    setUpServer({ closures: [] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.textContent).toContain("closed");
+  });
+
+  it("a closed day's cells render as inert (no session), same as any other absent cell", async () => {
+    setUpServer();
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    await screen.findByTestId("day-header-Monday");
+
+    expect(screen.queryByTestId("cell-1-1-Monday-AM")).not.toBeInTheDocument();
+  });
+
+  it("only the week actually containing the closed date is affected", async () => {
+    setUpServer();
+    // Week 1 Monday is 2026-07-06; week 2 Monday is 2026-07-13.
+    const rota = makeRota({ num_weeks: 2, sessions: [], closed_dates: ["2026-07-06"] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+    await screen.findByTestId("day-header-Monday");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Week 2" }));
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.textContent).not.toContain("closed");
+  });
+
+  it("with no closed_dates, no header is greyed", async () => {
+    setUpServer();
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: [] });
+
+    renderWithProviders(<RotaGrid rota={rota} />);
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.textContent).not.toContain("closed");
   });
 });

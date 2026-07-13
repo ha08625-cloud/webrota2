@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeClosure, makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -16,10 +16,12 @@ function setUpServer({
     makeDoctor({ id: 3, code: "TR", doctor_type: "Trainee", active: true }),
   ],
   duty = [] as ReturnType<typeof makeDutyAssignment>[],
+  closures = [] as ReturnType<typeof makeClosure>[],
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/duty", () => HttpResponse.json(duty)),
+    http.get("/api/v1/closures", () => HttpResponse.json(closures)),
   );
 }
 
@@ -157,5 +159,64 @@ describe("DutyGrid", () => {
 
     const cell = await screen.findByTestId("duty-cell-2026-07-13-AM-primary");
     expect(within(cell).queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+describe("DutyGrid closures (M5)", () => {
+  it("greys out a closed weekday's column and renders it as one inert column, not split by duty type", async () => {
+    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] }); // week 1's Monday
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    const weekBlock = await screen.findByTestId("duty-week-2026-07-13");
+    const header = within(weekBlock).getByTestId("duty-column-header-2026-07-13");
+    expect(header.textContent).toContain("closed");
+
+    // The moved secondary now sits on Tuesday instead of Monday.
+    expect(within(weekBlock).getByText("Tue (1st)")).toBeInTheDocument();
+    expect(within(weekBlock).getByText("Tue (2nd)")).toBeInTheDocument();
+    expect(within(weekBlock).queryByText("Mon (1st)")).not.toBeInTheDocument();
+    expect(within(weekBlock).queryByText("Mon (2nd)")).not.toBeInTheDocument();
+  });
+
+  it("a closed day's cells have no drop target and no delete control", async () => {
+    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] });
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    const cell = await screen.findByTestId("duty-cell-closed-2026-07-13-AM");
+    expect(within(cell).queryByRole("button")).not.toBeInTheDocument();
+    // The interactive drop cell for that date/period must not also exist.
+    expect(screen.queryByTestId("duty-cell-2026-07-13-AM-primary")).not.toBeInTheDocument();
+  });
+
+  it("only the affected week's Monday column is closed, other weeks are unaffected", async () => {
+    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] }); // week 1 only
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    const week2 = await screen.findByTestId("duty-week-2026-07-20");
+    expect(within(week2).getByText("Mon (1st)")).toBeInTheDocument();
+    expect(within(week2).getByText("Mon (2nd)")).toBeInTheDocument();
+  });
+
+  it("a week is fully staffed once every open slot is filled, even with a closed Monday", async () => {
+    const assignments = [
+      makeDutyAssignment({ id: 1, doctor_id: 1, date: "2026-07-14", period: "AM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 2, doctor_id: 1, date: "2026-07-14", period: "PM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 3, doctor_id: 2, date: "2026-07-14", period: "AM", duty_type: "secondary" }),
+      makeDutyAssignment({ id: 4, doctor_id: 2, date: "2026-07-14", period: "PM", duty_type: "secondary" }),
+      makeDutyAssignment({ id: 5, doctor_id: 1, date: "2026-07-15", period: "AM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 6, doctor_id: 1, date: "2026-07-15", period: "PM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 7, doctor_id: 1, date: "2026-07-16", period: "AM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 8, doctor_id: 1, date: "2026-07-16", period: "PM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 9, doctor_id: 1, date: "2026-07-17", period: "AM", duty_type: "primary" }),
+      makeDutyAssignment({ id: 10, doctor_id: 1, date: "2026-07-17", period: "PM", duty_type: "primary" }),
+    ];
+    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })], duty: assignments });
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-week-complete-2026-07-13")).toBeInTheDocument();
   });
 });

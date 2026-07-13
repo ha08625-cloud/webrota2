@@ -21,6 +21,7 @@ export function makeRota(overrides: Partial<Rota> = {}): Rota {
     num_weeks: 2,
     template_start_week: 1,
     sessions: [],
+    closed_dates: [],
     ...overrides,
   };
 }
