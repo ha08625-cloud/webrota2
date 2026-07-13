@@ -18,6 +18,7 @@ from .rota import (
 from .clinic_type import (
     ClinicTypeIn,
     ClinicTypeOut,
+    ClinicTypeReorderIn,
     DoctorEligIn,
     DoctorEligOut,
     RoomEligIn,
@@ -43,7 +44,6 @@ from .leave import (
     LeaveOut,
 )
 from .duty import DutyIn, DutyOut
-from .closure import ClosureIn, ClosureOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
 from .master_rota import (
@@ -59,7 +59,7 @@ __all__ = [
     "GenerateRotaIn", "GenerateRotaOut", "RotaOut", "RotaSessionOut",
     "RotaSummaryOut", "SessionPatchIn", "SessionPatchOut",
     "SwapIn", "SwapOut", "SetRoomIn", "SetRoomOut", "SetRoleIn", "SetRoleOut",
-    "ClinicTypeIn", "ClinicTypeOut", "DoctorEligIn", "DoctorEligOut",
+    "ClinicTypeIn", "ClinicTypeOut", "ClinicTypeReorderIn", "DoctorEligIn", "DoctorEligOut",
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
     "PreferredRoomIn", "PreferredRoomOut",
@@ -67,7 +67,6 @@ __all__ = [
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
     "DutyIn", "DutyOut",
-    "ClosureIn", "ClosureOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
