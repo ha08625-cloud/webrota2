@@ -1,7 +1,7 @@
 """Duty schemas."""
 import datetime
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 from ...models.enums import DutyType, Period
 
@@ -14,11 +14,14 @@ class DutyBase(BaseModel):
 
 
 class DutyIn(DutyBase):
-    @model_validator(mode="after")
-    def _validate_secondary_monday(self) -> "DutyIn":
-        if self.duty_type == DutyType.SECONDARY and self.date.weekday() != 0:
-            raise ValueError("Secondary duty can only be assigned on a Monday")
-        return self
+    """M5: the day-of-week rule for secondary duty (must land on the
+    week's first open weekday, not always Monday) needs PracticeClosure
+    data to evaluate, so it can no longer live in a stateless pydantic
+    validator here. Pre-M5 this class carried a model_validator enforcing
+    "secondary only on a Monday"; that check has moved to
+    routers/duty.py's create_duty, which has DB access. See that module's
+    docstring for the full rule.
+    """
 
 
 class DutyOut(DutyBase):

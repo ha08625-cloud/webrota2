@@ -29,7 +29,13 @@ class TestDuty:
         assert data[0]["date"] == "2026-01-06"
 
     def test_create_secondary_duty_non_monday_422(self, client, seeded):
-        """Secondary duty assignment on any day other than Monday is rejected."""
+        """Secondary duty on a day other than the week's first open
+        weekday is rejected. With no closures in effect that's always
+        Monday - same behaviour as before M5 - but the check has moved
+        from a stateless pydantic validator to the router (it now needs
+        PracticeClosure data), so detail is a plain string, not a FastAPI
+        validation-error list.
+        """
         resp = client.post("/api/v1/duty", json={
             "date": "2026-01-06",  # Tuesday
             "period": "AM",
@@ -37,10 +43,67 @@ class TestDuty:
             "duty_type": "secondary",
         })
         assert resp.status_code == 422
-        
-        # Verify the specific validator triggered, not just a random 422
-        errors = resp.json()["detail"]
-        assert any("Secondary duty can only be assigned on a Monday" in err["msg"] for err in errors)
+        assert "must be assigned on 2026-01-05" in resp.json()["detail"]
+
+    def test_create_secondary_duty_monday_201(self, client, seeded):
+        """Secondary duty assignment on a Monday succeeds."""
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",  # Monday
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "secondary",
+        })
+        assert resp.status_code == 201
+        assert resp.json()["duty_type"] == "secondary"
+
+    def test_create_secondary_duty_moves_with_closure_201(self, client, db_session, seeded):
+        """M5: when Monday is closed, secondary duty moves to Tuesday."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.commit()
+
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-06",  # the week's new first open day
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "secondary",
+        })
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["duty_type"] == "secondary"
+
+    def test_create_secondary_duty_monday_422_when_monday_closed(self, client, db_session, seeded):
+        """Once Monday is closed, secondary duty on Monday itself hits the
+        closed-date check (not the day-mismatch message - that check runs
+        first)."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.commit()
+
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "secondary",
+        })
+        assert resp.status_code == 422
+        assert "closed date" in resp.json()["detail"]
+
+    def test_create_duty_on_closed_date_422(self, client, db_session, seeded):
+        """M5 plan review note 4: any duty (not just secondary) on a
+        closed date is rejected at the API, mirroring Phase 0's
+        duty_on_closed_date hard error."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.commit()
+
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "primary",
+        })
+        assert resp.status_code == 422
+        assert "closed date" in resp.json()["detail"]
 
     def test_create_secondary_duty_monday_201(self, client, seeded):
         """Secondary duty assignment on a Monday succeeds."""
