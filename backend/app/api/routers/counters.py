@@ -1,13 +1,14 @@
-"""Counters router (M3 Task 6).
+"""Counters router (M3 Task 6; reset endpoints added later).
 
-Read-only views of the live counter values: the committed baseline plus any
-in-progress draft's increments and swap edits. Used by the frontend counter
-panel. Mutation happens only through generation and swap-roles.
+Counter views and resets. Reads are live values (committed baseline plus any
+in-progress draft's increments and edits). The only mutation is reset-to-zero
+-- rows are updated, never deleted, so the draft snapshot/scrap lifecycle is
+undisturbed. All other mutation happens through generation and swap-roles.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ...models import ClinicCounter, ClinicType, Doctor, SystemCounter
@@ -60,3 +61,77 @@ def list_system_counters(
         )
         for c, code in rows
     ]
+
+
+@router.post("/clinic/reset-all", status_code=204)
+def reset_all_clinic_counters(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> None:
+    # Resets every ClinicCounter row, not just the Partner/Salaried rows the
+    # GET endpoint and the Counters page display -- a partial reset would
+    # leave invisible non-zero counters skewing later tie-breaks. Deliberate.
+    db.execute(update(ClinicCounter).values(raw_count=0))
+    db.commit()
+    return None
+
+
+@router.post("/system/reset-all", status_code=204)
+def reset_all_system_counters(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> None:
+    # Same rationale as reset_all_clinic_counters: every row, not just the
+    # ones the GET endpoint and the page display.
+    db.execute(update(SystemCounter).values(raw_count=0))
+    db.commit()
+    return None
+
+
+@router.post("/clinic/{counter_id}/reset", response_model=ClinicCounterOut)
+def reset_clinic_counter(
+    counter_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> ClinicCounterOut:
+    counter = db.get(ClinicCounter, counter_id)
+    if counter is None:
+        raise HTTPException(
+            status_code=404, detail=f"Clinic counter {counter_id} not found"
+        )
+    counter.raw_count = 0
+    db.commit()
+
+    code, name = db.execute(
+        select(Doctor.code, ClinicType.name)
+        .join(ClinicType, ClinicType.id == counter.clinic_type_id)
+        .where(Doctor.id == counter.doctor_id)
+    ).one()
+    return ClinicCounterOut(
+        id=counter.id, doctor_id=counter.doctor_id, doctor_code=code,
+        clinic_type_id=counter.clinic_type_id, clinic_type_name=name,
+        raw_count=counter.raw_count,
+    )
+
+
+@router.post("/system/{counter_id}/reset", response_model=SystemCounterOut)
+def reset_system_counter(
+    counter_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> SystemCounterOut:
+    counter = db.get(SystemCounter, counter_id)
+    if counter is None:
+        raise HTTPException(
+            status_code=404, detail=f"System counter {counter_id} not found"
+        )
+    counter.raw_count = 0
+    db.commit()
+
+    code = db.execute(
+        select(Doctor.code).where(Doctor.id == counter.doctor_id)
+    ).scalar_one()
+    return SystemCounterOut(
+        id=counter.id, doctor_id=counter.doctor_id, doctor_code=code,
+        counter_type=counter.counter_type, raw_count=counter.raw_count,
+    )
