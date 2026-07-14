@@ -28,7 +28,9 @@ export function computeWeightedScore(rawCount: number, doctor: Doctor | undefine
   if (spw === 0) {
     return { kind: "infinite" };
   }
-  return { kind: "value", value: rawCount / spw };
+  
+  // Multiply by 10 for better UI readability
+  return { kind: "value", value: (rawCount / spw) * 10 };
 }
 
 export function formatWeightedScore(result: WeightedScoreResult): string {
