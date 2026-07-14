@@ -11,6 +11,17 @@ exclusion every leave day would register as a spurious "unresolved room"
 finding -- flagged as a known gap back in step 7 (phase7_9a.py), resolved
 here.
 
+Check 3b (`room_on_leave_slot`) exists for the paths that can still put a
+room on an on-leave slot even though generation itself never does (Phase 2
+skips the occupancy claim for on-leave slots -- see phase2.py M-leave
+task). It catches: post-hoc leave added on a committed rota (the room was
+claimed before the leave existed), `rollback_commit()` reinstating a
+committed rota as a draft with a stale room hold, and a forced `set-room`
+edit onto a leave slot via the API (the popover blocks this in the UI, but
+apply-then-warn permits it server-side). It fires independently of role,
+so it can co-fire with `role_on_incompatible_slot` on the same slot -- both
+findings are true and distinct, not a duplicate.
+
 Check 4 (supervision, Phase 9C implementation plan section 3) reuses
 `count_supervisable_trainees` and `is_eligible_supervisor` from phase9c.py
 so the assignment rule and the validation rule cannot drift apart. Two
@@ -42,6 +53,7 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
     issues.extend(_check_duty_coverage(context, grid))
     issues.extend(_check_clinic_coverage(context, grid))
     issues.extend(_check_unresolved_rooms(context, grid))
+    issues.extend(_check_room_on_leave_slot(context, grid))
     issues.extend(_check_role_on_incompatible_slot(context, grid))
     issues.extend(_check_supervision_missing(context, grid))
     issues.extend(_check_supervision_on_incompatible_slot(context, grid))
@@ -152,6 +164,33 @@ def _check_unresolved_rooms(context: GenerationContext, grid: RotaGrid) -> list[
             "unresolved_room", slot.week, slot.day, slot.period,
             f"{code} has an unresolved REQUIRES_ROOM slot on {slot.day.value} "
             f"{slot.period.value} (week {slot.week}).",
+        ))
+    return issues
+
+
+def _check_room_on_leave_slot(
+    context: GenerationContext, grid: RotaGrid
+) -> list[ValidationIssue]:
+    """Warn if any on-leave slot still holds a room. Generation never
+    produces this (Phase 2 skips the occupancy claim for on-leave slots),
+    so this only fires for post-hoc leave on a committed rota, a
+    rollback-to-draft that reinstates a stale hold, or a forced set-room
+    edit onto a leave slot. Independent of role -- can co-fire with
+    role_on_incompatible_slot on the same slot.
+    """
+    issues: list[ValidationIssue] = []
+    for slot in grid.slots.values():
+        if not slot.is_on_leave or slot.assigned_room_id is None:
+            continue
+
+        doctor = context.doctor_by_id.get(slot.doctor_id)
+        doctor_code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
+        room = context.room_by_id.get(slot.assigned_room_id)
+        room_code = room.code if room is not None else f"id={slot.assigned_room_id}"
+        issues.append(_warning(
+            "room_on_leave_slot", slot.week, slot.day, slot.period,
+            f"{doctor_code} is on leave but still holds room {room_code} on "
+            f"{slot.day.value} {slot.period.value} (week {slot.week}).",
         ))
     return issues
 
