@@ -6,8 +6,8 @@ export type WeightedScoreResult =
   | { kind: "unknown" };
 
 /**
- * Mirrors engine.datatypes.CounterState.weighted_clinic_score /
- * weighted_system_score exactly: `raw / sessions_per_week`, with
+ * Display-only variant of engine.datatypes.CounterState.weighted_clinic_score /
+ * weighted_system_score: `(raw / sessions_per_week) * 10`, with
  * sessions_per_week == 0 treated as Infinity (a doctor with zero
  * sessions scores as maximally loaded and is never preferred for
  * allocation) - not as "no data". A missing doctor (the join failed -
@@ -15,6 +15,14 @@ export type WeightedScoreResult =
  * referencing an id not in the doctors list shouldn't crash the row) is
  * the genuine "no data" case, kept as a separate `unknown` result so the
  * two situations aren't conflated in the UI.
+ *
+ * The x10 scaling is purely cosmetic, to make small values more
+ * readable in the counters/duty panels. It has no bearing on the
+ * engine's actual tie-breaking score (`raw / sessions_per_week`,
+ * unscaled) - the engine never reads this value, so relative ordering
+ * between doctors is what matters there, and a constant multiplier
+ * preserves that ordering exactly. Do not use this function's output
+ * anywhere that needs to match the engine's own score.
  *
  * `sessionsPerWeek` on the wire is a JSON string (Decimal
  * serialisation, e.g. "10.0" - see Doctor.sessions_per_week), so this
@@ -28,7 +36,7 @@ export function computeWeightedScore(rawCount: number, doctor: Doctor | undefine
   if (spw === 0) {
     return { kind: "infinite" };
   }
-  return { kind: "value", value: rawCount / spw };
+  return { kind: "value", value: (rawCount / spw) * 10 };
 }
 
 export function formatWeightedScore(result: WeightedScoreResult): string {

@@ -87,7 +87,7 @@ describe("CountersPage", () => {
     expect(within(panel).queryByText("3")).not.toBeInTheDocument();
   });
 
-  it("computes the weighted score as raw_count / sessions_per_week, to two decimal places", async () => {
+  it("computes the weighted score as (raw_count / sessions_per_week) * 10, to two decimal places", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "8.0" })],
       clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
@@ -96,12 +96,12 @@ describe("CountersPage", () => {
     renderWithProviders(<CountersPage />);
 
     const panel = await screen.findByRole("tabpanel");
-    // 4 / 8 = 0.50 - only settles once both the counters and doctors
+    // 4 / 8 * 10 = 5.00 - only settles once both the counters and doctors
     // queries have resolved (the table itself renders as soon as the
     // counters query resolves, independently of the doctors query the
     // weighted-score column also depends on), so this must be a
     // findByText scoped to the panel, not a synchronous getByText.
-    expect(await within(panel).findByText("0.50")).toBeInTheDocument();
+    expect(await within(panel).findByText("5.00")).toBeInTheDocument();
   });
 
   it("shows the infinity symbol, not a dash, for a doctor with sessions_per_week of 0", async () => {

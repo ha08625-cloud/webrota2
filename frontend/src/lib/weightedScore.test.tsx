@@ -9,9 +9,9 @@ function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
 }
 
 describe("computeWeightedScore", () => {
-  it("divides raw_count by sessions_per_week, parsing the wire's Decimal string", () => {
+  it("divides raw_count by sessions_per_week and scales by 10, parsing the wire's Decimal string", () => {
     const result = computeWeightedScore(5, makeDoctor({ sessions_per_week: "10.0" }));
-    expect(result).toEqual({ kind: "value", value: 0.5 });
+    expect(result).toEqual({ kind: "value", value: 5 });
   });
 
   it("treats sessions_per_week === 0 as infinite, matching weighted_clinic_score/weighted_system_score in datatypes.py, not as missing data", () => {
@@ -31,8 +31,8 @@ describe("computeWeightedScore", () => {
 
 describe("formatWeightedScore", () => {
   it("formats a value to two decimal places", () => {
-    expect(formatWeightedScore({ kind: "value", value: 0.5 })).toBe("0.50");
-    expect(formatWeightedScore({ kind: "value", value: 1 / 3 })).toBe("0.33");
+    expect(formatWeightedScore({ kind: "value", value: 5 })).toBe("5.00");
+    expect(formatWeightedScore({ kind: "value", value: 10 / 3 })).toBe("3.33");
   });
 
   it("formats infinite as the infinity symbol, not a dash", () => {
