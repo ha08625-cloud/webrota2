@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { useClosures } from "@/api/closures";
+import { useClinicTypes } from "@/api/clinicTypes";
 import { useDuty } from "@/api/duty";
 import { useGenerateRota, useRotaList } from "@/api/rota";
 import type { ApiError, FastApiValidationError, GenerateRotaIn, ValidationIssue } from "@/api/types";
@@ -77,26 +77,24 @@ function GenerateErrorMessage({ error }: { error: ApiError }) {
 /**
  * Advisory duty-staffing status for every week the selected (startDate,
  * numWeeks) combination would cover - read-only, matches the marker
- * already shown on the Duty page (same isDutyWeekComplete rule, closures
- * included so closed dates don't count as requiring a duty assignment),
- * so a user picking a start week can see up front whether duty still
- * needs filling in before they generate against it. Nothing here blocks
+ * already shown on the Duty page (same isDutyWeekComplete rule), so a
+ * user picking a start week can see up front whether duty still needs
+ * filling in before they generate against it. Nothing here blocks
  * generation; the backend has no such check either.
  */
 function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: number }) {
-  const { data: dutyAssignments, isLoading: dutyLoading, isError: dutyError } = useDuty();
-  const { data: closures, isLoading: closuresLoading, isError: closuresError } = useClosures();
+  const { data: dutyAssignments, isLoading, isError } = useDuty();
 
   const weekStartDates = useMemo(
     () => Array.from({ length: numWeeks }, (_, i) => addDays(startDate, i * 7)),
     [startDate, numWeeks],
   );
 
-  if (dutyLoading || closuresLoading) {
+  if (isLoading) {
     return <p className="mt-3 text-xs text-ink/50">Checking duty status...</p>;
   }
 
-  if (dutyError || closuresError) {
+  if (isError) {
     return <p className="mt-3 text-xs text-red-700">Could not load duty status.</p>;
   }
 
@@ -105,7 +103,7 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
       <p className="text-sm font-medium text-ink">Duty status</p>
       <ul className="mt-1 space-y-1">
         {weekStartDates.map((weekStart) => {
-          const complete = isDutyWeekComplete(weekStart, dutyAssignments ?? [], closures ?? []);
+          const complete = isDutyWeekComplete(weekStart, dutyAssignments ?? []);
           return (
             <li key={weekStart} className="flex items-center gap-2">
               <span className="text-sm text-ink/70">{formatWeekLabel(weekStart)}</span>
@@ -121,6 +119,52 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Advisory list of currently enabled clinic types - read-only, purely
+ * informational (like DutyStatusList above, it blocks nothing). Unlike
+ * duty status this isn't per-week: ClinicType.is_enabled is a single
+ * global flag, not tied to a generation week, so there is one list, not
+ * one per week. Sourced from the same GET /clinic-types the rota grid
+ * itself uses, filtered client-side to is_enabled, ordered by
+ * clinic_priority to match how Phase 5 actually processes them.
+ */
+function ClinicStatusList() {
+  const { data: clinicTypes, isLoading, isError } = useClinicTypes();
+
+  if (isLoading) {
+    return <p className="mt-3 text-xs text-ink/50">Checking clinic status...</p>;
+  }
+
+  if (isError) {
+    return <p className="mt-3 text-xs text-red-700">Could not load clinic status.</p>;
+  }
+
+  const enabled = (clinicTypes ?? [])
+    .filter((clinicType) => clinicType.is_enabled)
+    .sort((a, b) => a.clinic_priority - b.clinic_priority);
+
+  return (
+    <div className="mt-3">
+      <p className="text-sm font-medium text-ink">Enabled clinics</p>
+      {enabled.length === 0 ? (
+        <p className="mt-1 text-xs text-ink/50">No clinics are currently enabled.</p>
+      ) : (
+        <ul className="mt-1 flex flex-wrap gap-1">
+          {enabled.map((clinicType) => (
+            <li
+              key={clinicType.id}
+              data-testid={`generate-clinic-status-${clinicType.id}`}
+              className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
+            >
+              {clinicType.name}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -190,6 +234,7 @@ function GenerateRotaForm() {
       </div>
 
       <DutyStatusList startDate={startDate} numWeeks={numWeeks} />
+      <ClinicStatusList />
 
       <button
         type="submit"

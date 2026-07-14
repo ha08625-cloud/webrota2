@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useParams } from "react-router-dom";
 
 import type { DutyAssignment } from "@/api/types";
-import { makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeClinicType, makeDutyAssignment } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -285,6 +285,45 @@ describe("RotaPage", () => {
 
       const badge = await screen.findByTestId(`generate-week-duty-status-${otherWeek}`);
       await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
+    });
+  });
+
+  describe("clinic status", () => {
+    it("shows nothing under 'Enabled clinics' when there are no clinic types", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      server.use(http.get("/api/v1/clinic-types", () => HttpResponse.json([])));
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      expect(await screen.findByText("Enabled clinics")).toBeInTheDocument();
+      expect(await screen.findByText("No clinics are currently enabled.")).toBeInTheDocument();
+    });
+
+    it("lists only enabled clinic types, ordered by clinic_priority", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      server.use(
+        http.get("/api/v1/clinic-types", () =>
+          HttpResponse.json([
+            makeClinicType({ id: 1, name: "Asthma clinic", clinic_priority: 2, is_enabled: true }),
+            makeClinicType({ id: 2, name: "Diabetic clinic", clinic_priority: 1, is_enabled: true }),
+            makeClinicType({ id: 3, name: "Retired clinic", clinic_priority: 3, is_enabled: false }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const list = await screen.findByTestId("generate-clinic-status-2");
+      expect(list).toHaveTextContent("Diabetic clinic");
+      expect(await screen.findByTestId("generate-clinic-status-1")).toHaveTextContent("Asthma clinic");
+      expect(screen.queryByTestId("generate-clinic-status-3")).not.toBeInTheDocument();
+      expect(screen.queryByText("Retired clinic")).not.toBeInTheDocument();
+
+      // Priority order: Diabetic (1) before Asthma (2) in document order.
+      const badges = screen.getAllByTestId(/generate-clinic-status-/);
+      expect(badges.map((el) => el.textContent)).toEqual(["Diabetic clinic", "Asthma clinic"]);
     });
   });
 });
