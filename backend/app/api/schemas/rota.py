@@ -46,13 +46,21 @@ class RotaSessionOut(BaseModel):
 
 class RotaSummaryOut(BaseModel):
     """GET /rota (list): metadata only, no sessions. Joined from
-    GeneratedRota + its RotaConfig in the router."""
+    GeneratedRota + its RotaConfig in the router.
+
+    committed_at (M3.7) is null for a draft, and also null for a committed
+    rota that predates rollback support. The frontend uses it, together
+    with the newest-first ordering of this list, to work out which
+    committed rota -- if any -- is eligible for the rollback affordance:
+    only the one with the latest non-null committed_at among committed
+    rotas."""
     rota_id: int
     status: RotaStatus
     created_at: datetime.datetime
     start_date: datetime.date
     num_weeks: int
     template_start_week: int
+    committed_at: datetime.datetime | None = None
 
 
 class RotaOut(BaseModel):
@@ -63,6 +71,10 @@ class RotaOut(BaseModel):
     added or removed afterwards cannot change what an existing rota
     reports here. Sorted ascending; empty for a rota generated with no
     closures in range.
+
+    committed_at (M3.7) is null for a draft, including one produced by
+    rolling back a commit, and also null for a committed rota that
+    predates rollback support -- see RotaSummaryOut.
     """
     rota_id: int
     status: RotaStatus
@@ -72,6 +84,7 @@ class RotaOut(BaseModel):
     template_start_week: int
     sessions: list[RotaSessionOut]
     closed_dates: list[datetime.date] = Field(default_factory=list)
+    committed_at: datetime.datetime | None = None
 
 
 class SessionPatchIn(BaseModel):

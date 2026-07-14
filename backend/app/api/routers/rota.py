@@ -1,15 +1,24 @@
 """Rota router: generation lifecycle and session swaps (M3 Task 3).
 
-Lifecycle rules (finalised M3 plan):
+Lifecycle rules (finalised M3 plan, extended M3.7):
 - One draft globally: generate returns 409 while any draft exists.
 - generate also returns 409 if the requested date range overlaps a
   COMMITTED rota's range -- a committed week cannot be redrafted. Scrapped
   rotas are deleted outright and so never block a re-generation.
-- Commit deletes the counter snapshots; the live counters become the
-  baseline for future generations.
+- Commit sets committed_at and keeps the counter snapshot (M3.7 -- it no
+  longer deletes it); the live counters become the baseline for future
+  generations regardless.
 - Scrap (DELETE) restores counters to their snapshotted pre-generation
   values -- including undoing swap edits made during the draft -- then
-  deletes the rota. 409 on committed rotas.
+  deletes the rota and its snapshot. 409 on committed rotas.
+- Rollback (POST .../rollback-commit, M3.7) undoes a commit one step at a
+  time: restores the rota's counters from its snapshot and flips it back
+  to DRAFT, re-entering the normal draft lifecycle (editable, scrappable,
+  re-committable). Only the most recently committed rota can be rolled
+  back, and only while no draft currently exists -- see
+  engine.generate.rollback_commit for the full ordering rationale. Unlike
+  scrap, rollback does not delete anything; scrap remains the way to
+  discard a rota after rolling it back.
 - Swaps are draft-only (409 on committed). swap-roles swaps
   (role, clinic_type_id) and adjusts ClinicCounter rows (get-or-create,
   floored at 0 on decrement); swap-rooms swaps room_id only, no counter
@@ -43,6 +52,7 @@ from ...engine.generate import (
     commit_rota,
     generate,
     get_active_draft,
+    rollback_commit,
     scrap_rota,
 )
 from ...engine.grid_utils import run_phase12_for_rota
@@ -355,6 +365,7 @@ def list_rotas(
             start_date=config.start_date,
             num_weeks=config.num_weeks,
             template_start_week=config.template_start_week,
+            committed_at=rota.committed_at,
         )
         for rota, config in rows
     ]
@@ -380,6 +391,7 @@ def get_rota(
         template_start_week=config.template_start_week,
         sessions=_session_outs(db, config, sessions),
         closed_dates=_closed_dates_out(db, rota_id),
+        committed_at=rota.committed_at,
     )
 
 
@@ -403,6 +415,38 @@ def commit(
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
     commit_rota(db, rota_id)
+    db.commit()
+    return get_rota(rota_id, db=db, user=user)
+
+
+@router.post("/{rota_id}/rollback-commit", response_model=RotaOut)
+def rollback_commit_endpoint(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> RotaOut:
+    """Undo a commit, one step back through commit history (M3.7).
+
+    Unlike the other endpoints in this router, the 404/409 distinctions
+    here are delegated to engine.generate.rollback_commit() rather than
+    re-checked in the router first -- it already has to make five separate
+    ValueError-raising checks (existence, status, committed_at NULL, an
+    active draft in the way, and chain order), and re-deriving each of
+    those from rota/query state here would just duplicate that logic with
+    a chance of drifting out of sync. "not found" in the message is the
+    only case that maps to 404; everything else rollback_commit() raises
+    is a 409, and its message already names the blocking rota where
+    relevant (e.g. an older commit rolled back out of order), so it is
+    passed through as the detail unchanged.
+    """
+    try:
+        rollback_commit(db, rota_id)
+    except ValueError as exc:
+        db.rollback()
+        message = str(exc)
+        status_code = 404 if "not found" in message else 409
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
     db.commit()
     return get_rota(rota_id, db=db, user=user)
 

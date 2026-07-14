@@ -362,6 +362,13 @@ def delete_clinic_type(
     ct = _get_or_404(db, clinic_type_id)
     was_enabled = ct.is_enabled
     priority = ct.clinic_priority
+    # "counter or rota rows" already covers two distinct blockers: a live
+    # ClinicCounter row, and (as of M3.7, since commit_rota() no longer
+    # deletes snapshots) a RotaClinicCounterSnapshot row belonging to any
+    # committed rota's counter-restore history. In practice a snapshot row
+    # only exists where a live ClinicCounter row also exists, so this was
+    # already blocked either way -- but the FK violation can now originate
+    # from either table, not just the live one.
     detail = (
         f"ClinicType {clinic_type_id} is referenced by counter or rota "
         "rows and cannot be deleted"
