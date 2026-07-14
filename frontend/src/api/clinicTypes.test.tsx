@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeClinicType } from "@/test/fixtures/reference";
 
-import { clinicTypeKeys, useClinicTypes, useCreateClinicType, useDeleteClinicType, useReorderClinicTypes, useUpdateClinicType } from "./clinicTypes";
+import { clinicTypeKeys, useClinicTypes, useCreateClinicType, useDeleteClinicType, usePatchClinicType, useReorderClinicTypes, useUpdateClinicType } from "./clinicTypes";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -88,6 +88,58 @@ describe("useUpdateClinicType", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedMethod).toBe("PUT");
     expect(capturedUrl).toContain("/api/v1/clinic-types/4");
+  });
+});
+
+describe("usePatchClinicType", () => {
+  it("PATCHes /clinic-types/:id with exactly the supplied field and invalidates the list", async () => {
+    let capturedMethod = "";
+    let capturedUrl = "";
+    let capturedBody: unknown;
+    let refetched = false;
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", async ({ request }) => {
+        capturedMethod = request.method;
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json(makeClinicType({ id: 4, room_required: false }));
+      }),
+      http.get("/api/v1/clinic-types", () => {
+        refetched = true;
+        return HttpResponse.json([]);
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(clinicTypeKeys.list(), []);
+
+    const { result } = renderHook(
+      () => ({ list: useClinicTypes(), patch: usePatchClinicType() }),
+      { wrapper: makeWrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true));
+
+    result.current.patch.mutate({ id: 4, payload: { room_required: false } });
+
+    await waitFor(() => expect(result.current.patch.isSuccess).toBe(true));
+    expect(capturedMethod).toBe("PATCH");
+    expect(capturedUrl).toContain("/api/v1/clinic-types/4");
+    expect(capturedBody).toEqual({ room_required: false });
+    await waitFor(() => expect(refetched).toBe(true));
+  });
+
+  it("surfaces a 409 conflict as the mutation error", async () => {
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", () =>
+        HttpResponse.json({ detail: "ClinicType 4 patch violates a uniqueness constraint" }, { status: 409 }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const { result } = renderHook(() => usePatchClinicType(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate({ id: 4, payload: { is_enabled: true } });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.status).toBe(409);
   });
 });
 

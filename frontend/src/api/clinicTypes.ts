@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { ClinicType, ClinicTypeIn, ClinicTypeReorderIn } from "./types";
+import type { ClinicType, ClinicTypeIn, ClinicTypePatch, ClinicTypeReorderIn } from "./types";
 
 export const clinicTypeKeys = {
   all: ["clinicTypes"] as const,
@@ -42,6 +42,29 @@ export function useUpdateClinicType() {
   return useMutation({
     mutationFn: ({ id, payload }: UpdateClinicTypePayload) =>
       apiClient.put<ClinicType>(`/clinic-types/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clinicTypeKeys.list() });
+    },
+  });
+}
+
+export interface PatchClinicTypePayload {
+  id: number;
+  payload: ClinicTypePatch;
+}
+
+/**
+ * PATCH /clinic-types/{id} - partial update for is_enabled / room_required
+ * only, so the inline toggles on ClinicTypesPage don't have to round-trip
+ * the full nested ClinicTypeIn payload. Named for what it does (takes any
+ * partial payload of the two booleans, not specifically a single toggle).
+ * Same invalidate-on-success pattern as the sibling mutations.
+ */
+export function usePatchClinicType() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: PatchClinicTypePayload) =>
+      apiClient.patch<ClinicType>(`/clinic-types/${id}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clinicTypeKeys.list() });
     },

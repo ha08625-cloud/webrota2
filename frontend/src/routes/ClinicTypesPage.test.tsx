@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -212,5 +212,105 @@ describe("ClinicTypesPage", () => {
     const rows = screen.getAllByRole("row").filter((r) => within(r).queryByText(/clinic$/));
     const names = rows.map((r) => within(r).getByText(/clinic$/).textContent);
     expect(names).toEqual(["Zebra clinic", "Alpha clinic"]);
+  });
+
+  // -- Inline toggles (Room required / Enabled) --------------------------
+
+  it("renders an Enabled checkbox per row, checked in the Enabled table and unchecked in the Disabled table", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Enabled clinic", is_enabled: true }),
+        makeClinicType({ id: 2, name: "Disabled clinic", is_enabled: false }),
+      ],
+    });
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("Enabled clinic");
+
+    expect(screen.getByLabelText("Enabled for Enabled clinic")).toBeChecked();
+    expect(screen.getByLabelText("Enabled for Disabled clinic")).not.toBeChecked();
+  });
+
+  it("unchecking Room required fires a PATCH with only that field", async () => {
+    setUpServer({ clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic", room_required: true })] });
+    let capturedBody: unknown;
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeClinicType({ id: 1, name: "Diabetic clinic", room_required: false }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("Diabetic clinic");
+
+    await user.click(screen.getByLabelText("Room required for Diabetic clinic"));
+
+    await waitFor(() => expect(capturedBody).toEqual({ room_required: false }));
+  });
+
+  it("unchecking Enabled on an enabled row fires a PATCH with only that field", async () => {
+    setUpServer({ clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: true })] });
+    let capturedBody: unknown;
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: false }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("Diabetic clinic");
+
+    await user.click(screen.getByLabelText("Enabled for Diabetic clinic"));
+
+    await waitFor(() => expect(capturedBody).toEqual({ is_enabled: false }));
+  });
+
+  it("disables all toggle checkboxes while a patch is in flight", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "First clinic", is_enabled: true }),
+        makeClinicType({ id: 2, name: "Second clinic", is_enabled: true }),
+      ],
+    });
+    let resolvePatch: (value: ReturnType<typeof makeClinicType>) => void = () => {};
+    const patchPromise = new Promise<ReturnType<typeof makeClinicType>>((resolve) => {
+      resolvePatch = resolve;
+    });
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", async () => {
+        const result = await patchPromise;
+        return HttpResponse.json(result);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("First clinic");
+
+    await user.click(screen.getByLabelText("Room required for First clinic"));
+
+    await waitFor(() => expect(screen.getByLabelText("Enabled for First clinic")).toBeDisabled());
+    expect(screen.getByLabelText("Room required for Second clinic")).toBeDisabled();
+    expect(screen.getByLabelText("Enabled for Second clinic")).toBeDisabled();
+
+    resolvePatch(makeClinicType({ id: 1, name: "First clinic", is_enabled: true }));
+
+    await waitFor(() => expect(screen.getByLabelText("Enabled for First clinic")).not.toBeDisabled());
+  });
+
+  it("a patch failure surfaces an error message", async () => {
+    setUpServer({ clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: true })] });
+    server.use(
+      http.patch("/api/v1/clinic-types/:id", () =>
+        HttpResponse.json({ detail: "ClinicType 1 patch violates a uniqueness constraint" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypesPage />);
+    await screen.findByText("Diabetic clinic");
+
+    await user.click(screen.getByLabelText("Enabled for Diabetic clinic"));
+
+    expect(await screen.findByText(/patch violates a uniqueness constraint/)).toBeInTheDocument();
   });
 });
