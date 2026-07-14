@@ -154,12 +154,12 @@ describe("DutyGrid", () => {
   });
 
   it("renders counts and weighted score", async () => {
-    // 1. Call setUpServer with explicit sessions_per_week to ensure the math 
-    //    matches our assertions (8.0 spw -> 0.50 score for 4 duties).
+    // 1. Call setUpServer with explicit sessions_per_week as strings to ensure the math 
+    //    matches our assertions ("8.0" spw -> 0.50 score for 4 duties).
     setUpServer({
       doctors: [
-        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: 8.0 }),
-        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true, sessions_per_week: 4.0 }),
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true, sessions_per_week: "4.0" }),
       ]
     });
 
@@ -175,11 +175,11 @@ describe("DutyGrid", () => {
     // 2. Use renderWithProviders instead of render, and stick to the MONDAY constant
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     
-    // Doctor 1 (AB): raw 4, 8.0 sessions_per_week -> 0.50 score
+    // Doctor 1 (AB): raw 4, "8.0" sessions_per_week -> 0.50 score
     expect(await screen.findByText("4")).toBeInTheDocument();
     expect(await screen.findByText("0.50")).toBeInTheDocument();
 
-    // Doctor 2 (CD): raw 0, 4.0 sessions_per_week -> 0.00 score
+    // Doctor 2 (CD): raw 0, "4.0" sessions_per_week -> 0.00 score
     expect(await screen.findByText("0")).toBeInTheDocument();
     expect(await screen.findByText("0.00")).toBeInTheDocument();
   });
