@@ -15,6 +15,29 @@ interface IssuesPanelProps {
 const FLASH_CLASS = "issue-flash";
 const FLASH_DURATION_MS = 1500;
 
+/**
+ * Human-readable group headers for Phase 12's `check` identifiers. This
+ * panel's data source (`GET /rota/:id/issues` -> grid_utils.run_phase12_for_rota)
+ * only ever returns Phase 12 checks -- Phase 0 checks abort generation before
+ * a grid exists, so they're never fetched here and surface instead as the
+ * generate-form 422 list (RotaPage.tsx), which already renders full sentences
+ * with no group header. If Phase 12 gains a new check, it will fall back to
+ * the raw identifier below rather than fail -- add it here when noticed.
+ */
+const CHECK_LABELS: Record<string, string> = {
+  duty_coverage_primary: "Missing primary duty doctor",
+  duty_coverage_secondary: "Missing secondary duty doctor",
+  clinic_coverage: "Unfilled clinic slot",
+  unresolved_room: "Room not assigned",
+  role_on_incompatible_slot: "Role assigned to an incompatible slot",
+  supervision_missing: "Trainee supervision missing",
+  supervision_on_incompatible_slot: "Invalid supervision assignment",
+};
+
+function checkLabel(check: string): string {
+  return CHECK_LABELS[check] ?? check;
+}
+
 function groupByCheck(issues: ValidationIssue[]): Map<string, ValidationIssue[]> {
   const groups = new Map<string, ValidationIssue[]>();
   for (const issue of issues) {
@@ -84,7 +107,7 @@ export function IssuesPanel({ rotaId, onNavigateToWeek }: IssuesPanelProps) {
               className="flex w-full items-center justify-between text-left text-sm font-medium text-ink/80"
               aria-expanded={expanded.has(check)}
             >
-              <span>{check}</span>
+              <span>{checkLabel(check)}</span>
               <span className="text-xs text-ink/50">{checkIssues.length}</span>
             </button>
             {expanded.has(check) ? (

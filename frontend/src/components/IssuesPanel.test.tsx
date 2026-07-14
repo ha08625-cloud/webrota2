@@ -32,8 +32,12 @@ describe("IssuesPanel", () => {
 
     renderWithProviders(<IssuesPanel rotaId={7} />);
 
-    expect(await screen.findByText("role_on_incompatible_slot")).toBeInTheDocument();
+    expect(await screen.findByText("Role assigned to an incompatible slot")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
+    // "unfilled_clinic" isn't a real Phase 12 check identifier (this fixture
+    // predates the check being renamed to clinic_coverage) -- it has no
+    // label mapping, so falls back to the raw string. Kept as-is to also
+    // cover the fallback path for any check the label map doesn't yet know.
     expect(screen.getByText("unfilled_clinic")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     // Collapsed by default - the individual messages aren't shown yet.
@@ -85,7 +89,7 @@ describe("IssuesPanel", () => {
 
     renderWithProviders(<IssuesPanel rotaId={7} />);
     const user = userEvent.setup();
-    await user.click(await screen.findByText("role_on_incompatible_slot"));
+    await user.click(await screen.findByText("Role assigned to an incompatible slot"));
     await user.click(await screen.findByText("Issue A"));
 
     expect(scrollSpy).toHaveBeenCalled();
