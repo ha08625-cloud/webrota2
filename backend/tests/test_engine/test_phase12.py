@@ -304,3 +304,65 @@ class TestRoleOnIncompatibleSlot:
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "role_on_incompatible_slot" for i in issues)
+
+
+class TestRoomOnLeaveSlot:
+    """Generation never produces this state (Phase 2 skips the occupancy
+    claim for on-leave slots), so these tests force the room onto the slot
+    directly via grid.assign_room() -- simulating the post-hoc leave /
+    rollback / forced-edit paths that this check exists to catch."""
+
+    def test_room_on_leave_slot_warns(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        room = make_room(session, code="D1", room_type=RoomType.D)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_leave(session, d, monday, Period.AM)
+
+        ctx, grid = _build(session, config_1wk)
+        grid.assign_room(1, Day.MONDAY, Period.AM, d.id, room.id)
+        issues = run_phase12(ctx, grid)
+
+        matching = [i for i in issues if i.check == "room_on_leave_slot"]
+        assert len(matching) == 1
+        assert "AA" in matching[0].message
+        assert "D1" in matching[0].message
+
+    def test_room_on_leave_slot_with_role_also_warns_both(self, session, config_1wk, monday):
+        """Pins the deliberate co-firing: a leave slot holding both a room
+        and a role produces room_on_leave_slot AND role_on_incompatible_slot
+        -- two distinct true findings, not a duplicate."""
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        room = make_room(session, code="D1", room_type=RoomType.D)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_leave(session, d, monday, Period.AM)
+
+        ctx, grid = _build(session, config_1wk)
+        grid.assign_room(1, Day.MONDAY, Period.AM, d.id, room.id)
+        grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+        issues = run_phase12(ctx, grid)
+
+        assert any(i.check == "room_on_leave_slot" for i in issues)
+        assert any(i.check == "role_on_incompatible_slot" for i in issues)
+
+    def test_leave_slot_without_room_does_not_warn(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_leave(session, d, monday, Period.AM)
+
+        ctx, grid = _build(session, config_1wk)
+        issues = run_phase12(ctx, grid)
+
+        assert not any(i.check == "room_on_leave_slot" for i in issues)
+
