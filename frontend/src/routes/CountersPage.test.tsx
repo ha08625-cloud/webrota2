@@ -1,8 +1,10 @@
 import { HttpResponse, http } from "msw";
 import { screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import { makeClinicCounter, makeDoctor, makeSystemCounter } from "@/test/fixtures/reference";
+import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -12,13 +14,18 @@ function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB", sessions_per_week: "10.0" })],
   clinicCounters = [] as ReturnType<typeof makeClinicCounter>[],
   systemCounters = [] as ReturnType<typeof makeSystemCounter>[],
+  rotas = [] as ReturnType<typeof makeRotaSummary>[],
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/counters/clinic", () => HttpResponse.json(clinicCounters)),
     http.get("/api/v1/counters/system", () => HttpResponse.json(systemCounters)),
+    http.get("/api/v1/rota", () => HttpResponse.json(rotas)),
   );
 }
+
+const DRAFT_WARNING_FRAGMENT = "this reset will be undone";
+const NOT_SHOWN_FRAGMENT = "including counters for doctors not shown on this page";
 
 describe("CountersPage", () => {
   it("shows an empty-state message for each table when there are no counters", async () => {
@@ -93,5 +100,116 @@ describe("CountersPage", () => {
     renderWithProviders(<CountersPage />);
 
     expect(await screen.findByText(/committed baseline plus any in-progress draft/)).toBeInTheDocument();
+  });
+
+  describe("resetting a single counter", () => {
+    it("fires the reset request when the confirmation is accepted", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      let resetId: number | null = null;
+      setUpServer({
+        clinicCounters: [makeClinicCounter({ id: 5, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+      });
+      server.use(
+        http.post("/api/v1/counters/clinic/:id/reset", ({ params }) => {
+          resetId = Number(params.id);
+          return HttpResponse.json(makeClinicCounter({ id: 5, doctor_id: 1, doctor_code: "AB", raw_count: 0 }));
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const user = userEvent.setup();
+      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+
+      expect(resetId).toBe(5);
+    });
+
+    it("does not fire the reset request when the confirmation is declined", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      let resetFired = false;
+      setUpServer({
+        systemCounters: [makeSystemCounter({ id: 5, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+      });
+      server.use(
+        http.post("/api/v1/counters/system/:id/reset", () => {
+          resetFired = true;
+          return HttpResponse.json(makeSystemCounter({ id: 5, doctor_id: 1, doctor_code: "AB", raw_count: 0 }));
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const systemTable = await screen.findByRole("table", { name: "System counters" });
+      const user = userEvent.setup();
+      await user.click(within(systemTable).getByRole("button", { name: "Reset" }));
+
+      expect(resetFired).toBe(false);
+    });
+  });
+
+  describe("resetting all counters", () => {
+    it("fires the bulk reset request on confirmation", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      let resetAllFired = false;
+      setUpServer({
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+      });
+      server.use(
+        http.post("/api/v1/counters/clinic/reset-all", () => {
+          resetAllFired = true;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Reset all clinic counters" }));
+
+      expect(resetAllFired).toBe(true);
+    });
+
+    it("includes the not-shown-on-this-page wording in the reset-all confirmation", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      setUpServer({
+        systemCounters: [makeSystemCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Reset all system counters" }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(NOT_SHOWN_FRAGMENT));
+    });
+  });
+
+  describe("draft-aware confirmation wording", () => {
+    it("includes the draft warning when a draft rota is active", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      setUpServer({
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        rotas: [makeRotaSummary({ rota_id: 1, status: "draft" })],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const user = userEvent.setup();
+      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(DRAFT_WARNING_FRAGMENT));
+    });
+
+    it("excludes the draft warning when there is no draft rota", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      setUpServer({
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        rotas: [makeRotaSummary({ rota_id: 1, status: "committed" })],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const user = userEvent.setup();
+      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(expect.not.stringContaining(DRAFT_WARNING_FRAGMENT));
+    });
   });
 });

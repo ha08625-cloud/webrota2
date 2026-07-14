@@ -22,6 +22,10 @@ export const handlers: HttpHandler[] = [
   http.post("/api/v1/counters/system/:id/reset", () => HttpResponse.json(makeSystemCounter())),
   http.post("/api/v1/counters/clinic/reset-all", () => new HttpResponse(null, { status: 204 })),
   http.post("/api/v1/counters/system/reset-all", () => new HttpResponse(null, { status: 204 })),
+  // Empty-array default so pages that check for an active draft (e.g.
+  // CountersPage's reset-confirmation wording) don't force every other
+  // test in the suite to stub this endpoint individually.
+  http.get("/api/v1/rota", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),
   http.patch("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     HttpResponse.json({
