@@ -12,6 +12,16 @@ pre-production verification only) simply read as null, which the API and
 frontend both treat as "normal session" - the same fallback the original
 re-derivation design would have produced for any legacy data anyway.
 is_on_leave is not stored; it is derived from LeaveEntry at query time.
+
+GeneratedRota.committed_at (added by migration 006, nullable, no backfill)
+records when a rota was committed and is what rollback_commit() uses to
+find "the most recently committed rota" and to enforce strict reverse-
+chronological rollback order. It is set in commit_rota() and cleared in
+rollback_commit(). Rows committed before this feature shipped read as
+NULL, which rollback_commit() treats as "not rollbackable" (their
+snapshots were already deleted at commit time under the old lifecycle,
+so restoring them would be unsafe) -- see the rollback plan for the full
+reasoning.
 """
 import datetime
 
@@ -67,6 +77,9 @@ class GeneratedRota(Base):
     )
     status: Mapped[RotaStatus] = mapped_column(
         enum_col(RotaStatus), nullable=False, default=RotaStatus.DRAFT
+    )
+    committed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
     )
 
     config: Mapped["RotaConfig"] = relationship(back_populates="rotas")
