@@ -1,4 +1,4 @@
-"""Doctor router (M3 Task 5).
+"""Doctor router.
 
 DELETE is a soft delete (active=False). It returns 409 if the doctor has
 sessions on a committed rota -- deactivating is fine, but the guard prevents
@@ -9,7 +9,7 @@ is the correct path.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -109,15 +109,24 @@ def replace_preferred_rooms(
     user: dict = Depends(get_current_user),
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
-    # Replace-all pattern; assigning triggers delete-orphan on the old rows.
-    doctor.preferred_rooms = [
-        DoctorPreferredRoom(
-            preference_order=p.preference_order,
-            room_id=p.room_id,
-            room_type=p.room_type,
+    # Replace-all pattern, but as two explicit statements rather than an
+    # ORM collection reassignment. Assigning doctor.preferred_rooms = [...]
+    # leaves the flush free to emit the INSERTs for the new rows before the
+    # DELETEs for the old ones (nothing FK-links them), and the new rows
+    # reuse the same (doctor_id, preference_order) values the old ones
+    # still hold - tripping uq_dpr_doctor_order on essentially every edit.
+    # Deleting first and flushing before inserting removes the race.
+    db.execute(delete(DoctorPreferredRoom).where(DoctorPreferredRoom.doctor_id == doctor_id))
+    db.flush()
+    for p in payload:
+        db.add(
+            DoctorPreferredRoom(
+                doctor_id=doctor_id,
+                preference_order=p.preference_order,
+                room_id=p.room_id,
+                room_type=p.room_type,
+            )
         )
-        for p in payload
-    ]
     try:
         db.commit()
     except IntegrityError as exc:
