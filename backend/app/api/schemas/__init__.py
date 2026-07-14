@@ -18,6 +18,7 @@ from .rota import (
 from .clinic_type import (
     ClinicTypeIn,
     ClinicTypeOut,
+    ClinicTypePatch,
     ClinicTypeReorderIn,
     DoctorEligIn,
     DoctorEligOut,
@@ -60,7 +61,7 @@ __all__ = [
     "GenerateRotaIn", "GenerateRotaOut", "RotaOut", "RotaSessionOut",
     "RotaSummaryOut", "SessionPatchIn", "SessionPatchOut",
     "SwapIn", "SwapOut", "SetRoomIn", "SetRoomOut", "SetRoleIn", "SetRoleOut",
-    "ClinicTypeIn", "ClinicTypeOut", "ClinicTypeReorderIn", "DoctorEligIn", "DoctorEligOut",
+    "ClinicTypeIn", "ClinicTypeOut", "ClinicTypePatch", "ClinicTypeReorderIn", "DoctorEligIn", "DoctorEligOut",
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
     "PreferredRoomIn", "PreferredRoomOut",

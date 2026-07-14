@@ -228,3 +228,119 @@ class TestClinicTypes:
             "ordered_ids": [a["id"], b["id"]],
         })
         assert resp.status_code == 409
+
+
+class TestClinicTypePatch:
+    """PATCH /clinic-types/{id}: partial update for is_enabled /
+    room_required only. name/category are never sent here.
+    """
+
+    def test_patch_room_required_only_leaves_enabled_and_priority(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.patch(
+            f"/api/v1/clinic-types/{created['id']}",
+            json={"room_required": False},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["room_required"] is False
+        assert body["is_enabled"] == created["is_enabled"]
+        assert body["clinic_priority"] == created["clinic_priority"]
+
+    def test_patch_disable_closes_gap(self, client, seeded):
+        a = make_clinic_type_via_api(client, seeded, name="A")
+        b = make_clinic_type_via_api(client, seeded, name="B")
+        c = make_clinic_type_via_api(client, seeded, name="C")
+        assert [a["clinic_priority"], b["clinic_priority"], c["clinic_priority"]] == [1, 2, 3]
+
+        resp = client.patch(
+            f"/api/v1/clinic-types/{b['id']}",
+            json={"is_enabled": False},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_enabled"] is False
+
+        c_after = client.get(f"/api/v1/clinic-types/{c['id']}").json()
+        assert c_after["clinic_priority"] == 2  # gap left by B closed
+
+    def test_patch_enable_appends_at_end(self, client, seeded):
+        a = make_clinic_type_via_api(client, seeded, name="A")
+        make_clinic_type_via_api(client, seeded, name="B")
+
+        assert client.patch(
+            f"/api/v1/clinic-types/{a['id']}", json={"is_enabled": False}
+        ).status_code == 200
+
+        # Takes the slot A's gap-close vacated.
+        make_clinic_type_via_api(client, seeded, name="C")
+
+        resp = client.patch(
+            f"/api/v1/clinic-types/{a['id']}", json={"is_enabled": True}
+        )
+        assert resp.status_code == 200, resp.text
+        # Re-enabling appends at the end, not reclaiming the old slot.
+        assert resp.json()["clinic_priority"] == 3
+
+    def test_patch_same_value_is_a_no_op_for_priority(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.patch(
+            f"/api/v1/clinic-types/{created['id']}",
+            json={"is_enabled": True},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["clinic_priority"] == created["clinic_priority"]
+
+    def test_patch_empty_body_is_a_no_op(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.patch(f"/api/v1/clinic-types/{created['id']}", json={})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["is_enabled"] == created["is_enabled"]
+        assert body["room_required"] == created["room_required"]
+        assert body["clinic_priority"] == created["clinic_priority"]
+
+    def test_patch_disable_then_enable_round_trip_stays_contiguous(self, client, seeded):
+        a = make_clinic_type_via_api(client, seeded, name="A")
+        b = make_clinic_type_via_api(client, seeded, name="B")
+        c = make_clinic_type_via_api(client, seeded, name="C")
+
+        assert client.patch(
+            f"/api/v1/clinic-types/{b['id']}", json={"is_enabled": False}
+        ).status_code == 200
+        assert client.patch(
+            f"/api/v1/clinic-types/{b['id']}", json={"is_enabled": True}
+        ).status_code == 200
+
+        remaining = client.get("/api/v1/clinic-types").json()
+        priorities = sorted(ct["clinic_priority"] for ct in remaining)
+        assert priorities == [1, 2, 3]
+        b_after = next(ct for ct in remaining if ct["id"] == b["id"])
+        assert b_after["clinic_priority"] == 3  # re-enabled row lands last
+        a_after = next(ct for ct in remaining if ct["id"] == a["id"])
+        c_after = next(ct for ct in remaining if ct["id"] == c["id"])
+        assert (a_after["clinic_priority"], c_after["clinic_priority"]) == (1, 2)
+
+    def test_patch_404_for_unknown_id(self, client, seeded):
+        resp = client.patch("/api/v1/clinic-types/999999", json={"is_enabled": False})
+        assert resp.status_code == 404
+
+    def test_patch_leaves_children_untouched(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        before = client.get(f"/api/v1/clinic-types/{created['id']}").json()
+
+        resp = client.patch(
+            f"/api/v1/clinic-types/{created['id']}",
+            json={"room_required": False},
+        )
+        assert resp.status_code == 200, resp.text
+
+        after = client.get(f"/api/v1/clinic-types/{created['id']}").json()
+        assert [s["id"] for s in after["schedules"]] == [s["id"] for s in before["schedules"]]
+        assert (
+            [e["id"] for e in after["doctor_eligibilities"]]
+            == [e["id"] for e in before["doctor_eligibilities"]]
+        )
+        assert (
+            [e["id"] for e in after["room_eligibilities"]]
+            == [e["id"] for e in before["room_eligibilities"]]
+        )

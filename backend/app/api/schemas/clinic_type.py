@@ -36,6 +36,16 @@ class ClinicTypeIn(BaseModel):
     room_eligibilities: list[RoomEligIn] = []
 
 
+class ClinicTypePatch(BaseModel):
+    """Partial update for the two booleans only -- name/category stay
+    PUT-only. clinic_priority is deliberately absent: Pydantic's default
+    extra-field handling silently drops it if a client sends it, same as
+    ClinicTypeIn.
+    """
+    is_enabled: bool | None = None
+    room_required: bool | None = None
+
+
 class ClinicTypeReorderIn(BaseModel):
     """Body for PUT /clinic-types/reorder: the full set of enabled clinic
     type ids in the desired order. The server validates this is exactly the

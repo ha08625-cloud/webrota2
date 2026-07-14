@@ -1,4 +1,4 @@
-"""ClinicType router (M3 Task 4; clinic_priority reorder work).
+"""ClinicType router.
 
 Writes accept the full nested object (parent + schedules +
 doctor_eligibilities + room_eligibilities) in one transaction, per the M3
@@ -40,7 +40,7 @@ from ...models import (
     ClinicTypeSchedule,
 )
 from ..deps import get_current_user, get_db
-from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypeReorderIn
+from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypePatch, ClinicTypeReorderIn
 
 router = APIRouter(prefix="/clinic-types", tags=["clinic_types"])
 
@@ -297,6 +297,57 @@ def replace_clinic_type(
             _close_gap(db, old_priority)
 
         # enabled -> enabled or disabled -> disabled: priority untouched.
+
+    db.refresh(ct)
+    return ct
+
+
+@router.patch("/{clinic_type_id}", response_model=ClinicTypeOut)
+def patch_clinic_type(
+    clinic_type_id: int,
+    payload: ClinicTypePatch,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> ClinicType:
+    """Partial update for is_enabled / room_required only.
+
+    name/category stay PUT-only; this endpoint exists so the frontend can
+    toggle the two booleans inline without round-tripping the full nested
+    payload (schedules/eligibilities are never touched here).
+    """
+    ct = _get_or_404(db, clinic_type_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return ct  # empty body: valid no-op
+
+    # exclude_unset alone isn't enough -- PATCH {"is_enabled": true} on an
+    # already-enabled row must not touch priority, or a row that never left
+    # the partial unique index gets needlessly renumbered.
+    enabling = "is_enabled" in updates and updates["is_enabled"] and not ct.is_enabled
+    disabling = "is_enabled" in updates and not updates["is_enabled"] and ct.is_enabled
+    old_priority = ct.clinic_priority
+
+    detail = f"ClinicType {clinic_type_id} patch violates a uniqueness constraint"
+    with _integrity_guard(db, detail):
+        if enabling:
+            # Assign the appended value before flipping is_enabled -- see
+            # replace_clinic_type's disabled->enabled comment. _next_priority's
+            # SELECT autoflushes pending changes, so setting is_enabled=True
+            # first would briefly persist an enabled row with a stale,
+            # possibly colliding priority.
+            ct.clinic_priority = _next_priority(db)
+
+        for field, value in updates.items():
+            setattr(ct, field, value)
+
+        if disabling:
+            # Enabled -> disabled: flush so this row is outside the
+            # index's scope before gap-closing the rows above it.
+            db.flush()
+            _close_gap(db, old_priority)
+
+        # No transition (same-value send, or room_required-only patch):
+        # priority untouched.
 
     db.refresh(ct)
     return ct
