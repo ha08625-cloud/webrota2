@@ -2,6 +2,9 @@
 
 Lifecycle rules (finalised M3 plan):
 - One draft globally: generate returns 409 while any draft exists.
+- generate also returns 409 if the requested date range overlaps a
+  COMMITTED rota's range -- a committed week cannot be redrafted. Scrapped
+  rotas are deleted outright and so never block a re-generation.
 - Commit deletes the counter snapshots; the live counters become the
   baseline for future generations.
 - Scrap (DELETE) restores counters to their snapshotted pre-generation
@@ -82,6 +85,30 @@ def _require_draft(rota: GeneratedRota) -> None:
             status_code=409,
             detail=f"Rota {rota.id} is committed; this operation is draft-only",
         )
+
+
+def _find_overlapping_committed_rota(
+    db: Session, start_date: datetime.date, num_weeks: int
+) -> tuple[GeneratedRota, RotaConfig] | None:
+    """A committed rota whose date range intersects the requested range.
+
+    Only COMMITTED rotas are checked: the at-most-one-draft rule already
+    blocks generation while a draft exists (any week), and a scrapped rota
+    is deleted outright, leaving no row to check against. Returns the first
+    overlap found, ordered by start_date for a deterministic error message.
+    """
+    new_end = start_date + datetime.timedelta(days=num_weeks * 7)
+    rows = db.execute(
+        select(GeneratedRota, RotaConfig)
+        .join(RotaConfig, GeneratedRota.config_id == RotaConfig.id)
+        .where(GeneratedRota.status == RotaStatus.COMMITTED)
+        .order_by(RotaConfig.start_date)
+    ).all()
+    for rota, config in rows:
+        existing_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+        if config.start_date < new_end and start_date < existing_end:
+            return rota, config
+    return None
 
 
 def _leave_lookup(
@@ -261,6 +288,21 @@ def generate_rota(
         raise HTTPException(
             status_code=409,
             detail="A draft rota already exists; commit or scrap it first",
+        )
+
+    overlap = _find_overlapping_committed_rota(
+        db, payload.start_date, payload.num_weeks
+    )
+    if overlap is not None:
+        existing_rota, existing_config = overlap
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A committed rota (id={existing_rota.id}) already covers "
+                f"{existing_config.start_date.isoformat()} "
+                f"({existing_config.num_weeks} week(s)); overlapping weeks "
+                "cannot be regenerated"
+            ),
         )
 
     config = RotaConfig(

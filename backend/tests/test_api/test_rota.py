@@ -1,4 +1,6 @@
 """Rota lifecycle and swap tests via the API (M3 Task 8)."""
+import datetime
+
 from sqlalchemy import select
 
 from app.models import (
@@ -49,6 +51,49 @@ class TestGenerate:
             "start_date": "2026-01-05", "num_weeks": 1, "template_start_week": 1,
         })
         assert resp.status_code == 409
+
+    def test_generate_409_when_overlaps_committed_rota(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client, num_weeks=1)  # covers MONDAY .. MONDAY+7
+        assert client.post(f"/api/v1/rota/{out['rota_id']}/commit").status_code == 200
+
+        # Same start date, single week.
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 409
+
+        # A 2-week request starting the previous Monday overlaps the
+        # committed week -- rejected before the engine ever runs, so the
+        # lack of week-2 template data here doesn't matter.
+        prev_monday = MONDAY - datetime.timedelta(days=7)
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": prev_monday.isoformat(), "num_weeks": 2,
+            "template_start_week": 1,
+        })
+        assert resp.status_code == 409
+
+    def test_generate_allowed_after_committed_rota_ends(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client, num_weeks=1)
+        assert client.post(f"/api/v1/rota/{out['rota_id']}/commit").status_code == 200
+
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": (MONDAY + datetime.timedelta(days=7)).isoformat(),
+            "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 200
+
+    def test_generate_allowed_over_scrapped_rota_range(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        assert client.delete(f"/api/v1/rota/{out['rota_id']}").status_code == 204
+
+        # Scrap deletes the rota outright, so the same range is free again.
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 200
 
     def test_generate_422_without_active_template(self, client, db_session, seeded):
         from app.models import MasterRotaTemplate
