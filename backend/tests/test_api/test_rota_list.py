@@ -4,6 +4,8 @@ Covers: empty list; summary fields match the generated rota; a committed
 rota plus a newer draft come back newest-first with correct statuses.
 Uses the shared conftest fixtures (seeded) and generate_rota helper.
 """
+import datetime
+
 from .conftest import MONDAY, generate_rota
 
 
@@ -36,7 +38,11 @@ def test_list_committed_and_draft_newest_first(client, seeded):
     resp = client.post(f"/api/v1/rota/{first['rota_id']}/commit")
     assert resp.status_code == 200, resp.text
 
-    second = generate_rota(client, num_weeks=1)
+    # A different week -- generating over the same week as the now-committed
+    # rota is rejected (409), by design.
+    second = generate_rota(
+        client, num_weeks=1, start_date=MONDAY + datetime.timedelta(days=7)
+    )
 
     resp = client.get("/api/v1/rota")
     assert resp.status_code == 200

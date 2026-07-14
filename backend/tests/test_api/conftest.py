@@ -141,9 +141,9 @@ def make_clinic_type_via_api(client, seeded, name="Dragon"):
     return resp.json()
 
 
-def generate_rota(client, num_weeks=1):
+def generate_rota(client, num_weeks=1, start_date=MONDAY):
     resp = client.post("/api/v1/rota/generate", json={
-        "start_date": MONDAY.isoformat(),
+        "start_date": start_date.isoformat(),
         "num_weeks": num_weeks,
         "template_start_week": 1,
     })
