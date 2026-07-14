@@ -208,7 +208,12 @@ class TestScrap:
 
         second = generate(session, config.id)
         assert _clinic_count(session, a.id, ct.id) == 4
-        assert second.rota_id != first.rota_id
+        # Note: not asserting second.rota_id != first.rota_id here. Scrap
+        # deletes the first row outright, and GeneratedRota.id has no
+        # sqlite_autoincrement flag, so SQLite is free to recycle the
+        # deleted rowid for the next insert -- the two ids can legitimately
+        # collide. Counter equivalence is the guarantee under test, not id
+        # distinctness.
 
 
 class TestActiveDraft:
@@ -449,7 +454,10 @@ class TestRollbackCommit:
         scrap_rota(session, result_b.rota_id)
         rolled_a = rollback_commit(session, result_a.rota_id)
         assert rolled_a.status == RotaStatus.DRAFT
-        assert _clinic_count(session, a.id, ct.id) == 0
+        # A's snapshot predates any (a, ct) counter row existing at all --
+        # absent from the snapshot means "created after it", so restore
+        # deletes the row outright rather than zeroing it.
+        assert _clinic_count(session, a.id, ct.id) is None
 
         # A is now a plain draft again -- normal draft lifecycle applies.
         scrap_rota(session, result_a.rota_id)

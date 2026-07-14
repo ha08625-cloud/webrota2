@@ -1,4 +1,4 @@
-"""Rota lifecycle and swap tests via the API (M3 Task 8, extended M3.7)."""
+"""Rota lifecycle and swap tests via the API."""
 import datetime
 
 from sqlalchemy import select
@@ -116,7 +116,15 @@ class TestCommit:
         persists as the permanent audit record the rollback-commit
         endpoint restores from. This inverts the pre-M3.7 assertion that
         snapshots were deleted on commit."""
-        make_clinic_type_via_api(client, seeded)
+        ct = make_clinic_type_via_api(client, seeded)
+        # The `seeded` fixture only pre-seeds system counters; add a
+        # pre-existing clinic counter row directly so the clinic snapshot
+        # assertion below has something to capture.
+        db_session.add(ClinicCounter(
+            doctor_id=seeded["doctor_aa"], clinic_type_id=ct["id"], raw_count=2,
+        ))
+        db_session.commit()
+
         out = generate_rota(client)
         assert db_session.execute(
             select(RotaSystemCounterSnapshot)).scalars().first() is not None
