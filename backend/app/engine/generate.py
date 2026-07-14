@@ -16,6 +16,8 @@ simplified and this fixes that inconsistency.
 """
 from __future__ import annotations
 
+import datetime
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -168,9 +170,12 @@ def _snapshot_counters(db: Session, rota_id: int) -> None:
 
     All rows are captured, not just those the generation will touch: swap
     edits during the draft period can change counters the generation never
-    looked at, and scrap must restore those too. Bounded at roughly
-    (doctors x clinic types) + 2 x doctors rows, and at most one draft
-    exists at a time.
+    looked at, and scrap() -- or rollback_commit(), which restores from
+    this same snapshot -- must be able to restore those too. Each call
+    adds roughly (doctors x clinic types) + 2 x doctors rows: bounded per
+    call, but no longer bounded in total, since commit_rota() no longer
+    deletes the snapshot -- every committed rota's snapshot persists
+    until that rota is scrapped, directly or after a rollback.
     """
     for row in db.execute(select(ClinicCounter)).scalars():
         db.add(RotaClinicCounterSnapshot(
@@ -194,12 +199,18 @@ def get_active_draft(db: Session) -> GeneratedRota | None:
 
 
 def commit_rota(db: Session, rota_id: int) -> GeneratedRota:
-    """Commit a draft: delete its snapshots and set status=committed.
+    """Commit a draft: set status=committed and record committed_at.
 
-    The live counter values -- generation increments plus any swap edits --
-    become the baseline for future generations. Raises ValueError if the
-    rota does not exist or is already committed (the router maps this
-    to 409/404).
+    Snapshots are no longer deleted here. They persist as a permanent
+    audit record and are what rollback_commit() restores from when
+    undoing a commit. committed_at records commit order and is what
+    rollback_commit() uses to find, and enforce rollback against, "the
+    most recently committed rota" -- strict reverse-chronological order
+    only. The live counter values -- generation increments plus any swap
+    edits -- become the baseline for future generations regardless of
+    whether the snapshot is later used for a rollback. Raises ValueError
+    if the rota does not exist or is already committed (the router maps
+    this to 409/404).
     """
     rota = db.get(GeneratedRota, rota_id)
     if rota is None:
@@ -207,8 +218,8 @@ def commit_rota(db: Session, rota_id: int) -> GeneratedRota:
     if rota.status != RotaStatus.DRAFT:
         raise ValueError(f"Rota {rota_id} is already committed")
 
-    _delete_snapshots(db, rota_id)
     rota.status = RotaStatus.COMMITTED
+    rota.committed_at = datetime.datetime.now(datetime.timezone.utc)
     db.flush()
     return rota
 
@@ -229,6 +240,119 @@ def scrap_rota(db: Session, rota_id: int) -> None:
     if rota.status != RotaStatus.DRAFT:
         raise ValueError(f"Rota {rota_id} is committed and cannot be scrapped")
 
+    _restore_counters_from_snapshot(db, rota_id)
+    _delete_snapshots(db, rota_id)
+    db.delete(rota)  # ORM cascade removes RotaSession rows
+    db.flush()
+
+
+def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
+    """Undo a commit, walking one step back through commit history.
+
+    Restores this rota's counters to their pre-generation snapshot (the
+    same restore logic scrap_rota() uses) and flips it back to draft, so
+    it re-enters the normal draft lifecycle wholesale -- editable via the
+    existing endpoints, scrappable via scrap_rota(), or re-committable via
+    commit_rota() (which self-heals the chain by refreshing committed_at
+    to now). This function does not delete the rota or its snapshot --
+    that is scrap_rota()'s job, called separately if the user wants the
+    rota gone after rolling it back.
+
+    Strict reverse-chronological order is enforced two ways, deliberately
+    without a separate locking mechanism:
+    - get_active_draft(db) must return None. Because rolling back always
+      produces a draft, and only one draft can exist globally (the same
+      constraint generate() relies on), this alone blocks rolling back an
+      older commit while a more recent rollback (or any other draft) is
+      still sitting there unresolved.
+    - This rota must independently be the most recently committed one,
+      found by querying status=committed rows ordered by
+      committed_at desc, id desc (NULLS treated as oldest, since a NULL
+      committed_at only ever means "committed before rollback support
+      existed" -- see the committed_at is None check below, which makes
+      this ordering detail unreachable for the target rota but keeps a
+      legacy NULL row from ever being mistaken for "most recent"). This
+      is queried directly rather than inferred from the single-draft
+      rule, so the ordering check stays correct even if the single-draft
+      rule is ever relaxed later.
+
+    Raises ValueError if: the rota does not exist; it is not currently
+    committed; committed_at is None (committed before rollback support
+    existed -- its snapshot was deleted at commit time under the old
+    lifecycle, so there is nothing to restore from, and re-running this
+    restore logic against an empty snapshot would delete every live
+    counter row in the system); a draft already exists; this is not the
+    most recently committed rota (message names the rota that must be
+    rolled back first); or the rota has zero snapshot rows (belt-and-
+    braces companion to the committed_at check -- a seeded system
+    guarantees at least one snapshot row per legitimate generation, so an
+    empty snapshot always means something is wrong). The router maps all
+    of these to 409/404.
+    """
+    rota = db.get(GeneratedRota, rota_id)
+    if rota is None:
+        raise ValueError(f"GeneratedRota id={rota_id} not found")
+    if rota.status != RotaStatus.COMMITTED:
+        raise ValueError(f"Rota {rota_id} is not committed and cannot be rolled back")
+    if rota.committed_at is None:
+        raise ValueError(
+            f"Rota {rota_id} was committed before rollback support existed "
+            "and cannot be rolled back"
+        )
+    if get_active_draft(db) is not None:
+        raise ValueError(
+            "A draft already exists -- resolve it (commit or scrap) before "
+            "rolling back a commit"
+        )
+
+    most_recent = db.execute(
+        select(GeneratedRota)
+        .where(GeneratedRota.status == RotaStatus.COMMITTED)
+        .order_by(GeneratedRota.committed_at.desc().nullslast(), GeneratedRota.id.desc())
+    ).scalars().first()
+    if most_recent is None or most_recent.id != rota_id:
+        blocker = most_recent.id if most_recent is not None else "none"
+        raise ValueError(
+            f"Rota {rota_id} is not the most recently committed rota -- "
+            f"roll back rota {blocker} first"
+        )
+
+    has_clinic_snapshot = db.execute(
+        select(RotaClinicCounterSnapshot.id)
+        .where(RotaClinicCounterSnapshot.rota_id == rota_id)
+        .limit(1)
+    ).first()
+    has_system_snapshot = db.execute(
+        select(RotaSystemCounterSnapshot.id)
+        .where(RotaSystemCounterSnapshot.rota_id == rota_id)
+        .limit(1)
+    ).first()
+    if has_clinic_snapshot is None and has_system_snapshot is None:
+        raise ValueError(
+            f"Rota {rota_id} has no snapshot rows and cannot be rolled back"
+        )
+
+    _restore_counters_from_snapshot(db, rota_id)
+    rota.status = RotaStatus.DRAFT
+    rota.committed_at = None
+    db.flush()
+    return rota
+
+
+def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
+    """Restore every counter row to the value snapshotted for this rota.
+
+    Shared by scrap_rota() and rollback_commit(): both need to undo every
+    counter change made since this rota's snapshot was taken -- the
+    generation's own increments plus any edits made afterward -- by
+    restoring snapshotted rows to their pre-generation values, deleting
+    rows absent from the snapshot (created after it), and recreating
+    snapshotted rows that no longer exist live (deleted during the draft
+    or committed period by some other action). Does not touch the
+    snapshot rows themselves or the rota row -- callers decide what
+    happens to those: scrap_rota() deletes both, rollback_commit() leaves
+    the snapshot in place and flips the rota back to draft.
+    """
     clinic_snaps = db.execute(
         select(RotaClinicCounterSnapshot)
         .where(RotaClinicCounterSnapshot.rota_id == rota_id)
@@ -255,9 +379,8 @@ def scrap_rota(db: Session, rota_id: int) -> None:
         else:
             db.delete(row)
 
-    # Snapshotted rows that no longer exist as live rows (deleted during the
-    # draft period, e.g. via a future admin action) are recreated at their
-    # pre-generation values, so scrap always restores the exact prior state.
+    # Snapshotted rows that no longer exist as live rows are recreated at
+    # their pre-generation values, so the restore is always exact.
     for (doctor_id, clinic_type_id), value in clinic_before.items():
         db.add(ClinicCounter(
             doctor_id=doctor_id, clinic_type_id=clinic_type_id, raw_count=value,
@@ -266,10 +389,6 @@ def scrap_rota(db: Session, rota_id: int) -> None:
         db.add(SystemCounter(
             doctor_id=doctor_id, counter_type=counter_type, raw_count=value,
         ))
-
-    _delete_snapshots(db, rota_id)
-    db.delete(rota)  # ORM cascade removes RotaSession rows
-    db.flush()
 
 
 def _delete_snapshots(db: Session, rota_id: int) -> None:
