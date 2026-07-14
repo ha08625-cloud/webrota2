@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 
 import { rotaKeys } from "@/api/rota";
 import { makeDoctor } from "@/test/fixtures/reference";
-import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
+import { makeRota, makeRotaSession, makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -421,5 +421,155 @@ describe("RotaDetailPage", () => {
     // Forward call hits the target (42) first; the undo replay then
     // restores the displaced session (99) before the target (42).
     expect(setRoleCalls).toEqual(["42", "99", "42"]);
+  });
+
+  // --- Rollback commit (M3.7) ---
+
+  describe("rollback commit", () => {
+    it("shows the rollback button on the most recent committed rota when no draft exists", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      expect(await screen.findByRole("button", { name: "Roll back commit" })).toBeInTheDocument();
+    });
+
+    it("hides the rollback button when a draft exists elsewhere", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 9, status: "draft", committed_at: null }),
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.queryByRole("button", { name: "Roll back commit" })).not.toBeInTheDocument();
+    });
+
+    it("hides the rollback button when a newer commit exists", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 9, status: "committed", committed_at: "2026-07-12T09:00:00Z" }),
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.queryByRole("button", { name: "Roll back commit" })).not.toBeInTheDocument();
+    });
+
+    it("hides the rollback button when committed_at is null (predates rollback support)", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([makeRotaSummary({ rota_id: 8, status: "committed", committed_at: null })]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: null })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.queryByRole("button", { name: "Roll back commit" })).not.toBeInTheDocument();
+    });
+
+    it("rolls back after confirmation and re-renders into draft mode", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+        http.post("/api/v1/rota/:id/rollback-commit", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "draft", committed_at: null })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Roll back commit" }));
+
+      expect(await screen.findByRole("button", { name: "Commit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Scrap" })).toBeInTheDocument();
+    });
+
+    it("does not roll back when the confirmation is declined", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      let rolledBack = false;
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+        http.post("/api/v1/rota/:id/rollback-commit", () => {
+          rolledBack = true;
+          return HttpResponse.json(makeRota({ rota_id: 8, status: "draft", committed_at: null }));
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Roll back commit" }));
+
+      expect(rolledBack).toBe(false);
+    });
+
+    it("surfaces a 409 as an error message", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: "2026-07-10T09:00:00Z" })),
+        ),
+        http.post("/api/v1/rota/:id/rollback-commit", () =>
+          HttpResponse.json({ detail: "rota 9 must be rolled back first" }, { status: 409 }),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Roll back commit" }));
+
+      expect(await screen.findByText("rota 9 must be rolled back first")).toBeInTheDocument();
+    });
   });
 });

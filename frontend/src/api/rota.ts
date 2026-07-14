@@ -82,6 +82,26 @@ export function useScrapRota() {
   });
 }
 
+/**
+ * Undoes a commit one step back through commit history (M3.7): restores
+ * the rota's counters from its snapshot and flips it back to draft. The
+ * response is a RotaOut with status="draft", same shape as commit's
+ * response - the caller re-renders into the normal draft-editing view
+ * off the same detail query, no navigation needed. Both list (for the
+ * rollback-eligibility check on other rows) and this rota's own detail
+ * are invalidated, matching the commit/scrap invalidation pattern.
+ */
+export function useRollbackCommit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.post<Rota>(`/rota/${rotaId}/rollback-commit`),
+    onSuccess: (data, rotaId) => {
+      queryClient.setQueryData(rotaKeys.detail(rotaId), data);
+      queryClient.invalidateQueries({ queryKey: rotaKeys.list() });
+    },
+  });
+}
+
 // --- Session editing (Task 4) ---
 // swap-roles, swap-rooms, and the session PATCH all return the full
 // updated session(s) plus a fresh issues list. None of these invalidate

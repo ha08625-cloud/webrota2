@@ -63,6 +63,47 @@ describe("RotaPage", () => {
     expect(await screen.findByText("No committed rotas yet.")).toBeInTheDocument();
   });
 
+  it("shows committed_at in the history row when present", async () => {
+    server.use(
+      http.get("/api/v1/rota", () =>
+        HttpResponse.json([
+          makeRotaSummary({
+            rota_id: 3,
+            status: "committed",
+            created_at: "2026-07-01T08:00:00Z",
+            committed_at: "2026-07-05T14:30:00Z",
+          }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<RotaPage />);
+
+    const row = await screen.findByText(/committed/);
+    expect(row.textContent).toContain("5 Jul 2026");
+    expect(row.textContent).not.toContain("1 Jul 2026");
+  });
+
+  it("falls back to created_at in the history row when committed_at is null (predates rollback support)", async () => {
+    server.use(
+      http.get("/api/v1/rota", () =>
+        HttpResponse.json([
+          makeRotaSummary({
+            rota_id: 3,
+            status: "committed",
+            created_at: "2026-07-01T08:00:00Z",
+            committed_at: null,
+          }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<RotaPage />);
+
+    const row = await screen.findByText(/committed/);
+    expect(row.textContent).toContain("1 Jul 2026");
+  });
+
   it("renders a week selector with the next 12 upcoming Mondays as options", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
 

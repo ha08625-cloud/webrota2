@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { makeValidationIssue } from "@/test/fixtures/issues";
 
-import { rotaKeys, usePatchSession, useSwapRoles, useSwapRooms } from "./rota";
+import { rotaKeys, usePatchSession, useRollbackCommit, useSwapRoles, useSwapRooms } from "./rota";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -137,5 +137,54 @@ describe("usePatchSession", () => {
     const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
     expect(cachedRota.sessions[0].is_wfh).toBe(true);
     expect(cachedRota.sessions[0].notes).toBe("Covering");
+  });
+});
+
+describe("useRollbackCommit", () => {
+  it("posts to rollback-commit and seeds the detail cache with the response", async () => {
+    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+
+    let capturedUrl = "";
+    server.use(
+      http.post("/api/v1/rota/:id/rollback-commit", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ ...rota, status: "draft", committed_at: null });
+      }),
+    );
+
+    const { result } = renderHook(() => useRollbackCommit(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedUrl).toContain("/api/v1/rota/7/rollback-commit");
+    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
+    expect(cachedRota.status).toBe("draft");
+    expect(cachedRota.committed_at).toBeNull();
+  });
+
+  it("invalidates the rota list on success", async () => {
+    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+    queryClient.setQueryData(rotaKeys.list(), [
+      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at },
+    ]);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    server.use(
+      http.post("/api/v1/rota/:id/rollback-commit", () =>
+        HttpResponse.json({ ...rota, status: "draft", committed_at: null }),
+      ),
+    );
+
+    const { result } = renderHook(() => useRollbackCommit(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
   });
 });

@@ -8,6 +8,7 @@ export function makeRotaSummary(overrides: Partial<RotaSummary> = {}): RotaSumma
     start_date: "2026-07-06",
     num_weeks: 2,
     template_start_week: 1,
+    committed_at: null,
     ...overrides,
   };
 }
@@ -22,6 +23,7 @@ export function makeRota(overrides: Partial<Rota> = {}): Rota {
     template_start_week: 1,
     sessions: [],
     closed_dates: [],
+    committed_at: null,
     ...overrides,
   };
 }

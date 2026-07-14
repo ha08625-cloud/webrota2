@@ -299,7 +299,9 @@ export function RotaPage() {
                 <Link to={`/rota/${rota.rota_id}`} className="text-accent underline">
                   {formatDate(rota.start_date)} - {rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""}
                 </Link>
-                <span className="ml-2 text-ink/50">committed {formatDateTime(rota.created_at)}</span>
+                <span className="ml-2 text-ink/50">
+                  committed {formatDateTime(rota.committed_at ?? rota.created_at)}
+                </span>
               </li>
             ))}
           </ul>

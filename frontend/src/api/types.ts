@@ -170,17 +170,6 @@ export interface ClinicTypeReorderIn {
   ordered_ids: number[];
 }
 
-/**
- * Body for PATCH /clinic-types/{id} - partial update for the two booleans
- * only (ClinicTypePatch in schemas/clinic_type.py). name/category stay
- * PUT-only. Both fields optional; only supplied fields are applied
- * server-side (exclude_unset).
- */
-export interface ClinicTypePatch {
-  is_enabled?: boolean;
-  room_required?: boolean;
-}
-
 // --- Doctors (schemas_doctor.py) ---
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
@@ -368,6 +357,12 @@ export interface RotaSummary {
   start_date: string;
   num_weeks: number;
   template_start_week: number;
+  /**
+   * M3.7 addition. Null for a draft, and also null for a committed rota
+   * that predates rollback support - see RotaOut.committed_at and
+   * RotaDetailPage's rollback-eligibility check.
+   */
+  committed_at: string | null;
 }
 
 export interface RotaSession {
@@ -409,6 +404,12 @@ export interface Rota {
    * with no closures in range.
    */
   closed_dates: string[];
+  /**
+   * M3.7 addition. Null for a draft, including one produced by rolling
+   * back a commit, and also null for a committed rota that predates
+   * rollback support - see RotaSummary.committed_at.
+   */
+  committed_at: string | null;
 }
 
 export interface GenerateRotaIn {

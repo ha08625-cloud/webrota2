@@ -1,6 +1,18 @@
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useCommitRota, usePatchSession, useRota, useScrapRota, useSetRole, useSetRoom, useSwapRoles, useSwapRooms } from "@/api/rota";
+import {
+  useCommitRota,
+  usePatchSession,
+  useRollbackCommit,
+  useRota,
+  useRotaList,
+  useScrapRota,
+  useSetRole,
+  useSetRoom,
+  useSwapRoles,
+  useSwapRooms,
+} from "@/api/rota";
+import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -8,13 +20,44 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import { buildReplayRequest, type ReplayRequest } from "@/lib/replayUndo";
 import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
+/**
+ * Mirrors the backend's rollback_commit() ordering guards client-side
+ * (M3.7), so the rollback button never appears on a request that would
+ * 409: no draft can currently exist anywhere, and this rota must be the
+ * one with the greatest (committed_at, rota_id) among committed rotas
+ * that have a non-null committed_at (a null committed_at means a rota
+ * committed before rollback support existed, which is permanently
+ * unrollbackable). This is advisory only - the 409 mapping still covers
+ * races such as a draft created in another tab between load and click.
+ */
+function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): boolean {
+  const hasDraft = rotas.some((r) => r.status === "draft");
+  if (hasDraft) return false;
+
+  const rollbackable = rotas.filter(
+    (r): r is RotaSummary & { committed_at: string } => r.status === "committed" && r.committed_at !== null,
+  );
+  if (rollbackable.length === 0) return false;
+
+  const mostRecent = rollbackable.reduce((best, candidate) => {
+    if (candidate.committed_at !== best.committed_at) {
+      return candidate.committed_at > best.committed_at ? candidate : best;
+    }
+    return candidate.rota_id > best.rota_id ? candidate : best;
+  });
+
+  return mostRecent.rota_id === rotaId;
+}
+
 export function RotaDetailPage() {
   const params = useParams<{ id: string }>();
   const rotaId = Number(params.id);
   const navigate = useNavigate();
   const { data: rota, isLoading, isError, error } = useRota(rotaId);
+  const { data: rotaList } = useRotaList();
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
+  const rollbackCommit = useRollbackCommit();
 
   const undoStack = useUndoStack<UndoEntry>();
   const { toast, showToast } = useToast();
@@ -59,12 +102,27 @@ export function RotaDetailPage() {
   const currentRotaId = rota.rota_id;
 
   function handleCommit() {
-    if (!window.confirm("Commit this rota? This finalises it and cannot be undone.")) {
+    if (
+      !window.confirm(
+        "Commit this rota? It becomes read-only, but the most recent commit can still be rolled back afterwards.",
+      )
+    ) {
       return;
     }
     commitRota.mutate(currentRotaId, {
       onSuccess: () => navigate("/"),
     });
+  }
+
+  function handleRollback() {
+    if (
+      !window.confirm(
+        "Roll back this commit? Counters will be restored to their values before this rota was generated, and the rota becomes an editable draft.",
+      )
+    ) {
+      return;
+    }
+    rollbackCommit.mutate(currentRotaId);
   }
 
   function handleScrap() {
@@ -188,11 +246,30 @@ export function RotaDetailPage() {
           </button>
         </div>
       ) : (
-        <p className="mt-4 text-sm text-ink/50">This rota is committed and read-only.</p>
+        <div className="mt-4">
+          <p className="text-sm text-ink/50">This rota is committed and read-only.</p>
+          {rotaList && isMostRecentRollbackableCommit(rotaList, currentRotaId) ? (
+            <button
+              type="button"
+              onClick={handleRollback}
+              disabled={rollbackCommit.isPending}
+              className="mt-3 rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            >
+              Roll back commit
+            </button>
+          ) : null}
+        </div>
       )}
 
       {commitRota.isError ? <p className="mt-3 text-sm text-red-700">Could not commit this rota.</p> : null}
       {scrapRota.isError ? <p className="mt-3 text-sm text-red-700">Could not scrap this rota.</p> : null}
+      {rollbackCommit.isError ? (
+        <p className="mt-3 text-sm text-red-700">
+          {typeof rollbackCommit.error.detail === "string"
+            ? rollbackCommit.error.detail
+            : "Could not roll back this commit."}
+        </p>
+      ) : null}
 
       <div className="mt-6 flex items-start gap-4">
         <div className="min-w-0 flex-1">
