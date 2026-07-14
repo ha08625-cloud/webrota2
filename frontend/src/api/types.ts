@@ -170,6 +170,17 @@ export interface ClinicTypeReorderIn {
   ordered_ids: number[];
 }
 
+/**
+ * Body for PATCH /clinic-types/{id} - partial update for the two booleans
+ * only (ClinicTypePatch in schemas/clinic_type.py). name/category stay
+ * PUT-only. Both fields optional; only supplied fields are applied
+ * server-side (exclude_unset).
+ */
+export interface ClinicTypePatch {
+  is_enabled?: boolean;
+  room_required?: boolean;
+}
+
 // --- Doctors (schemas_doctor.py) ---
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
