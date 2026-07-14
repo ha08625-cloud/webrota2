@@ -80,8 +80,11 @@ describe("RotaPage", () => {
     renderWithProviders(<RotaPage />);
 
     const row = await screen.findByText(/committed/);
-    expect(row.textContent).toContain("5 Jul 2026");
-    expect(row.textContent).not.toContain("1 Jul 2026");
+    // formatDateTime uses toLocaleString(undefined, ...) - locale-order
+    // is environment-dependent (en-US here), so assert on the date parts
+    // rather than a literal day-month-year string.
+    expect(row.textContent).toContain("Jul 5, 2026");
+    expect(row.textContent).not.toContain("Jul 1, 2026");
   });
 
   it("falls back to created_at in the history row when committed_at is null (predates rollback support)", async () => {
@@ -101,7 +104,7 @@ describe("RotaPage", () => {
     renderWithProviders(<RotaPage />);
 
     const row = await screen.findByText(/committed/);
-    expect(row.textContent).toContain("1 Jul 2026");
+    expect(row.textContent).toContain("Jul 1, 2026");
   });
 
   it("renders a week selector with the next 12 upcoming Mondays as options", async () => {
