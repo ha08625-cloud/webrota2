@@ -144,6 +144,62 @@ class TestGenerateEndToEnd:
         # is phase2's concern (_PRE_OCCUPYING_TYPES), not M3.6's - only that
         # template_type itself made it onto the row, for both types here.
 
+    def test_leave_frees_pre_assigned_room_for_reassignment(self, session, monday):
+        """Leave-frees-rooms plan, Task 1: a PRE_ASSIGNED slot's room claim
+        is skipped when the occupant is on leave, so Phases 7-9A can hand
+        the room to another doctor's REQUIRES_ROOM slot in the same
+        session. Pins both the grid-level skip and the persisted write:
+        doctor A's room_id lands NULL while template_type=PRE_ASSIGNED
+        survives on the row, doctor B claims the freed room, and no
+        unresolved_room warning fires for doctor A (Phase 12 already
+        excludes on-leave slots from that check).
+        """
+        t = make_template(session, is_active=True)
+        doctor_a = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        doctor_b = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
+        room = make_room(session, code="D1", room_type=RoomType.D)
+
+        make_master_session(
+            session, t, doctor_a, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=room,
+        )
+        make_master_session(
+            session, t, doctor_b, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_preferred_room(session, doctor_b, preference_order=1, room=room)
+        make_leave(session, doctor_a, monday, Period.AM)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.status in ("success", "partial")
+        assert result.rota_id is not None
+
+        rota_sessions = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+
+        a_am = next(s for s in rota_sessions if s.doctor_id == doctor_a.id)
+        b_am = next(s for s in rota_sessions if s.doctor_id == doctor_b.id)
+
+        # doctor A's leave releases the pre-assigned room; template_type
+        # still shows PRE_ASSIGNED, distinguishing this from an ordinary
+        # unassigned row.
+        assert a_am.room_id is None
+        assert a_am.template_type == MasterSessionType.PRE_ASSIGNED
+
+        # doctor B claims the freed room.
+        assert b_am.room_id == room.id
+
+        assert not any(
+            i.check == "unresolved_room" and i.message and doctor_a.code in i.message
+            for i in result.issues
+        )
+
     def test_failed_status_when_phase0_errors(self, session, monday):
         # No active template at all -> Phase 0 errors -> failed, nothing written
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
