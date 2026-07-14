@@ -301,6 +301,12 @@ export interface DutyIn {
   duty_type: DutyType;
 }
 
+export interface DutyCount {
+  doctor_id: number;
+  doctor_code: string;
+  raw_count: number;
+}
+
 // --- Practice closures (schemas/closure.py, M5 bank-holiday weeks) ---
 // Global planning data, independent of any generated rota - see
 // backend_app_models_closure.py. A rota's own closed_dates (Rota.closed_dates,

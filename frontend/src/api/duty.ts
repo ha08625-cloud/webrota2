@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { DutyAssignment, DutyIn } from "./types";
+import type { DutyAssignment, DutyIn, DutyCount } from "./types";
 
 export const dutyKeys = {
   all: ["duty"] as const,
   list: () => [...dutyKeys.all, "list"] as const,
+  counts: () => [...dutyKeys.all, "counts"] as const,
 };
 
 /**
@@ -36,5 +37,12 @@ export function useDeleteDuty() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: dutyKeys.all });
     },
+  });
+}
+
+export function useDutyCounts() {
+  return useQuery({
+    queryKey: dutyKeys.counts(),
+    queryFn: () => apiClient.get<DutyCount[]>("/duty/counts"),
   });
 }

@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { Fragment, useMemo, useState } from "react";
 
-import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
+import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts } from "@/api/duty";
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
@@ -20,6 +20,7 @@ import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
+import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
 
 const PERIODS: Period[] = ["AM", "PM"];
 const WEEK_COUNT = 4;
@@ -34,32 +35,13 @@ function findAssignment(
 }
 
 interface DutyGridProps {
-  /** The first of the 4 displayed weeks' Monday, "YYYY-MM-DD". */
   startWeekDate: string;
 }
 
-/**
- * Drag-and-drop duty board: 4 consecutive weeks (starting from
- * startWeekDate), each its own 6-column x 2-period grid, stacked
- * vertically, sharing one doctor palette and one DndContext so a chip
- * can be dropped onto a slot in any of the 4 weeks. Dropping onto an
- * occupied slot confirms with the user, then deletes the existing
- * assignment and creates the new one as two sequential calls (no
- * combined endpoint exists - same "independent calls, honest partial
- * failure" pattern as the flat table's existing Delete button and
- * Leave's both-AM+PM add). Clicking the chip in a filled cell removes
- * it, same semantics as the flat table's Delete button, just relocated
- * onto the chip itself.
- *
- * Column/slot enumeration lives in lib/dutyWeekSlots so the grid layout
- * and the week-completion check share one definition of the required
- * slots - normally 12 (6 columns x 2 periods), fewer when a weekday is
- * closed (M5): a closed day's column still renders (inert, greyed, no
- * drop target) but contributes no required slot.
- */
 export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
+  const { data: countsData, isLoading: countsLoading } = useDutyCounts();
   const { data: closures } = useClosures();
   const createDuty = useCreateDuty();
   const deleteDuty = useDeleteDuty();
@@ -71,11 +53,6 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
     [startWeekDate],
   );
 
-  // The full 4-week window's dates, so each DutyWeekTable can filter
-  // down to just its own 6 dates without re-fetching or re-deriving
-  // the window itself. Closures don't change which dates appear here -
-  // buildColumns always emits one column per weekday regardless of
-  // closure state - only threaded through for clarity.
   const windowAssignments = useMemo(() => {
     const windowDates = new Set(
       weekStartDates.flatMap((ws) => buildColumns(ws, closures ?? []).map((c) => c.date)),
@@ -89,10 +66,12 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
     return map;
   }, [allDoctors]);
 
-  // Duty is restricted to Partner/Salaried doctors - Trainees and AHPs
-  // are never eligible, per confirmed business rule. The existing
-  // add-row form below still offers all four types; that inconsistency
-  // is deliberate for now and will be resolved in a standalone step.
+  const countsById = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const c of countsData ?? []) map.set(c.doctor_id, c.raw_count);
+    return map;
+  }, [countsData]);
+
   const dutyEligibleDoctors = (allDoctors ?? []).filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
   );
@@ -150,16 +129,34 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex gap-6">
-        <div className="w-40 shrink-0">
-          <h2 className="text-sm font-medium text-ink/70">Doctors</h2>
+        <div className="w-56 shrink-0">
+          <div className="flex items-end justify-between">
+            <h2 className="text-sm font-medium text-ink/70">Doctors</h2>
+            <div className="flex gap-1 text-xs text-ink/50">
+              <span className="w-8 text-right">n</span>
+              <span className="w-10 text-right">wtd</span>
+            </div>
+          </div>
           <div className="mt-2 space-y-3">
             {doctorGroups.map((group) => (
               <div key={group.type}>
                 <div className="text-xs font-medium text-ink/50">{group.label}</div>
                 <div className="mt-1 space-y-1">
-                  {group.doctors.map((d) => (
-                    <DraggableDoctorChip key={d.id} doctorId={d.id} doctorCode={d.code} />
-                  ))}
+                  {group.doctors.map((d) => {
+                    const raw = countsLoading ? null : (countsById.get(d.id) ?? 0);
+                    const doctor = doctorsById.get(d.id);
+                    const wtd = raw === null ? null : formatWeightedScore(computeWeightedScore(raw, doctor));
+
+                    return (
+                      <div key={d.id} className="flex items-center gap-1">
+                        <div className="flex-1">
+                          <DraggableDoctorChip doctorId={d.id} doctorCode={d.code} />
+                        </div>
+                        <span className="w-8 text-right text-xs tabular-nums text-ink/70">{raw ?? "–"}</span>
+                        <span className="w-10 text-right text-xs tabular-nums text-ink/70">{wtd ?? "–"}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -187,29 +184,14 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
 
 interface DutyWeekTableProps {
   weekStartDate: string;
-  /** Assignments for the whole 4-week window - findAssignment and
-   * isDutyWeekComplete both match by exact date, so passing the full
-   * window rather than a pre-filtered per-week slice is equally correct
-   * and one less thing to keep in sync. */
   assignments: DutyAssignment[];
-  /** All practice closures (M5), unfiltered - buildColumns/isDutyWeekComplete
-   * only look at the dates relevant to this week. */
   closures: Closure[];
   doctorsById: Map<number, Doctor>;
   onRemove: (assignmentId: number) => void;
 }
 
-/** One week's 6-column x 2-period duty grid (5 columns if the whole week
- * is closed - see buildColumns). Must be rendered inside an ancestor
- * DndContext - it has no DndContext of its own, since DutyGrid shares one
- * across all 4 weeks. */
 function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRemove }: DutyWeekTableProps) {
   const columns = useMemo(() => buildColumns(weekStartDate, closures), [weekStartDate, closures]);
-  // Advisory display state only: slot-based check that all of this
-  // week's required (date, period, duty_type) slots are assigned -
-  // closure-aware via isDutyWeekComplete/weekDutySlots (M5). The backend
-  // Phase 0 hard block re-implements the same rule server-side; nothing
-  // here enforces anything.
   const complete = useMemo(
     () => isDutyWeekComplete(weekStartDate, assignments, closures),
     [weekStartDate, assignments, closures],

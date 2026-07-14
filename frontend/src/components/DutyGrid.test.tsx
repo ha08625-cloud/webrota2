@@ -1,5 +1,5 @@
-import { HttpResponse, http } from "msw";
-import { screen, waitFor, within } from "@testing-library/react";
+import { HttpResponse, http, delay } from "msw";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -151,6 +151,43 @@ describe("DutyGrid", () => {
 
     await waitFor(() => expect(deleted).toBe(true));
     await waitFor(() => expect(within(cell).queryByText("AB")).not.toBeInTheDocument());
+  });
+
+  it("renders counts and weighted score", async () => {
+  server.use(
+    http.get("/api/v1/duty/counts", () => 
+      HttpResponse.json([
+        { doctor_id: 1, doctor_code: "AA", raw_count: 4 },
+        { doctor_id: 2, doctor_code: "BB", raw_count: 0 }
+      ])
+    )
+  );
+
+  render(<DutyGrid startWeekDate="2026-07-06" />);
+  
+  // Example for doctor with raw 4, assuming 8.0 sessions_per_week -> 0.50 score
+  expect(await screen.findByText("4")).toBeInTheDocument();
+  expect(await screen.findByText("0.50")).toBeInTheDocument();
+
+  // Example for doctor with raw 0, assuming known sessions_per_week
+  expect(await screen.findByText("0")).toBeInTheDocument();
+  expect(await screen.findByText("0.00")).toBeInTheDocument();
+});
+
+  it("displays en-dash placeholders while loading counts", async () => {
+    server.use(
+      http.get("/api/v1/duty/counts", async () => {
+        await delay('infinite');
+        return HttpResponse.json([]);
+      })
+    );
+
+    render(<DutyGrid startWeekDate="2026-07-06" />);
+    
+    // Verify doctor chips rendered but numbers haven't populated yet
+    await waitFor(() => {
+      expect(screen.getAllByText("–").length).toBeGreaterThan(0);
+    });
   });
 
   it("an empty slot renders no chip and no delete control", async () => {
