@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeClinicCounter, makeDoctor, makeSystemCounter } from "@/test/fixtures/reference";
+import { makeClinicCounter, makeClinicType, makeDoctor, makeSystemCounter } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -12,12 +12,14 @@ import { CountersPage } from "./CountersPage";
 
 function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB", sessions_per_week: "10.0" })],
+  clinicTypes = [] as ReturnType<typeof makeClinicType>[],
   clinicCounters = [] as ReturnType<typeof makeClinicCounter>[],
   systemCounters = [] as ReturnType<typeof makeSystemCounter>[],
   rotas = [] as ReturnType<typeof makeRotaSummary>[],
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
+    http.get("/api/v1/clinic-types", () => HttpResponse.json(clinicTypes)),
     http.get("/api/v1/counters/clinic", () => HttpResponse.json(clinicCounters)),
     http.get("/api/v1/counters/system", () => HttpResponse.json(systemCounters)),
     http.get("/api/v1/rota", () => HttpResponse.json(rotas)),
@@ -28,71 +30,103 @@ const DRAFT_WARNING_FRAGMENT = "this reset will be undone";
 const NOT_SHOWN_FRAGMENT = "including counters for doctors not shown on this page";
 
 describe("CountersPage", () => {
-  it("shows an empty-state message for each table when there are no counters", async () => {
+  it("shows an empty-state message for each section when there are no clinic types and no system counters", async () => {
     setUpServer();
     renderWithProviders(<CountersPage />);
 
     expect(await screen.findByText("No clinic counters yet.")).toBeInTheDocument();
     expect(await screen.findByText("No system counters yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
-  it("renders a row per clinic counter and a row per system counter", async () => {
+  it("renders a tab per clinic type, ordered by clinic_priority ascending", async () => {
     setUpServer({
-      clinicCounters: [
-        makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_name: "Diabetic clinic", raw_count: 3 }),
-      ],
-      systemCounters: [
-        makeSystemCounter({ id: 1, doctor_id: 1, doctor_code: "AB", counter_type: "room_move", raw_count: 2 }),
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Diabetic clinic", clinic_priority: 20 }),
+        makeClinicType({ id: 2, name: "Antenatal clinic", clinic_priority: 10 }),
       ],
     });
     renderWithProviders(<CountersPage />);
 
-    const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
-    expect(within(clinicTable).getByText("Diabetic clinic")).toBeInTheDocument();
-    expect(within(clinicTable).getByText("3")).toBeInTheDocument();
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Antenatal clinic", "Diabetic clinic"]);
+  });
 
-    const systemTable = await screen.findByRole("table", { name: "System counters" });
-    expect(within(systemTable).getByText("room_move")).toBeInTheDocument();
-    expect(within(systemTable).getByText("2")).toBeInTheDocument();
+  it("shows a tab even for a clinic type with no counters yet, with its own empty message", async () => {
+    setUpServer({
+      clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+    });
+    renderWithProviders(<CountersPage />);
+
+    expect(await screen.findByRole("tab", { name: "Diabetic clinic" })).toBeInTheDocument();
+    expect(await screen.findByText("No counters yet for this clinic.")).toBeInTheDocument();
+  });
+
+  it("shows the first tab's counters by default and switches on click", async () => {
+    setUpServer({
+      clinicTypes: [
+        makeClinicType({ id: 1, name: "Antenatal clinic", clinic_priority: 10 }),
+        makeClinicType({ id: 2, name: "Diabetic clinic", clinic_priority: 20 }),
+      ],
+      clinicCounters: [
+        makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1, clinic_type_name: "Antenatal clinic", raw_count: 3 }),
+        makeClinicCounter({ id: 2, doctor_id: 1, doctor_code: "AB", clinic_type_id: 2, clinic_type_name: "Diabetic clinic", raw_count: 7 }),
+      ],
+    });
+    renderWithProviders(<CountersPage />);
+
+    let panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByText("3")).toBeInTheDocument();
+    expect(within(panel).queryByText("7")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "Diabetic clinic" }));
+
+    panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByText("7")).toBeInTheDocument();
+    expect(within(panel).queryByText("3")).not.toBeInTheDocument();
   });
 
   it("computes the weighted score as raw_count / sessions_per_week, to two decimal places", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "8.0" })],
-      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, raw_count: 4 })],
+      clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 4 })],
     });
     renderWithProviders(<CountersPage />);
 
-    const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+    const panel = await screen.findByRole("tabpanel");
     // 4 / 8 = 0.50 - only settles once both the counters and doctors
     // queries have resolved (the table itself renders as soon as the
     // counters query resolves, independently of the doctors query the
     // weighted-score column also depends on), so this must be a
-    // findByText scoped to the table, not a synchronous getByText.
-    expect(await within(clinicTable).findByText("0.50")).toBeInTheDocument();
+    // findByText scoped to the panel, not a synchronous getByText.
+    expect(await within(panel).findByText("0.50")).toBeInTheDocument();
   });
 
   it("shows the infinity symbol, not a dash, for a doctor with sessions_per_week of 0", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "0.0" })],
-      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, raw_count: 4 })],
+      clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 4 })],
     });
     renderWithProviders(<CountersPage />);
 
-    const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
-    expect(await within(clinicTable).findByText("\u221e")).toBeInTheDocument();
+    const panel = await screen.findByRole("tabpanel");
+    expect(await within(panel).findByText("\u221e")).toBeInTheDocument();
   });
 
   it("falls back to a dash, not a crash, when a counter's doctor_id has no matching doctor", async () => {
     setUpServer({
       doctors: [],
-      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 999, doctor_code: "ZZ", raw_count: 4 })],
+      clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+      clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 999, clinic_type_id: 1, doctor_code: "ZZ", raw_count: 4 })],
     });
     renderWithProviders(<CountersPage />);
 
-    const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
-    expect(within(clinicTable).getByText("ZZ")).toBeInTheDocument();
-    expect(await within(clinicTable).findByText("-")).toBeInTheDocument();
+    const panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByText("ZZ")).toBeInTheDocument();
+    expect(await within(panel).findByText("-")).toBeInTheDocument();
   });
 
   it("shows the live-values note", async () => {
@@ -107,7 +141,8 @@ describe("CountersPage", () => {
       vi.spyOn(window, "confirm").mockReturnValue(true);
       let resetId: number | null = null;
       setUpServer({
-        clinicCounters: [makeClinicCounter({ id: 5, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 5, doctor_id: 1, clinic_type_id: 1, doctor_code: "AB", raw_count: 3 })],
       });
       server.use(
         http.post("/api/v1/counters/clinic/:id/reset", ({ params }) => {
@@ -117,9 +152,9 @@ describe("CountersPage", () => {
       );
       renderWithProviders(<CountersPage />);
 
-      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+      await user.click(within(panel).getByRole("button", { name: "Reset" }));
 
       expect(resetId).toBe(5);
     });
@@ -151,7 +186,8 @@ describe("CountersPage", () => {
       vi.spyOn(window, "confirm").mockReturnValue(true);
       let resetAllFired = false;
       setUpServer({
-        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, doctor_code: "AB", raw_count: 3 })],
       });
       server.use(
         http.post("/api/v1/counters/clinic/reset-all", () => {
@@ -185,14 +221,15 @@ describe("CountersPage", () => {
     it("includes the draft warning when a draft rota is active", async () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
       setUpServer({
-        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, doctor_code: "AB", raw_count: 3 })],
         rotas: [makeRotaSummary({ rota_id: 1, status: "draft" })],
       });
       renderWithProviders(<CountersPage />);
 
-      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+      await user.click(within(panel).getByRole("button", { name: "Reset" }));
 
       expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(DRAFT_WARNING_FRAGMENT));
     });
@@ -200,14 +237,15 @@ describe("CountersPage", () => {
     it("excludes the draft warning when there is no draft rota", async () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
       setUpServer({
-        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", raw_count: 3 })],
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, doctor_code: "AB", raw_count: 3 })],
         rotas: [makeRotaSummary({ rota_id: 1, status: "committed" })],
       });
       renderWithProviders(<CountersPage />);
 
-      const clinicTable = await screen.findByRole("table", { name: "Clinic counters" });
+      const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      await user.click(within(clinicTable).getByRole("button", { name: "Reset" }));
+      await user.click(within(panel).getByRole("button", { name: "Reset" }));
 
       expect(confirmSpy).toHaveBeenCalledWith(expect.not.stringContaining(DRAFT_WARNING_FRAGMENT));
     });
