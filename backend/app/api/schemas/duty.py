@@ -27,3 +27,8 @@ class DutyIn(DutyBase):
 class DutyOut(DutyBase):
     id: int
     model_config = {"from_attributes": True}
+
+class DutyCountOut(BaseModel):
+    doctor_id: int
+    doctor_code: str
+    raw_count: int

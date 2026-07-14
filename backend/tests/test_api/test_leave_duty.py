@@ -1,5 +1,6 @@
 import datetime
 
+from app.models import Doctor
 from app.models import DutyAssignment
 from app.models.enums import DutyType, Period
 
@@ -115,3 +116,72 @@ class TestDuty:
         })
         assert resp.status_code == 201
         assert resp.json()["duty_type"] == "secondary"
+
+class TestDutyCounts:
+    def test_empty_counts(self, client, seeded, db_session):
+        """Active doctors should be returned with a count of 0, ordered by code."""
+        resp = client.get("/api/v1/duty/counts")
+        assert resp.status_code == 200
+        
+        data = resp.json()
+        assert len(data) > 0  # Assuming seeded data creates some active doctors
+        
+        # Verify zeros and ordering
+        codes = []
+        for d in data:
+            assert d["raw_count"] == 0
+            codes.append(d["doctor_code"])
+        
+        assert codes == sorted(codes)
+
+    def test_multiple_assignments_and_combined_types(self, client, seeded, db_session):
+        """Should sum both PRIMARY and SECONDARY duties, ignoring dates."""
+        d1 = DutyAssignment(date=datetime.date(2026, 2, 1), period=Period.AM, doctor_id=seeded["doctor_aa"], duty_type=DutyType.PRIMARY)
+        d2 = DutyAssignment(date=datetime.date(2026, 2, 2), period=Period.PM, doctor_id=seeded["doctor_aa"], duty_type=DutyType.PRIMARY)
+        d3 = DutyAssignment(date=datetime.date(2026, 2, 3), period=Period.AM, doctor_id=seeded["doctor_aa"], duty_type=DutyType.SECONDARY)
+        
+        db_session.add_all([d1, d2, d3])
+        db_session.commit()
+
+        resp = client.get("/api/v1/duty/counts")
+        assert resp.status_code == 200
+        data = resp.json()
+        
+        aa_count = next(d for d in data if d["doctor_id"] == seeded["doctor_aa"])
+        assert aa_count["raw_count"] == 3
+
+    def test_inactive_doctor_excluded(self, client, seeded, db_session):
+        """Inactive doctors must not appear in the payload at all."""
+        doc = db_session.get(Doctor, seeded["doctor_bb"])
+        doc.active = False
+        db_session.commit()
+
+        resp = client.get("/api/v1/duty/counts")
+        data = resp.json()
+        
+        assert not any(d["doctor_id"] == seeded["doctor_bb"] for d in data)
+
+    def test_date_filtering_join_vs_where(self, client, seeded, db_session):
+        """
+        Regression test: Date filters must apply to the JOIN condition, 
+        not the WHERE clause. A doctor with duties outside the window 
+        should still appear in the list with a count of 0.
+        """
+        # Out-of-window duty
+        d1 = DutyAssignment(date=datetime.date(2026, 1, 1), period=Period.AM, doctor_id=seeded["doctor_aa"], duty_type=DutyType.PRIMARY)
+        # In-window duty
+        d2 = DutyAssignment(date=datetime.date(2026, 2, 1), period=Period.AM, doctor_id=seeded["doctor_bb"], duty_type=DutyType.PRIMARY)
+        
+        db_session.add_all([d1, d2])
+        db_session.commit()
+
+        # Query just the February window
+        resp = client.get("/api/v1/duty/counts?from_date=2026-02-01&to_date=2026-02-28")
+        data = resp.json()
+
+        aa_count = next(d for d in data if d["doctor_id"] == seeded["doctor_aa"])
+        bb_count = next(d for d in data if d["doctor_id"] == seeded["doctor_bb"])
+
+        # Doctor AA is still fetched due to outer join, but their Jan assignment is omitted from the count
+        assert aa_count["raw_count"] == 0
+        assert bb_count["raw_count"] == 1

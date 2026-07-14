@@ -1,4 +1,4 @@
-"""Duty router (M3 Task 6).
+"""Duty router.
 
 DutyAssignment is a template input to generation, not an audit trail:
 session-level duty swaps on a generated rota deliberately do not write back
@@ -30,14 +30,14 @@ from __future__ import annotations
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...models import Doctor, DutyAssignment, PracticeClosure
 from ...models.enums import DutyType
 from ..deps import get_current_user, get_db
-from ..schemas import DutyIn, DutyOut
+from ..schemas import DutyIn, DutyOut, DutyCountOut
 
 router = APIRouter(prefix="/duty", tags=["duty"])
 
@@ -67,6 +67,32 @@ def _first_open_weekday(
             return candidate
     return None
 
+@router.get("/counts", response_model=list[DutyCountOut])
+def duty_counts(
+    from_date: datetime.date | None = None,
+    to_date: datetime.date | None = None,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[DutyCountOut]:
+    join_cond = DutyAssignment.doctor_id == Doctor.id
+    if from_date is not None:
+        join_cond = and_(join_cond, DutyAssignment.date >= from_date)
+    if to_date is not None:
+        join_cond = and_(join_cond, DutyAssignment.date <= to_date)
+
+    rows = db.execute(
+        select(
+            Doctor.id,
+            Doctor.code,
+            func.count(DutyAssignment.id).label("raw_count"),
+        )
+        .outerjoin(DutyAssignment, join_cond)
+        .where(Doctor.active.is_(True))
+        .group_by(Doctor.id, Doctor.code)
+        .order_by(Doctor.code)
+    ).all()
+    
+    return [DutyCountOut(doctor_id=i, doctor_code=c, raw_count=n) for i, c, n in rows]
 
 @router.get("", response_model=list[DutyOut])
 def list_duty(
