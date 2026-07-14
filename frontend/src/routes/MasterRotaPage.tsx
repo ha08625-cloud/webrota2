@@ -1,4 +1,5 @@
 import { useCreateMasterSession, useDeleteMasterSession, useUpdateMasterSession, useActiveMasterRota } from "@/api/masterRota";
+import { MasterRotaConflictsPanel } from "@/components/MasterRotaConflictsPanel";
 import { MasterRotaGrid } from "@/components/MasterRotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { buildMasterReplaySteps, type MasterUndoEntry } from "@/lib/masterUndo";
@@ -107,13 +108,16 @@ export function MasterRotaPage() {
         </button>
       </div>
 
-      <div className="mt-6">
-        <MasterRotaGrid
-          sessions={template.sessions}
-          templateId={currentTemplateId}
-          onMutationApplied={handleMutationApplied}
-          onMutationError={handleMutationError}
-        />
+      <div className="mt-6 flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <MasterRotaGrid
+            sessions={template.sessions}
+            templateId={currentTemplateId}
+            onMutationApplied={handleMutationApplied}
+            onMutationError={handleMutationError}
+          />
+        </div>
+        <MasterRotaConflictsPanel sessions={template.sessions} />
       </div>
 
       <ToastDisplay message={toast?.message} />
