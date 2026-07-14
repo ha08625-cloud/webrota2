@@ -1,6 +1,8 @@
 import type { HttpHandler } from "msw";
 import { HttpResponse, http } from "msw";
 
+import { makeClinicCounter, makeSystemCounter } from "@/test/fixtures/reference";
+
 /**
  * Default handlers, overridden per-test via server.use(...) for
  * test-specific payloads (see RotaDetailPage_test.tsx for the pattern).
@@ -16,6 +18,10 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/closures", () => HttpResponse.json([])),
   http.get("/api/v1/counters/clinic", () => HttpResponse.json([])),
   http.get("/api/v1/counters/system", () => HttpResponse.json([])),
+  http.post("/api/v1/counters/clinic/:id/reset", () => HttpResponse.json(makeClinicCounter())),
+  http.post("/api/v1/counters/system/:id/reset", () => HttpResponse.json(makeSystemCounter())),
+  http.post("/api/v1/counters/clinic/reset-all", () => new HttpResponse(null, { status: 204 })),
+  http.post("/api/v1/counters/system/reset-all", () => new HttpResponse(null, { status: 204 })),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),
   http.patch("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     HttpResponse.json({
