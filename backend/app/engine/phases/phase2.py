@@ -3,7 +3,11 @@ the working copy of the counters.
 
 This is the foundation every later phase reads from and mutates. Nothing is
 resolved here beyond what the template already states: `REQUIRES_ROOM` slots
-are created with `assigned_room_id=None` and left for Phases 5/7-9A.
+are created with `assigned_room_id=None` and left for Phases 5/7-9A. A
+PRE_ASSIGNED/ADMIN_TIME slot claims its template_room_id immediately -- unless
+the slot is on leave, in which case the slot is still created (with
+template_type/template_room_id intact) but the room claim is skipped, freeing
+the room for later phases to assign elsewhere.
 """
 from __future__ import annotations
 
@@ -66,7 +70,11 @@ def _build_grid(context: GenerationContext, config: RotaConfig) -> RotaGrid:
                     )
                     grid.add_slot(slot)
 
-                    if template_room_id is not None and template_type in _PRE_OCCUPYING_TYPES:
+                    if (
+                        template_room_id is not None
+                        and template_type in _PRE_OCCUPYING_TYPES
+                        and not is_on_leave
+                    ):
                         grid.assign_room(gen_week, day, period, doctor.id, template_room_id)
 
     return grid
