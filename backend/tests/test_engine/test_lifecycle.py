@@ -1,12 +1,22 @@
-"""Lifecycle tests for the M3 counter snapshot / commit / scrap mechanics.
+"""Lifecycle tests for the M3 / M3.7 counter snapshot / commit / scrap /
+rollback mechanics.
 
-Engine-level (no API): these verify Task 1 independently before the routers
-exist. The API tests in tests/test_api/ later exercise the same paths via
-HTTP, including the swap-then-scrap restoration case end to end.
+Engine-level (no API): these verify the engine functions independently of
+the routers. The API tests in tests/test_api/ later exercise the same
+paths via HTTP, including the swap-then-scrap restoration case and the
+rollback-commit endpoint end to end.
 """
+import datetime
+
 from sqlalchemy import select
 
-from app.engine.generate import commit_rota, generate, get_active_draft, scrap_rota
+from app.engine.generate import (
+    commit_rota,
+    generate,
+    get_active_draft,
+    rollback_commit,
+    scrap_rota,
+)
 from app.models import (
     ClinicCounter,
     GeneratedRota,
@@ -63,10 +73,18 @@ def _build_fixture(session, monday):
     # Pre-existing counter with a non-zero value: raw_count=3 before generation.
     make_clinic_counter(session, a, ct, raw_count=3)
 
-    config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+    config = _make_config(session, monday)
+    return config, a, b, ct
+
+
+def _make_config(session, start_date, num_weeks=1, template_start_week=1):
+    config = RotaConfig(
+        start_date=start_date, num_weeks=num_weeks,
+        template_start_week=template_start_week,
+    )
     session.add(config)
     session.flush()
-    return config, a, b, ct
+    return config
 
 
 def _clinic_count(session, doctor_id, clinic_type_id):
@@ -108,15 +126,26 @@ class TestSnapshotOnGenerate:
 
 
 class TestCommit:
-    def test_commit_sets_status_and_deletes_snapshots(self, session, monday):
+    def test_commit_preserves_snapshots_and_sets_committed_at(self, session, monday):
+        """M3.7: commit no longer deletes the counter snapshot -- it
+        persists as the permanent audit record rollback_commit() restores
+        from. This inverts the pre-M3.7 assertion that snapshots were
+        deleted on commit."""
         config, a, b, ct = _build_fixture(session, monday)
         result = generate(session, config.id)
 
         rota = commit_rota(session, result.rota_id)
         assert rota.status == RotaStatus.COMMITTED
+        assert rota.committed_at is not None
 
-        assert session.execute(select(RotaClinicCounterSnapshot)).scalars().first() is None
-        assert session.execute(select(RotaSystemCounterSnapshot)).scalars().first() is None
+        assert session.execute(
+            select(RotaClinicCounterSnapshot).where(
+                RotaClinicCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is not None
+        assert session.execute(
+            select(RotaSystemCounterSnapshot).where(
+                RotaSystemCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is not None
         # Committed values stay live: baseline for the next generation.
         assert _clinic_count(session, a.id, ct.id) == 4
 
@@ -179,7 +208,7 @@ class TestScrap:
 
         second = generate(session, config.id)
         assert _clinic_count(session, a.id, ct.id) == 4
-        assert second.rota_id is not None
+        assert second.rota_id != first.rota_id
 
 
 class TestActiveDraft:
@@ -191,3 +220,237 @@ class TestActiveDraft:
         assert draft is not None and draft.id == result.rota_id
         commit_rota(session, result.rota_id)
         assert get_active_draft(session) is None
+
+
+class TestRollbackCommit:
+    """M3.7: rollback_commit() undoes a commit one step at a time."""
+
+    def test_rollback_happy_path_restores_counters_and_flips_status(
+        self, session, monday
+    ):
+        config, a, b, ct = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        assert _clinic_count(session, a.id, ct.id) == 4
+        commit_rota(session, result.rota_id)
+
+        # Snapshot survives commit (M3.7).
+        assert session.execute(
+            select(RotaClinicCounterSnapshot).where(
+                RotaClinicCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is not None
+
+        rolled = rollback_commit(session, result.rota_id)
+        assert rolled.status == RotaStatus.DRAFT
+        assert rolled.committed_at is None
+        # Restored to the pre-generation snapshot value.
+        assert _clinic_count(session, a.id, ct.id) == 3
+
+        # Rollback does not delete the snapshot -- only scrap does.
+        assert session.execute(
+            select(RotaClinicCounterSnapshot).where(
+                RotaClinicCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is not None
+
+    def test_rollback_restore_deletes_new_rows_and_recreates_deleted_rows(
+        self, session, monday
+    ):
+        """Exercises the shared _restore_counters_from_snapshot() helper
+        via rollback rather than scrap: a counter row created after the
+        snapshot is deleted, and a snapshotted row deleted after commit is
+        recreated at its pre-generation value."""
+        config, a, b, ct = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+
+        session.add(ClinicCounter(doctor_id=b.id, clinic_type_id=ct.id, raw_count=5))
+        a_row = session.execute(
+            select(ClinicCounter).where(ClinicCounter.doctor_id == a.id)
+        ).scalar_one()
+        session.delete(a_row)
+        session.flush()
+
+        rollback_commit(session, result.rota_id)
+
+        assert _clinic_count(session, a.id, ct.id) == 3  # recreated at snapshot value
+        assert _clinic_count(session, b.id, ct.id) is None  # absent from snapshot, deleted
+
+    def test_rollback_not_found_raises(self, session, monday):
+        try:
+            rollback_commit(session, 999999)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "not found" in str(exc)
+
+    def test_rollback_not_committed_raises(self, session, monday):
+        config, *_ = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        try:
+            rollback_commit(session, result.rota_id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "not committed" in str(exc)
+
+    def test_rollback_committed_at_null_raises(self, session, monday):
+        """A rota committed before rollback support existed has
+        committed_at = NULL and had its snapshots deleted at commit time
+        under the old lifecycle -- restoring against it would be unsafe,
+        so it must be hard-blocked regardless of anything else."""
+        config = _make_config(session, monday)
+        rota = GeneratedRota(config_id=config.id, status=RotaStatus.COMMITTED)
+        session.add(rota)
+        session.flush()
+        assert rota.committed_at is None
+
+        try:
+            rollback_commit(session, rota.id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "rollback support" in str(exc)
+
+    def test_rollback_active_draft_blocks(self, session, monday):
+        config, *_ = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+
+        # A second generation run creates a new draft, which must be
+        # resolved before the first commit can be rolled back.
+        config2 = _make_config(session, monday + datetime.timedelta(days=7))
+        generate(session, config2.id)
+
+        try:
+            rollback_commit(session, result.rota_id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "draft" in str(exc).lower()
+
+    def test_rollback_not_most_recent_names_blocker(self, session, monday):
+        config, *_ = _build_fixture(session, monday)
+        result_a = generate(session, config.id)
+        commit_rota(session, result_a.rota_id)
+
+        config2 = _make_config(session, monday + datetime.timedelta(days=7))
+        result_b = generate(session, config2.id)
+        commit_rota(session, result_b.rota_id)
+
+        try:
+            rollback_commit(session, result_a.rota_id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert str(result_b.rota_id) in str(exc)
+
+    def test_rollback_zero_snapshot_rows_raises(self, session, monday):
+        """Belt-and-braces companion to the committed_at check: a committed
+        rota with committed_at set but no snapshot rows at all should never
+        happen in a seeded system, and must also be refused."""
+        config = _make_config(session, monday)
+        rota = GeneratedRota(
+            config_id=config.id, status=RotaStatus.COMMITTED,
+            committed_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        session.add(rota)
+        session.flush()
+
+        try:
+            rollback_commit(session, rota.id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "snapshot" in str(exc)
+
+    def test_rolled_back_rota_is_recommitable_and_becomes_most_recent(
+        self, session, monday
+    ):
+        config, *_ = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+
+        rolled = rollback_commit(session, result.rota_id)
+        assert rolled.status == RotaStatus.DRAFT
+
+        recommitted = commit_rota(session, result.rota_id)
+        assert recommitted.status == RotaStatus.COMMITTED
+        assert recommitted.committed_at is not None
+
+        most_recent = session.execute(
+            select(GeneratedRota)
+            .where(GeneratedRota.status == RotaStatus.COMMITTED)
+            .order_by(GeneratedRota.committed_at.desc().nullslast(), GeneratedRota.id.desc())
+        ).scalars().first()
+        assert most_recent.id == result.rota_id
+
+    def test_rolled_back_rota_is_scrappable(self, session, monday):
+        config, *_ = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+        rollback_commit(session, result.rota_id)
+
+        scrap_rota(session, result.rota_id)
+        assert session.get(GeneratedRota, result.rota_id) is None
+        assert session.execute(
+            select(RotaClinicCounterSnapshot).where(
+                RotaClinicCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is None
+
+    def test_rollback_full_chain_interleaved_with_scraps(self, session, monday):
+        """Roll back C, then B, then A -- in strict reverse order, each
+        requiring the previous rollback to be scrapped first. Verifies the
+        chain both restores counters correctly at each step and enforces
+        strict ordering throughout."""
+        t = make_template(session, is_active=True)
+        a = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        b = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
+        room = make_room(session, code="C1", room_type=RoomType.C)
+        for doc in (a, b):
+            make_system_counter(session, doc, SystemCounterType.ROOM_MOVE)
+            make_system_counter(session, doc, SystemCounterType.SUPERVISION)
+            make_master_session(
+                session, t, doc, week=1, day=Day.MONDAY, period=Period.AM,
+                session_type=MasterSessionType.REQUIRES_ROOM,
+            )
+        ct = make_clinic_type(
+            session, name="Dragon", clinic_priority=10, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(a.id, 1)], room_ids=[room.id],
+        )
+
+        config_a = _make_config(session, monday)
+        result_a = generate(session, config_a.id)
+        commit_rota(session, result_a.rota_id)
+
+        config_b = _make_config(session, monday + datetime.timedelta(days=7))
+        result_b = generate(session, config_b.id)
+        commit_rota(session, result_b.rota_id)
+
+        config_c = _make_config(session, monday + datetime.timedelta(days=14))
+        result_c = generate(session, config_c.id)
+        commit_rota(session, result_c.rota_id)
+
+        # No pre-existing counter row in this fixture: A -> 1, B -> 2, C -> 3.
+        assert _clinic_count(session, a.id, ct.id) == 3
+
+        # Roll back C: restored to the value immediately before C's
+        # generation, i.e. after A and B.
+        rolled_c = rollback_commit(session, result_c.rota_id)
+        assert rolled_c.status == RotaStatus.DRAFT
+        assert _clinic_count(session, a.id, ct.id) == 2
+
+        # B cannot be rolled back yet: C is sitting as an unresolved draft.
+        try:
+            rollback_commit(session, result_b.rota_id)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
+        # Scrap C to free the draft slot, then roll back B.
+        scrap_rota(session, result_c.rota_id)
+        rolled_b = rollback_commit(session, result_b.rota_id)
+        assert rolled_b.status == RotaStatus.DRAFT
+        assert _clinic_count(session, a.id, ct.id) == 1
+
+        scrap_rota(session, result_b.rota_id)
+        rolled_a = rollback_commit(session, result_a.rota_id)
+        assert rolled_a.status == RotaStatus.DRAFT
+        assert _clinic_count(session, a.id, ct.id) == 0
+
+        # A is now a plain draft again -- normal draft lifecycle applies.
+        scrap_rota(session, result_a.rota_id)
+        assert session.execute(select(GeneratedRota)).scalars().first() is None

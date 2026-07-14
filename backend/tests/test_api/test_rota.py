@@ -1,4 +1,4 @@
-"""Rota lifecycle and swap tests via the API (M3 Task 8)."""
+"""Rota lifecycle and swap tests via the API (M3 Task 8, extended M3.7)."""
 import datetime
 
 from sqlalchemy import select
@@ -109,7 +109,13 @@ class TestGenerate:
 
 
 class TestCommit:
-    def test_commit_sets_status_and_removes_snapshots(self, client, db_session, seeded):
+    def test_commit_preserves_snapshots_and_sets_committed_at(
+        self, client, db_session, seeded
+    ):
+        """M3.7: commit no longer deletes the counter snapshot -- it
+        persists as the permanent audit record the rollback-commit
+        endpoint restores from. This inverts the pre-M3.7 assertion that
+        snapshots were deleted on commit."""
         make_clinic_type_via_api(client, seeded)
         out = generate_rota(client)
         assert db_session.execute(
@@ -117,14 +123,127 @@ class TestCommit:
 
         resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "committed"
+        body = resp.json()
+        assert body["status"] == "committed"
+        assert body["committed_at"] is not None
+
         db_session.expire_all()
         assert db_session.execute(
-            select(RotaClinicCounterSnapshot)).scalars().first() is None
+            select(RotaClinicCounterSnapshot)).scalars().first() is not None
         assert db_session.execute(
-            select(RotaSystemCounterSnapshot)).scalars().first() is None
+            select(RotaSystemCounterSnapshot)).scalars().first() is not None
         # Committing twice is a 409.
         assert client.post(f"/api/v1/rota/{out['rota_id']}/commit").status_code == 409
+
+
+class TestRollbackCommit:
+    """M3.7: POST /rota/{id}/rollback-commit."""
+
+    def test_rollback_happy_path_restores_counters_and_returns_draft(
+        self, client, seeded
+    ):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        assert _clinic_counters(client)[("AA", "Dragon")] == 1
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "draft"
+        assert body["committed_at"] is None
+        # No pre-generation counter row existed, so it is deleted on restore.
+        assert _clinic_counters(client) == {}
+
+    def test_rollback_404_when_not_found(self, client, seeded):
+        resp = client.post("/api/v1/rota/999999/rollback-commit")
+        assert resp.status_code == 404
+
+    def test_rollback_409_when_not_committed(self, client, seeded):
+        out = generate_rota(client)
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+        assert resp.status_code == 409
+
+    def test_rollback_409_when_committed_before_rollback_support(
+        self, client, db_session, seeded
+    ):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        # Simulate a rota committed before rollback support existed.
+        rota = db_session.get(GeneratedRota, out["rota_id"])
+        rota.committed_at = None
+        db_session.commit()
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+        assert resp.status_code == 409
+        assert "rollback support" in resp.json()["detail"]
+
+    def test_rollback_409_when_active_draft_exists(self, client, seeded):
+        out_a = generate_rota(client)
+        client.post(f"/api/v1/rota/{out_a['rota_id']}/commit")
+
+        # A second generation run creates a new draft.
+        generate_rota(client, start_date=MONDAY + datetime.timedelta(days=7))
+
+        resp = client.post(f"/api/v1/rota/{out_a['rota_id']}/rollback-commit")
+        assert resp.status_code == 409
+
+    def test_rollback_409_when_not_most_recent_commit(self, client, seeded):
+        out_a = generate_rota(client)
+        client.post(f"/api/v1/rota/{out_a['rota_id']}/commit")
+
+        out_b = generate_rota(client, start_date=MONDAY + datetime.timedelta(days=7))
+        client.post(f"/api/v1/rota/{out_b['rota_id']}/commit")
+
+        resp = client.post(f"/api/v1/rota/{out_a['rota_id']}/rollback-commit")
+        assert resp.status_code == 409
+        assert str(out_b["rota_id"]) in resp.json()["detail"]
+
+    def test_rolled_back_rota_is_recommitable(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "committed"
+        assert body["committed_at"] is not None
+
+    def test_rolled_back_rota_is_scrappable(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+
+        resp = client.delete(f"/api/v1/rota/{out['rota_id']}")
+        assert resp.status_code == 204
+
+
+class TestCommittedAtExposure:
+    """M3.7: committed_at is exposed on both RotaOut and RotaSummaryOut so
+    the frontend can determine which committed rota, if any, is eligible
+    for the rollback affordance."""
+
+    def test_committed_at_null_for_draft_and_set_after_commit(self, client, seeded):
+        out = generate_rota(client)
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        assert rota["committed_at"] is None
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        assert resp.json()["committed_at"] is not None
+
+    def test_committed_at_present_in_list_endpoint(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        rotas = client.get("/api/v1/rota").json()
+        row = next(r for r in rotas if r["rota_id"] == out["rota_id"])
+        assert row["committed_at"] is not None
+        assert row["status"] == "committed"
 
 
 class TestScrap:
