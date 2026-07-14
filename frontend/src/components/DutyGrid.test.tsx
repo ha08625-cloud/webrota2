@@ -1,5 +1,5 @@
 import { HttpResponse, http, delay } from "msw";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -154,27 +154,40 @@ describe("DutyGrid", () => {
   });
 
   it("renders counts and weighted score", async () => {
-  server.use(
-    http.get("/api/v1/duty/counts", () => 
-      HttpResponse.json([
-        { doctor_id: 1, doctor_code: "AA", raw_count: 4 },
-        { doctor_id: 2, doctor_code: "BB", raw_count: 0 }
-      ])
-    )
-  );
+    // 1. Call setUpServer with explicit sessions_per_week to ensure the math 
+    //    matches our assertions (8.0 spw -> 0.50 score for 4 duties).
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: 8.0 }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true, sessions_per_week: 4.0 }),
+      ]
+    });
 
-  render(<DutyGrid startWeekDate="2026-07-06" />);
-  
-  // Example for doctor with raw 4, assuming 8.0 sessions_per_week -> 0.50 score
-  expect(await screen.findByText("4")).toBeInTheDocument();
-  expect(await screen.findByText("0.50")).toBeInTheDocument();
+    server.use(
+      http.get("/api/v1/duty/counts", () => 
+        HttpResponse.json([
+          { doctor_id: 1, doctor_code: "AB", raw_count: 4 },
+          { doctor_id: 2, doctor_code: "CD", raw_count: 0 }
+        ])
+      )
+    );
 
-  // Example for doctor with raw 0, assuming known sessions_per_week
-  expect(await screen.findByText("0")).toBeInTheDocument();
-  expect(await screen.findByText("0.00")).toBeInTheDocument();
-});
+    // 2. Use renderWithProviders instead of render, and stick to the MONDAY constant
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+    
+    // Doctor 1 (AB): raw 4, 8.0 sessions_per_week -> 0.50 score
+    expect(await screen.findByText("4")).toBeInTheDocument();
+    expect(await screen.findByText("0.50")).toBeInTheDocument();
+
+    // Doctor 2 (CD): raw 0, 4.0 sessions_per_week -> 0.00 score
+    expect(await screen.findByText("0")).toBeInTheDocument();
+    expect(await screen.findByText("0.00")).toBeInTheDocument();
+  });
 
   it("displays en-dash placeholders while loading counts", async () => {
+    // 1. Setup base routes so doctors load and the grid actually renders the chips
+    setUpServer();
+    
     server.use(
       http.get("/api/v1/duty/counts", async () => {
         await delay('infinite');
@@ -182,7 +195,8 @@ describe("DutyGrid", () => {
       })
     );
 
-    render(<DutyGrid startWeekDate="2026-07-06" />);
+    // 2. Use renderWithProviders
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     
     // Verify doctor chips rendered but numbers haven't populated yet
     await waitFor(() => {
