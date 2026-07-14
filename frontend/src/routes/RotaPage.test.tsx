@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useParams } from "react-router-dom";
 
 import type { DutyAssignment } from "@/api/types";
-import { makeClinicType, makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeClinicType, makeClosure, makeDutyAssignment } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -284,6 +284,39 @@ describe("RotaPage", () => {
       await user.selectOptions(weekSelect, otherWeek);
 
       const badge = await screen.findByTestId(`generate-week-duty-status-${otherWeek}`);
+      await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
+    });
+
+    it("shows 'fully staffed' when a closed weekday's slots are excluded, matching the Duty page rule", async () => {
+      // Regression test: DutyStatusList must fetch closures and pass them
+      // through to isDutyWeekComplete, same as DutyGrid does. Without
+      // that, a closed Monday's slots are still counted as required, so a
+      // genuinely complete week reads as incomplete here even though the
+      // Duty page marks it fully staffed.
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+
+      const [defaultWeek] = getUpcomingMondays(1);
+      const closedMonday = defaultWeek;
+      const closures = [makeClosure({ date: closedMonday })];
+
+      server.use(http.get("/api/v1/closures", () => HttpResponse.json(closures)));
+      server.use(
+        http.get("/api/v1/duty", () =>
+          HttpResponse.json(
+            weekDutySlots(defaultWeek, closures).map((slot) =>
+              makeDutyAssignment({ date: slot.date, period: slot.period, duty_type: slot.dutyType }),
+            ),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
+      expect(weekSelect.value).toBe(defaultWeek);
+
+      const badge = await screen.findByTestId(`generate-week-duty-status-${defaultWeek}`);
       await waitFor(() => expect(badge).toHaveTextContent("Duty fully staffed"));
     });
   });
