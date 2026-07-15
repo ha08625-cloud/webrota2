@@ -45,6 +45,7 @@ from ...models import (
     Room,
     RotaClosure,
     RotaConfig,
+    RotaGenerationLogEntry,
     RotaSession,
 )
 from ...models.enums import MasterSessionType, RotaStatus, SessionRole
@@ -61,6 +62,7 @@ from ..deps import get_current_user, get_db
 from ..schemas import (
     GenerateRotaIn,
     GenerateRotaOut,
+    GenerationLogEntryOut,
     RotaOut,
     RotaSessionOut,
     RotaSummaryOut,
@@ -404,6 +406,31 @@ def get_rota_issues(
     # Works on drafts and committed rotas (M3 plan, resolution 6).
     _get_rota_or_404(db, rota_id)
     return _issues_out(db, rota_id)
+
+
+@router.get("/{rota_id}/log", response_model=list[GenerationLogEntryOut])
+def get_rota_log(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[GenerationLogEntryOut]:
+    """The generation decision log, in the order the engine recorded it.
+
+    Unlike /issues above, which persists nothing and re-runs Phase 12 via
+    a grid rebuild on every request, this reads rows that were written
+    once, in the same transaction as the rota, by generate._write_to_db()
+    and never re-derived. No grid rebuild, no filter query parameters --
+    a full 4-week run produces at most a few hundred rows, and filtering
+    is done client-side. Works on drafts and committed rotas alike; empty
+    for a rota with no log rows (e.g. one that predates this feature).
+    """
+    _get_rota_or_404(db, rota_id)
+    rows = db.execute(
+        select(RotaGenerationLogEntry)
+        .where(RotaGenerationLogEntry.rota_id == rota_id)
+        .order_by(RotaGenerationLogEntry.sequence)
+    ).scalars().all()
+    return [GenerationLogEntryOut.model_validate(r) for r in rows]
 
 
 @router.post("/{rota_id}/commit", response_model=RotaOut)
