@@ -28,15 +28,25 @@ function noop() {
   // onWeekChange stub - these tests don't exercise week switching.
 }
 
+/**
+ * Design Decision 7 has both the Morning and Afternoon blocks repeat the
+ * day header row and the room-code label column, so "Monday" and "D1"
+ * legitimately appear twice in the DOM - once per block. Tests that care
+ * about header/label content scope to a single table (via getAllByRole
+ * ("table") - Morning is index 0, Afternoon is index 1) rather than
+ * asserting global uniqueness, which would contradict the design.
+ * Occupied/available cell testids stay unique because they're keyed by
+ * period, and period differs between the two blocks.
+ */
 describe("RoomRotaGrid", () => {
   it("renders room rows in D, C, W, SR order", async () => {
     setUpServer();
     const rota = makeRota({ sessions: [] });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
-    await screen.findByText("D1");
-    const roomCells = screen.getAllByText(/^(D1|C1|W1|SR)$/);
-    expect(roomCells.map((el) => el.textContent)).toEqual(["D1", "C1", "W1", "SR", "D1", "C1", "W1", "SR"]);
+    const tables = await screen.findAllByRole("table");
+    const morningRoomLabels = within(tables[0]).getAllByText(/^(D1|C1|W1|SR)$/);
+    expect(morningRoomLabels.map((el) => el.textContent)).toEqual(["D1", "C1", "W1", "SR"]);
   });
 
   it("shows an occupied cell with doctor code, role label, and a red background", async () => {
@@ -85,8 +95,8 @@ describe("RoomRotaGrid", () => {
     const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
-    await screen.findByTestId("room-day-header-Monday");
-    const header = screen.getByTestId("room-day-header-Monday");
+    const tables = await screen.findAllByRole("table");
+    const header = within(tables[0]).getByTestId("room-day-header-Monday");
     expect(header.className).toContain("bg-gray-200");
     expect(within(header).getByText("closed")).toBeInTheDocument();
 
@@ -103,7 +113,8 @@ describe("RoomRotaGrid", () => {
     const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
-    const header = await screen.findByTestId("room-day-header-Monday");
+    const tables = await screen.findAllByRole("table");
+    const header = within(tables[0]).getByTestId("room-day-header-Monday");
     expect(within(header).getByText("Bank Holiday")).toBeInTheDocument();
   });
 
@@ -129,10 +140,10 @@ describe("RoomRotaGrid", () => {
   it("carries data-week-day-period on every cell, including closed ones", async () => {
     setUpServer();
     const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
-    const { container } = renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
+    renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
-    await screen.findByTestId("room-day-header-Monday");
-    const closedCell = container.querySelector('[data-week-day-period="1-Monday-AM"]');
+    await screen.findAllByTestId("room-day-header-Monday");
+    const closedCell = document.querySelector('[data-week-day-period="1-Monday-AM"]');
     expect(closedCell).not.toBeNull();
 
     const availableCell = screen.getByTestId("room-cell-1-1-Tuesday-AM");
