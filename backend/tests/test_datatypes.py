@@ -7,6 +7,8 @@ from app.engine.datatypes import (
     ClinicSchedule,
     ClinicTypeInfo,
     CounterState,
+    DecisionLog,
+    DecisionLogEntry,
     RotaGrid,
     SessionSlot,
     ValidationIssue,
@@ -186,3 +188,61 @@ class TestClinicTypeInfo:
         assert info.name == "Dragon"
         assert info.schedules[0].day == Day.MONDAY
         assert info.doctor_eligibilities[0].doctor_priority == 1
+
+
+class TestDecisionLogEntry:
+    def test_frozen_and_defaults(self):
+        entry = DecisionLogEntry(
+            sequence=0, phase="phase5", action="assign_clinic",
+            message="Dr AA assigned to Dragon Monday AM",
+        )
+        assert entry.week is None
+        assert entry.day is None
+        assert entry.period is None
+        assert entry.doctor_id is None
+        assert entry.related_doctor_id is None
+        assert entry.room_id is None
+        assert entry.related_room_id is None
+        assert entry.clinic_type_id is None
+        with pytest.raises(AttributeError):
+            entry.sequence = 1  # frozen
+
+
+class TestDecisionLog:
+    def test_add_assigns_monotonic_sequence(self):
+        log = DecisionLog()
+        log.add(phase="phase5", action="assign_clinic", message="first")
+        log.add(phase="phase5", action="assign_clinic", message="second")
+        log.add(phase="phase9b", action="resolve_swap", message="third")
+        assert [e.sequence for e in log.entries] == [0, 1, 2]
+        assert [e.message for e in log.entries] == ["first", "second", "third"]
+
+    def test_add_starts_empty(self):
+        log = DecisionLog()
+        assert log.entries == []
+
+    def test_add_passes_through_optional_fields(self):
+        log = DecisionLog()
+        log.add(
+            phase="phase7_9a", action="displace_room",
+            message="Dr AA displaced Dr BB from D4 to D5",
+            week=1, day=Day.MONDAY, period=Period.AM,
+            doctor_id=1, related_doctor_id=2, room_id=101, related_room_id=102,
+        )
+        entry = log.entries[0]
+        assert entry.phase == "phase7_9a"
+        assert entry.action == "displace_room"
+        assert entry.doctor_id == 1
+        assert entry.related_doctor_id == 2
+        assert entry.room_id == 101
+        assert entry.related_room_id == 102
+        assert entry.week == 1
+        assert entry.day == Day.MONDAY
+        assert entry.period == Period.AM
+
+    def test_entries_are_independent_dataclass_instances(self):
+        log = DecisionLog()
+        log.add(phase="phase5", action="assign_clinic", message="a")
+        log.add(phase="phase5", action="assign_clinic", message="b")
+        assert log.entries[0] is not log.entries[1]
+        assert log.entries[0].message != log.entries[1].message

@@ -17,6 +17,7 @@ from app.models import (
     Room,
     RotaClosure,
     RotaConfig,
+    RotaGenerationLogEntry,
 )
 from app.models.enums import (
     Day,
@@ -240,3 +241,108 @@ def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session
 
     snapshot = session.query(RotaClosure).filter_by(rota_id=rota.id).one()
     assert snapshot.date == datetime.date(2026, 1, 5)
+
+
+# --- RotaGenerationLogEntry (decision log, Task 1) ---
+
+def _log_entry(rota, sequence=0, phase="phase5", action="assign_clinic", **kwargs):
+    return RotaGenerationLogEntry(
+        rota_id=rota.id, sequence=sequence, phase=phase, action=action,
+        message=kwargs.pop("message", "Dr AA assigned to Dragon Monday AM"),
+        **kwargs,
+    )
+
+
+def test_generation_log_round_trip_ordered_by_sequence(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=1, message="second"))
+    session.add(_log_entry(rota, sequence=0, message="first"))
+    session.flush()
+    session.refresh(rota)
+
+    rows = (
+        session.query(RotaGenerationLogEntry)
+        .filter_by(rota_id=rota.id)
+        .order_by(RotaGenerationLogEntry.sequence)
+        .all()
+    )
+    assert [r.message for r in rows] == ["first", "second"]
+
+
+def test_generation_log_nullable_fields_default_none(session):
+    rota = _rota(session)
+    entry = _log_entry(rota)
+    session.add(entry)
+    session.flush()
+    session.refresh(entry)
+
+    assert entry.week is None
+    assert entry.day is None
+    assert entry.period is None
+    assert entry.doctor_id is None
+    assert entry.related_doctor_id is None
+    assert entry.room_id is None
+    assert entry.related_room_id is None
+    assert entry.clinic_type_id is None
+
+
+def test_generation_log_stores_full_entry(session):
+    rota = _rota(session)
+    entry = _log_entry(
+        rota, phase="phase7_9a", action="displace_room",
+        week=1, day=Day.MONDAY, period=Period.AM,
+        doctor_id=1, related_doctor_id=2, room_id=101, related_room_id=102,
+        message="Dr AA displaced Dr BB from D4 to D5",
+    )
+    session.add(entry)
+    session.flush()
+    session.refresh(entry)
+
+    assert entry.phase == "phase7_9a"
+    assert entry.action == "displace_room"
+    assert entry.week == 1
+    assert entry.day == Day.MONDAY
+    assert entry.period == Period.AM
+    assert entry.doctor_id == 1
+    assert entry.related_doctor_id == 2
+    assert entry.room_id == 101
+    assert entry.related_room_id == 102
+
+
+def test_generation_log_sequence_unique_per_rota(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0))
+    session.flush()
+    session.add(_log_entry(rota, sequence=0))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_generation_log_same_sequence_different_rota_allowed(session):
+    rota_a = _rota(session)
+    rota_b = _rota(session)
+    session.add(_log_entry(rota_a, sequence=0))
+    session.add(_log_entry(rota_b, sequence=0))
+    session.flush()  # no error: uniqueness is per (rota_id, sequence)
+
+
+def test_generation_log_cascades_on_rota_delete(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(RotaGenerationLogEntry).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_generation_log_entries_via_relationship(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0, message="first"))
+    session.add(_log_entry(rota, sequence=1, message="second"))
+    session.flush()
+    session.refresh(rota)
+
+    assert len(rota.generation_log) == 2

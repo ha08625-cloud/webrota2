@@ -89,6 +89,9 @@ class GeneratedRota(Base):
     closures: Mapped[list["RotaClosure"]] = relationship(
         back_populates="rota", cascade="all, delete-orphan"
     )
+    generation_log: Mapped[list["RotaGenerationLogEntry"]] = relationship(
+        back_populates="rota", cascade="all, delete-orphan"
+    )
 
 
 class RotaSession(Base):

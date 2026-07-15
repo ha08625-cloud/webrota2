@@ -52,6 +52,54 @@ class ValidationIssue:
 
 
 # ---------------------------------------------------------------------------
+# Decision log
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DecisionLogEntry:
+    """One decision made by a phase during generation.
+
+    Sibling type to `ValidationIssue`: a `ValidationIssue` is a finding
+    ("something is wrong"); a `DecisionLogEntry` is a record of the normal
+    path ("this happened"). Persisted verbatim to `rota_generation_log` by
+    `generate._write_to_db()` -- see that table's model docstring for the
+    persistence conventions (plain integer ids, no FKs except rota_id;
+    immutable after generation).
+    """
+    sequence: int
+    phase: str
+    action: str
+    message: str
+    week: int | None = None
+    day: Day | None = None
+    period: Period | None = None
+    doctor_id: int | None = None
+    related_doctor_id: int | None = None
+    room_id: int | None = None
+    related_room_id: int | None = None
+    clinic_type_id: int | None = None
+
+
+@dataclass
+class DecisionLog:
+    """Append-only collector threaded through the decision-making phases
+    (4, 5, 7-9A, 9B, 9C), mirroring how `CounterState` is threaded through
+    the same phases rather than returned and re-passed.
+
+    `sequence` is assigned here, monotonically per run, starting at 0 --
+    DB row order is never relied on for replay order, since `sequence` is
+    also the column the log table is ordered and uniquely constrained by.
+    """
+    entries: list[DecisionLogEntry] = field(default_factory=list)
+
+    def add(self, *, phase: str, action: str, message: str, **fields) -> None:
+        self.entries.append(DecisionLogEntry(
+            sequence=len(self.entries), phase=phase, action=action,
+            message=message, **fields,
+        ))
+
+
+# ---------------------------------------------------------------------------
 # Rota grid
 # ---------------------------------------------------------------------------
 
