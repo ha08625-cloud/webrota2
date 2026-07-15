@@ -2,6 +2,7 @@ from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
 from app.engine.phases.phase5 import run_phase5
+from app.engine.datatypes import DecisionLog
 from app.models.enums import Day, DutyType, MasterSessionType, Period, RoomType, SessionRole
 
 from .factories import (
@@ -44,7 +45,8 @@ class TestDoctorSelection:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         slot = grid.get(preferred.id, 1, Day.MONDAY, Period.AM)
         assert slot.role == SessionRole.CLINIC
@@ -65,7 +67,8 @@ class TestDoctorSelection:
         make_clinic_counter(session, low_count, ct, raw_count=1)   # weighted 0.1
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         assert grid.get(low_count.id, 1, Day.MONDAY, Period.AM).role == SessionRole.CLINIC
         assert grid.get(high_count.id, 1, Day.MONDAY, Period.AM).role is None
@@ -83,7 +86,8 @@ class TestDoctorSelection:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         assert grid.get(d_aa.id, 1, Day.MONDAY, Period.AM).role == SessionRole.CLINIC
         assert grid.get(d_bb.id, 1, Day.MONDAY, Period.AM).role is None
@@ -99,7 +103,8 @@ class TestDoctorSelection:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         assert counters.clinic[(d.id, ct.id)] == 1
 
@@ -117,7 +122,8 @@ class TestEligibilityExclusions:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert grid.get(d.id, 1, Day.MONDAY, Period.AM).role is None
         assert any(i.check == "no_eligible_doctor" for i in issues)
@@ -136,7 +142,8 @@ class TestEligibilityExclusions:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert any(i.check == "no_eligible_doctor" for i in issues)
 
@@ -154,7 +161,8 @@ class TestEligibilityExclusions:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert any(i.check == "no_eligible_doctor" for i in issues)
 
@@ -171,8 +179,9 @@ class TestEligibilityExclusions:
 
         ctx = load_context(session, config_1wk)
         grid, counters = run_phase2(ctx, config_1wk, session)
-        run_phase4(ctx, grid)  # apply duty role BEFORE phase5
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase4(ctx, grid, log)  # apply duty role BEFORE phase5
+        issues = run_phase5(ctx, grid, counters, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.role == SessionRole.DUTY_PRIMARY  # unchanged by phase5
@@ -192,7 +201,8 @@ class TestRoomRequired:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.assigned_room_id == room.id
@@ -213,7 +223,8 @@ class TestRoomRequired:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.assigned_room_id == room.id
@@ -241,7 +252,8 @@ class TestRoomRequired:
         # displacement.
         grid.get(occupant.id, 1, Day.MONDAY, Period.AM).is_on_leave = True
 
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         clinic_slot = grid.get(clinic_doctor.id, 1, Day.MONDAY, Period.AM)
         assert clinic_slot.assigned_room_id is None  # left in current (no) room
@@ -271,7 +283,8 @@ class TestDisplacement:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert grid.get(clinic_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == eligible_room.id
         assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback_room.id
@@ -301,7 +314,8 @@ class TestDisplacement:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         # The D-room preference must be skipped -- occupant lands in the C room.
         assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == c_room.id
@@ -329,7 +343,8 @@ class TestDisplacement:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert grid.get(protected_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == shared_room.id
         assert grid.get(challenger_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
@@ -351,7 +366,8 @@ class TestMultiWeekAndIndependentCounters:
         )
 
         ctx, grid, counters = _build(session, config_2wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         # Week 1: tied -> alphabetical -> AA. Week 2: AA now has a higher
         # weighted score, so BB is picked.
@@ -381,7 +397,8 @@ class TestMultiWeekAndIndependentCounters:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
 
         assert counters.clinic[(d.id, ct_a.id)] == 1
         assert counters.clinic[(d.id, ct_b.id)] == 1

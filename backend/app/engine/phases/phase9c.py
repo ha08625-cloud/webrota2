@@ -29,7 +29,14 @@ inline their logic into `phase12.py`.
 from __future__ import annotations
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period, RoomType, SystemCounterType
-from ..datatypes import CounterState, GenerationContext, RotaGrid, SessionSlot, ValidationIssue
+from ..datatypes import (
+    CounterState,
+    DecisionLog,
+    GenerationContext,
+    RotaGrid,
+    SessionSlot,
+    ValidationIssue,
+)
 
 PHASE = "phase9c"
 
@@ -89,7 +96,7 @@ def is_eligible_supervisor(context: GenerationContext, grid: RotaGrid, slot: Ses
 
 
 def run_phase9c(
-    context: GenerationContext, grid: RotaGrid, counters: CounterState
+    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
@@ -104,7 +111,7 @@ def run_phase9c(
                 if n == 0:
                     continue
 
-                if _assign_sr_priority(context, grid, counters, sr_rooms, gen_week, day, period):
+                if _assign_sr_priority(context, grid, counters, sr_rooms, gen_week, day, period, log):
                     continue
 
                 pool = [
@@ -144,6 +151,7 @@ def _assign_sr_priority(
     gen_week: int,
     day: Day,
     period: Period,
+    log: DecisionLog,
 ) -> bool:
     """Assign the SR occupant if eligible. Returns True if assigned."""
     for room in sr_rooms:

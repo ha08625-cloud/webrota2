@@ -33,7 +33,7 @@ No counter is involved in this phase, and it never emits a ValidationIssue
 from __future__ import annotations
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
-from ..datatypes import GenerationContext, RotaGrid, ValidationIssue
+from ..datatypes import DecisionLog, GenerationContext, RotaGrid, ValidationIssue
 
 PHASE = "phase9b"
 
@@ -41,18 +41,20 @@ _DAYS = (Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY)
 _SWAPPABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 
 
-def run_phase9b(context: GenerationContext, grid: RotaGrid) -> list[ValidationIssue]:
+def run_phase9b(
+    context: GenerationContext, grid: RotaGrid, log: DecisionLog
+) -> list[ValidationIssue]:
     num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
-            _resolve_swaps_for_day(context, grid, gen_week, day)
+            _resolve_swaps_for_day(context, grid, gen_week, day, log)
 
     return []
 
 
 def _resolve_swaps_for_day(
-    context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day
+    context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day, log: DecisionLog
 ) -> None:
     candidates = _eligible_doctors_for_day(context, grid, gen_week, day)
     doctor_ids = sorted(candidates.keys(), key=lambda did: context.doctor_by_id[did].code)

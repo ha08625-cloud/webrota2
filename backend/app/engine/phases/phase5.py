@@ -16,6 +16,7 @@ from ..datatypes import (
     ClinicDoctorEligibility,
     ClinicTypeInfo,
     CounterState,
+    DecisionLog,
     GenerationContext,
     RotaGrid,
     ValidationIssue,
@@ -29,7 +30,7 @@ _EXCLUDED_TEMPLATE_TYPES = frozenset({
 
 
 def run_phase5(
-    context: GenerationContext, grid: RotaGrid, counters: CounterState
+    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     clinic_priority_by_id = {ct.id: ct.clinic_priority for ct in context.clinic_types}
@@ -77,7 +78,7 @@ def run_phase5(
                 if clinic.room_required:
                     room_issue = _resolve_room(
                         context, grid, clinic, doctor_id, gen_week, day, period,
-                        clinic_priority_by_id,
+                        clinic_priority_by_id, log,
                     )
                     if room_issue is not None:
                         issues.append(room_issue)
@@ -122,6 +123,7 @@ def _resolve_room(
     day,
     period,
     clinic_priority_by_id: dict[int, int],
+    log: DecisionLog,
 ) -> ValidationIssue | None:
     eligible_room_ids = sorted(clinic.eligible_room_ids)
 

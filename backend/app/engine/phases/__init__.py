@@ -17,5 +17,5 @@ from .phase12 import run_phase12
 
 __all__ = [
     "run_phase0", "run_phase2", "run_phase4", "run_phase5",
-    "run_phase7_to_9a", "run_phase9b", "run_phase12",
+    "run_phase7_to_9a", "run_phase9b", "run_phase9c", "run_phase12",
 ]

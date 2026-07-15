@@ -1,6 +1,7 @@
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase9b import run_phase9b
+from app.engine.datatypes import DecisionLog
 from app.models.enums import Day, DoctorType, MasterSessionType, Period, RoomType
 
 from .factories import (
@@ -70,7 +71,8 @@ class TestDefaultRows:
         # B has no preferences at all
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.AM).assigned_room_id == x.id  # AM unchanged
         assert grid.get(b.id, 1, Day.MONDAY, Period.AM).assigned_room_id == y.id  # AM unchanged
@@ -82,7 +84,8 @@ class TestDefaultRows:
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
@@ -95,7 +98,8 @@ class TestDefaultRows:
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y) -- same room, same type
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
@@ -105,7 +109,8 @@ class TestDefaultRows:
         # neither doctor has any preferred rooms at all
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
@@ -117,7 +122,8 @@ class TestConfirmRows:
         make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # unchanged (confirmed)
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # unchanged (confirmed)
@@ -127,7 +133,8 @@ class TestConfirmRows:
         make_preferred_room(session, b, preference_order=1, room=x)  # B prefers other (X)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # confirmed
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # confirmed
@@ -148,7 +155,8 @@ class TestRow5DroppedCollapsesToDefault:
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         # row 2 fires first ("only B prefers own room") -> default, regardless
         # of A being the Partner
@@ -163,7 +171,8 @@ class TestRow5DroppedCollapsesToDefault:
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
@@ -176,7 +185,8 @@ class TestRow5DroppedCollapsesToDefault:
         make_preferred_room(session, b, preference_order=1, room=x)  # B prefers other (X)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         # row 1 fires first ("only A prefers own room") -> default
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
@@ -189,7 +199,8 @@ class TestSkipConditions:
         make_leave(session, a, monday, Period.AM)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)  # should not raise, pair skipped
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)  # should not raise, pair skipped
 
         # untouched -- still whatever Phase 2 set (the "swapped" PRE_ASSIGNED values)
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
@@ -207,7 +218,8 @@ class TestSkipConditions:
         _pre_assigned(session, t, b, x, period=Period.PM)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)  # should not raise
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)  # should not raise
 
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # untouched
 
@@ -223,7 +235,8 @@ class TestSkipConditions:
         _pre_assigned(session, t, b, x, period=Period.PM)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)  # should not raise
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)  # should not raise
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
 
@@ -242,7 +255,8 @@ class TestNonSwapsUntouched:
         _pre_assigned(session, t, b, r1, period=Period.PM)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == r2.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == r1.id
@@ -259,7 +273,8 @@ class TestNonSwapsUntouched:
         _pre_assigned(session, t, b, x, period=Period.PM)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase9b(ctx, grid)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
 
         # untouched -- Trainee/AHP are never part of Phase 9B's pool
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
@@ -270,5 +285,6 @@ class TestNoIssuesEmitted:
     def test_never_returns_issues(self, session, config_1wk):
         t, a, b, x, y = _setup_swap(session)
         ctx, grid = _build(session, config_1wk)
-        issues = run_phase9b(ctx, grid)
+        log = DecisionLog()
+        issues = run_phase9b(ctx, grid, log)
         assert issues == []

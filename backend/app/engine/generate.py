@@ -27,13 +27,14 @@ from ..models import (
     RotaClinicCounterSnapshot,
     RotaClosure,
     RotaConfig,
+    RotaGenerationLogEntry,
     RotaSession,
     RotaSystemCounterSnapshot,
     SystemCounter,
 )
 from ..models.enums import RotaStatus
 from .context import load_context
-from .datatypes import CounterState, GenerationResult, RotaGrid, ValidationIssue
+from .datatypes import CounterState, DecisionLog, GenerationResult, RotaGrid, ValidationIssue
 from .phases import (
     run_phase0,
     run_phase2,
@@ -60,14 +61,15 @@ def generate(db: Session, config_id: int) -> GenerationResult:
         return GenerationResult(rota_id=None, issues=tuple(issues), status="failed")
 
     grid, counters = run_phase2(context, config, db)
-    issues.extend(run_phase4(context, grid))
-    issues.extend(run_phase5(context, grid, counters))
-    issues.extend(run_phase7_to_9a(context, grid, counters))
-    issues.extend(run_phase9b(context, grid))
-    issues.extend(run_phase9c(context, grid, counters))
+    log = DecisionLog()
+    issues.extend(run_phase4(context, grid, log))
+    issues.extend(run_phase5(context, grid, counters, log))
+    issues.extend(run_phase7_to_9a(context, grid, counters, log))
+    issues.extend(run_phase9b(context, grid, log))
+    issues.extend(run_phase9c(context, grid, counters, log))
     issues.extend(run_phase12(context, grid))
 
-    rota_id = _write_to_db(db, config_id, grid, counters, context.closed_dates)
+    rota_id = _write_to_db(db, config_id, grid, counters, context.closed_dates, log)
 
     status = "partial" if any(i.severity == "warning" for i in issues) else "success"
     return GenerationResult(rota_id=rota_id, issues=tuple(issues), status=status)
@@ -79,10 +81,12 @@ def _write_to_db(
     grid: RotaGrid,
     counters: CounterState,
     closed_dates: frozenset,
+    log: DecisionLog,
 ) -> int:
     """Persist one generation run: the rota header, a snapshot of every
-    pre-existing counter row, every session, the closed-date snapshot, and
-    the updated counters. Called once, at the end of a successful pipeline.
+    pre-existing counter row, every session, the closed-date snapshot, the
+    decision log, and the updated counters. Called once, at the end of a
+    successful pipeline.
 
     Snapshot ordering matters (M3 plan, resolution 3): the snapshot is taken
     from the DB *before* _write_counters mutates any counter row, so it holds
@@ -124,6 +128,16 @@ def _write_to_db(
     # exists must not change how it renders or validates.
     for closed_date in sorted(closed_dates):
         db.add(RotaClosure(rota_id=rota.id, date=closed_date))
+
+    for entry in log.entries:
+        db.add(RotaGenerationLogEntry(
+            rota_id=rota.id, sequence=entry.sequence, phase=entry.phase,
+            action=entry.action, week=entry.week, day=entry.day,
+            period=entry.period, doctor_id=entry.doctor_id,
+            related_doctor_id=entry.related_doctor_id, room_id=entry.room_id,
+            related_room_id=entry.related_room_id,
+            clinic_type_id=entry.clinic_type_id, message=entry.message,
+        ))
 
     _write_counters(db, counters)
 

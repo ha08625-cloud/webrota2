@@ -9,12 +9,14 @@ as it would without duty.
 from __future__ import annotations
 
 from ...models.enums import DutyType, SessionRole
-from ..datatypes import GenerationContext, RotaGrid, ValidationIssue
+from ..datatypes import DecisionLog, GenerationContext, RotaGrid, ValidationIssue
 
 PHASE = "phase4"
 
 
-def run_phase4(context: GenerationContext, grid: RotaGrid) -> list[ValidationIssue]:
+def run_phase4(
+    context: GenerationContext, grid: RotaGrid, log: DecisionLog
+) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
 
     for (date_, period, duty_type), doctor_id in sorted(

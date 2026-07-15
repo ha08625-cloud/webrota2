@@ -1,6 +1,7 @@
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase7_9a import run_phase7_to_9a
+from app.engine.datatypes import DecisionLog
 from app.models.enums import Day, DoctorType, MasterSessionType, Period, RoomType, SystemCounterType
 
 from .factories import (
@@ -42,7 +43,8 @@ class TestPass1FreeRoom:
         _requires_room(session, t, trainee, period=Period.PM)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
@@ -65,7 +67,8 @@ class TestPass1Displacement:
         make_preferred_room(session, partner, preference_order=1, room=fallback)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
@@ -96,7 +99,8 @@ class TestPass1Displacement:
         make_system_counter(session, high_score, SystemCounterType.ROOM_MOVE, raw_count=5)
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
 
         # low_score has the lower weighted ROOM_MOVE score -> displaced, not high_score
         assert grid.get(low_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
@@ -129,7 +133,8 @@ class TestPass1Displacement:
             grid.add_slot(s)
             grid.assign_room(1, Day.MONDAY, period, blocker.id, preferred.id)
 
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
@@ -146,7 +151,8 @@ class TestPass1Displacement:
         _requires_room(session, t, trainee, period=Period.PM)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert not any(i.phase == "phase7_9a" for i in issues)
@@ -158,7 +164,8 @@ class TestPass1Displacement:
         _requires_room(session, t, trainee, period=Period.PM)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_full_day_room" for i in issues)
@@ -192,7 +199,8 @@ class TestPass2SingleSession:
         make_preferred_room(session, am_occupant, preference_order=1, room=fallback)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
@@ -221,7 +229,8 @@ class TestPass3PartnerSalariedFallback:
         _pre_assigned(session, t, occupant, occupied_room)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         # occupied_room stays with occupant -- Pass 3 never displaces
         assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == occupied_room.id
@@ -241,7 +250,8 @@ class TestPass3PartnerSalariedFallback:
         _pre_assigned(session, t, occupant, preferred_but_occupied)
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase7_to_9a(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
 
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_partner_salaried_room" for i in issues)

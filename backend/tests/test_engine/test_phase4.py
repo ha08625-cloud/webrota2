@@ -1,6 +1,7 @@
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
+from app.engine.datatypes import DecisionLog
 from app.models import RotaConfig
 from app.models.enums import Day, DutyType, MasterSessionType, Period, SessionRole
 
@@ -24,7 +25,8 @@ class TestDutyRoleApplied:
         make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
 
         ctx, grid = _build(session, config_1wk)
-        issues = run_phase4(ctx, grid)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.role == SessionRole.DUTY_PRIMARY
@@ -40,7 +42,8 @@ class TestDutyRoleApplied:
         make_duty(session, monday, Period.AM, d, DutyType.SECONDARY)
 
         ctx, grid = _build(session, config_1wk)
-        issues = run_phase4(ctx, grid)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.role == SessionRole.DUTY_SECONDARY
@@ -57,7 +60,8 @@ class TestDutyRoleApplied:
         make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase4(ctx, grid)
+        log = DecisionLog()
+        run_phase4(ctx, grid, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         assert slot.role == SessionRole.DUTY_PRIMARY
@@ -76,7 +80,8 @@ class TestDutyRoleApplied:
         make_duty(session, monday, Period.AM, d2, DutyType.SECONDARY)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase4(ctx, grid)
+        log = DecisionLog()
+        run_phase4(ctx, grid, log)
 
         assert grid.get(d1.id, 1, Day.MONDAY, Period.AM).role == SessionRole.DUTY_PRIMARY
         assert grid.get(d2.id, 1, Day.MONDAY, Period.AM).role == SessionRole.DUTY_SECONDARY
@@ -90,7 +95,8 @@ class TestDutyWarnings:
         make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
 
         ctx, grid = _build(session, config_1wk)
-        issues = run_phase4(ctx, grid)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, log)
 
         assert len(issues) == 1
         assert issues[0].check == "duty_no_session_slot"
@@ -108,7 +114,8 @@ class TestDutyWarnings:
         make_duty(session, monday, Period.AM, d, DutyType.SECONDARY)
 
         ctx, grid = _build(session, config_1wk)
-        issues = run_phase4(ctx, grid)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
         # "primary" sorts before "secondary" alphabetically -> applied first.

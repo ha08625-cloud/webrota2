@@ -2,8 +2,18 @@ import datetime
 
 from sqlalchemy import select
 
-from app.engine.generate import generate
-from app.models import ClinicCounter, RotaClosure, RotaConfig, RotaSession, SystemCounter
+from app.engine.context import load_context
+from app.engine.generate import _write_to_db, generate, scrap_rota
+from app.engine.phases.phase2 import run_phase2
+from app.engine.datatypes import DecisionLog
+from app.models import (
+    ClinicCounter,
+    RotaClosure,
+    RotaConfig,
+    RotaGenerationLogEntry,
+    RotaSession,
+    SystemCounter,
+)
 from app.models.enums import (
     Day,
     DoctorType,
@@ -440,3 +450,68 @@ class TestGenerateClosures:
         ).scalars().all()
         assert len(rota_sessions) == 1
         assert rota_sessions[0].day == Day.TUESDAY
+
+
+class TestGenerationLogPersistence:
+    """Task 2: the orchestrator threads an empty DecisionLog through every
+    in-scope phase and _write_to_db() persists whatever it collects. No
+    phase writes entries yet (that is Task 3), so this exercises the
+    persistence path directly: build a minimal grid/counters via the same
+    load_context()/run_phase2() pattern the phase tests use, hand
+    _write_to_db() a DecisionLog with two manually-added entries, and check
+    they round-trip in sequence order and are removed by scrap_rota()'s
+    cascade delete.
+    """
+
+    def test_log_entries_round_trip_and_scrap_deletes_them(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        ctx = load_context(session, config)
+        grid, counters = run_phase2(ctx, config, session)
+
+        log = DecisionLog()
+        log.add(
+            phase="phase5", action="assign_clinic", doctor_id=doctor.id,
+            week=1, day=Day.MONDAY, period=Period.AM,
+            message="Test entry one.",
+        )
+        log.add(
+            phase="phase9b", action="resolve_swap", doctor_id=doctor.id,
+            week=1, day=Day.MONDAY, period=Period.PM,
+            message="Test entry two.",
+        )
+
+        rota_id = _write_to_db(session, config.id, grid, counters, frozenset(), log)
+        session.flush()
+
+        rows = session.execute(
+            select(RotaGenerationLogEntry)
+            .where(RotaGenerationLogEntry.rota_id == rota_id)
+            .order_by(RotaGenerationLogEntry.sequence)
+        ).scalars().all()
+
+        assert len(rows) == 2
+        assert [r.sequence for r in rows] == [0, 1]
+        assert rows[0].phase == "phase5"
+        assert rows[0].action == "assign_clinic"
+        assert rows[0].message == "Test entry one."
+        assert rows[1].phase == "phase9b"
+        assert rows[1].action == "resolve_swap"
+        assert rows[1].message == "Test entry two."
+        assert all(r.rota_id == rota_id for r in rows)
+
+        scrap_rota(session, rota_id)
+
+        remaining = session.execute(
+            select(RotaGenerationLogEntry).where(RotaGenerationLogEntry.rota_id == rota_id)
+        ).scalars().all()
+        assert remaining == []

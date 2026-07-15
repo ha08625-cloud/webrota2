@@ -35,7 +35,7 @@ from ...models.enums import (
     RoomType,
     SystemCounterType,
 )
-from ..datatypes import CounterState, GenerationContext, RotaGrid, ValidationIssue
+from ..datatypes import CounterState, DecisionLog, GenerationContext, RotaGrid, ValidationIssue
 
 PHASE = "phase7_9a"
 
@@ -46,7 +46,7 @@ _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 
 
 def run_phase7_to_9a(
-    context: GenerationContext, grid: RotaGrid, counters: CounterState
+    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
@@ -54,19 +54,19 @@ def run_phase7_to_9a(
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
-            issues.extend(_pass1_full_day(context, grid, counters, gen_week, day, d_room_ids))
+            issues.extend(_pass1_full_day(context, grid, counters, gen_week, day, d_room_ids, log))
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
             for period in _PERIODS:
                 issues.extend(
-                    _pass2_single_session(context, grid, counters, gen_week, day, period, d_room_ids)
+                    _pass2_single_session(context, grid, counters, gen_week, day, period, d_room_ids, log)
                 )
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
             for period in _PERIODS:
-                issues.extend(_pass3_partner_salaried_fallback(context, grid, gen_week, day, period))
+                issues.extend(_pass3_partner_salaried_fallback(context, grid, gen_week, day, period, log))
 
     return issues
 
@@ -77,7 +77,7 @@ def run_phase7_to_9a(
 
 def _pass1_full_day(
     context: GenerationContext, grid: RotaGrid, counters: CounterState,
-    gen_week: int, day: Day, d_room_ids: list[int],
+    gen_week: int, day: Day, d_room_ids: list[int], log: DecisionLog,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     candidates = _full_day_candidates(context, grid, gen_week, day)
@@ -191,7 +191,7 @@ def _is_displaceable_full_day(
 
 def _pass2_single_session(
     context: GenerationContext, grid: RotaGrid, counters: CounterState,
-    gen_week: int, day: Day, period: Period, d_room_ids: list[int],
+    gen_week: int, day: Day, period: Period, d_room_ids: list[int], log: DecisionLog,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     candidates = _single_session_candidates(context, grid, gen_week, day, period)
@@ -292,7 +292,8 @@ def _is_displaceable_single(
 # ---------------------------------------------------------------------------
 
 def _pass3_partner_salaried_fallback(
-    context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day, period: Period
+    context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day, period: Period,
+    log: DecisionLog,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for doctor in context.doctors:
