@@ -51,6 +51,14 @@ class TestPass1FreeRoom:
         assert counters.system == {}
         assert not any(i.phase == "phase7_9a" for i in issues)
 
+        # One assign_room entry for the full day, not two.
+        entries = [e for e in log.entries if e.action == "assign_room"]
+        assert len(entries) == 1
+        assert entries[0].doctor_id == trainee.id
+        assert entries[0].period is None  # full-day
+        assert entries[0].room_id == d_room.id
+        assert "pass 1" in entries[0].message
+
 
 class TestPass1Displacement:
     def test_displaces_full_day_occupant_once(self, session, config_1wk):
@@ -76,6 +84,16 @@ class TestPass1Displacement:
         assert grid.get(partner.id, 1, Day.MONDAY, Period.PM).assigned_room_id == fallback.id
         assert counters.system[(partner.id, SystemCounterType.ROOM_MOVE)] == 1  # once, not twice
         assert not any(i.phase == "phase7_9a" and i.severity == "warning" for i in issues)
+
+        entries = [e for e in log.entries if e.action == "displace_room"]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.doctor_id == trainee.id
+        assert entry.related_doctor_id == partner.id
+        assert entry.room_id == d_room.id
+        assert entry.related_room_id == fallback.id
+        assert entry.period is None
+        assert "pass 1" in entry.message
 
     def test_tiebreak_lowest_room_move_score_wins(self, session, config_1wk):
         t = make_template(session, is_active=True)
@@ -106,6 +124,9 @@ class TestPass1Displacement:
         assert grid.get(low_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
         assert grid.get(high_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == room_high.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == room_low.id
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == low_score.id
 
     def test_fallback_to_non_preferred_cw_sr_room_when_preferred_unavailable(self, session, config_1wk):
         t = make_template(session, is_active=True)
@@ -169,6 +190,7 @@ class TestPass1Displacement:
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_full_day_room" for i in issues)
+        assert log.entries == []  # nothing was decided
 
 
 class TestPass2SingleSession:
@@ -214,6 +236,17 @@ class TestPass2SingleSession:
         assert phase_issues[0].check == "no_full_day_room"
         assert phase_issues[0].severity == "warning"
 
+        # PM resolved via the free-room path (pass 2); AM resolved via
+        # displacement (pass 2, since pass 1 failed on this doctor).
+        assign_entries = [e for e in log.entries if e.action == "assign_room"]
+        displace_entries = [e for e in log.entries if e.action == "displace_room"]
+        assert len(assign_entries) == 1
+        assert assign_entries[0].period == Period.PM
+        assert "pass 2" in assign_entries[0].message
+        assert len(displace_entries) == 1
+        assert displace_entries[0].period == Period.AM
+        assert "pass 2" in displace_entries[0].message
+
 
 class TestPass3PartnerSalariedFallback:
     def test_first_free_preferred_room_assigned_no_displacement(self, session, config_1wk):
@@ -236,6 +269,12 @@ class TestPass3PartnerSalariedFallback:
         assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == occupied_room.id
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == preferred.id
 
+        entries = [e for e in log.entries if e.action == "assign_room"]
+        assert len(entries) == 1
+        assert entries[0].doctor_id == partner.id
+        assert entries[0].room_id == preferred.id
+        assert "pass 3" in entries[0].message
+
     def test_no_fallback_beyond_own_preference_list(self, session, config_1wk):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
@@ -255,3 +294,4 @@ class TestPass3PartnerSalariedFallback:
 
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_partner_salaried_room" for i in issues)
+        assert log.entries == []
