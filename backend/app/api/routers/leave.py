@@ -1,14 +1,18 @@
-"""Leave router (M3 Task 6; bulk add/remove added post-M4)."""
+"""Leave router (M3 Task 6; bulk add/remove added post-M4; draft room release
+added post-M4.3 - see M4.3 Task 3)."""
 from __future__ import annotations
 
 import datetime
+from typing import Iterable
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import Doctor, LeaveEntry
+from ...engine.generate import get_active_draft
+from ...engine.week_map import build_date_to_genslot, build_week_dates
+from ...models import Doctor, LeaveEntry, RotaSession
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
@@ -36,6 +40,42 @@ def _date_range(start: datetime.date, end: datetime.date):
     days = (end - start).days
     for offset in range(days + 1):
         yield start + datetime.timedelta(days=offset)
+
+
+def _release_draft_rooms(
+    db: Session,
+    doctor_id: int,
+    pairs: Iterable[tuple[datetime.date, Period]],
+) -> None:
+    """Clear `room_id` on the active draft's sessions matching the given
+    (date, period) pairs for this doctor.
+
+    No-op if there is no active draft, or if a pair falls outside the
+    draft's date range (including weekends, which are never in
+    `date_to_slot`). Does not commit - the caller owns the transaction.
+    """
+    draft = get_active_draft(db)
+    if draft is None:
+        return
+
+    week_dates = build_week_dates(draft.config.start_date, draft.config.num_weeks)
+    date_to_slot = build_date_to_genslot(week_dates)
+
+    for day, period in pairs:
+        slot = date_to_slot.get(day)
+        if slot is None:
+            continue
+        gen_week, gen_day = slot
+        db.execute(
+            update(RotaSession)
+            .where(RotaSession.rota_id == draft.id)
+            .where(RotaSession.doctor_id == doctor_id)
+            .where(RotaSession.week == gen_week)
+            .where(RotaSession.day == gen_day)
+            .where(RotaSession.period == period)
+            .where(RotaSession.room_id.is_not(None))
+            .values(room_id=None)
+        )
 
 
 @router.get("", response_model=list[LeaveOut])
@@ -70,6 +110,7 @@ def create_leave(
         doctor_id=payload.doctor_id, date=payload.date, period=payload.period
     )
     db.add(entry)
+    _release_draft_rooms(db, payload.doctor_id, [(payload.date, payload.period)])
     try:
         db.commit()
     except IntegrityError as exc:
@@ -95,6 +136,11 @@ def create_leave_bulk(
     dropped, so a range that happens to land on a weekend doesn't look like
     a no-op bug. Entries that already exist are reported as "duplicate"
     skips rather than causing the whole call to fail.
+
+    Draft rooms are released for every weekday candidate pair, including
+    duplicates - a duplicate skip means the leave already existed, and
+    releasing again is a harmless no-op or a heal of stale state (leave
+    added before this feature shipped). See M4.3 Task 3, design decision 4.
     """
     if db.get(Doctor, payload.doctor_id) is None:
         raise HTTPException(
@@ -139,19 +185,26 @@ def create_leave_bulk(
 
     if to_insert:
         db.add_all(to_insert)
-        try:
-            db.commit()
-        except IntegrityError as exc:
-            db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "A leave entry in this range was created concurrently; "
-                    "please retry."
-                ),
-            ) from exc
-        for entry in to_insert:
-            db.refresh(entry)
+
+    # Release rooms for every weekday candidate, duplicates included - not
+    # just the ones actually inserted. Deliberately outside the
+    # `if to_insert:` guard so an all-duplicates request still heals stale
+    # rooms; the commit is hoisted here to cover that case too.
+    _release_draft_rooms(db, payload.doctor_id, candidates)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A leave entry in this range was created concurrently; "
+                "please retry."
+            ),
+        ) from exc
+    for entry in to_insert:
+        db.refresh(entry)
 
     skipped.sort(key=lambda s: (s.date, s.period.value))
     created = [LeaveOut.model_validate(entry) for entry in to_insert]
@@ -169,6 +222,9 @@ def delete_leave_bulk(
     Unlike bulk-add, this is *not* weekday-filtered: a manually-added
     weekend entry inside the range should still be removable by "clear
     this range."
+
+    Rooms are never restored on removal - matching the existing WFH
+    asymmetry (see M4.3 plan, Scope).
     """
     if db.get(Doctor, payload.doctor_id) is None:
         raise HTTPException(
