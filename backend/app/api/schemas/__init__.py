@@ -3,6 +3,7 @@ from .common import ValidationIssueOut
 from .rota import (
     GenerateRotaIn,
     GenerateRotaOut,
+    GenerationLogEntryOut,
     RotaOut,
     RotaSessionOut,
     RotaSummaryOut,
@@ -44,7 +45,7 @@ from .leave import (
     LeaveIn,
     LeaveOut,
 )
-from .duty import DutyIn, DutyOut, DutyCountOut
+from .duty import DutyIn, DutyOut
 from .closure import ClosureIn, ClosureOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
@@ -58,7 +59,7 @@ from .master_rota import (
 
 __all__ = [
     "ValidationIssueOut",
-    "GenerateRotaIn", "GenerateRotaOut", "RotaOut", "RotaSessionOut",
+    "GenerateRotaIn", "GenerateRotaOut", "GenerationLogEntryOut", "RotaOut", "RotaSessionOut",
     "RotaSummaryOut", "SessionPatchIn", "SessionPatchOut",
     "SwapIn", "SwapOut", "SetRoomIn", "SetRoomOut", "SetRoleIn", "SetRoleOut",
     "ClinicTypeIn", "ClinicTypeOut", "ClinicTypePatch", "ClinicTypeReorderIn", "DoctorEligIn", "DoctorEligOut",
@@ -68,7 +69,7 @@ __all__ = [
     "LeaveIn", "LeaveOut",
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
-    "DutyIn", "DutyOut", "DutyCountOut",
+    "DutyIn", "DutyOut",
     "ClosureIn", "ClosureOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
