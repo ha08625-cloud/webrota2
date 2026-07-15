@@ -2,6 +2,7 @@ from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
 from app.engine.phases.phase12 import run_phase12
+from app.engine.datatypes import DecisionLog
 from app.models.enums import (
     Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, SessionRole,
 )
@@ -56,7 +57,8 @@ class TestDutyCoverage:
         make_duty(session, monday, Period.AM, d2, DutyType.SECONDARY)
 
         ctx, grid = _build(session, config_1wk)
-        run_phase4(ctx, grid)
+        log = DecisionLog()
+        run_phase4(ctx, grid, log)
         issues = run_phase12(ctx, grid)
 
         assert not any(
@@ -365,4 +367,3 @@ class TestRoomOnLeaveSlot:
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "room_on_leave_slot" for i in issues)
-
