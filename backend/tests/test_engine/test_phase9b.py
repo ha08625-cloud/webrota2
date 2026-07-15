@@ -79,6 +79,10 @@ class TestDefaultRows:
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
 
+        entry = next(e for e in log.entries if e.action == "resolve_swap")
+        assert "row 1" in entry.message
+        assert "DEFAULTED" in entry.message
+
     def test_row2_only_b_prefers_own_room(self, session, config_1wk):
         t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, b, preference_order=1, room=y)  # B prefers own (Y)
@@ -89,6 +93,10 @@ class TestDefaultRows:
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # reverted
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # reverted
+
+        entry = next(e for e in log.entries if e.action == "resolve_swap")
+        assert "row 2" in entry.message
+        assert "DEFAULTED" in entry.message
 
     def test_row6_same_room_same_type_defaults(self, session, config_1wk):
         t, a, b, x, y = _setup_swap(
@@ -115,6 +123,10 @@ class TestDefaultRows:
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
 
+        entry = next(e for e in log.entries if e.action == "resolve_swap")
+        assert "rows 5-7 default" in entry.message
+        assert "DEFAULTED" in entry.message
+
 
 class TestConfirmRows:
     def test_row3_only_a_prefers_other_room(self, session, config_1wk):
@@ -128,6 +140,10 @@ class TestConfirmRows:
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # unchanged (confirmed)
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # unchanged (confirmed)
 
+        entry = next(e for e in log.entries if e.action == "resolve_swap")
+        assert "row 3" in entry.message
+        assert "CONFIRMED" in entry.message
+
     def test_row4_only_b_prefers_other_room(self, session, config_1wk):
         t, a, b, x, y = _setup_swap(session)
         make_preferred_room(session, b, preference_order=1, room=x)  # B prefers other (X)
@@ -138,6 +154,10 @@ class TestConfirmRows:
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id  # confirmed
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # confirmed
+
+        entry = next(e for e in log.entries if e.action == "resolve_swap")
+        assert "row 4" in entry.message
+        assert "CONFIRMED" in entry.message
 
 
 class TestRow5DroppedCollapsesToDefault:
@@ -205,6 +225,7 @@ class TestSkipConditions:
         # untouched -- still whatever Phase 2 set (the "swapped" PRE_ASSIGNED values)
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
+        assert log.entries == []  # no pair was even considered
 
     def test_no_surgery_pair_skipped(self, session, config_1wk):
         t = make_template(session, is_active=True)
@@ -222,6 +243,7 @@ class TestSkipConditions:
         run_phase9b(ctx, grid, log)  # should not raise
 
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id  # untouched
+        assert log.entries == []
 
     def test_unresolved_session_pair_skipped(self, session, config_1wk):
         t = make_template(session, is_active=True)
@@ -260,6 +282,7 @@ class TestNonSwapsUntouched:
 
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == r2.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == r1.id
+        assert log.entries == []  # no swap was ever detected
 
     def test_trainee_ahp_not_considered_even_if_pattern_matches(self, session, config_1wk):
         t = make_template(session, is_active=True)
@@ -279,6 +302,7 @@ class TestNonSwapsUntouched:
         # untouched -- Trainee/AHP are never part of Phase 9B's pool
         assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
         assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
+        assert log.entries == []
 
 
 class TestNoIssuesEmitted:
@@ -288,3 +312,26 @@ class TestNoIssuesEmitted:
         log = DecisionLog()
         issues = run_phase9b(ctx, grid, log)
         assert issues == []
+
+
+class TestDecisionLogFields:
+    def test_resolve_swap_entry_fields(self, session, config_1wk):
+        t, a, b, x, y = _setup_swap(session)
+        make_preferred_room(session, a, preference_order=1, room=y)  # A prefers other (Y) -> CONFIRM
+
+        ctx, grid = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
+
+        entries = [e for e in log.entries if e.action == "resolve_swap"]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.phase == "phase9b"
+        assert entry.week == 1
+        assert entry.day == Day.MONDAY
+        assert entry.period is None  # spans AM/PM; PM-only mutation is stated in the message
+        assert entry.doctor_id == a.id
+        assert entry.related_doctor_id == b.id
+        assert entry.room_id == x.id  # A's AM room
+        assert entry.related_room_id == y.id  # B's AM room
+        assert "PM" in entry.message
