@@ -111,7 +111,7 @@ def run_phase9c(
                 if n == 0:
                     continue
 
-                if _assign_sr_priority(context, grid, counters, sr_rooms, gen_week, day, period, log):
+                if _assign_sr_priority(context, grid, counters, sr_rooms, gen_week, day, period, n, log):
                     continue
 
                 pool = [
@@ -140,7 +140,40 @@ def run_phase9c(
                 chosen.is_supervising = True
                 counters.increment_system(chosen.doctor_id, SystemCounterType.SUPERVISION)
 
+                reason = _pool_selection_reason(context, counters, pool)
+                log.add(
+                    phase=PHASE, action="assign_supervisor",
+                    week=gen_week, day=day, period=period, doctor_id=chosen.doctor_id,
+                    room_id=chosen.assigned_room_id,
+                    message=(
+                        f"Assigned {context.doctor_by_id[chosen.doctor_id].code} "
+                        f"as supervisor on {day.value} {period.value} from the "
+                        f"eligible pool ({reason}) for {n} trainee(s)."
+                    ),
+                )
+
     return issues
+
+
+def _pool_selection_reason(
+    context: GenerationContext, counters: CounterState, pool: list[SessionSlot],
+) -> str:
+    """Describe why `pool[0]` was picked over the field, mirroring Phase 5's
+    `_selection_reason` but keyed on the SUPERVISION system counter -- the
+    pool has no priority-tier concept, so this only ever compares scores."""
+    if len(pool) == 1:
+        return "only eligible doctor"
+
+    a, b = pool[0], pool[1]
+    score_a = counters.weighted_system_score(
+        a.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(a.doctor_id, 0.0),
+    )
+    score_b = counters.weighted_system_score(
+        b.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(b.doctor_id, 0.0),
+    )
+    if score_a != score_b:
+        return f"lowest weighted supervision score {score_a:.2f} vs {score_b:.2f}"
+    return "alphabetical tie-break"
 
 
 def _assign_sr_priority(
@@ -151,6 +184,7 @@ def _assign_sr_priority(
     gen_week: int,
     day: Day,
     period: Period,
+    n: int,
     log: DecisionLog,
 ) -> bool:
     """Assign the SR occupant if eligible. Returns True if assigned."""
@@ -164,5 +198,15 @@ def _assign_sr_priority(
         if is_eligible_supervisor(context, grid, slot):
             slot.is_supervising = True
             counters.increment_system(occupant_id, SystemCounterType.SUPERVISION)
+            log.add(
+                phase=PHASE, action="assign_supervisor",
+                week=gen_week, day=day, period=period, doctor_id=occupant_id,
+                room_id=room.id,
+                message=(
+                    f"Assigned {context.doctor_by_id[occupant_id].code} as "
+                    f"supervisor on {day.value} {period.value} (SR-room "
+                    f"occupant) for {n} trainee(s)."
+                ),
+            )
             return True
     return False
