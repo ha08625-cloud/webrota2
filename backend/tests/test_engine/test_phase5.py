@@ -8,6 +8,7 @@ from app.models.enums import Day, DutyType, MasterSessionType, Period, RoomType,
 from .factories import (
     make_clinic_counter,
     make_clinic_type,
+    make_closure,
     make_doctor,
     make_duty,
     make_leave,
@@ -188,34 +189,12 @@ class TestEligibilityExclusions:
         assert any(i.check == "no_eligible_doctor" for i in issues)
 
 
-class TestRoomRequired:
-    def test_free_eligible_room_assigned(self, session, config_1wk):
+class TestRoomResolutionFreeRoom:
+    def test_free_room_assigned(self, session, config_1wk):
         t = make_template(session, is_active=True)
         d = make_doctor(session, code="AA")
         room = make_room(session, code="D1", room_type=RoomType.D)
         _req_room(session, t, d)
-        make_clinic_type(
-            session, name="Dragon", room_required=True,
-            schedules=[(Day.MONDAY, Period.AM)],
-            doctor_eligibilities=[(d.id, 1)], room_ids=[room.id],
-        )
-
-        ctx, grid, counters = _build(session, config_1wk)
-        log = DecisionLog()
-        issues = run_phase5(ctx, grid, counters, log)
-
-        slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
-        assert slot.assigned_room_id == room.id
-        assert not any(i.check == "clinic_room_unresolved" for i in issues)
-
-    def test_already_in_eligible_room_untouched(self, session, config_1wk):
-        t = make_template(session, is_active=True)
-        d = make_doctor(session, code="AA")
-        room = make_room(session, code="D1", room_type=RoomType.D)
-        make_master_session(
-            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
-            session_type=MasterSessionType.PRE_ASSIGNED, room=room,
-        )
         make_clinic_type(
             session, name="Dragon", room_required=True,
             schedules=[(Day.MONDAY, Period.AM)],
@@ -402,3 +381,147 @@ class TestMultiWeekAndIndependentCounters:
 
         assert counters.clinic[(d.id, ct_a.id)] == 1
         assert counters.clinic[(d.id, ct_b.id)] == 1
+
+
+class TestDecisionLog:
+    def test_skip_closed_date_entry(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        _req_room(session, t, d)
+        make_closure(session, monday)
+        make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        skips = [e for e in log.entries if e.action == "skip_closed_date"]
+        assert len(skips) == 1
+        assert skips[0].phase == "phase5"
+        assert skips[0].week == 1
+        assert skips[0].day == Day.MONDAY
+        assert skips[0].period == Period.AM
+        assert skips[0].clinic_type_id is not None
+        assert "closed" in skips[0].message.lower()
+
+    def test_assign_clinic_entry_only_eligible_doctor(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        _req_room(session, t, d)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entries = [e for e in log.entries if e.action == "assign_clinic"]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.doctor_id == d.id
+        assert entry.clinic_type_id == ct.id
+        assert entry.week == 1 and entry.day == Day.MONDAY and entry.period == Period.AM
+        assert "AA" in entry.message
+        assert "only eligible doctor" in entry.message
+
+    def test_assign_clinic_entry_reports_priority_tier(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        preferred = make_doctor(session, code="ZZ")
+        other = make_doctor(session, code="AA")
+        _req_room(session, t, preferred)
+        _req_room(session, t, other)
+        make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(preferred.id, 1), (other.id, 2)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert entry.doctor_id == preferred.id
+        assert "priority tier 1" in entry.message
+
+    def test_assign_clinic_entry_reports_weighted_score_tiebreak(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        low_count = make_doctor(session, code="ZZ", spw="10.0")
+        high_count = make_doctor(session, code="AA", spw="10.0")
+        _req_room(session, t, low_count)
+        _req_room(session, t, high_count)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(low_count.id, 1), (high_count.id, 1)],
+        )
+        make_clinic_counter(session, high_count, ct, raw_count=5)
+        make_clinic_counter(session, low_count, ct, raw_count=1)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert entry.doctor_id == low_count.id
+        assert "tie broken on weighted score" in entry.message
+
+    def test_assign_clinic_room_entry_free_room(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        room = make_room(session, code="D1", room_type=RoomType.D)
+        _req_room(session, t, d)
+        make_clinic_type(
+            session, name="Dragon", room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)], room_ids=[room.id],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entries = [e for e in log.entries if e.action == "assign_clinic_room"]
+        assert len(entries) == 1
+        assert entries[0].doctor_id == d.id
+        assert entries[0].room_id == room.id
+
+    def test_displace_for_clinic_entry(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        clinic_doctor = make_doctor(session, code="AA")
+        occupant = make_doctor(session, code="BB")
+        eligible_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        _req_room(session, t, clinic_doctor)
+        make_master_session(
+            session, t, occupant, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=eligible_room,
+        )
+        make_preferred_room(session, occupant, preference_order=1, room=fallback_room)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(clinic_doctor.id, 1)], room_ids=[eligible_room.id],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entries = [e for e in log.entries if e.action == "displace_for_clinic"]
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry.doctor_id == clinic_doctor.id
+        assert entry.related_doctor_id == occupant.id
+        assert entry.room_id == eligible_room.id
+        assert entry.related_room_id == fallback_room.id
+        assert entry.clinic_type_id == ct.id
+        assert "AA" in entry.message and "BB" in entry.message
