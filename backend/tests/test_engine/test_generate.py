@@ -515,3 +515,59 @@ class TestGenerationLogPersistence:
             select(RotaGenerationLogEntry).where(RotaGenerationLogEntry.rota_id == rota_id)
         ).scalars().all()
         assert remaining == []
+
+    def test_full_pipeline_persists_log_entries_in_sequence_order(self, session, monday):
+        """Task 3: every in-scope phase now emits real decision log
+        entries. Run the actual pipeline (not the phase2-only harness the
+        round-trip test above uses) and check the persisted rows are
+        non-empty and stored in strict sequence order -- i.e. `sequence`
+        is exactly 0..N-1 in row order, matching the order entries were
+        added during the run. This does not re-assert per-phase message
+        content (that is covered by each phase's own test module); it only
+        pins that the full pipeline's output survives the write intact.
+        """
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        salaried = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
+        trainee = make_doctor(session, code="CC", doctor_type=DoctorType.TRAINEE)
+        make_room(session, code="D1", room_type=RoomType.D)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        for doc in (partner, salaried, trainee):
+            make_master_session(
+                session, t, doc, week=1, day=Day.MONDAY, period=Period.AM,
+                session_type=MasterSessionType.REQUIRES_ROOM,
+            )
+            make_master_session(
+                session, t, doc, week=1, day=Day.MONDAY, period=Period.PM,
+                session_type=MasterSessionType.REQUIRES_ROOM,
+            )
+
+        make_duty(session, monday, Period.AM, partner, DutyType.PRIMARY)
+
+        make_clinic_type(
+            session, name="Dragon", clinic_priority=10, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(salaried.id, 1)], room_ids=[c_room.id],
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert result.status in ("success", "partial")
+
+        rows = session.execute(
+            select(RotaGenerationLogEntry)
+            .where(RotaGenerationLogEntry.rota_id == result.rota_id)
+            .order_by(RotaGenerationLogEntry.sequence)
+        ).scalars().all()
+
+        assert len(rows) > 0
+        assert [r.sequence for r in rows] == list(range(len(rows)))
+        # At least the duty assignment (phase4) and the clinic assignment
+        # (phase5) should have made it through -- a loose sanity check that
+        # this is real per-phase output, not an artifact of the write path.
+        assert any(r.phase == "phase4" and r.action == "assign_duty" for r in rows)
+        assert any(r.phase == "phase5" and r.action == "assign_clinic" for r in rows)
