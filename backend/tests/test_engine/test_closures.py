@@ -15,6 +15,7 @@ from app.engine.phases.phase0 import run_phase0
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase5 import run_phase5
 from app.engine.phases.phase12 import run_phase12
+from app.engine.datatypes import DecisionLog
 from app.engine.week_map import build_first_open_weekday, build_week_dates
 from app.models.enums import Day, DutyType, MasterSessionType, Period
 
@@ -177,7 +178,8 @@ class TestPhase5ClosedDateSkip:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        issues = run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
 
         assert not any(i.check == "no_eligible_doctor" for i in issues)
 
@@ -275,7 +277,8 @@ class TestPhase12ClinicCoverageClosureSkip:
         )
 
         ctx, grid, counters = _build(session, config_1wk)
-        run_phase5(ctx, grid, counters)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "clinic_coverage" for i in issues)
