@@ -146,3 +146,30 @@ class SetRoleOut(BaseModel):
     session: RotaSessionOut
     displaced_session: RotaSessionOut | None
     issues: list[ValidationIssueOut]
+
+
+class GenerationLogEntryOut(BaseModel):
+    """API shape of engine.datatypes.DecisionLogEntry (1:1 fields).
+
+    doctor_id / related_doctor_id / room_id / related_room_id /
+    clinic_type_id are plain ids by design -- no joins are done in the
+    router. Each row's `message` is already self-contained (built with the
+    doctor codes / room codes / clinic names available at generation time),
+    and the frontend resolves these ids against its own cached reference
+    data, falling back to the raw id (or just the message) for anything
+    since deleted. This mirrors RotaGenerationLogEntry's no-FK rationale:
+    the log is a diagnostic artifact, not something to join against."""
+    sequence: int
+    phase: str
+    action: str
+    week: int | None = None
+    day: Day | None = None
+    period: Period | None = None
+    doctor_id: int | None = None
+    related_doctor_id: int | None = None
+    room_id: int | None = None
+    related_room_id: int | None = None
+    clinic_type_id: int | None = None
+    message: str
+
+    model_config = {"from_attributes": True}
