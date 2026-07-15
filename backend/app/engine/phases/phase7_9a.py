@@ -92,6 +92,16 @@ def _pass1_full_day(
         if free_room is not None:
             grid.assign_room(gen_week, day, Period.AM, doctor_id, free_room)
             grid.assign_room(gen_week, day, Period.PM, doctor_id, free_room)
+            log.add(
+                phase=PHASE, action="assign_room",
+                week=gen_week, day=day, period=None, doctor_id=doctor_id,
+                room_id=free_room,
+                message=(
+                    f"Assigned D room {context.room_by_id[free_room].code} to "
+                    f"{_code(context, doctor_id)} for the full day (pass 1, "
+                    f"room free both sessions)."
+                ),
+            )
             continue
 
         candidate = _find_full_day_displacement(context, grid, counters, gen_week, day, d_room_ids)
@@ -120,6 +130,18 @@ def _pass1_full_day(
         grid.assign_room(gen_week, day, Period.AM, doctor_id, d_room_id)
         grid.assign_room(gen_week, day, Period.PM, doctor_id, d_room_id)
         counters.increment_system(displaced_id, SystemCounterType.ROOM_MOVE)  # once, not twice
+        log.add(
+            phase=PHASE, action="displace_room",
+            week=gen_week, day=day, period=None, doctor_id=doctor_id,
+            related_doctor_id=displaced_id, room_id=d_room_id, related_room_id=new_room,
+            message=(
+                f"Displaced {_code(context, displaced_id)} from "
+                f"{context.room_by_id[d_room_id].code} to "
+                f"{context.room_by_id[new_room].code} to free the D room for "
+                f"{_code(context, doctor_id)} (full day, pass 1, lowest "
+                f"weighted room-move score)."
+            ),
+        )
 
     return issues
 
@@ -204,6 +226,16 @@ def _pass2_single_session(
         free_room = _first_free_room_single(grid, gen_week, day, period, d_room_ids)
         if free_room is not None:
             grid.assign_room(gen_week, day, period, doctor_id, free_room)
+            log.add(
+                phase=PHASE, action="assign_room",
+                week=gen_week, day=day, period=period, doctor_id=doctor_id,
+                room_id=free_room,
+                message=(
+                    f"Assigned D room {context.room_by_id[free_room].code} to "
+                    f"{_code(context, doctor_id)} on {day.value} {period.value} "
+                    f"(pass 2, room free)."
+                ),
+            )
             continue
 
         candidate = _find_single_session_displacement(
@@ -232,6 +264,18 @@ def _pass2_single_session(
         grid.assign_room(gen_week, day, period, displaced_id, new_room)
         grid.assign_room(gen_week, day, period, doctor_id, d_room_id)
         counters.increment_system(displaced_id, SystemCounterType.ROOM_MOVE)
+        log.add(
+            phase=PHASE, action="displace_room",
+            week=gen_week, day=day, period=period, doctor_id=doctor_id,
+            related_doctor_id=displaced_id, room_id=d_room_id, related_room_id=new_room,
+            message=(
+                f"Displaced {_code(context, displaced_id)} from "
+                f"{context.room_by_id[d_room_id].code} to "
+                f"{context.room_by_id[new_room].code} to free the D room for "
+                f"{_code(context, doctor_id)} on {day.value} {period.value} "
+                f"(pass 2, lowest weighted room-move score)."
+            ),
+        )
 
     return issues
 
@@ -322,6 +366,15 @@ def _pass3_partner_salaried_fallback(
             continue
 
         grid.assign_room(gen_week, day, period, doctor.id, chosen)
+        log.add(
+            phase=PHASE, action="assign_room",
+            week=gen_week, day=day, period=period, doctor_id=doctor.id,
+            room_id=chosen,
+            message=(
+                f"Assigned preferred room {context.room_by_id[chosen].code} to "
+                f"{doctor.code} (pass 3, first free room on preference list)."
+            ),
+        )
 
     return issues
 
