@@ -15,6 +15,7 @@ import {
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
+import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -50,6 +51,8 @@ function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): b
   return mostRecent.rota_id === rotaId;
 }
 
+type RotaView = "doctor" | "room";
+
 export function RotaDetailPage() {
   const params = useParams<{ id: string }>();
   const rotaId = Number(params.id);
@@ -70,11 +73,18 @@ export function RotaDetailPage() {
   const undoPending =
     swapRoles.isPending || swapRooms.isPending || patchSession.isPending || setRoom.isPending || setRole.isPending;
 
-  // Owned here, not inside RotaGrid, so a doctor-view/room-view toggle
-  // (Task 4) preserves the selected week rather than each view starting
+  // Owned here, not inside RotaGrid, so the doctor-view/room-view toggle
+  // below preserves the selected week rather than each view starting
   // back at Week 1. Initialised to 1 rather than derived from rota.num_weeks
   // since rota may still be loading on first render below.
   const [activeWeek, setActiveWeek] = useState(1);
+
+  // Task 4: page-level view toggle. The room view is read-only regardless
+  // of rota status (Design Decision 10), so it needs no editable prop and
+  // no mutation callbacks - unlike RotaGrid it is structurally incapable
+  // of an edit. The toggle deliberately does not persist across
+  // navigation; every visit starts on the doctor view.
+  const [view, setView] = useState<RotaView>("doctor");
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -278,15 +288,42 @@ export function RotaDetailPage() {
         </p>
       ) : null}
 
-      <div className="mt-6 flex items-start gap-4">
+      <div className="mt-6 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setView("doctor")}
+          aria-pressed={view === "doctor"}
+          className={`rounded border px-3 py-1.5 text-sm font-medium ${
+            view === "doctor" ? "border-accent bg-accent text-white" : "border-border text-ink"
+          }`}
+        >
+          Doctor view
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("room")}
+          aria-pressed={view === "room"}
+          className={`rounded border px-3 py-1.5 text-sm font-medium ${
+            view === "room" ? "border-accent bg-accent text-white" : "border-border text-ink"
+          }`}
+        >
+          Room view
+        </button>
+      </div>
+
+      <div className="mt-3 flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <RotaGrid
-            rota={rota}
-            activeWeek={activeWeek}
-            onWeekChange={setActiveWeek}
-            onMutationApplied={handleMutationApplied}
-            onMutationError={handleMutationError}
-          />
+          {view === "doctor" ? (
+            <RotaGrid
+              rota={rota}
+              activeWeek={activeWeek}
+              onWeekChange={setActiveWeek}
+              onMutationApplied={handleMutationApplied}
+              onMutationError={handleMutationError}
+            />
+          ) : (
+            <RoomRotaGrid rota={rota} activeWeek={activeWeek} onWeekChange={setActiveWeek} />
+          )}
         </div>
         <IssuesPanel rotaId={currentRotaId} />
       </div>
