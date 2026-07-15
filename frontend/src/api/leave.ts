@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
+import { rotaKeys } from "./rota";
 import type {
   LeaveBulkDeleteIn,
   LeaveBulkDeleteOut,
@@ -30,6 +31,10 @@ export function useCreateLeave() {
     mutationFn: (payload: LeaveIn) => apiClient.post<LeaveEntry>("/leave", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+      // Leave creation may clear a room on the active draft; a rota view open
+      // in another tab/route needs to refetch to see it. No response payload
+      // to splice from here, so invalidate the whole rota prefix.
+      queryClient.invalidateQueries({ queryKey: rotaKeys.all });
     },
   });
 }
@@ -40,6 +45,9 @@ export function useDeleteLeave() {
     mutationFn: (id: number) => apiClient.delete<void>(`/leave/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+      // Leave removal changes the derived is_on_leave rendering on the rota
+      // grid (rooms are not restored, but the leave badge disappears).
+      queryClient.invalidateQueries({ queryKey: rotaKeys.all });
     },
   });
 }
@@ -50,6 +58,7 @@ export function useBulkCreateLeave() {
     mutationFn: (payload: LeaveBulkIn) => apiClient.post<LeaveBulkOut>("/leave/bulk", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+      queryClient.invalidateQueries({ queryKey: rotaKeys.all });
     },
   });
 }
@@ -61,6 +70,7 @@ export function useBulkDeleteLeave() {
       apiClient.post<LeaveBulkDeleteOut>("/leave/bulk-delete", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.all });
+      queryClient.invalidateQueries({ queryKey: rotaKeys.all });
     },
   });
 }
