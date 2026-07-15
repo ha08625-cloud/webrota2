@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeLeaveEntry } from "@/test/fixtures/reference";
 
+import { rotaKeys } from "./rota";
 import { useBulkCreateLeave, useBulkDeleteLeave, useCreateLeave, useDeleteLeave, useLeave } from "./leave";
 
 function makeWrapper(queryClient: QueryClient) {
@@ -65,6 +66,23 @@ describe("useCreateLeave", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedBody).toEqual({ doctor_id: 1, date: "2026-08-03", period: "AM" });
   });
+
+  it("invalidates the rota query cache, since leave may clear a held room", async () => {
+    server.use(
+      http.post("/api/v1/leave", async () => HttpResponse.json(makeLeaveEntry(), { status: 201 })),
+    );
+
+    const queryClient = freshClient();
+    // Seed a rota-prefixed query so we can observe it being marked stale.
+    queryClient.setQueryData(rotaKeys.detail(1), { id: 1 });
+
+    const { result } = renderHook(() => useCreateLeave(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate({ doctor_id: 1, date: "2026-08-03", period: "AM" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const state = queryClient.getQueryState(rotaKeys.detail(1));
+    expect(state?.isInvalidated).toBe(true);
+  });
 });
 
 describe("useDeleteLeave", () => {
@@ -82,6 +100,20 @@ describe("useDeleteLeave", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(deletedId).toBe("7");
+  });
+
+  it("invalidates the rota query cache, since removing leave changes the leave badge", async () => {
+    server.use(http.delete("/api/v1/leave/:id", () => new HttpResponse(null, { status: 204 })));
+
+    const queryClient = freshClient();
+    queryClient.setQueryData(rotaKeys.detail(1), { id: 1 });
+
+    const { result } = renderHook(() => useDeleteLeave(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const state = queryClient.getQueryState(rotaKeys.detail(1));
+    expect(state?.isInvalidated).toBe(true);
   });
 });
 
