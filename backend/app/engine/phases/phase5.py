@@ -48,6 +48,16 @@ def run_phase5(
                     # is nothing to assign and no warning to raise -- unlike
                     # a genuinely uncovered slot, a closed date is expected
                     # to have zero coverage.
+                    log.add(
+                        phase=PHASE, action="skip_closed_date",
+                        week=gen_week, day=day, period=period,
+                        clinic_type_id=clinic.id,
+                        message=(
+                            f"Skipped clinic '{clinic.name}' on "
+                            f"{date_.isoformat()} {period.value}: practice "
+                            f"closed."
+                        ),
+                    )
                     continue
 
                 eligible = _eligible_doctors(context, grid, clinic, gen_week, day, period)
@@ -70,10 +80,22 @@ def run_phase5(
                     context.doctor_by_id[e.doctor_id].code,
                 ))
                 doctor_id = eligible[0].doctor_id
+                reason = _selection_reason(context, counters, clinic, eligible)
 
                 slot = grid.get(doctor_id, gen_week, day, period)
                 slot.clinic_type_id = clinic.id
                 slot.role = SessionRole.CLINIC
+
+                log.add(
+                    phase=PHASE, action="assign_clinic",
+                    week=gen_week, day=day, period=period, doctor_id=doctor_id,
+                    clinic_type_id=clinic.id,
+                    message=(
+                        f"Assigned clinic '{clinic.name}' to "
+                        f"{_code(context, doctor_id)} on {date_.isoformat()} "
+                        f"{period.value} ({reason})."
+                    ),
+                )
 
                 if clinic.room_required:
                     room_issue = _resolve_room(
@@ -86,6 +108,37 @@ def run_phase5(
                 counters.increment_clinic(doctor_id, clinic.id)
 
     return issues
+
+
+def _selection_reason(
+    context: GenerationContext,
+    counters: CounterState,
+    clinic: ClinicTypeInfo,
+    eligible: list[ClinicDoctorEligibility],
+) -> str:
+    """Describe why `eligible[0]` was picked over the field, for the
+    decision log. Mirrors the sort key used to order `eligible` -- see
+    Design Decision 4 in the generation-log plan."""
+    if len(eligible) == 1:
+        return "only eligible doctor"
+
+    a, b = eligible[0], eligible[1]
+    if a.doctor_priority != b.doctor_priority:
+        return f"priority tier {a.doctor_priority}"
+
+    score_a = counters.weighted_clinic_score(
+        a.doctor_id, clinic.id, context.spw_by_id.get(a.doctor_id, 0.0)
+    )
+    score_b = counters.weighted_clinic_score(
+        b.doctor_id, clinic.id, context.spw_by_id.get(b.doctor_id, 0.0)
+    )
+    if score_a != score_b:
+        return (
+            f"priority tier {a.doctor_priority}, tie broken on weighted "
+            f"score {score_a:.2f} vs {score_b:.2f}"
+        )
+
+    return f"priority tier {a.doctor_priority}, alphabetical tie-break"
 
 
 def _eligible_doctors(
@@ -129,11 +182,30 @@ def _resolve_room(
 
     current_room = grid.get_doctor_room(gen_week, day, period, doctor_id)
     if current_room is not None and current_room in clinic.eligible_room_ids:
+        log.add(
+            phase=PHASE, action="assign_clinic_room",
+            week=gen_week, day=day, period=period, doctor_id=doctor_id,
+            room_id=current_room, clinic_type_id=clinic.id,
+            message=(
+                f"{_code(context, doctor_id)} already in eligible room "
+                f"{context.room_by_id[current_room].code} for clinic "
+                f"'{clinic.name}'."
+            ),
+        )
         return None  # already in an eligible room
 
     for room_id in eligible_room_ids:
         if grid.is_room_free(gen_week, day, period, room_id):
             grid.assign_room(gen_week, day, period, doctor_id, room_id)
+            log.add(
+                phase=PHASE, action="assign_clinic_room",
+                week=gen_week, day=day, period=period, doctor_id=doctor_id,
+                room_id=room_id, clinic_type_id=clinic.id,
+                message=(
+                    f"Assigned room {context.room_by_id[room_id].code} to "
+                    f"{_code(context, doctor_id)} for clinic '{clinic.name}'."
+                ),
+            )
             return None
 
     for room_id in eligible_room_ids:
@@ -155,6 +227,18 @@ def _resolve_room(
 
         grid.assign_room(gen_week, day, period, occupant_id, new_room)
         grid.assign_room(gen_week, day, period, doctor_id, room_id)
+        log.add(
+            phase=PHASE, action="displace_for_clinic",
+            week=gen_week, day=day, period=period, doctor_id=doctor_id,
+            related_doctor_id=occupant_id, room_id=room_id, related_room_id=new_room,
+            clinic_type_id=clinic.id,
+            message=(
+                f"Displaced {_code(context, occupant_id)} from "
+                f"{context.room_by_id[room_id].code} to "
+                f"{context.room_by_id[new_room].code} so "
+                f"{_code(context, doctor_id)} can run clinic '{clinic.name}'."
+            ),
+        )
         return None
 
     doctor = context.doctor_by_id.get(doctor_id)
@@ -208,3 +292,8 @@ def _best_free_preferred_room(
         if grid.is_room_free(gen_week, day, period, room_id):
             return room_id
     return None
+
+
+def _code(context: GenerationContext, doctor_id: int) -> str:
+    doctor = context.doctor_by_id.get(doctor_id)
+    return doctor.code if doctor is not None else f"id={doctor_id}"
