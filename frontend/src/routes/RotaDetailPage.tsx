@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -68,6 +69,12 @@ export function RotaDetailPage() {
   const setRole = useSetRole();
   const undoPending =
     swapRoles.isPending || swapRooms.isPending || patchSession.isPending || setRoom.isPending || setRole.isPending;
+
+  // Owned here, not inside RotaGrid, so a doctor-view/room-view toggle
+  // (Task 4) preserves the selected week rather than each view starting
+  // back at Week 1. Initialised to 1 rather than derived from rota.num_weeks
+  // since rota may still be loading on first render below.
+  const [activeWeek, setActiveWeek] = useState(1);
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -273,7 +280,13 @@ export function RotaDetailPage() {
 
       <div className="mt-6 flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <RotaGrid rota={rota} onMutationApplied={handleMutationApplied} onMutationError={handleMutationError} />
+          <RotaGrid
+            rota={rota}
+            activeWeek={activeWeek}
+            onWeekChange={setActiveWeek}
+            onMutationApplied={handleMutationApplied}
+            onMutationError={handleMutationError}
+          />
         </div>
         <IssuesPanel rotaId={currentRotaId} />
       </div>

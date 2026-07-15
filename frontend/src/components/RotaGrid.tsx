@@ -19,6 +19,7 @@ import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
 import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
+import { WeekTabs } from "@/components/WeekTabs";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
 import { type ChipType, canDrop } from "@/lib/dragRules";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
@@ -45,6 +46,12 @@ const FONT_CLASS: Record<FontColor, string> = {
 
 interface RotaGridProps {
   rota: Rota;
+  /** Controlled week selection, owned by RotaDetailPage so it survives a
+   * doctor-view/room-view toggle. RotaGrid trusts the caller rather than
+   * clamping against rota.num_weeks - the page initialises to 1 and only
+   * ever sets values sourced from the tab strip itself. */
+  activeWeek: number;
+  onWeekChange: (week: number) => void;
   /** Called after any successful swap/move/patch, so RotaDetailPage can push an undo entry and show a toast. */
   onMutationApplied?: (entry: UndoEntry, toastMessage: string) => void;
   /** Called on any mutation failure - covers the (UI-unreachable but not impossible) 409 from a committed rota. */
@@ -68,7 +75,7 @@ function supervisedCountKey(week: number, day: Day, period: Period): string {
  * popover simply aren't rendered for a committed rota - there is no
  * separate read-only component variant to keep in sync.
  */
-export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridProps) {
+export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, onMutationError }: RotaGridProps) {
   const editable = rota.status === "draft";
 
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
@@ -84,7 +91,6 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
   const setRole = useSetRole();
 
   const weeks = useMemo(() => weekNumbers(rota.num_weeks), [rota.num_weeks]);
-  const [activeWeek, setActiveWeek] = useState(weeks[0] ?? 1);
   const [activeChip, setActiveChip] = useState<ActiveChip | null>(null);
 
   const roomsById = useMemo(() => toIdMap(rooms), [rooms]);
@@ -370,27 +376,7 @@ export function RotaGrid({ rota, onMutationApplied, onMutationError }: RotaGridP
 
   return (
     <div>
-      {/* Week tabs always render, even for a single-week rota - keeps the
-          tab UI consistent rather than conditionally reshaping around
-          num_weeks. */}
-      <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Week">
-        {weeks.map((week) => (
-          <button
-            key={week}
-            type="button"
-            role="tab"
-            aria-selected={week === activeWeek}
-            onClick={() => setActiveWeek(week)}
-            className={`px-4 py-2 text-sm font-medium ${
-              week === activeWeek
-                ? "border-b-2 border-accent text-accent"
-                : "text-ink/60 hover:text-ink"
-            }`}
-          >
-            Week {week}
-          </button>
-        ))}
-      </div>
+      <WeekTabs weeks={weeks} activeWeek={activeWeek} onWeekChange={onWeekChange} />
 
       <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
         {editable ? (
@@ -634,7 +620,7 @@ function CellContent({ session, fontColorClass, supervisedCount, draggable = fal
   );
 }
 
-function RoleLabel({ role, clinicName }: { role: string | null; clinicName: string | null }) {
+export function RoleLabel({ role, clinicName }: { role: string | null; clinicName: string | null }) {
   if (role === "duty_primary") return <div className="text-xs font-medium">Duty</div>;
   if (role === "duty_secondary") return <div className="text-xs font-medium">Duty (2nd)</div>;
   if (role === "clinic") return <div className="text-xs font-medium">{clinicName ?? "Clinic"}</div>;

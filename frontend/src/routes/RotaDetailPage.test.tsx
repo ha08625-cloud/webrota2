@@ -572,4 +572,46 @@ describe("RotaDetailPage", () => {
       expect(await screen.findByText("rota 9 must be rolled back first")).toBeInTheDocument();
     });
   });
+
+  // --- Week selection state (M... Task 2: activeWeek lifted to this page) ---
+
+  describe("week selection state", () => {
+    it("keeps Week 2 selected across a query-cache-driven re-render", async () => {
+      setUpGridServer();
+      const session1 = makeRotaSession({
+        session_id: 1, doctor_id: 1, week: 1, day: "Monday", period: "AM",
+        role: "duty_primary", is_wfh: false, notes: null,
+      });
+      const session2 = makeRotaSession({
+        session_id: 2, doctor_id: 1, week: 2, day: "Monday", period: "AM",
+        role: "duty_primary", is_wfh: false, notes: null,
+      });
+      const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 2, sessions: [session1, session2] });
+      server.use(
+        http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)),
+        http.patch("/api/v1/rota/:rotaId/sessions/:sessionId", () =>
+          HttpResponse.json({
+            session: { ...session2, is_wfh: true, room_id: null, room_code: null },
+            issues: [],
+          }),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("tab", { name: "Week 2" }));
+      const cell = await screen.findByTestId("cell-1-2-Monday-AM");
+      await user.click(within(cell).getByText("Duty"));
+      await user.click(await screen.findByLabelText("Working from home"));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      // The PATCH response drives a query-cache update that re-renders
+      // RotaDetailPage (and RotaGrid) with a fresh `rota` prop - activeWeek
+      // is page state now, not RotaGrid-local state, so it must survive
+      // that re-render rather than resetting to Week 1.
+      await screen.findByText("Applied");
+      expect(screen.getByRole("tab", { name: "Week 2" })).toHaveAttribute("aria-selected", "true");
+    });
+  });
 });

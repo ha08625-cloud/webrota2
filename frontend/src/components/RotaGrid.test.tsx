@@ -3,14 +3,52 @@ import { describe, expect, it, vi } from "vitest";
 import { HttpResponse, http } from "msw";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 
 import { useRota } from "@/api/rota";
+import type { Rota } from "@/api/types";
 import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
+import type { UndoEntry } from "@/lib/undoStack";
 
 import { RotaGrid } from "./RotaGrid";
+
+/**
+ * RotaGrid takes activeWeek/onWeekChange as controlled props (Task 2) -
+ * RotaDetailPage owns that state in production. This harness stands in
+ * for that ownership so every test below keeps working with a plain
+ * `renderRotaGrid({ rota })` call, matching the pre-Task-2 call shape.
+ */
+function RotaGridHarness({
+  rota,
+  onMutationApplied,
+  onMutationError,
+}: {
+  rota: Rota;
+  onMutationApplied?: (entry: UndoEntry, message: string) => void;
+  onMutationError?: () => void;
+}) {
+  const [activeWeek, setActiveWeek] = useState(1);
+  return (
+    <RotaGrid
+      rota={rota}
+      activeWeek={activeWeek}
+      onWeekChange={setActiveWeek}
+      onMutationApplied={onMutationApplied}
+      onMutationError={onMutationError}
+    />
+  );
+}
+
+function renderRotaGrid(props: {
+  rota: Rota;
+  onMutationApplied?: (entry: UndoEntry, message: string) => void;
+  onMutationError?: () => void;
+}) {
+  return renderWithProviders(<RotaGridHarness {...props} />);
+}
 
 function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB" })],
@@ -31,7 +69,7 @@ describe("RotaGrid", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     expect(await screen.findByText("AB")).toBeInTheDocument();
     expect(screen.getByText("Monday")).toBeInTheDocument();
@@ -49,7 +87,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByText("YY");
     await screen.findByText("ZZ");
 
@@ -61,7 +99,7 @@ describe("RotaGrid", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const doctorCell = (await screen.findByText("AB")).closest("td");
 
     expect(doctorCell).toHaveAttribute("rowspan", "2");
@@ -71,7 +109,7 @@ describe("RotaGrid", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByText("AB");
 
     expect(document.querySelector('[data-week-day-period="1-Monday-AM"]')).toBeInTheDocument();
@@ -81,7 +119,7 @@ describe("RotaGrid", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByText("AB");
 
     expect(screen.queryByTestId("cell-1-1-Monday-AM")).not.toBeInTheDocument();
@@ -100,7 +138,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     expect(within(cell).getByText("Duty")).toBeInTheDocument();
@@ -134,7 +172,7 @@ describe("RotaGrid", () => {
       ],
     });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     const helperCell = await screen.findByTestId("cell-1-1-Monday-AM");
     const namedCell = await screen.findByTestId("cell-1-1-Monday-PM");
@@ -155,7 +193,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     expect(within(cell).getByText("LEAVE")).toBeInTheDocument();
@@ -173,7 +211,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     expect(within(cell).getByText("No surgery")).toBeInTheDocument();
@@ -189,7 +227,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     expect(within(cell).getByText("Admin")).toBeInTheDocument();
@@ -208,7 +246,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     expect(within(cell).getByText("Duty")).toBeInTheDocument();
@@ -219,7 +257,7 @@ describe("RotaGrid", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByText("AB");
 
     expect(screen.getByRole("tab", { name: "Week 1" })).toBeInTheDocument();
@@ -235,7 +273,7 @@ describe("RotaGrid", () => {
       ],
     });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     expect(await screen.findByTestId("cell-1-1-Monday-AM")).toBeInTheDocument();
     expect(screen.queryByTestId("cell-1-2-Monday-AM")).not.toBeInTheDocument();
 
@@ -256,7 +294,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Duty"));
@@ -295,8 +333,9 @@ describe("RotaGrid", () => {
     // the real wiring rather than a disconnected copy of it.
     function Harness() {
       const { data } = useRota(7);
+      const [activeWeek, setActiveWeek] = useState(1);
       if (!data) return null;
-      return <RotaGrid rota={data} />;
+      return <RotaGrid rota={data} activeWeek={activeWeek} onWeekChange={setActiveWeek} />;
     }
 
     renderWithProviders(<Harness />);
@@ -321,7 +360,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     // Two separate chips (role, room), each individually drag-registered
@@ -341,7 +380,7 @@ describe("RotaGrid", () => {
     });
     const rota = makeRota({ status: "committed", num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     // Content still renders (Q10: committed rotas display through the
@@ -369,7 +408,7 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
     });
     const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("LEAVE"));
@@ -400,7 +439,7 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
     );
 
     const onMutationApplied = vi.fn();
-    renderWithProviders(<RotaGrid rota={rota} onMutationApplied={onMutationApplied} />);
+    renderRotaGrid({ rota, onMutationApplied });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Duty"));
@@ -444,7 +483,7 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
     );
 
     const onMutationApplied = vi.fn();
-    renderWithProviders(<RotaGrid rota={rota} onMutationApplied={onMutationApplied} />);
+    renderRotaGrid({ rota, onMutationApplied });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Clinic"));
@@ -476,7 +515,7 @@ describe("RotaGrid closures (M5)", () => {
     // RotaClosure snapshot, independent of the live closures API.
     const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     const mondayHeader = await screen.findByTestId("day-header-Monday");
     expect(mondayHeader.textContent).toContain("closed");
@@ -488,7 +527,7 @@ describe("RotaGrid closures (M5)", () => {
     setUpServer({ closures: [makeClosure({ date: "2026-07-06", name: "Bank Holiday" })] });
     const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     const mondayHeader = await screen.findByTestId("day-header-Monday");
     expect(mondayHeader.textContent).toContain("Bank Holiday");
@@ -498,7 +537,7 @@ describe("RotaGrid closures (M5)", () => {
     setUpServer({ closures: [] });
     const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     const mondayHeader = await screen.findByTestId("day-header-Monday");
     expect(mondayHeader.textContent).toContain("closed");
@@ -508,7 +547,7 @@ describe("RotaGrid closures (M5)", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByTestId("day-header-Monday");
 
     expect(screen.queryByTestId("cell-1-1-Monday-AM")).not.toBeInTheDocument();
@@ -519,7 +558,7 @@ describe("RotaGrid closures (M5)", () => {
     // Week 1 Monday is 2026-07-06; week 2 Monday is 2026-07-13.
     const rota = makeRota({ num_weeks: 2, sessions: [], closed_dates: ["2026-07-06"] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
     await screen.findByTestId("day-header-Monday");
 
     const user = userEvent.setup();
@@ -533,7 +572,7 @@ describe("RotaGrid closures (M5)", () => {
     setUpServer();
     const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: [] });
 
-    renderWithProviders(<RotaGrid rota={rota} />);
+    renderRotaGrid({ rota });
 
     const mondayHeader = await screen.findByTestId("day-header-Monday");
     expect(mondayHeader.textContent).not.toContain("closed");
