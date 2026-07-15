@@ -66,4 +66,13 @@ def run_phase4(
             else SessionRole.DUTY_SECONDARY
         )
 
+        log.add(
+            phase=PHASE, action="assign_duty",
+            week=gen_week, day=day, period=period, doctor_id=doctor_id,
+            message=(
+                f"Applied {duty_type.value} duty to {code} on "
+                f"{date_.isoformat()} {period.value} (pre-planned)."
+            ),
+        )
+
     return issues
