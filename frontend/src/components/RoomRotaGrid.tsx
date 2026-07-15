@@ -5,7 +5,7 @@ import { useRooms } from "@/api/rooms";
 import type { Day, Period, Rota } from "@/api/types";
 import { RoleLabel } from "@/components/RotaGrid";
 import { WeekTabs } from "@/components/WeekTabs";
-import { DAYS, PERIODS, weekNumbers } from "@/lib/pivot";
+import { DAYS, weekNumbers } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota } from "@/lib/pivotRoomRota";
 import { rotaDate } from "@/lib/weekDates";
 
