@@ -28,7 +28,10 @@ anywhere in the doctor's DoctorPreferredRoom list -- not restricted to
 their #1 preference or to a currently-free room.
 
 No counter is involved in this phase, and it never emits a ValidationIssue
--- resolution is fully deterministic for every detected swap.
+-- resolution is fully deterministic for every detected swap. It does emit
+one DecisionLogEntry per detected pair (see `run_phase9b`'s module-level
+consumer, `generate._write_to_db()`), since this phase has no other output
+to inspect after the fact.
 """
 from __future__ import annotations
 
@@ -75,7 +78,7 @@ def _resolve_swaps_for_day(
                 continue
 
             if a_am == b_pm and a_pm == b_am:
-                confirm = _should_confirm_swap(context, a_id, b_id, a_am, b_am)
+                confirm, reason = _should_confirm_swap(context, a_id, b_id, a_am, b_am)
                 if not confirm:
                     # Free both current PM rooms first -- assign_room only
                     # frees the assignee's own prior room, not a target
@@ -86,6 +89,22 @@ def _resolve_swaps_for_day(
                     grid.free_room(gen_week, day, Period.PM, b_id)
                     grid.assign_room(gen_week, day, Period.PM, a_id, a_am)
                     grid.assign_room(gen_week, day, Period.PM, b_id, b_am)
+
+                log.add(
+                    phase=PHASE, action="resolve_swap",
+                    week=gen_week, day=day, period=None, doctor_id=a_id,
+                    related_doctor_id=b_id, room_id=a_am, related_room_id=b_am,
+                    message=(
+                        f"Detected AM/PM room swap between "
+                        f"{context.doctor_by_id[a_id].code} "
+                        f"({context.room_by_id[a_am].code}) and "
+                        f"{context.doctor_by_id[b_id].code} "
+                        f"({context.room_by_id[b_am].code}): "
+                        f"{'CONFIRMED' if confirm else 'DEFAULTED'} ({reason}). "
+                        f"Only the PM assignment is ever mutated by this "
+                        f"phase."
+                    ),
+                )
                 processed.add(a_id)
                 processed.add(b_id)
                 break
@@ -118,12 +137,17 @@ def _eligible_doctors_for_day(
 
 def _should_confirm_swap(
     context: GenerationContext, a_id: int, b_id: int, x_room: int, y_room: int,
-) -> bool:
-    """True to CONFIRM (keep) the swap; False to DEFAULT (undo) it.
+) -> tuple[bool, str]:
+    """(confirm, reason) -- confirm=True to CONFIRM (keep) the swap, False
+    to DEFAULT (undo) it. `reason` names the priority-table row that fired,
+    for the decision log.
 
     x_room = Doctor A's AM room (and B's swapped PM room);
     y_room = Doctor B's AM room (and A's swapped PM room).
     """
+    a_code = context.doctor_by_id[a_id].code
+    b_code = context.doctor_by_id[b_id].code
+
     a_pref = context.preferred_rooms_by_doctor.get(a_id, ())
     b_pref = context.preferred_rooms_by_doctor.get(b_id, ())
 
@@ -133,13 +157,13 @@ def _should_confirm_swap(
     b_prefers_other = x_room in b_pref
 
     if a_prefers_own and not b_prefers_own:
-        return False  # row 1
+        return False, f"row 1: only {a_code} prefers their own AM room"
     if b_prefers_own and not a_prefers_own:
-        return False  # row 2
+        return False, f"row 2: only {b_code} prefers their own AM room"
     if a_prefers_other and not b_prefers_other:
-        return True  # row 3
+        return True, f"row 3: only {a_code} prefers the swap room"
     if b_prefers_other and not a_prefers_other:
-        return True  # row 4
+        return True, f"row 4: only {b_code} prefers the swap room"
 
-    return False  # rows 5-7 all collapse to default (row 5 dropped -- see
-    # module docstring; rows 6/7 were already default)
+    return False, "rows 5-7 default: no preference distinguishes the doctors"
+    # (row 5 dropped -- see module docstring; rows 6/7 were already default)
