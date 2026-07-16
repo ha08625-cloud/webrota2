@@ -171,23 +171,44 @@ def _full_day_candidates(
 
 def _find_full_day_displacement(
     context: GenerationContext, grid: RotaGrid, counters: CounterState,
-    gen_week: int, day: Day, d_room_ids: list[int],
-) -> tuple[int, int] | None:
-    candidates: list[tuple[int, int]] = []
-    for room_id in d_room_ids:
-        occ_am = grid.get_room_occupant(gen_week, day, Period.AM, room_id)
-        occ_pm = grid.get_room_occupant(gen_week, day, Period.PM, room_id)
-        if occ_am is None or occ_am != occ_pm:
+    gen_week: int, day: Day,
+) -> tuple[int, int, int] | None:
+    """Find the best full-day Partner/Salaried victim to displace.
+
+    Candidates are Partner/Salaried doctors currently holding a D room in
+    both AM and PM of `day`. Priority 1: the doctor holds a *different* D
+    room in each session -- displacing them frees two D rooms for the
+    price of one move. Priority 2: the doctor holds the *same* D room all
+    day. Within a tier, ties are broken on live weighted room-move score,
+    then doctor code.
+
+    Returns `(doctor_id, am_room_id, pm_room_id)` -- with `am_room_id ==
+    pm_room_id` for a Priority 2 candidate -- or `None` if no doctor
+    qualifies.
+    """
+    candidates: list[tuple[int, int, int, int]] = []  # (tier, doctor_id, am_room, pm_room)
+    for doctor in context.doctors:  # already ordered by code
+        if doctor.doctor_type not in _DISPLACEABLE_TYPES:
             continue
-        if not _is_displaceable_full_day(context, grid, occ_am, gen_week, day):
+        am_room = grid.get_doctor_room(gen_week, day, Period.AM, doctor.id)
+        pm_room = grid.get_doctor_room(gen_week, day, Period.PM, doctor.id)
+        if am_room is None or pm_room is None:
             continue
-        candidates.append((occ_am, room_id))
+        if context.room_by_id[am_room].room_type != RoomType.D:
+            continue
+        if context.room_by_id[pm_room].room_type != RoomType.D:
+            continue
+        if not _is_displaceable_full_day(context, grid, doctor.id, gen_week, day):
+            continue
+        tier = 1 if am_room != pm_room else 2
+        candidates.append((tier, doctor.id, am_room, pm_room))
 
     if not candidates:
         return None
 
-    candidates.sort(key=lambda c: _room_move_sort_key(context, counters, c[0]))
-    return candidates[0]
+    candidates.sort(key=lambda c: (c[0], *_room_move_sort_key(context, counters, c[1])))
+    best = candidates[0]
+    return best[1], best[2], best[3]
 
 
 def _is_displaceable_full_day(
