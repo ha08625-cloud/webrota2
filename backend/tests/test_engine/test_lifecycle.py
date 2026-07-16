@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.engine.generate import (
     commit_rota,
+    force_delete_rota,
     generate,
     get_active_draft,
     rollback_commit,
@@ -22,6 +23,7 @@ from app.models import (
     GeneratedRota,
     RotaClinicCounterSnapshot,
     RotaConfig,
+    RotaGenerationLogEntry,
     RotaSession,
     RotaSystemCounterSnapshot,
     SystemCounter,
@@ -462,3 +464,116 @@ class TestRollbackCommit:
         # A is now a plain draft again -- normal draft lifecycle applies.
         scrap_rota(session, result_a.rota_id)
         assert session.execute(select(GeneratedRota)).scalars().first() is None
+
+
+class TestForceDelete:
+    """force_delete_rota(): the software-bug escape hatch. Deletes a
+    committed rota outright and leaves live counters untouched -- see the
+    function's docstring for why this is not a substitute for rollback."""
+
+    def test_force_delete_removes_rota_and_leaves_counters_live(
+        self, session, monday
+    ):
+        config, a, b, ct = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+        assert _clinic_count(session, a.id, ct.id) == 4
+
+        force_delete_rota(session, result.rota_id)
+
+        # Rota, its session(s), snapshot, and generation log entries gone.
+        assert session.get(GeneratedRota, result.rota_id) is None
+        assert session.execute(select(RotaSession)).scalars().first() is None
+        assert session.execute(
+            select(RotaClinicCounterSnapshot).where(
+                RotaClinicCounterSnapshot.rota_id == result.rota_id)
+        ).scalars().first() is None
+        assert session.execute(
+            select(RotaGenerationLogEntry).where(
+                RotaGenerationLogEntry.rota_id == result.rota_id)
+        ).scalars().first() is None
+
+        # Counters stay exactly as generation left them -- not restored.
+        assert _clinic_count(session, a.id, ct.id) == 4
+
+        # The orphaned RotaConfig row is left behind, same as scrap.
+        assert session.get(RotaConfig, config.id) is not None
+
+    def test_force_delete_draft_raises(self, session, monday):
+        config, *_ = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        try:
+            force_delete_rota(session, result.rota_id)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            message = str(exc).lower()
+            assert "draft" in message
+            assert "scrap" in message
+
+    def test_force_delete_not_found_raises(self, session, monday):
+        try:
+            force_delete_rota(session, 999999)
+            assert False, "expected ValueError"
+        except ValueError as exc:
+            assert "not found" in str(exc)
+
+    def test_force_delete_legacy_committed_at_null_succeeds(self, session, monday):
+        """The primary real-world trigger: a legacy commit with
+        committed_at=None and no snapshot rows, which rollback_commit()
+        can never touch. force_delete_rota() has no committed_at check and
+        must succeed regardless."""
+        config = _make_config(session, monday)
+        rota = GeneratedRota(config_id=config.id, status=RotaStatus.COMMITTED)
+        session.add(rota)
+        session.flush()
+        assert rota.committed_at is None
+
+        force_delete_rota(session, rota.id)
+
+        assert session.get(GeneratedRota, rota.id) is None
+
+    def test_force_delete_any_chain_position(self, session, monday):
+        """Unlike rollback, force-delete carries no ordering restriction --
+        the older of two committed rotas can be deleted while the newer
+        one is left untouched."""
+        config_a, a, b, ct = _build_fixture(session, monday)
+        result_a = generate(session, config_a.id)
+        commit_rota(session, result_a.rota_id)
+
+        config_b = _make_config(session, monday + datetime.timedelta(days=7))
+        result_b = generate(session, config_b.id)
+        commit_rota(session, result_b.rota_id)
+
+        force_delete_rota(session, result_a.rota_id)
+
+        assert session.get(GeneratedRota, result_a.rota_id) is None
+        assert session.get(GeneratedRota, result_b.rota_id) is not None
+        assert session.get(GeneratedRota, result_b.rota_id).status == RotaStatus.COMMITTED
+
+    def test_force_delete_then_rollback_discards_contribution(self, session, monday):
+        """Decision 4's stated caveat, proven rather than just documented:
+        force-deleting the most recent commit (B) makes A the new most
+        recent commit. Rolling A back restores counters to A's own
+        snapshot -- silently discarding B's baked-in contribution along
+        with everything the rollback itself undoes."""
+        config_a, a, b, ct = _build_fixture(session, monday)
+        result_a = generate(session, config_a.id)
+        commit_rota(session, result_a.rota_id)
+        # a's counter: 3 (pre-existing) -> 4 after A's generation.
+        assert _clinic_count(session, a.id, ct.id) == 4
+
+        config_b = _make_config(session, monday + datetime.timedelta(days=7))
+        result_b = generate(session, config_b.id)
+        commit_rota(session, result_b.rota_id)
+        # a's counter: 4 -> 5 after B's generation.
+        assert _clinic_count(session, a.id, ct.id) == 5
+
+        force_delete_rota(session, result_b.rota_id)
+        # Counter is untouched by the force-delete itself.
+        assert _clinic_count(session, a.id, ct.id) == 5
+
+        rollback_commit(session, result_a.rota_id)
+        # A's snapshot value: 3. B's contribution (and A's own generation
+        # increment) is gone from the live counter -- discarded, not just
+        # B's part of it.
+        assert _clinic_count(session, a.id, ct.id) == 3

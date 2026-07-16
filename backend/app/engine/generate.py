@@ -362,6 +362,67 @@ def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
     return rota
 
 
+def force_delete_rota(db: Session, rota_id: int) -> None:
+    """Permanently delete a committed rota without touching counters.
+
+    An escape hatch for recovering from software bugs -- the motivating
+    case is a legacy commit with committed_at=None, which rollback_commit()
+    can never touch (its committed_at check hard-blocks it) and which would
+    otherwise sit forever blocking generate() from reusing its date range.
+    This is not a tool for everyday mistakes: rollback_commit() remains the
+    correct way to undo a normal commit wherever it is eligible, since it
+    keeps counters consistent with history. Force-delete does not.
+
+    Deliberately performs none of rollback_commit()'s eligibility checks --
+    committed_at, archived_at, chain order, snapshot existence, and
+    active-draft state are all irrelevant here, because this function never
+    touches counters or restores anything from a snapshot. Any committed
+    rota can be force-deleted: the most recent commit, one buried in the
+    middle of the chain, a legacy row with zero snapshot rows, or an
+    archived one (archiving is purely a visibility flag the API does not
+    check; the frontend only shows the force-delete button on non-archived
+    rotas, so an archived buggy rota must be unarchived first).
+
+    Counters are left exactly as they are: whatever this rota's generation
+    and any subsequent edits added to the running totals stays live. This
+    is deliberate, not an oversight -- but it has one sharp edge worth
+    stating plainly. Snapshots store absolute pre-generation values, not
+    deltas: if the force-deleted rota was the most recent commit, the new
+    most-recent commit becomes rollback-eligible, and rolling *it* back
+    restores counters to *its own* snapshot -- silently discarding the
+    deleted rota's baked-in contribution too, on top of whatever the
+    rollback itself undoes. Acceptable, arguably desirable in a
+    bug-recovery scenario, but a real interaction rather than a
+    hypothetical one -- see
+    test_force_delete_then_rollback_discards_contribution.
+
+    Snapshot rows are removed via _delete_snapshots(): the snapshot tables
+    have plain FKs to generated_rotas with no cascade, so db.delete(rota)
+    would otherwise fail with an FK violation. This is a safe no-op against
+    a legacy rota with zero snapshot rows. RotaSession, RotaClosure, and
+    RotaGenerationLogEntry rows all cascade off GeneratedRota
+    (cascade="all, delete-orphan") and need no explicit handling here.
+
+    Raises ValueError if the rota does not exist ("not found" in the
+    message, maps to 404), or if it is a draft (message points at scrap as
+    the correct operation instead, maps to 409 -- drafts already have a
+    delete path via scrap_rota(), and a second one for the same status
+    would be confusing).
+    """
+    rota = db.get(GeneratedRota, rota_id)
+    if rota is None:
+        raise ValueError(f"GeneratedRota id={rota_id} not found")
+    if rota.status != RotaStatus.COMMITTED:
+        raise ValueError(
+            f"Rota {rota_id} is a draft -- use scrap to discard it"
+        )
+
+    _delete_snapshots(db, rota_id)
+    db.delete(rota)  # ORM cascade removes RotaSession, RotaClosure, and
+    # RotaGenerationLogEntry rows
+    db.flush()
+
+
 def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
     """Restore every counter row to the value snapshotted for this rota.
 

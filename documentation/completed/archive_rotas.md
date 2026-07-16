@@ -1,0 +1,118 @@
+# Plan: Archive committed rotas
+
+# Scope
+
+Let committed rotas be hidden from the main "Committed history" list on
+`RotaPage` without affecting counters, sessions, or rollback eligibility.
+Archiving is a pure visibility flag on `GeneratedRota` -- metadata only, no
+engine involvement beyond one line in `rollback_commit()` (Decision 5).
+Draft rotas and (already-deleted) scrapped rotas are out of scope entirely.
+
+Out of scope, explicitly: no query parameters or server-side filtering on
+`GET /rota`; no changes to counters, snapshots, sessions, or the
+commit/scrap/rollback lifecycle rules; no archive action anywhere except
+`RotaDetailPage`.
+
+# Design Decisions
+
+1. New nullable `archived_at: datetime` column on `generated_rotas`
+   (migration 008). No backfill, no server_default -- exactly the migration
+   006 `committed_at` pattern, because null has a defined, permanent
+   meaning ("not archived"), not a temporary backfill gap.
+2. Archive/unarchive apply to **committed rotas only**. Archiving a draft
+   is 409. Archiving an already-archived rota is 409. Unarchiving a rota
+   that is not archived is 409. Guards live in the router (mirroring
+   `_require_draft`'s style), not the engine -- consistent with Decision 3.
+3. Archiving has zero interaction with counters, snapshots, or sessions.
+4. `rollback_commit()`'s eligibility checks ignore `archived_at` entirely:
+   an archived rota stays rollback-eligible under the existing
+   chain-order rule (user-confirmed). Known consequence, accepted: if the
+   most recent commit is archived, the Rollback button appears only on
+   that rota's detail page, reached via the Archived tab; and an
+   out-of-order rollback error may name a rota that is hidden by default.
+5. `rollback_commit()` **clears `archived_at`** when it flips the rota
+   back to draft (user-confirmed). This is necessary, not cosmetic:
+   `commit_rota()` self-heals the chain by refreshing `committed_at` to
+   now on re-commit, so a surviving flag would silently re-archive a
+   freshly re-committed rota with no UI action explaining it.
+6. Two new endpoints, `POST /rota/{id}/archive` and
+   `POST /rota/{id}/unarchive`, both returning `RotaOut` -- same shape and
+   delegation pattern as `commit`.
+7. `RotaSummaryOut` and `RotaOut` gain `archived_at: datetime | None`;
+   the frontend `RotaSummary` and `Rota` types gain
+   `archived_at: string | null` as a **required** field, matching
+   `committed_at`.
+8. `GET /rota` continues to return archived rotas unfiltered. The
+   Committed/Archived split is purely client-side. Do not add a query
+   parameter or a WHERE clause -- the frontend tab split and the
+   rollback-eligibility scan (Decision 9) both depend on the full list,
+   and volume is tens of rotas per year with no pagination.
+9. `isMostRecentRollbackableCommit()` in `RotaDetailPage.tsx` must keep
+   scanning the **full** rota list, archived rotas included. Under
+   Decision 4 an archived rota can be the most recent commit; excluding
+   archived rotas from the scan would make the visible most-recent commit
+   wrongly show a Rollback button that 409s. Do not "tidy" this function.
+10. Legacy rotas with `committed_at IS NULL` (committed before rollback
+    support) are archivable -- they are committed, and since they can
+    never be rolled back, archiving is the only lifecycle action left for
+    them. No special-casing needed; the guard checks status, not
+    `committed_at`.
+11. `RotaPage` gains a "Committed" / "Archived" tab pair above the
+    committed-history list, splitting on `archived_at`. The
+    archive/unarchive action itself lives only on `RotaDetailPage`, next
+    to the conditional Rollback button -- consistent with
+    commit/scrap/rollback already being detail-page-only actions.
+12. Frontend mutations follow `useRollbackCommit()`'s cache pattern
+    exactly: `setQueryData` on the detail key from the response,
+    `invalidateQueries` on the list key. No navigation on success.
+
+# Task 6: RotaDetailPage -- Archive/Unarchive button
+
+A: Tasks 1-5 are complete. `RotaDetailPage` currently shows, for a
+committed rota, the "committed and read-only" notice plus a conditional
+"Roll back commit" button gated by `isMostRecentRollbackableCommit`, and
+renders commit/scrap/rollback error blocks below.
+
+B: Files:
+- `frontend/src/routes/RotaDetailPage.tsx`
+- `frontend/src/routes/RotaDetailPage.test.tsx`
+
+Deliverables:
+- `useArchiveRota()` / `useUnarchiveRota()` wired in alongside the
+  existing three mutations.
+- In the committed branch: if `rota.archived_at === null`, an "Archive"
+  button; otherwise an "Unarchive" button in its place. Both sit next to
+  the conditional Rollback button, same button styling.
+- `handleArchive`: `window.confirm` in the style of the existing
+  handlers, copy along the lines of "Archive this rota? It will be
+  hidden from the committed history list but is unaffected otherwise and
+  can be unarchived at any time." `handleUnarchive`: confirm dialog is
+  optional-by-symmetry -- include a simple one for consistency with every
+  other lifecycle action on this page. Neither navigates on success
+  (Decision 12; unlike commit/scrap, like rollback).
+- Error blocks for both mutations, same pattern as the existing
+  commit/scrap blocks (static message; no server detail passthrough
+  needed -- the only 409s here are stale-UI races).
+- `isMostRecentRollbackableCommit` is **not modified** (Decision 9). Add
+  a one-line comment on the function noting that archived rotas must
+  remain in the scan.
+- Tests: Archive button shown for a committed non-archived rota and not
+  for a draft; Unarchive shown for an archived rota; clicking each fires
+  the right POST (MSW spy) after confirm; window.confirm cancellation
+  aborts; error block renders on failure; Rollback button still renders
+  for an archived rota that is the most recent commit (Decisions 4/9 --
+  this is the regression test for the "tidying" failure mode). Follow
+  the file's existing confirm-mocking and MSW conventions.
+
+C: Read the committed-branch JSX and the three existing handlers first;
+this task is additive and should not restructure them.
+
+# Testing summary
+
+All tests land inside Tasks 3-6 rather than as a separate pass, so each
+task leaves CI green in isolation. The cross-cutting regressions to be
+certain exist by the end: rollback-clears-archived-then-recommit (Task
+3), rollback-of-an-archived-most-recent-commit succeeds (Task 3), and
+the frontend Rollback button surviving on an archived most-recent commit
+(Task 6). The Postgres migration round-trip job covers 008 with no new
+CI configuration.
