@@ -230,6 +230,109 @@ class TestRollbackCommit:
         resp = client.delete(f"/api/v1/rota/{out['rota_id']}")
         assert resp.status_code == 204
 
+    def test_rollback_clears_archived_at_and_stays_clear_on_recommit(
+        self, client, seeded
+    ):
+        """M6, Decision 5: a surviving archived_at would silently
+        re-archive a freshly re-committed rota with no UI action
+        explaining it -- rollback must clear it, and it must stay clear
+        through a subsequent commit."""
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "draft"
+        assert body["archived_at"] is None
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        assert resp.status_code == 200
+        assert resp.json()["archived_at"] is None
+
+    def test_rollback_eligibility_ignores_archiving(self, client, seeded):
+        """M6, Decision 4: an archived rota that is still the most recent
+        commit remains rollback-eligible under the existing chain-order
+        rule."""
+        out_a = generate_rota(client)
+        client.post(f"/api/v1/rota/{out_a['rota_id']}/commit")
+
+        out_b = generate_rota(client, start_date=MONDAY + datetime.timedelta(days=7))
+        client.post(f"/api/v1/rota/{out_b['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out_b['rota_id']}/archive")
+
+        resp = client.post(f"/api/v1/rota/{out_b['rota_id']}/rollback-commit")
+        assert resp.status_code == 200, resp.text
+
+
+class TestArchive:
+    """M6: POST /rota/{id}/archive and /unarchive."""
+
+    def test_archive_happy_path(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["archived_at"] is not None
+
+        rotas = client.get("/api/v1/rota").json()
+        row = next(r for r in rotas if r["rota_id"] == out["rota_id"])
+        assert row["archived_at"] == body["archived_at"]
+
+    def test_unarchive_happy_path(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/unarchive")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["archived_at"] is None
+
+    def test_archive_409_on_draft(self, client, seeded):
+        out = generate_rota(client)
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+        assert resp.status_code == 409
+
+    def test_archive_409_when_already_archived(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+        assert resp.status_code == 409
+
+    def test_unarchive_409_when_not_archived(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/unarchive")
+        assert resp.status_code == 409
+
+    def test_unarchive_409_on_draft(self, client, seeded):
+        out = generate_rota(client)
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/unarchive")
+        assert resp.status_code == 409
+
+    def test_archive_legacy_rota_with_null_committed_at(
+        self, client, db_session, seeded
+    ):
+        """M6, Decision 10: a rota committed before rollback support
+        (committed_at NULL) is still archivable -- archiving checks
+        status, not committed_at."""
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        rota = db_session.get(GeneratedRota, out["rota_id"])
+        rota.committed_at = None
+        db_session.commit()
+
+        resp = client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["archived_at"] is not None
+
 
 class TestCommittedAtExposure:
     """M3.7: committed_at is exposed on both RotaOut and RotaSummaryOut so

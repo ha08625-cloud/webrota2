@@ -29,6 +29,7 @@ def test_list_single_draft_fields(client, seeded):
     assert summary["num_weeks"] == 1
     assert summary["template_start_week"] == 1
     assert "created_at" in summary
+    assert summary["archived_at"] is None
     # Summary only -- no session payload in the list view.
     assert "sessions" not in summary
 

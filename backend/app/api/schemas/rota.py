@@ -53,7 +53,12 @@ class RotaSummaryOut(BaseModel):
     with the newest-first ordering of this list, to work out which
     committed rota -- if any -- is eligible for the rollback affordance:
     only the one with the latest non-null committed_at among committed
-    rotas."""
+    rotas.
+
+    archived_at (M6) is null unless the rota has been archived; only
+    committed rotas can be archived. The frontend uses it to split the
+    committed-history list into "Committed" and "Archived" tabs -- purely
+    client-side, since this endpoint returns archived rotas unfiltered."""
     rota_id: int
     status: RotaStatus
     created_at: datetime.datetime
@@ -61,6 +66,7 @@ class RotaSummaryOut(BaseModel):
     num_weeks: int
     template_start_week: int
     committed_at: datetime.datetime | None = None
+    archived_at: datetime.datetime | None = None
 
 
 class RotaOut(BaseModel):
@@ -75,6 +81,9 @@ class RotaOut(BaseModel):
     committed_at (M3.7) is null for a draft, including one produced by
     rolling back a commit, and also null for a committed rota that
     predates rollback support -- see RotaSummaryOut.
+
+    archived_at (M6) is null unless the rota has been archived -- see
+    RotaSummaryOut. Cleared automatically by rollback-commit.
     """
     rota_id: int
     status: RotaStatus
@@ -85,6 +94,7 @@ class RotaOut(BaseModel):
     sessions: list[RotaSessionOut]
     closed_dates: list[datetime.date] = Field(default_factory=list)
     committed_at: datetime.datetime | None = None
+    archived_at: datetime.datetime | None = None
 
 
 class SessionPatchIn(BaseModel):

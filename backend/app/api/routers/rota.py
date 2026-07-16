@@ -99,6 +99,14 @@ def _require_draft(rota: GeneratedRota) -> None:
         )
 
 
+def _require_committed(rota: GeneratedRota) -> None:
+    if rota.status != RotaStatus.COMMITTED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Rota {rota.id} is a draft; this operation is committed-only",
+        )
+
+
 def _find_overlapping_committed_rota(
     db: Session, start_date: datetime.date, num_weeks: int
 ) -> tuple[GeneratedRota, RotaConfig] | None:
@@ -353,7 +361,12 @@ def list_rotas(
 ) -> list[RotaSummaryOut]:
     """All rotas, newest first (M3.5 Task 1). The frontend derives the
     active draft (at most one by design) and the committed history from
-    this list. No pagination: volume is tens per year."""
+    this list. No pagination: volume is tens per year.
+
+    Archived rotas (M6) are deliberately included, unfiltered -- the
+    Committed/Archived tab split on RotaPage, and the rollback-eligibility
+    scan of the full list, both depend on it. There is no query parameter
+    to filter them out; that split is client-side by design."""
     rows = db.execute(
         select(GeneratedRota, RotaConfig)
         .join(RotaConfig, GeneratedRota.config_id == RotaConfig.id)
@@ -368,6 +381,7 @@ def list_rotas(
             num_weeks=config.num_weeks,
             template_start_week=config.template_start_week,
             committed_at=rota.committed_at,
+            archived_at=rota.archived_at,
         )
         for rota, config in rows
     ]
@@ -394,6 +408,7 @@ def get_rota(
         sessions=_session_outs(db, config, sessions),
         closed_dates=_closed_dates_out(db, rota_id),
         committed_at=rota.committed_at,
+        archived_at=rota.archived_at,
     )
 
 
@@ -474,6 +489,52 @@ def rollback_commit_endpoint(
         status_code = 404 if "not found" in message else 409
         raise HTTPException(status_code=status_code, detail=message) from exc
 
+    db.commit()
+    return get_rota(rota_id, db=db, user=user)
+
+
+@router.post("/{rota_id}/archive", response_model=RotaOut)
+def archive(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> RotaOut:
+    """Hide a committed rota from the default "Committed" list (M6).
+
+    Metadata-only: no engine involvement, no counter/session effect. Draft
+    rotas cannot be archived (409 via _require_committed); an
+    already-archived rota is also a 409, not a silent no-op.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+    _require_committed(rota)
+    if rota.archived_at is not None:
+        raise HTTPException(
+            status_code=409, detail=f"Rota {rota.id} is already archived",
+        )
+    rota.archived_at = datetime.datetime.now(datetime.timezone.utc)
+    db.commit()
+    return get_rota(rota_id, db=db, user=user)
+
+
+@router.post("/{rota_id}/unarchive", response_model=RotaOut)
+def unarchive(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> RotaOut:
+    """Reverse of archive() (M6).
+
+    No _require_committed guard here: a draft can never have archived_at
+    set (only archive() sets it, and only on committed rotas), so the
+    "not archived" 409 below already rejects a draft -- this is
+    deliberate, not a missing check.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+    if rota.archived_at is None:
+        raise HTTPException(
+            status_code=409, detail=f"Rota {rota.id} is not archived",
+        )
+    rota.archived_at = None
     db.commit()
     return get_rota(rota_id, db=db, user=user)
 
