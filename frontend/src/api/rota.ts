@@ -123,6 +123,41 @@ export function useRollbackCommit() {
   });
 }
 
+/**
+ * Hides a committed rota from the default "Committed" list (M6). Metadata
+ * only - no session or counter effect. The backend 409s a draft or an
+ * already-archived rota; this hook does not pre-check either, matching
+ * the apply-then-warn convention of every other mutation here. No
+ * navigation on success - the caller re-renders from the same detail
+ * query, same pattern as commit/rollback.
+ */
+export function useArchiveRota() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.post<Rota>(`/rota/${rotaId}/archive`),
+    onSuccess: (data, rotaId) => {
+      queryClient.setQueryData(rotaKeys.detail(rotaId), data);
+      queryClient.invalidateQueries({ queryKey: rotaKeys.list() });
+    },
+  });
+}
+
+/**
+ * Reverse of useArchiveRota. The backend 409s a rota that is not
+ * currently archived (which also covers drafts, since only a committed
+ * rota can ever have archived_at set). No navigation on success.
+ */
+export function useUnarchiveRota() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.post<Rota>(`/rota/${rotaId}/unarchive`),
+    onSuccess: (data, rotaId) => {
+      queryClient.setQueryData(rotaKeys.detail(rotaId), data);
+      queryClient.invalidateQueries({ queryKey: rotaKeys.list() });
+    },
+  });
+}
+
 // --- Session editing (Task 4) ---
 // swap-roles, swap-rooms, and the session PATCH all return the full
 // updated session(s) plus a fresh issues list. None of these invalidate

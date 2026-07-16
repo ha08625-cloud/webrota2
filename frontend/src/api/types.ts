@@ -374,6 +374,15 @@ export interface RotaSummary {
    * RotaDetailPage's rollback-eligibility check.
    */
   committed_at: string | null;
+  /**
+   * M6 addition. Null unless the rota has been archived; only ever
+   * non-null on a committed rota. Set via POST /rota/{id}/archive,
+   * cleared via /unarchive or automatically by rollback-commit. This
+   * endpoint returns archived rotas unfiltered - the frontend uses this
+   * field to split committed history into "Committed" and "Archived"
+   * tabs purely client-side.
+   */
+  archived_at: string | null;
 }
 
 export interface RotaSession {
@@ -421,6 +430,12 @@ export interface Rota {
    * rollback support - see RotaSummary.committed_at.
    */
   committed_at: string | null;
+  /**
+   * M6 addition. Null unless the rota has been archived; only ever
+   * non-null on a committed rota. Cleared automatically by
+   * rollback-commit alongside committed_at - see RotaSummary.archived_at.
+   */
+  archived_at: string | null;
 }
 
 export interface GenerateRotaIn {

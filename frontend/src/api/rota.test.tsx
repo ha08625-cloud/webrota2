@@ -8,7 +8,15 @@ import { server } from "@/test/msw/server";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { makeValidationIssue } from "@/test/fixtures/issues";
 
-import { rotaKeys, usePatchSession, useRollbackCommit, useSwapRoles, useSwapRooms } from "./rota";
+import {
+  rotaKeys,
+  useArchiveRota,
+  usePatchSession,
+  useRollbackCommit,
+  useSwapRoles,
+  useSwapRooms,
+  useUnarchiveRota,
+} from "./rota";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -170,7 +178,7 @@ describe("useRollbackCommit", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(rotaKeys.detail(7), rota);
     queryClient.setQueryData(rotaKeys.list(), [
-      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at },
+      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at, archived_at: null },
     ]);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
@@ -181,6 +189,119 @@ describe("useRollbackCommit", () => {
     );
 
     const { result } = renderHook(() => useRollbackCommit(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
+  });
+});
+
+describe("useArchiveRota", () => {
+  it("posts to archive and seeds the detail cache with the response", async () => {
+    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z", archived_at: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+
+    let capturedUrl = "";
+    server.use(
+      http.post("/api/v1/rota/:id/archive", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ ...rota, archived_at: "2026-07-16T12:00:00Z" });
+      }),
+    );
+
+    const { result } = renderHook(() => useArchiveRota(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedUrl).toContain("/api/v1/rota/7/archive");
+    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
+    expect(cachedRota.archived_at).toBe("2026-07-16T12:00:00Z");
+  });
+
+  it("invalidates the rota list on success", async () => {
+    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z", archived_at: null });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+    queryClient.setQueryData(rotaKeys.list(), [
+      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at, archived_at: null },
+    ]);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    server.use(
+      http.post("/api/v1/rota/:id/archive", () =>
+        HttpResponse.json({ ...rota, archived_at: "2026-07-16T12:00:00Z" }),
+      ),
+    );
+
+    const { result } = renderHook(() => useArchiveRota(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
+  });
+});
+
+describe("useUnarchiveRota", () => {
+  it("posts to unarchive and seeds the detail cache with the response", async () => {
+    const rota = makeRota({
+      rota_id: 7,
+      status: "committed",
+      committed_at: "2026-07-10T09:00:00Z",
+      archived_at: "2026-07-16T12:00:00Z",
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+
+    let capturedUrl = "";
+    server.use(
+      http.post("/api/v1/rota/:id/unarchive", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ ...rota, archived_at: null });
+      }),
+    );
+
+    const { result } = renderHook(() => useUnarchiveRota(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(7);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(capturedUrl).toContain("/api/v1/rota/7/unarchive");
+    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
+    expect(cachedRota.archived_at).toBeNull();
+  });
+
+  it("invalidates the rota list on success", async () => {
+    const rota = makeRota({
+      rota_id: 7,
+      status: "committed",
+      committed_at: "2026-07-10T09:00:00Z",
+      archived_at: "2026-07-16T12:00:00Z",
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(rotaKeys.detail(7), rota);
+    queryClient.setQueryData(rotaKeys.list(), [
+      {
+        rota_id: 7,
+        status: "committed",
+        created_at: rota.created_at,
+        start_date: rota.start_date,
+        num_weeks: 2,
+        template_start_week: 1,
+        committed_at: rota.committed_at,
+        archived_at: rota.archived_at,
+      },
+    ]);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    server.use(
+      http.post("/api/v1/rota/:id/unarchive", () => HttpResponse.json({ ...rota, archived_at: null })),
+    );
+
+    const { result } = renderHook(() => useUnarchiveRota(), { wrapper: makeWrapper(queryClient) });
     result.current.mutate(7);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

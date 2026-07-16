@@ -1,4 +1,4 @@
-import type { GenerationLogEntry, Rota, RotaSession, RotaSummary } from "@/api/types";
+import type { Rota, RotaSession, RotaSummary } from "@/api/types";
 
 export function makeRotaSummary(overrides: Partial<RotaSummary> = {}): RotaSummary {
   return {
@@ -9,6 +9,7 @@ export function makeRotaSummary(overrides: Partial<RotaSummary> = {}): RotaSumma
     num_weeks: 2,
     template_start_week: 1,
     committed_at: null,
+    archived_at: null,
     ...overrides,
   };
 }
@@ -24,6 +25,7 @@ export function makeRota(overrides: Partial<Rota> = {}): Rota {
     sessions: [],
     closed_dates: [],
     committed_at: null,
+    archived_at: null,
     ...overrides,
   };
 }
@@ -48,26 +50,6 @@ export function makeRotaSession(overrides: Partial<RotaSession> = {}): RotaSessi
     is_supervising: false,
     is_on_leave: false,
     notes: null,
-    ...overrides,
-  };
-}
-
-let logSequenceCounter = 0;
-
-export function makeGenerationLogEntry(overrides: Partial<GenerationLogEntry> = {}): GenerationLogEntry {
-  return {
-    sequence: logSequenceCounter++,
-    phase: "phase5",
-    action: "assign_clinic",
-    message: "Dr AA assigned to Diabetic clinic",
-    week: 1,
-    day: "Monday",
-    period: "AM",
-    doctor_id: 1,
-    related_doctor_id: null,
-    room_id: null,
-    related_room_id: null,
-    clinic_type_id: 1,
     ...overrides,
   };
 }
