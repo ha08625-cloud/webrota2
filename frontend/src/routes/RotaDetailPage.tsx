@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
+  useArchiveRota,
   useCommitRota,
   usePatchSession,
   useRollbackCommit,
@@ -12,6 +13,7 @@ import {
   useSetRoom,
   useSwapRoles,
   useSwapRooms,
+  useUnarchiveRota,
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
@@ -31,6 +33,13 @@ import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
  * committed before rollback support existed, which is permanently
  * unrollbackable). This is advisory only - the 409 mapping still covers
  * races such as a draft created in another tab between load and click.
+ *
+ * Deliberately scans the full rota list, archived rotas included (M6
+ * Decision 9): archiving has zero interaction with rollback eligibility,
+ * so an archived rota can still be the most recent commit. Filtering
+ * archived rotas out here would make a visible-by-default most-recent
+ * commit wrongly show a Rollback button that then 409s. Do not "tidy"
+ * this by adding an archived_at filter.
  */
 function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): boolean {
   const hasDraft = rotas.some((r) => r.status === "draft");
@@ -60,6 +69,8 @@ export function RotaDetailPage() {
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
   const rollbackCommit = useRollbackCommit();
+  const archiveRota = useArchiveRota();
+  const unarchiveRota = useUnarchiveRota();
 
   const undoStack = useUndoStack<UndoEntry>();
   const { toast, showToast } = useToast();
@@ -131,6 +142,24 @@ export function RotaDetailPage() {
       return;
     }
     rollbackCommit.mutate(currentRotaId);
+  }
+
+  function handleArchive() {
+    if (
+      !window.confirm(
+        "Archive this rota? It will be hidden from the committed history list but is unaffected otherwise and can be unarchived at any time.",
+      )
+    ) {
+      return;
+    }
+    archiveRota.mutate(currentRotaId);
+  }
+
+  function handleUnarchive() {
+    if (!window.confirm("Unarchive this rota? It will reappear in the committed history list.")) {
+      return;
+    }
+    unarchiveRota.mutate(currentRotaId);
   }
 
   function handleScrap() {
@@ -256,16 +285,37 @@ export function RotaDetailPage() {
       ) : (
         <div className="mt-4">
           <p className="text-sm text-ink/50">This rota is committed and read-only.</p>
-          {rotaList && isMostRecentRollbackableCommit(rotaList, currentRotaId) ? (
-            <button
-              type="button"
-              onClick={handleRollback}
-              disabled={rollbackCommit.isPending}
-              className="mt-3 rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
-            >
-              Roll back commit
-            </button>
-          ) : null}
+          <div className="mt-3 flex gap-3">
+            {rotaList && isMostRecentRollbackableCommit(rotaList, currentRotaId) ? (
+              <button
+                type="button"
+                onClick={handleRollback}
+                disabled={rollbackCommit.isPending}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Roll back commit
+              </button>
+            ) : null}
+            {rota.archived_at === null ? (
+              <button
+                type="button"
+                onClick={handleArchive}
+                disabled={archiveRota.isPending}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Archive
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleUnarchive}
+                disabled={unarchiveRota.isPending}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Unarchive
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -277,6 +327,10 @@ export function RotaDetailPage() {
             ? rollbackCommit.error.detail
             : "Could not roll back this commit."}
         </p>
+      ) : null}
+      {archiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not archive this rota.</p> : null}
+      {unarchiveRota.isError ? (
+        <p className="mt-3 text-sm text-red-700">Could not unarchive this rota.</p>
       ) : null}
 
       <div className="mt-6 flex items-start gap-4">

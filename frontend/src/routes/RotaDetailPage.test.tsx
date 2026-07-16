@@ -573,6 +573,238 @@ describe("RotaDetailPage", () => {
     });
   });
 
+  // --- Archive / unarchive (M6 Task 6) ---
+
+  describe("archive and unarchive", () => {
+    it("shows Archive for a committed non-archived rota, and not for a draft", async () => {
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      expect(await screen.findByRole("button", { name: "Archive" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Unarchive" })).not.toBeInTheDocument();
+    });
+
+    it("shows Unarchive for an archived rota", async () => {
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      expect(await screen.findByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    });
+
+    it("does not show Archive or Unarchive for a draft rota", async () => {
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 7, status: "draft" }))));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+
+      await screen.findByRole("button", { name: "Commit" });
+      expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Unarchive" })).not.toBeInTheDocument();
+    });
+
+    it("archives after confirmation and does not navigate away", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null })),
+        ),
+      );
+      let archived = false;
+      server.use(
+        http.post("/api/v1/rota/:id/archive", () => {
+          archived = true;
+          return HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          );
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, {
+        route: "/rota/8",
+        path: "/rota/:id",
+        additionalRoutes: [{ path: "/", element: <div data-testid="home-probe">home</div> }],
+      });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Archive" }));
+
+      expect(archived).toBe(true);
+      expect(await screen.findByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+      expect(screen.queryByTestId("home-probe")).not.toBeInTheDocument();
+    });
+
+    it("does not archive when the confirmation is declined", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null })),
+        ),
+      );
+      let archived = false;
+      server.use(
+        http.post("/api/v1/rota/:id/archive", () => {
+          archived = true;
+          return HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          );
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Archive" }));
+
+      expect(archived).toBe(false);
+    });
+
+    it("shows an error message when archiving fails", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null })),
+        ),
+        http.post("/api/v1/rota/:id/archive", () =>
+          HttpResponse.json({ detail: "Rota 8 is already archived" }, { status: 409 }),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Archive" }));
+
+      expect(await screen.findByText("Could not archive this rota.")).toBeInTheDocument();
+    });
+
+    it("unarchives after confirmation and does not navigate away", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          ),
+        ),
+      );
+      let unarchived = false;
+      server.use(
+        http.post("/api/v1/rota/:id/unarchive", () => {
+          unarchived = true;
+          return HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null }));
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, {
+        route: "/rota/8",
+        path: "/rota/:id",
+        additionalRoutes: [{ path: "/", element: <div data-testid="home-probe">home</div> }],
+      });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Unarchive" }));
+
+      expect(unarchived).toBe(true);
+      expect(await screen.findByRole("button", { name: "Archive" })).toBeInTheDocument();
+      expect(screen.queryByTestId("home-probe")).not.toBeInTheDocument();
+    });
+
+    it("does not unarchive when the confirmation is declined", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          ),
+        ),
+      );
+      let unarchived = false;
+      server.use(
+        http.post("/api/v1/rota/:id/unarchive", () => {
+          unarchived = true;
+          return HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null }));
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Unarchive" }));
+
+      expect(unarchived).toBe(false);
+    });
+
+    it("shows an error message when unarchiving fails", async () => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-16T12:00:00Z" }),
+          ),
+        ),
+        http.post("/api/v1/rota/:id/unarchive", () =>
+          HttpResponse.json({ detail: "Rota 8 is not archived" }, { status: 409 }),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Unarchive" }));
+
+      expect(await screen.findByText("Could not unarchive this rota.")).toBeInTheDocument();
+    });
+
+    it("still shows the Rollback button for an archived rota that is the most recent commit (Decisions 4/9)", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({
+              rota_id: 8,
+              status: "committed",
+              committed_at: "2026-07-10T09:00:00Z",
+              archived_at: "2026-07-16T12:00:00Z",
+            }),
+          ]),
+        ),
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({
+              rota_id: 8,
+              status: "committed",
+              committed_at: "2026-07-10T09:00:00Z",
+              archived_at: "2026-07-16T12:00:00Z",
+            }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      expect(await screen.findByRole("button", { name: "Roll back commit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+    });
+  });
+
   // --- Week selection state (M... Task 2: activeWeek lifted to this page) ---
 
   describe("week selection state", () => {
