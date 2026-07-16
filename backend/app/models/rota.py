@@ -22,6 +22,17 @@ NULL, which rollback_commit() treats as "not rollbackable" (their
 snapshots were already deleted at commit time under the old lifecycle,
 so restoring them would be unsafe) -- see the rollback plan for the full
 reasoning.
+
+GeneratedRota.archived_at (added by migration 008, nullable, no backfill)
+is a pure visibility flag on committed rotas -- it hides a rota from the
+default "Committed" list on RotaPage without touching counters,
+sessions, or rollback eligibility. It is set/cleared via the archive and
+unarchive endpoints, and is also cleared by rollback_commit() when a
+rota flips back to draft (commit_rota() self-heals committed_at on
+re-commit, so a surviving archived_at would silently re-archive a
+freshly re-committed rota). rollback_commit()'s eligibility checks
+otherwise ignore archived_at entirely -- see the archive-committed-rotas
+plan for the full reasoning.
 """
 import datetime
 
@@ -79,6 +90,9 @@ class GeneratedRota(Base):
         enum_col(RotaStatus), nullable=False, default=RotaStatus.DRAFT
     )
     committed_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
 
