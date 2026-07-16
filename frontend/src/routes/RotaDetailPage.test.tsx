@@ -5,7 +5,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { rotaKeys } from "@/api/rota";
-import { makeDoctor } from "@/test/fixtures/reference";
+import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession, makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -844,6 +844,82 @@ describe("RotaDetailPage", () => {
       // that re-render rather than resetting to Week 1.
       await screen.findByText("Applied");
       expect(screen.getByRole("tab", { name: "Week 2" })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+
+  // --- Doctor view / room view toggle (Task 4) ---
+
+  describe("view toggle", () => {
+    function setUpRoomServer() {
+      server.use(
+        http.get("/api/v1/rooms", () => HttpResponse.json([makeRoom({ id: 1, code: "D1", room_type: "D" })])),
+      );
+    }
+
+    it("toggles between the doctor grid and the room grid", async () => {
+      setUpGridServer();
+      setUpRoomServer();
+      const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 1, sessions: [] });
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+      await screen.findByRole("button", { name: "Doctor view" });
+      expect(screen.queryByText("Available")).not.toBeInTheDocument();
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Room view" }));
+
+      expect((await screen.findAllByText("Available")).length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Room view" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Doctor view" })).toHaveAttribute("aria-pressed", "false");
+
+      await user.click(screen.getByRole("button", { name: "Doctor view" }));
+
+      expect(screen.queryByText("Available")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Doctor view" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("keeps Week 2 selected across a toggle to room view and back", async () => {
+      setUpGridServer();
+      setUpRoomServer();
+      const session1 = makeRotaSession({
+        session_id: 1, doctor_id: 1, week: 1, day: "Monday", period: "AM", role: "duty_primary",
+      });
+      const session2 = makeRotaSession({
+        session_id: 2, doctor_id: 1, week: 2, day: "Monday", period: "AM", role: "duty_primary",
+      });
+      const rota = makeRota({ rota_id: 7, status: "draft", num_weeks: 2, sessions: [session1, session2] });
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(rota)));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("tab", { name: "Week 2" }));
+      await user.click(screen.getByRole("button", { name: "Room view" }));
+
+      expect((await screen.findAllByText("Available")).length).toBeGreaterThan(0);
+      expect(screen.getByRole("tab", { name: "Week 2" })).toHaveAttribute("aria-selected", "true");
+
+      await user.click(screen.getByRole("button", { name: "Doctor view" }));
+
+      expect(screen.getByRole("tab", { name: "Week 2" })).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("offers the toggle, and a working room view, on a committed rota", async () => {
+      setUpGridServer();
+      setUpRoomServer();
+      server.use(
+        http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+      await screen.findByText(/read-only/);
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Room view" }));
+
+      expect((await screen.findAllByText("Available")).length).toBeGreaterThan(0);
     });
   });
 });

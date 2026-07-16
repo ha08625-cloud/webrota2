@@ -17,6 +17,7 @@ import {
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
+import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { GenerationLogPanel } from "@/components/GenerationLogPanel";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -60,6 +61,8 @@ function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): b
   return mostRecent.rota_id === rotaId;
 }
 
+type RotaView = "doctor" | "room";
+
 export function RotaDetailPage() {
   const params = useParams<{ id: string }>();
   const rotaId = Number(params.id);
@@ -87,6 +90,7 @@ export function RotaDetailPage() {
   // back at Week 1. Initialised to 1 rather than derived from rota.num_weeks
   // since rota may still be loading on first render below.
   const [activeWeek, setActiveWeek] = useState(1);
+  const [view, setView] = useState<RotaView>("doctor");
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -328,6 +332,32 @@ export function RotaDetailPage() {
             : "Could not roll back this commit."}
         </p>
       ) : null}
+      <div className="mt-6 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setView("doctor")}
+          aria-pressed={view === "doctor"}
+          className={`rounded border px-3 py-1.5 text-sm font-medium ${
+            view === "doctor" ? "border-accent bg-accent text-white" : "border-border text-ink"
+          }`}
+        >
+          Doctor view
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("room")}
+          aria-pressed={view === "room"}
+          className={`rounded border px-3 py-1.5 text-sm font-medium ${
+            view === "room" ? "border-accent bg-accent text-white" : "border-border text-ink"
+          }`}
+        >
+          Room view
+        </button>
+      </div>
+
+      <div className="mt-3 flex items-start gap-4">
+
+      </div>
       {archiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not archive this rota.</p> : null}
       {unarchiveRota.isError ? (
         <p className="mt-3 text-sm text-red-700">Could not unarchive this rota.</p>
@@ -335,6 +365,17 @@ export function RotaDetailPage() {
 
       <div className="mt-6 flex items-start gap-4">
         <div className="min-w-0 flex-1">
+          {view === "doctor" ? (
+            <RotaGrid
+              rota={rota}
+              activeWeek={activeWeek}
+              onWeekChange={setActiveWeek}
+              onMutationApplied={handleMutationApplied}
+              onMutationError={handleMutationError}
+            />
+          ) : (
+            <RoomRotaGrid rota={rota} activeWeek={activeWeek} onWeekChange={setActiveWeek} />
+          )}
           <RotaGrid
             rota={rota}
             activeWeek={activeWeek}
