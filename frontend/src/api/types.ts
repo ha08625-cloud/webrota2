@@ -470,6 +470,28 @@ export interface SetRoleOut {
   issues: ValidationIssue[];
 }
 
+// --- Generation decision log (schemas/rota.py's GenerationLogEntryOut) ---
+// API shape of engine.datatypes.DecisionLogEntry, 1:1 fields. Written once
+// per rota, in the same transaction as the rota itself
+// (generate._write_to_db()), and never mutated afterwards - unlike
+// ValidationIssue, which is re-derived live on every /issues request. See
+// GET /rota/{id}/log in api/rota.ts.
+
+export interface GenerationLogEntry {
+  sequence: number;
+  phase: string;
+  action: string;
+  message: string;
+  week: number | null;
+  day: Day | null;
+  period: Period | null;
+  doctor_id: number | null;
+  related_doctor_id: number | null;
+  room_id: number | null;
+  related_room_id: number | null;
+  clinic_type_id: number | null;
+}
+
 // --- Master rota (schemas/master_rota.py) ---
 // Read-only view of the active template. Named session_id/template_id,
 // matching RotaSession/Rota's convention (not the plain `id` used by

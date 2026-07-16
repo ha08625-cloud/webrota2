@@ -15,6 +15,7 @@ import {
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
+import { GenerationLogPanel } from "@/components/GenerationLogPanel";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -290,6 +291,8 @@ export function RotaDetailPage() {
         </div>
         <IssuesPanel rotaId={currentRotaId} />
       </div>
+
+      <GenerationLogPanel rotaId={currentRotaId} />
 
       <ToastDisplay message={toast?.message} />
     </div>

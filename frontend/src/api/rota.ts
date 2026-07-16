@@ -4,6 +4,7 @@ import { apiClient } from "./client";
 import type {
   GenerateRotaIn,
   GenerateRotaOut,
+  GenerationLogEntry,
   Rota,
   RotaSession,
   RotaSummary,
@@ -17,6 +18,7 @@ export const rotaKeys = {
   list: () => [...rotaKeys.all, "list"] as const,
   detail: (rotaId: number) => [...rotaKeys.all, "detail", rotaId] as const,
   issues: (rotaId: number) => [...rotaKeys.all, "issues", rotaId] as const,
+  log: (rotaId: number) => [...rotaKeys.all, "log", rotaId] as const,
 };
 
 export function useRotaList() {
@@ -47,6 +49,25 @@ export function useRotaIssues(rotaId: number) {
     queryKey: rotaKeys.issues(rotaId),
     queryFn: () => apiClient.get<ValidationIssue[]>(`/rota/${rotaId}/issues`),
     enabled: Number.isFinite(rotaId),
+  });
+}
+
+/**
+ * GET /rota/{id}/log -- the generation decision log. Unlike /issues, this
+ * reads rows written once, in the same transaction as the rota, by
+ * generate._write_to_db() (backend/app/api/routers/rota.py's get_rota_log
+ * docstring) and never re-derived or mutated afterwards. staleTime:
+ * Infinity reflects that: no mutation in this file ever writes into this
+ * query's cache (edits go through session PATCH/swap/set-room/set-role,
+ * none of which touch the log), so there is nothing for a refetch to pick
+ * up after the initial load.
+ */
+export function useRotaLog(rotaId: number) {
+  return useQuery({
+    queryKey: rotaKeys.log(rotaId),
+    queryFn: () => apiClient.get<GenerationLogEntry[]>(`/rota/${rotaId}/log`),
+    enabled: Number.isFinite(rotaId),
+    staleTime: Infinity,
   });
 }
 

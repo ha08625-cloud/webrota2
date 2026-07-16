@@ -28,6 +28,7 @@ export const handlers: HttpHandler[] = [
   // test in the suite to stub this endpoint individually.
   http.get("/api/v1/rota", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),
+  http.get("/api/v1/rota/:id/log", () => HttpResponse.json([])),
   http.patch("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     HttpResponse.json({
       session: {
