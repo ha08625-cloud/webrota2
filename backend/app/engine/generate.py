@@ -264,13 +264,21 @@ def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
     """Undo a commit, walking one step back through commit history.
 
     Restores this rota's counters to their pre-generation snapshot (the
-    same restore logic scrap_rota() uses) and flips it back to draft, so
-    it re-enters the normal draft lifecycle wholesale -- editable via the
-    existing endpoints, scrappable via scrap_rota(), or re-committable via
+    same restore logic scrap_rota() uses) and flips it back to draft,
+    clearing both committed_at and archived_at, so it re-enters the
+    normal draft lifecycle wholesale -- editable via the existing
+    endpoints, scrappable via scrap_rota(), or re-committable via
     commit_rota() (which self-heals the chain by refreshing committed_at
     to now). This function does not delete the rota or its snapshot --
     that is scrap_rota()'s job, called separately if the user wants the
     rota gone after rolling it back.
+
+    archived_at is cleared here, not just committed_at, because
+    "archived" only has meaning for a committed rota (Design Decision 5,
+    archive-committed-rotas plan): commit_rota() refreshes committed_at
+    on re-commit regardless of any prior state, so a surviving
+    archived_at would silently re-archive a freshly re-committed rota
+    with no UI action explaining it.
 
     Strict reverse-chronological order is enforced two ways, deliberately
     without a separate locking mechanism:
@@ -349,6 +357,7 @@ def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
     _restore_counters_from_snapshot(db, rota_id)
     rota.status = RotaStatus.DRAFT
     rota.committed_at = None
+    rota.archived_at = None
     db.flush()
     return rota
 
