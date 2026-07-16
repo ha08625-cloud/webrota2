@@ -13,12 +13,10 @@ import {
   useSetRoom,
   useSwapRoles,
   useSwapRooms,
-  useUnarchiveRota,
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RoomRotaGrid } from "@/components/RoomRotaGrid";
-import { GenerationLogPanel } from "@/components/GenerationLogPanel";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -34,13 +32,6 @@ import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
  * committed before rollback support existed, which is permanently
  * unrollbackable). This is advisory only - the 409 mapping still covers
  * races such as a draft created in another tab between load and click.
- *
- * Deliberately scans the full rota list, archived rotas included (M6
- * Decision 9): archiving has zero interaction with rollback eligibility,
- * so an archived rota can still be the most recent commit. Filtering
- * archived rotas out here would make a visible-by-default most-recent
- * commit wrongly show a Rollback button that then 409s. Do not "tidy"
- * this by adding an archived_at filter.
  */
 function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): boolean {
   const hasDraft = rotas.some((r) => r.status === "draft");
@@ -69,11 +60,11 @@ export function RotaDetailPage() {
   const navigate = useNavigate();
   const { data: rota, isLoading, isError, error } = useRota(rotaId);
   const { data: rotaList } = useRotaList();
+  
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
   const rollbackCommit = useRollbackCommit();
   const archiveRota = useArchiveRota();
-  const unarchiveRota = useUnarchiveRota();
 
   const undoStack = useUndoStack<UndoEntry>();
   const { toast, showToast } = useToast();
@@ -85,11 +76,17 @@ export function RotaDetailPage() {
   const undoPending =
     swapRoles.isPending || swapRooms.isPending || patchSession.isPending || setRoom.isPending || setRole.isPending;
 
-  // Owned here, not inside RotaGrid, so a doctor-view/room-view toggle
-  // (Task 4) preserves the selected week rather than each view starting
+  // Owned here, not inside RotaGrid, so the doctor-view/room-view toggle
+  // below preserves the selected week rather than each view starting
   // back at Week 1. Initialised to 1 rather than derived from rota.num_weeks
   // since rota may still be loading on first render below.
   const [activeWeek, setActiveWeek] = useState(1);
+
+  // Task 4: page-level view toggle. The room view is read-only regardless
+  // of rota status (Design Decision 10), so it needs no editable prop and
+  // no mutation callbacks - unlike RotaGrid it is structurally incapable
+  // of an edit. The toggle deliberately does not persist across
+  // navigation; every visit starts on the doctor view.
   const [view, setView] = useState<RotaView>("doctor");
 
   if (isLoading) {
@@ -116,6 +113,9 @@ export function RotaDetailPage() {
   }
 
   const isDraft = rota.status === "draft";
+  const isCommitted = rota.status === "committed";
+  const isArchived = rota.status === "archived";
+
   // Pulled out as a plain number rather than referencing rota.rota_id
   // inside the handlers below: narrowing from the `if (!rota) return null`
   // check above doesn't survive into nested function declarations (TS
@@ -151,19 +151,14 @@ export function RotaDetailPage() {
   function handleArchive() {
     if (
       !window.confirm(
-        "Archive this rota? It will be hidden from the committed history list but is unaffected otherwise and can be unarchived at any time.",
+        "Archive this rota? It becomes read-only and can no longer be modified or rolled back.",
       )
     ) {
       return;
     }
-    archiveRota.mutate(currentRotaId);
-  }
-
-  function handleUnarchive() {
-    if (!window.confirm("Unarchive this rota? It will reappear in the committed history list.")) {
-      return;
-    }
-    unarchiveRota.mutate(currentRotaId);
+    archiveRota.mutate(currentRotaId, {
+      onSuccess: () => navigate("/"),
+    });
   }
 
   function handleScrap() {
@@ -259,7 +254,7 @@ export function RotaDetailPage() {
         Status: {rota.status} - created {formatDateTime(rota.created_at)} - {rota.sessions.length} sessions
       </p>
 
-      {isDraft ? (
+      {isDraft && (
         <div className="mt-4 flex gap-3">
           <button
             type="button"
@@ -286,7 +281,9 @@ export function RotaDetailPage() {
             Undo
           </button>
         </div>
-      ) : (
+      )}
+      
+      {isCommitted && (
         <div className="mt-4">
           <p className="text-sm text-ink/50">This rota is committed and read-only.</p>
           <div className="mt-3 flex gap-3">
@@ -300,31 +297,27 @@ export function RotaDetailPage() {
                 Roll back commit
               </button>
             ) : null}
-            {rota.archived_at === null ? (
-              <button
-                type="button"
-                onClick={handleArchive}
-                disabled={archiveRota.isPending}
-                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
-              >
-                Archive
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleUnarchive}
-                disabled={unarchiveRota.isPending}
-                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
-              >
-                Unarchive
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleArchive}
+              disabled={archiveRota.isPending}
+              className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            >
+              Archive
+            </button>
           </div>
+        </div>
+      )}
+
+      {isArchived && (
+        <div className="mt-4">
+          <p className="text-sm text-ink/50">This rota is archived and read-only.</p>
         </div>
       )}
 
       {commitRota.isError ? <p className="mt-3 text-sm text-red-700">Could not commit this rota.</p> : null}
       {scrapRota.isError ? <p className="mt-3 text-sm text-red-700">Could not scrap this rota.</p> : null}
+      {archiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not archive this rota.</p> : null}
       {rollbackCommit.isError ? (
         <p className="mt-3 text-sm text-red-700">
           {typeof rollbackCommit.error.detail === "string"
@@ -332,6 +325,7 @@ export function RotaDetailPage() {
             : "Could not roll back this commit."}
         </p>
       ) : null}
+
       <div className="mt-6 flex gap-2">
         <button
           type="button"
@@ -356,14 +350,6 @@ export function RotaDetailPage() {
       </div>
 
       <div className="mt-3 flex items-start gap-4">
-
-      </div>
-      {archiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not archive this rota.</p> : null}
-      {unarchiveRota.isError ? (
-        <p className="mt-3 text-sm text-red-700">Could not unarchive this rota.</p>
-      ) : null}
-
-      <div className="mt-6 flex items-start gap-4">
         <div className="min-w-0 flex-1">
           {view === "doctor" ? (
             <RotaGrid
@@ -376,18 +362,9 @@ export function RotaDetailPage() {
           ) : (
             <RoomRotaGrid rota={rota} activeWeek={activeWeek} onWeekChange={setActiveWeek} />
           )}
-          <RotaGrid
-            rota={rota}
-            activeWeek={activeWeek}
-            onWeekChange={setActiveWeek}
-            onMutationApplied={handleMutationApplied}
-            onMutationError={handleMutationError}
-          />
         </div>
         <IssuesPanel rotaId={currentRotaId} />
       </div>
-
-      <GenerationLogPanel rotaId={currentRotaId} />
 
       <ToastDisplay message={toast?.message} />
     </div>
