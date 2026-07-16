@@ -5,7 +5,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { rotaKeys } from "@/api/rota";
-import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
+import { makeDoctor } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession, makeRotaSummary } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
