@@ -252,8 +252,11 @@ function GenerateRotaForm() {
   );
 }
 
+type HistoryTab = "committed" | "archived";
+
 export function RotaPage() {
   const { data: rotas, isLoading, isError } = useRotaList();
+  const [historyTab, setHistoryTab] = useState<HistoryTab>("committed");
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rotas...</p>;
@@ -267,6 +270,14 @@ export function RotaPage() {
   // while one is active) - .find() rather than .filter() reflects that.
   const activeDraft = rotas.find((r) => r.status === "draft");
   const committed = rotas.filter((r) => r.status === "committed");
+
+  // Purely client-side split on archived_at - the API returns committed
+  // and archived rotas in the same list (architecture decision: no query
+  // param, no server-side filtering - see the archive plan's Decision 8).
+  const unarchived = committed.filter((r) => r.archived_at === null);
+  const archived = committed.filter((r) => r.archived_at !== null);
+  const visibleHistory = historyTab === "committed" ? unarchived : archived;
+  const emptyHistoryMessage = historyTab === "committed" ? "No committed rotas yet." : "No archived rotas.";
 
   return (
     <div className="max-w-2xl">
@@ -290,11 +301,39 @@ export function RotaPage() {
 
       <div className="mt-6">
         <h2 className="text-base font-semibold">Committed history</h2>
-        {committed.length === 0 ? (
-          <p className="mt-2 text-sm text-ink/70">No committed rotas yet.</p>
+
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setHistoryTab("committed")}
+            aria-pressed={historyTab === "committed"}
+            className={`rounded border px-3 py-1 text-sm font-medium ${
+              historyTab === "committed"
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border text-ink/70 hover:text-ink"
+            }`}
+          >
+            Committed
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryTab("archived")}
+            aria-pressed={historyTab === "archived"}
+            className={`rounded border px-3 py-1 text-sm font-medium ${
+              historyTab === "archived"
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border text-ink/70 hover:text-ink"
+            }`}
+          >
+            Archived
+          </button>
+        </div>
+
+        {visibleHistory.length === 0 ? (
+          <p className="mt-2 text-sm text-ink/70">{emptyHistoryMessage}</p>
         ) : (
           <ul className="mt-2 divide-y divide-border rounded border border-border">
-            {committed.map((rota) => (
+            {visibleHistory.map((rota) => (
               <li key={rota.rota_id} className="px-3 py-2 text-sm">
                 <Link to={`/rota/${rota.rota_id}`} className="text-accent underline">
                   {formatDate(rota.start_date)} - {rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""}

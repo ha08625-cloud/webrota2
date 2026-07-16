@@ -403,4 +403,106 @@ describe("RotaPage", () => {
       expect(badges.map((el) => el.textContent)).toEqual(["Diabetic clinic", "Asthma clinic"]);
     });
   });
+
+  describe("history tabs", () => {
+    it("defaults to the Committed tab, showing only unarchived committed rotas", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 1, status: "committed", start_date: "2026-06-01", archived_at: null }),
+            makeRotaSummary({
+              rota_id: 2,
+              status: "committed",
+              start_date: "2026-06-08",
+              archived_at: "2026-06-10T09:00:00Z",
+            }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+
+      expect(await screen.findByRole("link", { name: /Jun 1, 2026/ })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Jun 8, 2026/ })).not.toBeInTheDocument();
+    });
+
+    it("shows archived committed rotas, and hides unarchived ones, after switching to the Archived tab", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 1, status: "committed", start_date: "2026-06-01", archived_at: null }),
+            makeRotaSummary({
+              rota_id: 2,
+              status: "committed",
+              start_date: "2026-06-08",
+              archived_at: "2026-06-10T09:00:00Z",
+            }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByRole("link", { name: /Jun 1, 2026/ });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Archived" }));
+
+      expect(await screen.findByRole("link", { name: /Jun 8, 2026/ })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Jun 1, 2026/ })).not.toBeInTheDocument();
+    });
+
+    it("shows the Committed empty state when there are no unarchived committed rotas", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 2, status: "committed", archived_at: "2026-06-10T09:00:00Z" }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+
+      expect(await screen.findByText("No committed rotas yet.")).toBeInTheDocument();
+    });
+
+    it("shows the Archived empty state when there are no archived rotas", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([makeRotaSummary({ rota_id: 1, status: "committed", archived_at: null })]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByRole("button", { name: "Archived" });
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Archived" }));
+
+      expect(await screen.findByText("No archived rotas.")).toBeInTheDocument();
+    });
+
+    it("shows the draft banner regardless of which history tab is selected", async () => {
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 5, status: "draft" }),
+            makeRotaSummary({
+              rota_id: 2,
+              status: "committed",
+              archived_at: "2026-06-10T09:00:00Z",
+            }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+
+      expect(await screen.findByText(/Draft in progress/)).toBeInTheDocument();
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Archived" }));
+
+      expect(screen.getByText(/Draft in progress/)).toBeInTheDocument();
+    });
+  });
 });
