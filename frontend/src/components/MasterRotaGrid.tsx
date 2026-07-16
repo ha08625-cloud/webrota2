@@ -218,10 +218,12 @@ export function MasterRotaGrid({ sessions, templateId, onMutationApplied, onMuta
                     {DAYS.map((day, dayIndex) => {
                       const session = getMasterRotaCell(grid, doctor.id, activeWeek, day, period);
                       const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
+                      const bgClass = session?.session_type === "no_surgery" ? "bg-gray-200 text-gray-500" : "";
+                      
                       return (
                         <td
                           key={day}
-                          className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
+                          className={`border border-border px-2 py-1 text-center ${dividerClassName} ${bgClass}`}
                           data-testid={`master-cell-${doctor.id}-${activeWeek}-${day}-${period}`}
                         >
                           {session ? (
