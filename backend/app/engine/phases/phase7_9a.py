@@ -228,6 +228,26 @@ def _is_displaceable_full_day(
     return True
 
 
+def _pass1_receiving_room(
+    context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day
+) -> int | None:
+    """Find a room to receive a doctor displaced by Pass 1.
+
+    Pass 1 displacement never consults the displaced doctor's preference
+    list (Design Decision 3) -- the receiving room is the first eligible
+    C/W/SR room, by id, that is free in both AM and PM of `day`. This
+    search is victim-independent (no `doctor_id` parameter): the same room
+    would be returned regardless of who is being displaced, since victim
+    selection and receiving-room search are decoupled (Design Decision 4).
+
+    Returns `None` if no pool room is free in both sessions.
+    """
+    fallback_ids = sorted(
+        r.id for r in context.rooms if r.room_type in _ROOM_MOVE_FALLBACK_TYPES
+    )
+    return _first_free_room_both(grid, gen_week, day, fallback_ids)
+
+
 # ---------------------------------------------------------------------------
 # Pass 2: single-session Trainee/AHP
 # ---------------------------------------------------------------------------
