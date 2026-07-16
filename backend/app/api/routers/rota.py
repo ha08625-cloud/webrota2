@@ -19,6 +19,15 @@ Lifecycle rules (finalised M3 plan, extended M3.7):
   engine.generate.rollback_commit for the full ordering rationale. Unlike
   scrap, rollback does not delete anything; scrap remains the way to
   discard a rota after rolling it back.
+- Force-delete (DELETE .../force-delete) is an escape hatch for committed
+  rotas that cannot be rolled back (e.g. legacy committed_at=NULL commits)
+  or other software-bug states -- not for everyday mistakes, where
+  rollback remains correct. It permanently deletes the rota and its
+  snapshot; counters are deliberately left untouched (see
+  engine.generate.force_delete_rota for the rollback-interaction caveat
+  this implies). No chain-order, snapshot-existence, or draft-elsewhere
+  checks; archived_at is ignored. 409 on drafts, since scrap is their
+  delete path.
 - Swaps are draft-only (409 on committed). swap-roles swaps
   (role, clinic_type_id) and adjusts ClinicCounter rows (get-or-create,
   floored at 0 on decrement); swap-rooms swaps room_id only, no counter
@@ -51,6 +60,7 @@ from ...models import (
 from ...models.enums import MasterSessionType, RotaStatus, SessionRole
 from ...engine.generate import (
     commit_rota,
+    force_delete_rota,
     generate,
     get_active_draft,
     rollback_commit,
@@ -548,6 +558,46 @@ def scrap(
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
     scrap_rota(db, rota_id)
+    db.commit()
+
+
+@router.delete("/{rota_id}/force-delete", status_code=204)
+def force_delete(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> None:
+    """Permanently delete a committed rota; counters are left untouched.
+
+    An escape hatch for software-bug states -- the motivating case is a
+    legacy commit with committed_at=None, which rollback-commit can never
+    touch and which would otherwise sit forever blocking generate() from
+    reusing its date range. Not a tool for everyday mistakes: rollback
+    remains the correct way to undo a normal commit wherever it is
+    eligible, since it keeps counters consistent with history. Force-delete
+    does not -- see engine.generate.force_delete_rota's docstring for the
+    rollback-interaction caveat this leaves behind.
+
+    Unlike rollback, this endpoint performs no chain-order, committed_at,
+    or snapshot-existence checks -- force_delete_rota() never touches
+    counters, so none of those checks apply, and any committed rota can be
+    deleted regardless of its position in the commit history. archived_at
+    is also ignored server-side (archiving is a pure visibility flag); the
+    frontend only offers this action on non-archived committed rotas.
+
+    Delegates to engine.generate.force_delete_rota() the same way
+    rollback-commit delegates to rollback_commit(): "not found" in the
+    message maps to 404, everything else (a draft, since scrap is its
+    delete path) maps to 409.
+    """
+    try:
+        force_delete_rota(db, rota_id)
+    except ValueError as exc:
+        db.rollback()
+        message = str(exc)
+        status_code = 404 if "not found" in message else 409
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
     db.commit()
 
 

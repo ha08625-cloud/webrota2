@@ -29,37 +29,6 @@ Out of scope: no schema changes, no migration, no changes to rollback/scrap/arch
 
 ---
 
-# Task 1: Engine function and lifecycle tests
-
-**A.** State of the world: the full draft/commit/scrap/rollback lifecycle exists in `backend/app/engine/generate.py` with shared helpers `_restore_counters_from_snapshot` and `_delete_snapshots`. Nothing for this feature has been built yet. This task adds the engine function and its engine-level tests only -- no API changes.
-
-**B.** Files:
-- `backend/app/engine/generate.py` -- add `force_delete_rota(db, rota_id)`.
-- `backend/tests/tes_engine/test_lifecycle.py` -- add a `TestForceDelete` class (note the existing directory really is spelled `tes_engine` in the repo file naming; match wherever the existing lifecycle tests live).
-
-Deliverables: the new function with a docstring in the house style (what it does, what it deliberately does not check, the Decision 4 counter caveat, ValueError cases and their router mapping), plus passing tests.
-
-**C.** Instructions:
-
-Implement `force_delete_rota(db, rota_id) -> None`:
-- `db.get(GeneratedRota, rota_id)`; `ValueError(f"GeneratedRota id={rota_id} not found")` if None.
-- `ValueError` if `rota.status != RotaStatus.COMMITTED` -- message should say the rota is a draft and scrap is the correct operation (this becomes the 409 detail verbatim).
-- No other checks. Do not look at `committed_at`, `archived_at`, snapshot rows, chain order, or active drafts.
-- `_delete_snapshots(db, rota_id)`, then `db.delete(rota)` (ORM cascade removes sessions, closures, generation log), then `db.flush()`. Do not call `_restore_counters_from_snapshot` -- leaving counters untouched is the entire point.
-- Docstring must state Decision 4's caveat explicitly: after force-deleting the most recent commit, rolling back the new most-recent commit restores counters to that rota's snapshot, discarding the deleted rota's contributions too.
-
-Tests (reuse `_build_fixture` and the factory helpers already in the lifecycle test module):
-1. Generate, commit, force-delete: the `GeneratedRota`, its `RotaSession`, snapshot, and `RotaGenerationLogEntry` rows are all gone; the `ClinicCounter` value remains at its post-generation value (not restored to the snapshot value); the `RotaConfig` row still exists.
-2. Force-delete a draft raises `ValueError` (message mentions draft/scrap).
-3. Force-delete a nonexistent id raises `ValueError` with "not found".
-4. Legacy commit: build a `GeneratedRota` directly with `status=COMMITTED` and `committed_at=None` and no snapshot rows (the same construction `test_rollback_committed_at_null_raises` uses); force-delete succeeds.
-5. Chain-position freedom: generate+commit rota A, generate+commit rota B, force-delete A (the older one) -- succeeds, B untouched.
-6. Decision 4 interaction: generate+commit A, generate+commit B, force-delete B, then `rollback_commit(session, A.id)` succeeds and restores the counter to A's pre-generation snapshot value -- i.e. B's contribution is gone from the live counters. Assert the final counter value equals A's snapshot value.
-
-Run the engine test suite; all green before moving on.
-
----
-
 # Task 2: Router endpoint and API tests
 
 **A.** Task 1 is complete: `force_delete_rota` exists in `generate.py` with engine tests passing. This task exposes it over HTTP and tests the wire behaviour.
@@ -158,3 +127,36 @@ Run typecheck, vitest, and build.
 
 - Your architecture hub still contains two pre-M3.7 sentences stating "Commit deletes the snapshots" (under "Counters and snapshots" and in the "Rota lifecycle" intro paragraph), contradicting the M3.7 sections of the same document. Worth fixing next time you touch it, and worth adding a force-delete line to the lifecycle section once this ships.
 - The `railway.toml` [UNRESOLVED] note in the hub is unrelated to this work and remains outstanding.
+
+
+
+# Task 1: Engine function and lifecycle tests
+
+**A.** State of the world: the full draft/commit/scrap/rollback lifecycle exists in `backend/app/engine/generate.py` with shared helpers `_restore_counters_from_snapshot` and `_delete_snapshots`. Nothing for this feature has been built yet. This task adds the engine function and its engine-level tests only -- no API changes.
+
+**B.** Files:
+- `backend/app/engine/generate.py` -- add `force_delete_rota(db, rota_id)`.
+- `backend/tests/tes_engine/test_lifecycle.py` -- add a `TestForceDelete` class (note the existing directory really is spelled `tes_engine` in the repo file naming; match wherever the existing lifecycle tests live).
+
+Deliverables: the new function with a docstring in the house style (what it does, what it deliberately does not check, the Decision 4 counter caveat, ValueError cases and their router mapping), plus passing tests.
+
+**C.** Instructions:
+
+Implement `force_delete_rota(db, rota_id) -> None`:
+- `db.get(GeneratedRota, rota_id)`; `ValueError(f"GeneratedRota id={rota_id} not found")` if None.
+- `ValueError` if `rota.status != RotaStatus.COMMITTED` -- message should say the rota is a draft and scrap is the correct operation (this becomes the 409 detail verbatim).
+- No other checks. Do not look at `committed_at`, `archived_at`, snapshot rows, chain order, or active drafts.
+- `_delete_snapshots(db, rota_id)`, then `db.delete(rota)` (ORM cascade removes sessions, closures, generation log), then `db.flush()`. Do not call `_restore_counters_from_snapshot` -- leaving counters untouched is the entire point.
+- Docstring must state Decision 4's caveat explicitly: after force-deleting the most recent commit, rolling back the new most-recent commit restores counters to that rota's snapshot, discarding the deleted rota's contributions too.
+
+Tests (reuse `_build_fixture` and the factory helpers already in the lifecycle test module):
+1. Generate, commit, force-delete: the `GeneratedRota`, its `RotaSession`, snapshot, and `RotaGenerationLogEntry` rows are all gone; the `ClinicCounter` value remains at its post-generation value (not restored to the snapshot value); the `RotaConfig` row still exists.
+2. Force-delete a draft raises `ValueError` (message mentions draft/scrap).
+3. Force-delete a nonexistent id raises `ValueError` with "not found".
+4. Legacy commit: build a `GeneratedRota` directly with `status=COMMITTED` and `committed_at=None` and no snapshot rows (the same construction `test_rollback_committed_at_null_raises` uses); force-delete succeeds.
+5. Chain-position freedom: generate+commit rota A, generate+commit rota B, force-delete A (the older one) -- succeeds, B untouched.
+6. Decision 4 interaction: generate+commit A, generate+commit B, force-delete B, then `rollback_commit(session, A.id)` succeeds and restores the counter to A's pre-generation snapshot value -- i.e. B's contribution is gone from the live counters. Assert the final counter value equals A's snapshot value.
+
+Run the engine test suite; all green before moving on.
+
+---

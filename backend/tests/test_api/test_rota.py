@@ -8,9 +8,11 @@ from app.models import (
     GeneratedRota,
     PracticeClosure,
     RotaClinicCounterSnapshot,
+    RotaConfig,
     RotaSession,
     RotaSystemCounterSnapshot,
 )
+from app.models.enums import RotaStatus
 
 from .conftest import MONDAY, generate_rota, make_clinic_type_via_api
 
@@ -379,6 +381,84 @@ class TestScrap:
         out = generate_rota(client)
         client.post(f"/api/v1/rota/{out['rota_id']}/commit")
         assert client.delete(f"/api/v1/rota/{out['rota_id']}").status_code == 409
+
+
+class TestForceDelete:
+    """DELETE /rota/{id}/force-delete: escape hatch for committed rotas
+    that cannot be rolled back (bug-recovery plan, Task 2)."""
+
+    def test_force_delete_happy_path(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        resp = client.delete(f"/api/v1/rota/{out['rota_id']}/force-delete")
+        assert resp.status_code == 204
+
+        assert client.get(f"/api/v1/rota/{out['rota_id']}").status_code == 404
+        rotas = client.get("/api/v1/rota").json()
+        assert all(r["rota_id"] != out["rota_id"] for r in rotas)
+
+    def test_force_delete_unblocks_regeneration(self, client, seeded):
+        out = generate_rota(client, num_weeks=1)  # covers MONDAY .. MONDAY+7
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 409
+
+        assert client.delete(
+            f"/api/v1/rota/{out['rota_id']}/force-delete"
+        ).status_code == 204
+
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 200
+
+    def test_force_delete_409_on_draft(self, client, seeded):
+        out = generate_rota(client)
+        resp = client.delete(f"/api/v1/rota/{out['rota_id']}/force-delete")
+        assert resp.status_code == 409
+        assert "draft" in resp.json()["detail"]
+
+    def test_force_delete_404_when_not_found(self, client, seeded):
+        resp = client.delete("/api/v1/rota/999999/force-delete")
+        assert resp.status_code == 404
+
+    def test_force_delete_archived_committed_rota(self, client, seeded):
+        """Decision 7: archived_at is ignored server-side -- an archived
+        committed rota is still force-deletable via the API, even though
+        the frontend only surfaces the button on non-archived rotas."""
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        client.post(f"/api/v1/rota/{out['rota_id']}/archive")
+
+        resp = client.delete(f"/api/v1/rota/{out['rota_id']}/force-delete")
+        assert resp.status_code == 204
+
+    def test_force_delete_legacy_rota_with_no_snapshots(
+        self, client, db_session, seeded
+    ):
+        """The motivating case: a rota committed before rollback support
+        existed (committed_at=None) and with zero snapshot rows -- the
+        state rollback-commit can never touch. force-delete must succeed
+        regardless, since it never reads the snapshot."""
+        config = RotaConfig(
+            start_date=MONDAY + datetime.timedelta(days=14),
+            num_weeks=1, template_start_week=1,
+        )
+        db_session.add(config)
+        db_session.flush()
+        rota = GeneratedRota(
+            config_id=config.id, status=RotaStatus.COMMITTED, committed_at=None,
+        )
+        db_session.add(rota)
+        db_session.commit()
+
+        resp = client.delete(f"/api/v1/rota/{rota.id}/force-delete")
+        assert resp.status_code == 204
+        assert client.get(f"/api/v1/rota/{rota.id}").status_code == 404
 
 
 class TestSwaps:
