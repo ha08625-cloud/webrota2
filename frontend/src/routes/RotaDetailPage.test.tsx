@@ -53,9 +53,13 @@ describe("RotaDetailPage", () => {
     expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
   });
 
-  it("hides action buttons and shows a read-only note for an archived rota", async () => {
+  it("hides Commit/Scrap/Archive/Roll back and shows Unarchive and a read-only note for an archived rota", async () => {
     server.use(
-      http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "archived" }))),
+      http.get("/api/v1/rota/:id", () =>
+        HttpResponse.json(
+          makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+        ),
+      ),
     );
 
     renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
@@ -65,6 +69,8 @@ describe("RotaDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Scrap" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Roll back commit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Force delete rota" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
   });
 
   it("commits after confirmation, seeds the detail cache with the response, and navigates to /", async () => {
@@ -118,7 +124,9 @@ describe("RotaDetailPage", () => {
     server.use(
       http.post("/api/v1/rota/:id/archive", () => {
         archived = true;
-        return HttpResponse.json(makeRota({ rota_id: 8, status: "archived" }));
+        return HttpResponse.json(
+          makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+        );
       }),
     );
 
@@ -142,7 +150,9 @@ describe("RotaDetailPage", () => {
     server.use(
       http.post("/api/v1/rota/:id/archive", () => {
         archived = true;
-        return HttpResponse.json(makeRota({ rota_id: 8, status: "archived" }));
+        return HttpResponse.json(
+          makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+        );
       }),
     );
 
@@ -152,6 +162,32 @@ describe("RotaDetailPage", () => {
     await user.click(await screen.findByRole("button", { name: "Archive" }));
 
     expect(archived).toBe(false);
+  });
+
+  it("unarchives without a confirmation prompt and re-renders the committed action buttons", async () => {
+    server.use(
+      http.get("/api/v1/rota/:id", () =>
+        HttpResponse.json(
+          makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+        ),
+      ),
+    );
+    let unarchived = false;
+    server.use(
+      http.post("/api/v1/rota/:id/unarchive", () => {
+        unarchived = true;
+        return HttpResponse.json(makeRota({ rota_id: 8, status: "committed", archived_at: null }));
+      }),
+    );
+
+    renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Unarchive" }));
+
+    expect(unarchived).toBe(true);
+    expect(await screen.findByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Force delete rota" })).toBeInTheDocument();
   });
 
   it("scraps after confirmation and navigates to /", async () => {
@@ -746,5 +782,81 @@ describe("RotaDetailPage", () => {
 
       expect((await screen.findAllByText("Available")).length).toBeGreaterThan(0);
     });
+  });
+
+  // --- Force delete (bug-recovery escape hatch) ---
+
+  describe("force delete", () => {
+    it("shows the button on a committed, non-archived rota, including one with committed_at null and no Roll back button", async () => {
+      server.use(
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(makeRota({ rota_id: 8, status: "committed", committed_at: null })),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.queryByRole("button", { name: "Roll back commit" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Force delete rota" })).toBeInTheDocument();
+    });
+
+    it("hides the button on a draft", async () => {
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 7, status: "draft" }))));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+
+      await screen.findByRole("button", { name: "Commit" });
+      expect(screen.queryByRole("button", { name: "Force delete rota" })).not.toBeInTheDocument();
+    });
+
+    it("hides the button on an archived committed rota", async () => {
+      server.use(
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/archived and read-only/);
+      expect(screen.queryByRole("button", { name: "Force delete rota" })).not.toBeInTheDocument();
+    });
+
+    it("deletes after typing DELETE and navigates to /", async () => {
+      server.use(
+        http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))),
+      );
+      let deleted = false;
+      server.use(
+        http.delete("/api/v1/rota/:id/force-delete", () => {
+          deleted = true;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      renderWithProviders(<RotaDetailPage />, {
+        route: "/rota/8",
+        path: "/rota/:id",
+        additionalRoutes: [{ path: "/", element: <div data-testid="home-probe">home</div> }],
+      });
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Force delete rota" }));
+      await user.type(await screen.findByLabelText("Type DELETE to confirm"), "DELETE");
+      await user.click(screen.getByRole("button", { name: "Permanently delete" }));
+
+      expect(deleted).toBe(true);
+      expect(await screen.findByTestId("home-probe")).toBeInTheDocument();
+    });
+
+    // The rollback-eligibility shift onto the previous commit once this
+    // one is force-deleted is covered at the hook level (list invalidation,
+    // useForceDeleteRota's own test) and at the
+    // isMostRecentRollbackableCommit unit level (Design Decision 10) -
+    // recreating the full MSW handler swap here would mostly duplicate
+    // those without adding coverage of anything specific to this page.
   });
 });

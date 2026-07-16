@@ -8,15 +8,7 @@ import { server } from "@/test/msw/server";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { makeValidationIssue } from "@/test/fixtures/issues";
 
-import {
-  rotaKeys,
-  useArchiveRota,
-  usePatchSession,
-  useRollbackCommit,
-  useSwapRoles,
-  useSwapRooms,
-  useUnarchiveRota,
-} from "./rota";
+import { rotaKeys, useForceDeleteRota, usePatchSession, useSwapRoles, useSwapRooms } from "./rota";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -148,164 +140,52 @@ describe("usePatchSession", () => {
   });
 });
 
-describe("useRollbackCommit", () => {
-  it("posts to rollback-commit and seeds the detail cache with the response", async () => {
-    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z" });
+describe("useForceDeleteRota", () => {
+  it("hits DELETE /rota/:id/force-delete, removes the detail cache, and invalidates the list", async () => {
+    const rota = makeRota({ rota_id: 8, status: "committed" });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
+    queryClient.setQueryData(rotaKeys.detail(8), rota);
+    queryClient.setQueryData(rotaKeys.list(), []);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     let capturedUrl = "";
+    let capturedMethod = "";
     server.use(
-      http.post("/api/v1/rota/:id/rollback-commit", ({ request }) => {
+      http.delete("/api/v1/rota/:id/force-delete", ({ request }) => {
         capturedUrl = request.url;
-        return HttpResponse.json({ ...rota, status: "draft", committed_at: null });
+        capturedMethod = request.method;
+        return new HttpResponse(null, { status: 204 });
       }),
     );
 
-    const { result } = renderHook(() => useRollbackCommit(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
+    const { result } = renderHook(() => useForceDeleteRota(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(8);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(capturedUrl).toContain("/api/v1/rota/7/rollback-commit");
-    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
-    expect(cachedRota.status).toBe("draft");
-    expect(cachedRota.committed_at).toBeNull();
+    expect(capturedMethod).toBe("DELETE");
+    expect(capturedUrl).toContain("/api/v1/rota/8/force-delete");
+    expect(queryClient.getQueryData(rotaKeys.detail(8))).toBeUndefined();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
   });
 
-  it("invalidates the rota list on success", async () => {
-    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z" });
+  it("surfaces a 409 error without touching the caches", async () => {
+    const rota = makeRota({ rota_id: 8, status: "committed" });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
-    queryClient.setQueryData(rotaKeys.list(), [
-      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at, archived_at: null },
-    ]);
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    queryClient.setQueryData(rotaKeys.detail(8), rota);
 
     server.use(
-      http.post("/api/v1/rota/:id/rollback-commit", () =>
-        HttpResponse.json({ ...rota, status: "draft", committed_at: null }),
+      http.delete("/api/v1/rota/:id/force-delete", () =>
+        HttpResponse.json({ detail: "Rota 8 is a draft and cannot be force-deleted" }, { status: 409 }),
       ),
     );
 
-    const { result } = renderHook(() => useRollbackCommit(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
+    const { result } = renderHook(() => useForceDeleteRota(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(8);
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
-  });
-});
-
-describe("useArchiveRota", () => {
-  it("posts to archive and seeds the detail cache with the response", async () => {
-    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z", archived_at: null });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
-
-    let capturedUrl = "";
-    server.use(
-      http.post("/api/v1/rota/:id/archive", ({ request }) => {
-        capturedUrl = request.url;
-        return HttpResponse.json({ ...rota, archived_at: "2026-07-16T12:00:00Z" });
-      }),
-    );
-
-    const { result } = renderHook(() => useArchiveRota(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(capturedUrl).toContain("/api/v1/rota/7/archive");
-    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
-    expect(cachedRota.archived_at).toBe("2026-07-16T12:00:00Z");
-  });
-
-  it("invalidates the rota list on success", async () => {
-    const rota = makeRota({ rota_id: 7, status: "committed", committed_at: "2026-07-10T09:00:00Z", archived_at: null });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
-    queryClient.setQueryData(rotaKeys.list(), [
-      { rota_id: 7, status: "committed", created_at: rota.created_at, start_date: rota.start_date, num_weeks: 2, template_start_week: 1, committed_at: rota.committed_at, archived_at: null },
-    ]);
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-    server.use(
-      http.post("/api/v1/rota/:id/archive", () =>
-        HttpResponse.json({ ...rota, archived_at: "2026-07-16T12:00:00Z" }),
-      ),
-    );
-
-    const { result } = renderHook(() => useArchiveRota(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
-  });
-});
-
-describe("useUnarchiveRota", () => {
-  it("posts to unarchive and seeds the detail cache with the response", async () => {
-    const rota = makeRota({
-      rota_id: 7,
-      status: "committed",
-      committed_at: "2026-07-10T09:00:00Z",
-      archived_at: "2026-07-16T12:00:00Z",
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
-
-    let capturedUrl = "";
-    server.use(
-      http.post("/api/v1/rota/:id/unarchive", ({ request }) => {
-        capturedUrl = request.url;
-        return HttpResponse.json({ ...rota, archived_at: null });
-      }),
-    );
-
-    const { result } = renderHook(() => useUnarchiveRota(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(capturedUrl).toContain("/api/v1/rota/7/unarchive");
-    const cachedRota = queryClient.getQueryData(rotaKeys.detail(7)) as typeof rota;
-    expect(cachedRota.archived_at).toBeNull();
-  });
-
-  it("invalidates the rota list on success", async () => {
-    const rota = makeRota({
-      rota_id: 7,
-      status: "committed",
-      committed_at: "2026-07-10T09:00:00Z",
-      archived_at: "2026-07-16T12:00:00Z",
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(rotaKeys.detail(7), rota);
-    queryClient.setQueryData(rotaKeys.list(), [
-      {
-        rota_id: 7,
-        status: "committed",
-        created_at: rota.created_at,
-        start_date: rota.start_date,
-        num_weeks: 2,
-        template_start_week: 1,
-        committed_at: rota.committed_at,
-        archived_at: rota.archived_at,
-      },
-    ]);
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-
-    server.use(
-      http.post("/api/v1/rota/:id/unarchive", () => HttpResponse.json({ ...rota, archived_at: null })),
-    );
-
-    const { result } = renderHook(() => useUnarchiveRota(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate(7);
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: rotaKeys.list() });
+    expect(result.current.error?.detail).toBe("Rota 8 is a draft and cannot be force-deleted");
+    expect(queryClient.getQueryData(rotaKeys.detail(8))).toEqual(rota);
   });
 });

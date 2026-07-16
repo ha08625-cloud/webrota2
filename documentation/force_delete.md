@@ -29,44 +29,6 @@ Out of scope: no schema changes, no migration, no changes to rollback/scrap/arch
 
 ---
 
-# Task 2: Router endpoint and API tests
-
-**A.** Task 1 is complete: `force_delete_rota` exists in `generate.py` with engine tests passing. This task exposes it over HTTP and tests the wire behaviour.
-
-**B.** Files:
-- `backend/app/api/routers/rota.py` -- new endpoint; extend the module docstring's lifecycle-rules list with one line for force-delete.
-- The API rota test module (repo path corresponding to `backend_tests_tes_api_test_rota.py`) -- new test class.
-
-Deliverables: the endpoint with docstring, updated module docstring, passing API tests.
-
-**C.** Instructions:
-
-Add to `routers/rota.py`, importing `force_delete_rota` alongside the other engine imports:
-
-```python
-@router.delete("/{rota_id}/force-delete", status_code=204)
-def force_delete(
-    rota_id: int,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-) -> None:
-```
-
-- Docstring: escape hatch for committed rotas that cannot be rolled back (e.g. legacy `committed_at = NULL` commits) or other software-bug states; counters deliberately untouched (reference the engine docstring for the Decision 4 caveat); no chain-order or draft-elsewhere checks; `archived_at` ignored; drafts 409 here because scrap is their delete path.
-- Body follows the rollback endpoint's delegation pattern: `try: force_delete_rota(db, rota_id) except ValueError` -> `db.rollback()`, map "not found" to 404 else 409 with the message as detail; on success `db.commit()`. Return nothing (204).
-
-Tests (use the existing API test conftest and whatever generate/commit helpers the rota API tests already use):
-1. Commit a rota, `DELETE /api/v1/rota/{id}/force-delete` returns 204; `GET /rota/{id}` then 404s; the rota is absent from `GET /rota`.
-2. Regeneration unblocked: commit a rota over a date range, confirm `POST /rota/generate` for the same range 409s, force-delete, confirm the same generate call now succeeds.
-3. Draft: 409, detail mentions draft.
-4. Nonexistent id: 404.
-5. Archived committed rota (commit then `POST /{id}/archive`): force-delete returns 204 -- Decision 7's server side.
-6. Legacy commit (`committed_at=None`, no snapshots, inserted directly via the session the conftest exposes): 204.
-
-Run the API test suite; all green.
-
----
-
 # Task 3: Frontend -- hook, dialog, detail-page wiring
 
 **A.** Tasks 1-2 are complete: the backend endpoint exists and is tested. This task adds the frontend. Relevant existing behaviour: `RotaDetailPage`'s committed view renders "This rota is committed and read-only" with a conditional Roll back commit button and an Archive/Unarchive toggle; `useScrapRota` in `api/rota.ts` is the model for a delete-shaped mutation (removeQueries on detail, invalidate list); Radix `@radix-ui/react-dialog` is already a dependency (used by `DoctorFormDialog`).
@@ -158,5 +120,43 @@ Tests (reuse `_build_fixture` and the factory helpers already in the lifecycle t
 6. Decision 4 interaction: generate+commit A, generate+commit B, force-delete B, then `rollback_commit(session, A.id)` succeeds and restores the counter to A's pre-generation snapshot value -- i.e. B's contribution is gone from the live counters. Assert the final counter value equals A's snapshot value.
 
 Run the engine test suite; all green before moving on.
+
+---
+
+# Task 2: Router endpoint and API tests
+
+**A.** Task 1 is complete: `force_delete_rota` exists in `generate.py` with engine tests passing. This task exposes it over HTTP and tests the wire behaviour.
+
+**B.** Files:
+- `backend/app/api/routers/rota.py` -- new endpoint; extend the module docstring's lifecycle-rules list with one line for force-delete.
+- The API rota test module (repo path corresponding to `backend_tests_tes_api_test_rota.py`) -- new test class.
+
+Deliverables: the endpoint with docstring, updated module docstring, passing API tests.
+
+**C.** Instructions:
+
+Add to `routers/rota.py`, importing `force_delete_rota` alongside the other engine imports:
+
+```python
+@router.delete("/{rota_id}/force-delete", status_code=204)
+def force_delete(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> None:
+```
+
+- Docstring: escape hatch for committed rotas that cannot be rolled back (e.g. legacy `committed_at = NULL` commits) or other software-bug states; counters deliberately untouched (reference the engine docstring for the Decision 4 caveat); no chain-order or draft-elsewhere checks; `archived_at` ignored; drafts 409 here because scrap is their delete path.
+- Body follows the rollback endpoint's delegation pattern: `try: force_delete_rota(db, rota_id) except ValueError` -> `db.rollback()`, map "not found" to 404 else 409 with the message as detail; on success `db.commit()`. Return nothing (204).
+
+Tests (use the existing API test conftest and whatever generate/commit helpers the rota API tests already use):
+1. Commit a rota, `DELETE /api/v1/rota/{id}/force-delete` returns 204; `GET /rota/{id}` then 404s; the rota is absent from `GET /rota`.
+2. Regeneration unblocked: commit a rota over a date range, confirm `POST /rota/generate` for the same range 409s, force-delete, confirm the same generate call now succeeds.
+3. Draft: 409, detail mentions draft.
+4. Nonexistent id: 404.
+5. Archived committed rota (commit then `POST /{id}/archive`): force-delete returns 204 -- Decision 7's server side.
+6. Legacy commit (`committed_at=None`, no snapshots, inserted directly via the session the conftest exposes): 204.
+
+Run the API test suite; all green.
 
 ---

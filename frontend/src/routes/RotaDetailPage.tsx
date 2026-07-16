@@ -13,8 +13,10 @@ import {
   useSetRoom,
   useSwapRoles,
   useSwapRooms,
+  useUnarchiveRota,
 } from "@/api/rota";
 import type { RotaSummary } from "@/api/types";
+import { ForceDeleteRotaDialog } from "@/components/ForceDeleteRotaDialog";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { RotaGrid } from "@/components/RotaGrid";
@@ -65,6 +67,7 @@ export function RotaDetailPage() {
   const scrapRota = useScrapRota();
   const rollbackCommit = useRollbackCommit();
   const archiveRota = useArchiveRota();
+  const unarchiveRota = useUnarchiveRota();
 
   const undoStack = useUndoStack<UndoEntry>();
   const { toast, showToast } = useToast();
@@ -114,7 +117,13 @@ export function RotaDetailPage() {
 
   const isDraft = rota.status === "draft";
   const isCommitted = rota.status === "committed";
-  const isArchived = rota.status === "archived";
+  // archived_at is a flag on a committed rota, not a third status value -
+  // the backend's RotaStatus enum only has draft/committed. This used to
+  // be (incorrectly) `rota.status === "archived"`, a comparison that
+  // could never be true against the real API and left the read-only
+  // archived view, and the Archive button's disappearance, unreachable
+  // in production.
+  const isArchived = rota.archived_at !== null;
 
   // Pulled out as a plain number rather than referencing rota.rota_id
   // inside the handlers below: narrowing from the `if (!rota) return null`
@@ -159,6 +168,10 @@ export function RotaDetailPage() {
     archiveRota.mutate(currentRotaId, {
       onSuccess: () => navigate("/"),
     });
+  }
+
+  function handleUnarchive() {
+    unarchiveRota.mutate(currentRotaId);
   }
 
   function handleScrap() {
@@ -285,9 +298,11 @@ export function RotaDetailPage() {
       
       {isCommitted && (
         <div className="mt-4">
-          <p className="text-sm text-ink/50">This rota is committed and read-only.</p>
+          <p className="text-sm text-ink/50">
+            {isArchived ? "This rota is archived and read-only." : "This rota is committed and read-only."}
+          </p>
           <div className="mt-3 flex gap-3">
-            {rotaList && isMostRecentRollbackableCommit(rotaList, currentRotaId) ? (
+            {!isArchived && rotaList && isMostRecentRollbackableCommit(rotaList, currentRotaId) ? (
               <button
                 type="button"
                 onClick={handleRollback}
@@ -297,27 +312,36 @@ export function RotaDetailPage() {
                 Roll back commit
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={handleArchive}
-              disabled={archiveRota.isPending}
-              className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
-            >
-              Archive
-            </button>
+            {isArchived ? (
+              <button
+                type="button"
+                onClick={handleUnarchive}
+                disabled={unarchiveRota.isPending}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Unarchive
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleArchive}
+                disabled={archiveRota.isPending}
+                className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              >
+                Archive
+              </button>
+            )}
+            {!isArchived ? (
+              <ForceDeleteRotaDialog rotaId={currentRotaId} onDeleted={() => navigate("/")} />
+            ) : null}
           </div>
-        </div>
-      )}
-
-      {isArchived && (
-        <div className="mt-4">
-          <p className="text-sm text-ink/50">This rota is archived and read-only.</p>
         </div>
       )}
 
       {commitRota.isError ? <p className="mt-3 text-sm text-red-700">Could not commit this rota.</p> : null}
       {scrapRota.isError ? <p className="mt-3 text-sm text-red-700">Could not scrap this rota.</p> : null}
       {archiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not archive this rota.</p> : null}
+      {unarchiveRota.isError ? <p className="mt-3 text-sm text-red-700">Could not unarchive this rota.</p> : null}
       {rollbackCommit.isError ? (
         <p className="mt-3 text-sm text-red-700">
           {typeof rollbackCommit.error.detail === "string"

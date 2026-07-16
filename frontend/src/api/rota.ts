@@ -104,6 +104,28 @@ export function useScrapRota() {
 }
 
 /**
+ * Bug-recovery escape hatch (M... force-delete plan): permanently deletes
+ * a committed rota outright, with no counter restore. This is not a
+ * substitute for Roll back commit - it exists for cases rollback cannot
+ * reach, such as a legacy commit with committed_at null. See
+ * engine.generate.force_delete_rota's docstring for the full
+ * rollback-interaction caveat. Cache handling mirrors useScrapRota
+ * exactly: the rota is gone, so its detail query is removed rather than
+ * refetched, and the list is invalidated so rollback-eligibility on the
+ * previous commit (if any) recomputes correctly on next render.
+ */
+export function useForceDeleteRota() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rotaId: number) => apiClient.delete<void>(`/rota/${rotaId}/force-delete`),
+    onSuccess: (_data, rotaId) => {
+      queryClient.removeQueries({ queryKey: rotaKeys.detail(rotaId) });
+      queryClient.invalidateQueries({ queryKey: rotaKeys.list() });
+    },
+  });
+}
+
+/**
  * Undoes a commit one step back through commit history (M3.7): restores
  * the rota's counters from its snapshot and flips it back to draft. The
  * response is a RotaOut with status="draft", same shape as commit's
