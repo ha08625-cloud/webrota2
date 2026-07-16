@@ -5,18 +5,32 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
 
   Pass 1 (full-day Trainee/AHP): a Trainee/AHP needing the same D room for
     both AM and PM of a day. Prefer a room free in both sessions; failing
-    that, displace a full-day Partner/Salaried D-room occupant.
+    that, displace a full-day Partner/Salaried D-room occupant. Victims are
+    ranked in two priority tiers ahead of any tie-break: Priority 1 is a
+    doctor holding a *different* D room in AM and PM (displacing them frees
+    two D rooms for one move); Priority 2 is a doctor holding the *same* D
+    room all day. Within a tier, ties are broken on live weighted
+    room-move score, then doctor code. The displaced doctor is relocated
+    from a fixed C/W/SR pool only -- Pass 1 never consults their own
+    preference list (see `_pass1_receiving_room`). When a Priority 1
+    victim is displaced, both of their D rooms are checked for same-day
+    consolidation before the trainee is split across them: if either room
+    turns out to already be free in the other session, the trainee takes
+    that one room for the full day instead of being split.
   Pass 2 (single-session Trainee/AHP): the same, per remaining individual
     session -- covers slots Pass 1 couldn't resolve as a full day, and
     slots that only ever needed a single session.
   Pass 3 (Partner/Salaried fallback): no displacement -- walk the doctor's
     own preference list and take the first free room.
 
-Displacing a Partner/Salaried doctor (Pass 1/2) follows the full "Room
+Displacing a Partner/Salaried doctor in Pass 2 follows the full "Room
 Preference Assignment" algorithm from algorithms.md: preferred list first,
-then any free room of an eligible non-D type (C, W, SR) as a fallback. Pass
-3 does not get this fallback -- it is not displacement, and the plan is
-explicit that a Pass-3 doctor only ever tries their own preference list.
+then any free room of an eligible non-D type (C, W, SR) as a fallback.
+Pass 1 skips the preference-list step and goes straight to the C/W/SR pool
+(see above) -- this asymmetry between Pass 1 and Pass 2 is deliberate, not
+an inconsistency. Pass 3 gets neither: it is not displacement, and the
+plan is explicit that a Pass-3 doctor only ever tries their own preference
+list.
 
 Known gap, flagged for Phase 12 (next step): a doctor on leave still gets a
 REQUIRES_ROOM `SessionSlot` from Phase 2 (the template says they'd need a
@@ -104,7 +118,7 @@ def _pass1_full_day(
             )
             continue
 
-        candidate = _find_full_day_displacement(context, grid, counters, gen_week, day, d_room_ids)
+        candidate = _find_full_day_displacement(context, grid, counters, gen_week, day)
         if candidate is None:
             issues.append(_warning(
                 "no_full_day_room", gen_week, day, None,
@@ -113,10 +127,10 @@ def _pass1_full_day(
             ))
             continue
 
-        displaced_id, d_room_id = candidate
-        new_room = _best_available_room(
-            context, grid, displaced_id, gen_week, day, periods=(Period.AM, Period.PM),
-        )
+        displaced_id, am_room, pm_room = candidate
+        tier = 1 if am_room != pm_room else 2
+
+        new_room = _pass1_receiving_room(context, grid, gen_week, day)
         if new_room is None:
             issues.append(_warning(
                 "no_full_day_room", gen_week, day, None,
@@ -125,23 +139,87 @@ def _pass1_full_day(
             ))
             continue
 
+        # Decide the trainee's room(s) before moving the victim, while the
+        # victim still occupies both rooms: "free in the other session
+        # now" is exactly "free all day once the victim leaves". Priority
+        # 2 (am_room == pm_room) is trivially the single-room case.
+        if am_room == pm_room:
+            outcome = "single"
+        elif grid.is_room_free(gen_week, day, Period.PM, am_room):
+            outcome = "consolidated_am"
+        elif grid.is_room_free(gen_week, day, Period.AM, pm_room):
+            outcome = "consolidated_pm"
+        else:
+            outcome = "split"
+
+        tier_desc = f"priority tier {tier}, tie broken on weighted room-move score"
+
+        # Move the displaced doctor first -- assign_room re-points the
+        # occupancy indexes, freeing their old room(s) -- then place the
+        # trainee. The room-move counter is incremented exactly once per
+        # displacement regardless of how the trainee ends up split.
         grid.assign_room(gen_week, day, Period.AM, displaced_id, new_room)
         grid.assign_room(gen_week, day, Period.PM, displaced_id, new_room)
-        grid.assign_room(gen_week, day, Period.AM, doctor_id, d_room_id)
-        grid.assign_room(gen_week, day, Period.PM, doctor_id, d_room_id)
-        counters.increment_system(displaced_id, SystemCounterType.ROOM_MOVE)  # once, not twice
-        log.add(
-            phase=PHASE, action="displace_room",
-            week=gen_week, day=day, period=None, doctor_id=doctor_id,
-            related_doctor_id=displaced_id, room_id=d_room_id, related_room_id=new_room,
-            message=(
-                f"Displaced {_code(context, displaced_id)} from "
-                f"{context.room_by_id[d_room_id].code} to "
-                f"{context.room_by_id[new_room].code} to free the D room for "
-                f"{_code(context, doctor_id)} (full day, pass 1, lowest "
-                f"weighted room-move score)."
-            ),
-        )
+        counters.increment_system(displaced_id, SystemCounterType.ROOM_MOVE)
+
+        if outcome == "single":
+            grid.assign_room(gen_week, day, Period.AM, doctor_id, am_room)
+            grid.assign_room(gen_week, day, Period.PM, doctor_id, am_room)
+            log.add(
+                phase=PHASE, action="displace_room",
+                week=gen_week, day=day, period=None, doctor_id=doctor_id,
+                related_doctor_id=displaced_id, room_id=am_room, related_room_id=new_room,
+                message=(
+                    f"Displaced {_code(context, displaced_id)} from "
+                    f"{context.room_by_id[am_room].code} to "
+                    f"{context.room_by_id[new_room].code} to free the D room for "
+                    f"{_code(context, doctor_id)} (full day, pass 1, {tier_desc})."
+                ),
+            )
+        elif outcome in ("consolidated_am", "consolidated_pm"):
+            trainee_room = am_room if outcome == "consolidated_am" else pm_room
+            grid.assign_room(gen_week, day, Period.AM, doctor_id, trainee_room)
+            grid.assign_room(gen_week, day, Period.PM, doctor_id, trainee_room)
+            log.add(
+                phase=PHASE, action="displace_room",
+                week=gen_week, day=day, period=None, doctor_id=doctor_id,
+                related_doctor_id=displaced_id, room_id=trainee_room, related_room_id=new_room,
+                message=(
+                    f"Displaced {_code(context, displaced_id)} from "
+                    f"{context.room_by_id[am_room].code}/{context.room_by_id[pm_room].code} "
+                    f"to {context.room_by_id[new_room].code}, vacating both rooms for "
+                    f"{_code(context, doctor_id)}, who consolidates into "
+                    f"{context.room_by_id[trainee_room].code} for the full day "
+                    f"(full day, pass 1, {tier_desc})."
+                ),
+            )
+        else:  # split
+            grid.assign_room(gen_week, day, Period.AM, doctor_id, am_room)
+            grid.assign_room(gen_week, day, Period.PM, doctor_id, pm_room)
+            log.add(
+                phase=PHASE, action="displace_room",
+                week=gen_week, day=day, period=Period.AM, doctor_id=doctor_id,
+                related_doctor_id=displaced_id, room_id=am_room, related_room_id=new_room,
+                message=(
+                    f"Displaced {_code(context, displaced_id)} from "
+                    f"{context.room_by_id[am_room].code}/{context.room_by_id[pm_room].code} "
+                    f"to {context.room_by_id[new_room].code}; {_code(context, doctor_id)} "
+                    f"takes {context.room_by_id[am_room].code} in AM (full day, pass 1, "
+                    f"{tier_desc}; room-move counter incremented once for the day, "
+                    f"covering both periods)."
+                ),
+            )
+            log.add(
+                phase=PHASE, action="displace_room",
+                week=gen_week, day=day, period=Period.PM, doctor_id=doctor_id,
+                related_doctor_id=displaced_id, room_id=pm_room, related_room_id=new_room,
+                message=(
+                    f"{_code(context, doctor_id)} takes "
+                    f"{context.room_by_id[pm_room].code} in PM, completing the full-day "
+                    f"split freed by displacing {_code(context, displaced_id)} "
+                    f"(full day, pass 1, {tier_desc})."
+                ),
+            )
 
     return issues
 
