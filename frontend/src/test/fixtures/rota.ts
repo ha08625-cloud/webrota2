@@ -72,3 +72,4 @@ export function makeGenerationLogEntry(overrides: Partial<GenerationLogEntry> = 
     clinic_type_id: 1,
     ...overrides,
   };
+}
