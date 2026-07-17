@@ -1,11 +1,12 @@
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
-from app.engine.phases.phase7_9a import run_phase7_to_9a
+from app.engine.phases.phase7_9a import _displacement_priority, run_phase7_to_9a
 from app.engine.datatypes import DecisionLog
 from app.models.enums import Day, DoctorType, MasterSessionType, Period, RoomType, SystemCounterType
 
 from .factories import (
     make_doctor,
+    make_leave,
     make_master_session,
     make_preferred_room,
     make_room,
@@ -522,3 +523,284 @@ class TestPass3PartnerSalariedFallback:
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_partner_salaried_room" for i in issues)
         assert log.entries == []
+
+
+class TestPass2DisplacementPriorityFunction:
+    """`_displacement_priority` classification, tested directly against the
+    three tier-1 cases: other session absent, on leave, or REQUIRES_ROOM but
+    not yet assigned a room (the pre-Pass-3 partner case).
+    """
+
+    def test_tier1_when_other_session_absent(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        # No PM master session row at all for this doctor.
+
+        ctx, grid, counters = _build(session, config_1wk)
+        tier = _displacement_priority(grid, partner.id, 1, Day.MONDAY, Period.AM, d_room.id)
+        assert tier == 1
+
+    def test_tier1_when_other_session_on_leave(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        _pre_assigned(session, t, partner, d_room, period=Period.PM)
+        make_leave(session, partner, monday, period=Period.PM)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        tier = _displacement_priority(grid, partner.id, 1, Day.MONDAY, Period.AM, d_room.id)
+        assert tier == 1
+
+    def test_tier1_when_other_session_requires_room_unassigned(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        _requires_room(session, t, partner, period=Period.PM)  # unassigned
+
+        ctx, grid, counters = _build(session, config_1wk)
+        tier = _displacement_priority(grid, partner.id, 1, Day.MONDAY, Period.AM, d_room.id)
+        assert tier == 1
+
+    def test_end_to_end_requires_room_unassigned_partner_preferred_for_displacement(
+        self, session, config_1wk
+    ):
+        """Same tier-1 case as above, but exercised through the full Pass 2
+        selection (`_pass2_single_session`) rather than the bare function,
+        and pitted against a tier-3 occupant with a far better fairness
+        score to confirm the classification actually drives the pick.
+        """
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        tier1_partner = make_doctor(session, code="P1", doctor_type=DoctorType.PARTNER)
+        tier3_partner = make_doctor(session, code="P3", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        _pre_assigned(session, t, tier1_partner, d1, period=Period.AM)
+        _requires_room(session, t, tier1_partner, period=Period.PM)  # unassigned -> tier 1
+        _pre_assigned(session, t, tier3_partner, d2, period=Period.AM)
+        _pre_assigned(session, t, tier3_partner, d2, period=Period.PM)  # tier 3
+        make_preferred_room(session, tier1_partner, preference_order=1, room=fallback)
+        make_system_counter(session, tier1_partner, SystemCounterType.ROOM_MOVE, raw_count=5)
+        make_system_counter(session, tier3_partner, SystemCounterType.ROOM_MOVE, raw_count=0)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(tier1_partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
+        assert grid.get(tier3_partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == tier1_partner.id
+        assert "priority tier 1" in entry.message
+
+
+class TestPass2TierOrderingBeatsFairness:
+    """Tier ranking is checked before the weighted fairness score -- tests
+    Design Decisions 4 and 5.
+    """
+
+    def test_tier1_wins_over_tier3_despite_worse_score(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        tier3_doc = make_doctor(session, code="T3", doctor_type=DoctorType.PARTNER)
+        tier1_doc = make_doctor(session, code="T1", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback1 = make_room(session, code="C1", room_type=RoomType.C)
+        fallback2 = make_room(session, code="C2", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        # tier3_doc: same D room (d1) all day -- tier 3, favourable score.
+        _pre_assigned(session, t, tier3_doc, d1, period=Period.AM)
+        _pre_assigned(session, t, tier3_doc, d1, period=Period.PM)
+        # tier1_doc: only an AM slot at all -- other session absent -> tier 1,
+        # unfavourable score.
+        _pre_assigned(session, t, tier1_doc, d2, period=Period.AM)
+        make_preferred_room(session, tier3_doc, preference_order=1, room=fallback1)
+        make_preferred_room(session, tier1_doc, preference_order=1, room=fallback2)
+        make_system_counter(session, tier3_doc, SystemCounterType.ROOM_MOVE, raw_count=0)
+        make_system_counter(session, tier1_doc, SystemCounterType.ROOM_MOVE, raw_count=5)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        # tier1_doc is displaced despite the far worse weighted score --
+        # tier is checked first.
+        assert grid.get(tier1_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback2.id
+        assert grid.get(tier3_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+        assert grid.get(tier3_doc.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d1.id
+
+        # The trainee receives d2 -- the room whose occupant was cheaper to
+        # move (Design Decision 4: tier steers which room the trainee gets).
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == tier1_doc.id
+        assert "priority tier 1" in entry.message
+
+    def test_tier2_wins_over_tier3_despite_worse_score(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        tier2_doc = make_doctor(session, code="T2", doctor_type=DoctorType.PARTNER)
+        tier3_doc = make_doctor(session, code="T3", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        other_room = make_room(session, code="C1", room_type=RoomType.C)
+        fallback1 = make_room(session, code="C2", room_type=RoomType.C)
+        fallback2 = make_room(session, code="C3", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        # tier2_doc: d1 in AM, a different (non-D) room in PM -- tier 2.
+        _pre_assigned(session, t, tier2_doc, d1, period=Period.AM)
+        _pre_assigned(session, t, tier2_doc, other_room, period=Period.PM)
+        # tier3_doc: same D room (d2) all day -- tier 3.
+        _pre_assigned(session, t, tier3_doc, d2, period=Period.AM)
+        _pre_assigned(session, t, tier3_doc, d2, period=Period.PM)
+        make_preferred_room(session, tier2_doc, preference_order=1, room=fallback1)
+        make_preferred_room(session, tier3_doc, preference_order=1, room=fallback2)
+        # tier2_doc has the worse (higher) score, to prove tier still wins.
+        make_system_counter(session, tier2_doc, SystemCounterType.ROOM_MOVE, raw_count=5)
+        make_system_counter(session, tier3_doc, SystemCounterType.ROOM_MOVE, raw_count=0)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(tier2_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
+        assert grid.get(tier3_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == tier2_doc.id
+        assert "priority tier 2" in entry.message
+
+
+class TestPass2FairnessTiebreakWithinTier:
+    """Within a single tier, the existing weighted-score/code tiebreak still
+    governs -- Design Decision 5.
+    """
+
+    def test_lower_weighted_score_displaced_within_same_tier(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        low_score = make_doctor(session, code="LS", doctor_type=DoctorType.PARTNER)
+        high_score = make_doctor(session, code="HS", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback1 = make_room(session, code="C1", room_type=RoomType.C)
+        fallback2 = make_room(session, code="C2", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        # Both tier 1 -- neither has a PM master session at all.
+        _pre_assigned(session, t, low_score, d1, period=Period.AM)
+        _pre_assigned(session, t, high_score, d2, period=Period.AM)
+        make_preferred_room(session, low_score, preference_order=1, room=fallback1)
+        make_preferred_room(session, high_score, preference_order=1, room=fallback2)
+        make_system_counter(session, low_score, SystemCounterType.ROOM_MOVE, raw_count=0)
+        make_system_counter(session, high_score, SystemCounterType.ROOM_MOVE, raw_count=5)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(low_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
+        assert grid.get(high_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+
+    def test_equal_scores_fall_back_to_alphabetical_code(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        first_code = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        later_code = make_doctor(session, code="ZZ", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback1 = make_room(session, code="C1", room_type=RoomType.C)
+        fallback2 = make_room(session, code="C2", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        # Both tier 1, both zero score -- code is the only remaining
+        # differentiator.
+        _pre_assigned(session, t, first_code, d1, period=Period.AM)
+        _pre_assigned(session, t, later_code, d2, period=Period.AM)
+        make_preferred_room(session, first_code, preference_order=1, room=fallback1)
+        make_preferred_room(session, later_code, preference_order=1, room=fallback2)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        # "AA" sorts before "ZZ" -- it is displaced, "ZZ" is left alone.
+        assert grid.get(first_code.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
+        assert grid.get(later_code.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+
+
+class TestPass2DoubleBump:
+    """Design Decision 3: a doctor bumped in AM reclassifies from tier 3 to
+    tier 2 for PM (their AM room no longer matches the D room), so the same
+    doctor can be selected again rather than fragmenting a second intact
+    tier-3 doctor. This test pins that accepted behaviour.
+    """
+
+    def test_same_doctor_bumped_am_and_pm_in_preference_to_untouched_doctor(
+        self, session, config_1wk
+    ):
+        t = make_template(session, is_active=True)
+        trainee_am = make_doctor(session, code="TA", doctor_type=DoctorType.TRAINEE)
+        trainee_pm = make_doctor(session, code="TB", doctor_type=DoctorType.TRAINEE)
+        partner_x = make_doctor(session, code="PA", doctor_type=DoctorType.PARTNER)
+        partner_y = make_doctor(session, code="PB", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee_am, period=Period.AM)
+        _requires_room(session, t, trainee_pm, period=Period.PM)
+        # Both partners intact full-day, same D room all day -- both start
+        # tier 3 with equal (zero) ROOM_MOVE scores, so the AM pick comes
+        # down to the alphabetical tiebreak ("PA" < "PB").
+        _pre_assigned(session, t, partner_x, d1, period=Period.AM)
+        _pre_assigned(session, t, partner_x, d1, period=Period.PM)
+        _pre_assigned(session, t, partner_y, d2, period=Period.AM)
+        _pre_assigned(session, t, partner_y, d2, period=Period.PM)
+        make_preferred_room(session, partner_x, preference_order=1, room=fallback)
+        make_preferred_room(session, partner_y, preference_order=1, room=fallback)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert not any(i.phase == "phase7_9a" and i.severity == "warning" for i in issues)
+
+        # partner_x is bumped in both AM and PM; partner_y is never touched.
+        assert grid.get(partner_x.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
+        assert grid.get(partner_x.id, 1, Day.MONDAY, Period.PM).assigned_room_id == fallback.id
+        assert grid.get(partner_y.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
+        assert grid.get(partner_y.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d2.id
+
+        assert grid.get(trainee_am.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+        assert grid.get(trainee_pm.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d1.id
+
+        assert counters.system[(partner_x.id, SystemCounterType.ROOM_MOVE)] == 2
+        assert counters.system.get((partner_y.id, SystemCounterType.ROOM_MOVE), 0) == 0
+
+        displace_entries = [e for e in log.entries if e.action == "displace_room"]
+        assert len(displace_entries) == 2
+        assert all(e.related_doctor_id == partner_x.id for e in displace_entries)
+        am_entry = next(e for e in displace_entries if e.period == Period.AM)
+        pm_entry = next(e for e in displace_entries if e.period == Period.PM)
+        # AM: partner_x is still fully intact (same D room both sessions) at
+        # the moment of selection -- tier 3. PM: after the AM bump their AM
+        # room no longer matches d1 -- tier 2.
+        assert "priority tier 3" in am_entry.message
+        assert "priority tier 2" in pm_entry.message
