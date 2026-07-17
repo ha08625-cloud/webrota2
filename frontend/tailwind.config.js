@@ -15,6 +15,21 @@ export default {
         border: "#DDE1E6",
         accent: "#4F5FA6",
       },
+      // Global font-size scale, single source of truth for the app's
+      // standard text sizes. Values below match Tailwind's own defaults
+      // for xs/sm/base, so this change is visually a no-op on its own -
+      // it exists purely so a future size change is a one-line edit here
+      // instead of a find-and-replace across components.
+      //
+      // Deliberately NOT covering the arbitrary text-[Npx] values in
+      // LeaveRangePreview.tsx's mini-calendar - that layout is
+      // pixel-constrained (fitting a month grid into a fixed-width box)
+      // and is exempt from this scale by design. See the comment there.
+      fontSize: {
+        xs: ["0.75rem", { lineHeight: "1rem" }],
+        sm: ["0.875rem", { lineHeight: "1.25rem" }],
+        base: ["1rem", { lineHeight: "1.5rem" }],
+      },
     },
   },
   plugins: [],
