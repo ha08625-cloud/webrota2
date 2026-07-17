@@ -21,6 +21,7 @@ from app.api.deps import get_db
 from app.api.main import app
 from app.models import (
     Doctor,
+    DoctorPreferredRoom,
     MasterRotaSession,
     MasterRotaTemplate,
     Room,
@@ -120,6 +121,51 @@ def seeded(client, db_session):
     return {
         "room_c1": c1.id, "room_d1": d1.id,
         "doctor_aa": aa.id, "doctor_bb": bb.id,
+        "template": template.id,
+    }
+
+
+@pytest.fixture
+def seeded_no_d_rooms(client, db_session):
+    """Rooms C1/C2 only (no D rooms), doctors AA (Partner, preference-order-1
+    C1) and two trainees TT/UU, all REQUIRES_ROOM Monday AM.
+
+    Exists because Pass 3's SR>D>C>W fallback (phase7_9a.py) means a
+    Partner/Salaried doctor with no preference list and any free room
+    anywhere no longer stays unresolved after generation -- the `seeded`
+    fixture's AA/BB pair can no longer produce a guaranteed-empty room next
+    to a guaranteed-free room. Trainees have no such fallback (Pass 3 only
+    ever touches Partner/Salaried) and Pass 1/2's D-room-only relocation has
+    nothing to work with here, so generation deterministically leaves TT and
+    UU unresolved while AA claims C1 via preference, leaving C2 genuinely
+    free. Used only by the handful of set-room / swap-rooms tests that need
+    exactly that combination; everything else still uses `seeded`.
+    """
+    s = db_session
+    c1 = Room(code="C1", room_type=RoomType.C, site=Site.CUTTESLOWE)
+    c2 = Room(code="C2", room_type=RoomType.C, site=Site.CUTTESLOWE)
+    aa = Doctor(code="AA", doctor_type=DoctorType.PARTNER, sessions_per_week=10, active=True)
+    tt = Doctor(code="TT", doctor_type=DoctorType.TRAINEE, sessions_per_week=10, active=True)
+    uu = Doctor(code="UU", doctor_type=DoctorType.TRAINEE, sessions_per_week=10, active=True)
+    s.add_all([c1, c2, aa, tt, uu])
+    s.flush()
+    for doc in (aa, tt, uu):
+        for ct in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+            s.add(SystemCounter(doctor_id=doc.id, counter_type=ct, raw_count=0))
+    s.add(DoctorPreferredRoom(doctor_id=aa.id, preference_order=1, room_id=c1.id))
+    template = MasterRotaTemplate(name="Default", is_active=True)
+    s.add(template)
+    s.flush()
+    for doc in (aa, tt, uu):
+        s.add(MasterRotaSession(
+            template_id=template.id, doctor_id=doc.id, week=1,
+            day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        ))
+    s.commit()
+    return {
+        "room_c1": c1.id, "room_c2": c2.id,
+        "doctor_aa": aa.id, "doctor_tt": tt.id, "doctor_uu": uu.id,
         "template": template.id,
     }
 
