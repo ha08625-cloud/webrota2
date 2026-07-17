@@ -16,6 +16,13 @@ import { addDays, parseLocalDate } from "@/lib/date";
  * appear here - remove mode still deletes it (bulk-delete does not
  * weekday-filter) and the summary count includes it, it just isn't
  * visible in the preview.
+ *
+ * Font sizes in the mini-calendar below use arbitrary Tailwind values
+ * (text-[10px], text-[9px], text-[11px]) rather than the standard scale
+ * on purpose - this layout is pixel-constrained (fitting a month grid
+ * into a fixed-width box) and is deliberately excluded from the global
+ * font-size scale in tailwind.config.js. Do not migrate these onto the
+ * scale without re-checking the grid still fits.
  */
 
 const MAX_PREVIEW_MONTHS = 4;
