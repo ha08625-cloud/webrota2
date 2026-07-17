@@ -503,14 +503,17 @@ class TestPass3PartnerSalariedFallback:
         assert entries[0].room_id == preferred.id
         assert "pass 3" in entries[0].message
 
-    def test_no_fallback_beyond_own_preference_list(self, session, config_1wk):
+    def test_falls_back_to_free_non_preferred_room_when_preference_list_exhausted(
+        self, session, config_1wk
+    ):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
         preferred_but_occupied = make_room(session, code="C1", room_type=RoomType.C)
         occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
-        # A totally free room exists, but it is NOT in the partner's
-        # preference list -- Pass 3 must not use it.
-        make_room(session, code="C2", room_type=RoomType.C)
+        # A totally free room exists but is NOT in the partner's preference
+        # list -- Pass 3 now forces the doctor into it rather than leaving
+        # the slot unresolved.
+        free_room = make_room(session, code="C2", room_type=RoomType.C)
 
         _requires_room(session, t, partner)
         make_preferred_room(session, partner, preference_order=1, room=preferred_but_occupied)
@@ -520,8 +523,85 @@ class TestPass3PartnerSalariedFallback:
         log = DecisionLog()
         issues = run_phase7_to_9a(ctx, grid, counters, log)
 
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == free_room.id
+        assert not any(i.check == "no_partner_salaried_room" for i in issues)
+
+        entries = [e for e in log.entries if e.action == "assign_room"]
+        assert len(entries) == 1
+        assert entries[0].doctor_id == partner.id
+        assert entries[0].room_id == free_room.id
+        assert "pass 3" in entries[0].message
+        assert "fallback" in entries[0].message
+
+    def test_fallback_order_sr_before_d_before_c_before_w(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        w_room = make_room(session, code="W1", room_type=RoomType.W)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        # No preferred rooms configured at all -- straight to fallback.
+        _requires_room(session, t, partner)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert not any(i.check == "no_partner_salaried_room" for i in issues)
+
+    def test_fallback_order_d_before_c_and_w_when_sr_occupied(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        sr_occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        w_room = make_room(session, code="W1", room_type=RoomType.W)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+
+        _requires_room(session, t, partner)
+        _pre_assigned(session, t, sr_occupant, sr_room)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert not any(i.check == "no_partner_salaried_room" for i in issues)
+
+    def test_fallback_within_type_orders_by_code_not_creation_order(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        # Created out of code order -- C2 first, then C1 -- to prove the
+        # fallback sorts by code, not creation/id order.
+        later_code_room = make_room(session, code="C2", room_type=RoomType.C)
+        earlier_code_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, partner)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == earlier_code_room.id
+        assert not any(i.check == "no_partner_salaried_room" for i in issues)
+
+    def test_warns_only_when_every_room_occupied(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
+        only_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, partner)
+        _pre_assigned(session, t, occupant, only_room)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
-        assert any(i.check == "no_partner_salaried_room" for i in issues)
+        warning = next(i for i in issues if i.check == "no_partner_salaried_room")
+        assert "No free room anywhere" in warning.message
         assert log.entries == []
 
 
