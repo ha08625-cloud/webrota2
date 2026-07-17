@@ -15,13 +15,18 @@ import {
   useSwapRooms,
   useUnarchiveRota,
 } from "@/api/rota";
+import { useClinicTypes } from "@/api/clinicTypes";
+import { useClosures } from "@/api/closures";
+import { useDoctors } from "@/api/doctors";
+import { useRooms } from "@/api/rooms";
 import type { RotaSummary } from "@/api/types";
 import { ForceDeleteRotaDialog } from "@/components/ForceDeleteRotaDialog";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { addDays, formatDate, formatDateTime } from "@/lib/date";
+import { buildRotaWorkbook } from "@/lib/exportRota";
 import { buildReplayRequest, type ReplayRequest } from "@/lib/replayUndo";
 import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
@@ -54,6 +59,27 @@ function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): b
   return mostRecent.rota_id === rotaId;
 }
 
+/**
+ * Export filename (M-export plan, Design Decision 10):
+ * rota-{start_date}-to-{last_friday}.xlsx, where last_friday is the
+ * Friday of the final generation week - num_weeks * 7 days after
+ * start_date, minus 3 to land on Friday rather than the following
+ * Monday.
+ */
+function exportFilename(startDate: string, numWeeks: number): string {
+  const lastFriday = addDays(startDate, numWeeks * 7 - 3);
+  return `rota-${startDate}-to-${lastFriday}.xlsx`;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 type RotaView = "doctor" | "room";
 
 export function RotaDetailPage() {
@@ -62,7 +88,7 @@ export function RotaDetailPage() {
   const navigate = useNavigate();
   const { data: rota, isLoading, isError, error } = useRota(rotaId);
   const { data: rotaList } = useRotaList();
-  
+
   const commitRota = useCommitRota();
   const scrapRota = useScrapRota();
   const rollbackCommit = useRollbackCommit();
@@ -91,6 +117,18 @@ export function RotaDetailPage() {
   // of an edit. The toggle deliberately does not persist across
   // navigation; every visit starts on the doctor view.
   const [view, setView] = useState<RotaView>("doctor");
+
+  // M-export plan, Task 3: same four lookups RotaGrid already fetches for
+  // Q13 colouring, so TanStack Query dedupes these against RotaGrid's own
+  // calls rather than issuing a second network request. Fetched
+  // unconditionally (not gated on isCommitted) so they're warm by the
+  // time the button would first render.
+  const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
+  const { data: rooms, isLoading: roomsLoading } = useRooms();
+  const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
+  const { data: closures, isLoading: closuresLoading } = useClosures();
+  const exportLookupsLoading = doctorsLoading || roomsLoading || clinicTypesLoading || closuresLoading;
+  const [exporting, setExporting] = useState(false);
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -194,6 +232,32 @@ export function RotaDetailPage() {
 
   function handleMutationError() {
     showToast("Could not apply that change");
+  }
+
+  /**
+   * M-export plan, Task 3. Builds closureNameByDate the same way
+   * RotaGrid's own memo does (live closures list, cosmetic name lookup
+   * only - see exportRota.ts's docstring on why this is never the
+   * source of closed-ness itself), calls buildRotaWorkbook, and triggers
+   * a browser download. rota/doctors/rooms/clinicTypes are all known
+   * non-null here because the button that calls this is only rendered
+   * once isCommitted is true and exportLookupsLoading is false.
+   */
+  async function handleExport() {
+    if (!rota || !doctors || !rooms || !clinicTypes) return;
+
+    const closureNameByDate = new Map<string, string | null>();
+    for (const c of closures ?? []) closureNameByDate.set(c.date, c.name);
+
+    setExporting(true);
+    try {
+      const blob = await buildRotaWorkbook(rota, doctors, rooms, clinicTypes, closureNameByDate);
+      downloadBlob(blob, exportFilename(rota.start_date, rota.num_weeks));
+    } catch {
+      showToast("Export failed");
+    } finally {
+      setExporting(false);
+    }
   }
 
   /**
@@ -334,6 +398,14 @@ export function RotaDetailPage() {
             {!isArchived ? (
               <ForceDeleteRotaDialog rotaId={currentRotaId} onDeleted={() => navigate("/")} />
             ) : null}
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exportLookupsLoading || exporting}
+              className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            >
+              {exporting ? "Exporting..." : "Export to Excel"}
+            </button>
           </div>
         </div>
       )}
