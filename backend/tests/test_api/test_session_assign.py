@@ -68,35 +68,34 @@ def _set_counter(db_session, doctor_id, clinic_type_id, raw_count):
 # set-room
 # ---------------------------------------------------------------------------
 
-def test_set_room_direct_assign_to_free_room(client, seeded):
+def test_set_room_direct_assign_to_free_room(client, seeded_no_d_rooms):
     gen = generate_rota(client)
     am = _sessions_by_doctor(client, gen["rota_id"])
-    assert am["BB"]["room_code"] is None
+    assert am["TT"]["room_code"] is None
 
     resp = client.post(
-        f"/api/v1/rota/{gen['rota_id']}/sessions/{am['BB']['session_id']}/set-room",
-        json={"room_id": seeded["room_d1"]},
+        f"/api/v1/rota/{gen['rota_id']}/sessions/{am['TT']['session_id']}/set-room",
+        json={"room_id": seeded_no_d_rooms["room_c2"]},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["session"]["room_code"] == "D1"
+    assert body["session"]["room_code"] == "C2"
     assert body["displaced_session"] is None
 
 
-def test_set_room_steal_displaces_holder(client, seeded):
-    ct = make_clinic_type_via_api(client, seeded)
+def test_set_room_steal_displaces_holder(client, seeded_no_d_rooms):
     gen = generate_rota(client)
     am = _sessions_by_doctor(client, gen["rota_id"])
     assert am["AA"]["room_code"] == "C1"
-    assert am["BB"]["room_code"] is None
+    assert am["TT"]["room_code"] is None
 
     resp = client.post(
-        f"/api/v1/rota/{gen['rota_id']}/sessions/{am['BB']['session_id']}/set-room",
-        json={"room_id": seeded["room_c1"]},
+        f"/api/v1/rota/{gen['rota_id']}/sessions/{am['TT']['session_id']}/set-room",
+        json={"room_id": seeded_no_d_rooms["room_c1"]},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["session"]["doctor_code"] == "BB"
+    assert body["session"]["doctor_code"] == "TT"
     assert body["session"]["room_code"] == "C1"
     assert body["displaced_session"]["doctor_code"] == "AA"
     assert body["displaced_session"]["room_code"] is None
