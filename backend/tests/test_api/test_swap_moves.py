@@ -1,4 +1,4 @@
-"""Null-side swap moves (M3.5 Tasks 3-4).
+"""Null-side swap moves.
 
 The M3 swap endpoints already tolerated one empty side; these tests pin
 the move semantics explicitly plus the new both-empty 422 guards:
@@ -88,23 +88,22 @@ def test_role_move_both_empty_422(client, seeded):
 
 
 def test_room_move_to_empty_transfers_and_warns_on_source(
-    client, seeded, db_session
+    client, seeded_no_d_rooms
 ):
-    ct = make_clinic_type_via_api(client, seeded)
     gen = generate_rota(client)
     am = _sessions_by_doctor(client, gen["rota_id"])
-    assert am["AA"]["room_code"] == "C1"  # assigned with the clinic
-    assert am["BB"]["room_code"] is None
+    assert am["AA"]["room_code"] == "C1"  # claimed via preference
+    assert am["TT"]["room_code"] is None
 
     resp = client.post(f"/api/v1/rota/{gen['rota_id']}/swap-rooms", json={
         "session_a_id": am["AA"]["session_id"],
-        "session_b_id": am["BB"]["session_id"],
+        "session_b_id": am["TT"]["session_id"],
     })
     assert resp.status_code == 200, resp.text
     body = resp.json()
     moved = {body["session_a"]["doctor_code"]: body["session_a"],
              body["session_b"]["doctor_code"]: body["session_b"]}
-    assert moved["BB"]["room_code"] == "C1"
+    assert moved["TT"]["room_code"] == "C1"
     assert moved["AA"]["room_code"] is None
     # Deliberate consequence: AA now warns unresolved_room for this slot.
     warnings = [
@@ -113,15 +112,13 @@ def test_room_move_to_empty_transfers_and_warns_on_source(
         and i["period"] == "AM" and "AA" in i["message"]
     ]
     assert len(warnings) == 1
-    # No counter effect from a room move.
-    assert _clinic_counts(db_session, ct["id"]) == {seeded["doctor_aa"]: 1}
 
 
-def test_room_move_both_empty_422(client, seeded):
+def test_room_move_both_empty_422(client, seeded_no_d_rooms):
     gen = generate_rota(client)
-    pm = _sessions_by_doctor(client, gen["rota_id"], period="PM")
+    am = _sessions_by_doctor(client, gen["rota_id"])
     resp = client.post(f"/api/v1/rota/{gen['rota_id']}/swap-rooms", json={
-        "session_a_id": pm["AA"]["session_id"],
-        "session_b_id": pm["BB"]["session_id"],
+        "session_a_id": am["TT"]["session_id"],
+        "session_b_id": am["UU"]["session_id"],
     })
     assert resp.status_code == 422
