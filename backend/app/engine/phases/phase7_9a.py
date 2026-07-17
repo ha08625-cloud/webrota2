@@ -19,7 +19,16 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
     that one room for the full day instead of being split.
   Pass 2 (single-session Trainee/AHP): the same, per remaining individual
     session -- covers slots Pass 1 couldn't resolve as a full day, and
-    slots that only ever needed a single session.
+    slots that only ever needed a single session. Victims are ranked by
+    priority tier first: Priority 1 is a doctor whose other session has no
+    room setup to fragment (absent, on leave, or roomless); Priority 2 is a
+    doctor holding a *different* room in the other session; Priority 3 is a
+    doctor holding the same D room all day. Within a tier, ties are broken
+    on live weighted room-move score, then doctor code. A doctor displaced
+    in AM reclassifies from tier 3 to tier 2 for PM (their AM room no
+    longer matches the D room), so the same doctor may be bumped twice in
+    one day -- this is accepted as consistent with the tiering principle,
+    not a bug.
   Pass 3 (Partner/Salaried fallback): no displacement -- walk the doctor's
     own preference list and take the first free room.
 
@@ -330,6 +339,27 @@ def _pass1_receiving_room(
 # Pass 2: single-session Trainee/AHP
 # ---------------------------------------------------------------------------
 
+def _displacement_priority(
+    grid: RotaGrid, doctor_id: int, gen_week: int, day: Day,
+    period: Period, d_room_id: int,
+) -> int:
+    """Tier 1 = other session has no room setup to fragment; 2 = other
+    session is in a different room anyway; 3 = same D room all day.
+
+    The `is_on_leave` check is defensive ordering: a leave slot should
+    never carry an `assigned_room_id` (Phase 2 skips the room claim for
+    on-leave PRE_ASSIGNED slots), but leave must classify as tier 1
+    regardless.
+    """
+    other = Period.PM if period == Period.AM else Period.AM
+    other_slot = grid.get(doctor_id, gen_week, day, other)
+    if other_slot is None or other_slot.is_on_leave or other_slot.assigned_room_id is None:
+        return 1
+    if other_slot.assigned_room_id != d_room_id:
+        return 2
+    return 3
+
+
 def _pass2_single_session(
     context: GenerationContext, grid: RotaGrid, counters: CounterState,
     gen_week: int, day: Day, period: Period, d_room_ids: list[int], log: DecisionLog,
@@ -368,7 +398,7 @@ def _pass2_single_session(
             ))
             continue
 
-        displaced_id, d_room_id = candidate
+        displaced_id, d_room_id, tier = candidate
         new_room = _best_available_room(
             context, grid, displaced_id, gen_week, day, periods=(period,),
         )
@@ -392,7 +422,8 @@ def _pass2_single_session(
                 f"{context.room_by_id[d_room_id].code} to "
                 f"{context.room_by_id[new_room].code} to free the D room for "
                 f"{_code(context, doctor_id)} on {day.value} {period.value} "
-                f"(pass 2, lowest weighted room-move score)."
+                f"(pass 2, selected on priority tier {tier}, tie broken on "
+                f"weighted room-move score)."
             ),
         )
 
@@ -420,7 +451,7 @@ def _single_session_candidates(
 def _find_single_session_displacement(
     context: GenerationContext, grid: RotaGrid, counters: CounterState,
     gen_week: int, day: Day, period: Period, d_room_ids: list[int],
-) -> tuple[int, int] | None:
+) -> tuple[int, int, int] | None:
     candidates: list[tuple[int, int]] = []
     for room_id in d_room_ids:
         occ = grid.get_room_occupant(gen_week, day, period, room_id)
@@ -433,8 +464,13 @@ def _find_single_session_displacement(
     if not candidates:
         return None
 
-    candidates.sort(key=lambda c: _room_move_sort_key(context, counters, c[0]))
-    return candidates[0]
+    candidates.sort(key=lambda c: (
+        _displacement_priority(grid, c[0], gen_week, day, period, c[1]),
+        *_room_move_sort_key(context, counters, c[0]),
+    ))
+    best = candidates[0]
+    tier = _displacement_priority(grid, best[0], gen_week, day, period, best[1])
+    return best[0], best[1], tier
 
 
 def _is_displaceable_single(
