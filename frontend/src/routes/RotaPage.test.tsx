@@ -366,18 +366,18 @@ describe("RotaPage", () => {
   });
 
   describe("clinic status", () => {
-    it("shows nothing under 'Enabled clinics' when there are no clinic types", async () => {
+    it("shows the empty state when there are no clinic types at all", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
       server.use(http.get("/api/v1/clinic-types", () => HttpResponse.json([])));
 
       renderWithProviders(<RotaPage />);
       await screen.findByText("Generate a rota");
 
-      expect(await screen.findByText("Enabled clinics")).toBeInTheDocument();
-      expect(await screen.findByText("No clinics are currently enabled.")).toBeInTheDocument();
+      expect(await screen.findByText("Clinics")).toBeInTheDocument();
+      expect(await screen.findByText("No clinic types have been configured.")).toBeInTheDocument();
     });
 
-    it("lists only enabled clinic types, ordered by clinic_priority", async () => {
+    it("lists both enabled and disabled clinic types, ordered by clinic_priority", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
       server.use(
         http.get("/api/v1/clinic-types", () =>
@@ -392,15 +392,17 @@ describe("RotaPage", () => {
       renderWithProviders(<RotaPage />);
       await screen.findByText("Generate a rota");
 
-      const list = await screen.findByTestId("generate-clinic-status-2");
-      expect(list).toHaveTextContent("Diabetic clinic");
-      expect(await screen.findByTestId("generate-clinic-status-1")).toHaveTextContent("Asthma clinic");
-      expect(screen.queryByTestId("generate-clinic-status-3")).not.toBeInTheDocument();
-      expect(screen.queryByText("Retired clinic")).not.toBeInTheDocument();
+      const enabledBadge = await screen.findByTestId("generate-clinic-status-2");
+      expect(enabledBadge).toHaveTextContent("Diabetic clinic");
+      expect(enabledBadge.className).toContain("bg-green-100");
 
-      // Priority order: Diabetic (1) before Asthma (2) in document order.
+      const disabledBadge = await screen.findByTestId("generate-clinic-status-3");
+      expect(disabledBadge).toHaveTextContent("Retired clinic");
+      expect(disabledBadge.className).toContain("bg-red-50");
+
+      // Priority order: Diabetic (1), Asthma (2), Retired (3), regardless of enabled state.
       const badges = screen.getAllByTestId(/generate-clinic-status-/);
-      expect(badges.map((el) => el.textContent)).toEqual(["Diabetic clinic", "Asthma clinic"]);
+      expect(badges.map((el) => el.textContent)).toEqual(["Diabetic clinic", "Asthma clinic", "Retired clinic"]);
     });
   });
 
