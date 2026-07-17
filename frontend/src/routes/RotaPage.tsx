@@ -127,13 +127,17 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
 }
 
 /**
- * Advisory list of currently enabled clinic types - read-only, purely
- * informational (like DutyStatusList above, it blocks nothing). Unlike
- * duty status this isn't per-week: ClinicType.is_enabled is a single
- * global flag, not tied to a generation week, so there is one list, not
- * one per week. Sourced from the same GET /clinic-types the rota grid
- * itself uses, filtered client-side to is_enabled, ordered by
- * clinic_priority to match how Phase 5 actually processes them.
+ * Advisory list of all clinic types, enabled and disabled - read-only,
+ * purely informational (like DutyStatusList above, it blocks nothing).
+ * Unlike duty status this isn't per-week: ClinicType.is_enabled is a
+ * single global flag, not tied to a generation week, so there is one
+ * list, not one per week. Sourced from the same GET /clinic-types the
+ * rota grid itself uses, ordered by clinic_priority to match how Phase 5
+ * actually processes them (disabled clinics keep their priority slot in
+ * that ordering so the position is a stable reference point, even though
+ * Phase 5 skips them). Disabled clinics are shown muted red alongside the
+ * enabled (green) ones, rather than in a separate list, so it reads at a
+ * glance as "this clinic exists but will not be generated".
  */
 function ClinicStatusList() {
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
@@ -146,22 +150,24 @@ function ClinicStatusList() {
     return <p className="mt-3 text-xs text-red-700">Could not load clinic status.</p>;
   }
 
-  const enabled = (clinicTypes ?? [])
-    .filter((clinicType) => clinicType.is_enabled)
-    .sort((a, b) => a.clinic_priority - b.clinic_priority);
+  const allClinics = (clinicTypes ?? []).slice().sort((a, b) => a.clinic_priority - b.clinic_priority);
 
   return (
     <div className="mt-3">
-      <p className="text-sm font-medium text-ink">Enabled clinics</p>
-      {enabled.length === 0 ? (
-        <p className="mt-1 text-xs text-ink/50">No clinics are currently enabled.</p>
+      <p className="text-sm font-medium text-ink">Clinics</p>
+      {allClinics.length === 0 ? (
+        <p className="mt-1 text-xs text-ink/50">No clinic types have been configured.</p>
       ) : (
         <ul className="mt-1 flex flex-wrap gap-1">
-          {enabled.map((clinicType) => (
+          {allClinics.map((clinicType) => (
             <li
               key={clinicType.id}
               data-testid={`generate-clinic-status-${clinicType.id}`}
-              className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
+              className={
+                clinicType.is_enabled
+                  ? "rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
+                  : "rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-400"
+              }
             >
               {clinicType.name}
             </li>
