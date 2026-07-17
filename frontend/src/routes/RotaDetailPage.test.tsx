@@ -784,6 +784,51 @@ describe("RotaDetailPage", () => {
     });
   });
 
+  // --- Export to Excel button (M-export plan Task 4) ---
+  //
+  // Only button presence/gating is covered here - the actual download
+  // can't be exercised in jsdom (object-URL anchors don't work there);
+  // buildRotaWorkbook's own artefact is covered by exportRota.test.ts.
+
+  describe("export button", () => {
+    it("shows Export to Excel for a committed rota", async () => {
+      setUpGridServer();
+      server.use(
+        http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.getByRole("button", { name: "Export to Excel" })).toBeInTheDocument();
+    });
+
+    it("shows Export to Excel for an archived rota", async () => {
+      setUpGridServer();
+      server.use(
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/archived and read-only/);
+      expect(screen.getByRole("button", { name: "Export to Excel" })).toBeInTheDocument();
+    });
+
+    it("hides Export to Excel for a draft rota", async () => {
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 7, status: "draft" }))));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+
+      await screen.findByRole("button", { name: "Commit" });
+      expect(screen.queryByRole("button", { name: "Export to Excel" })).not.toBeInTheDocument();
+    });
+  });
+
   // --- Force delete (bug-recovery escape hatch) ---
 
   describe("force delete", () => {
