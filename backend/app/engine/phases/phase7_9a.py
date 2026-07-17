@@ -30,16 +30,22 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
     one day -- this is accepted as consistent with the tiering principle,
     not a bug.
   Pass 3 (Partner/Salaried fallback): no displacement -- walk the doctor's
-    own preference list and take the first free room.
+    own preference list first; if nothing on it is free, force the doctor
+    into the first free room by type priority SR > D > C > W (rooms
+    ordered by code within a type). Only if every room in the practice is
+    occupied does the slot remain unresolved.
 
 Displacing a Partner/Salaried doctor in Pass 2 follows the full "Room
 Preference Assignment" algorithm from algorithms.md: preferred list first,
 then any free room of an eligible non-D type (C, W, SR) as a fallback.
 Pass 1 skips the preference-list step and goes straight to the C/W/SR pool
 (see above) -- this asymmetry between Pass 1 and Pass 2 is deliberate, not
-an inconsistency. Pass 3 gets neither: it is not displacement, and the
-plan is explicit that a Pass-3 doctor only ever tries their own preference
-list.
+an inconsistency. Pass 3 has its own, separate fallback: SR/D/C/W by type
+priority, with D rooms deliberately included. This is a genuine, intended
+difference from the Pass 1/2 displaced-doctor pool (C/W/SR, D excluded) --
+Pass 3 runs last, after all Trainee/AHP D-room demand has already been
+settled by Passes 1 and 2, so any D room still free at this point is
+surplus and safe to hand to a Partner/Salaried doctor.
 
 Known gap, flagged for Phase 12 (next step): a doctor on leave still gets a
 REQUIRES_ROOM `SessionSlot` from Phase 2 (the template says they'd need a
@@ -66,6 +72,13 @@ _DAYS = (Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY)
 _PERIODS = (Period.AM, Period.PM)
 _DISPLACEABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
+
+# Pass 3's own fallback order -- deliberately its own type sequence, not a
+# reuse of _ROOM_MOVE_FALLBACK_TYPES. D rooms are included here (unlike the
+# Pass 1/2 displaced-doctor pool above) because Pass 3 runs last, after all
+# Trainee/AHP D-room demand has already been resolved by Passes 1 and 2, so
+# any D room still free at this point is genuine surplus.
+_PASS3_FALLBACK_TYPE_ORDER = (RoomType.SR, RoomType.D, RoomType.C, RoomType.W)
 
 
 def run_phase7_to_9a(
@@ -495,6 +508,8 @@ def _pass3_partner_salaried_fallback(
     log: DecisionLog,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    fallback_sequence = _pass3_fallback_sequence(context)
+
     for doctor in context.doctors:
         if doctor.doctor_type not in _DISPLACEABLE_TYPES:
             continue
@@ -507,31 +522,61 @@ def _pass3_partner_salaried_fallback(
             continue
 
         chosen = None
+        is_fallback = False
         for room_id in context.preferred_rooms_by_doctor.get(doctor.id, ()):
             if grid.is_room_free(gen_week, day, period, room_id):
                 chosen = room_id
                 break
 
         if chosen is None:
+            for room_id in fallback_sequence:
+                if grid.is_room_free(gen_week, day, period, room_id):
+                    chosen = room_id
+                    is_fallback = True
+                    break
+
+        if chosen is None:
             issues.append(_warning(
                 "no_partner_salaried_room", gen_week, day, period,
-                f"No free preferred room for {doctor.code} on {day.value} "
+                f"No free room anywhere for {doctor.code} on {day.value} "
                 f"{period.value}; slot remains unresolved.",
             ))
             continue
 
         grid.assign_room(gen_week, day, period, doctor.id, chosen)
+        if is_fallback:
+            message = (
+                f"Assigned fallback room {context.room_by_id[chosen].code} to "
+                f"{doctor.code} (pass 3, no preferred room free; forced into "
+                f"first free room by type priority SR > D > C > W)."
+            )
+        else:
+            message = (
+                f"Assigned preferred room {context.room_by_id[chosen].code} to "
+                f"{doctor.code} (pass 3, first free room on preference list)."
+            )
         log.add(
             phase=PHASE, action="assign_room",
             week=gen_week, day=day, period=period, doctor_id=doctor.id,
             room_id=chosen,
-            message=(
-                f"Assigned preferred room {context.room_by_id[chosen].code} to "
-                f"{doctor.code} (pass 3, first free room on preference list)."
-            ),
+            message=message,
         )
 
     return issues
+
+
+def _pass3_fallback_sequence(context: GenerationContext) -> list[int]:
+    """Room ids in Pass 3's forced-fallback order: SR, then D, then C, then
+    W, sorted by code within each type. Built once per call of
+    `_pass3_partner_salaried_fallback` -- it depends only on `context`, not
+    on the grid, so it does not need rebuilding per doctor or per room
+    check.
+    """
+    sequence: list[int] = []
+    for room_type in _PASS3_FALLBACK_TYPE_ORDER:
+        rooms = sorted(context.rooms_by_type.get(room_type, ()), key=lambda r: r.code)
+        sequence.extend(r.id for r in rooms)
+    return sequence
 
 
 # ---------------------------------------------------------------------------
