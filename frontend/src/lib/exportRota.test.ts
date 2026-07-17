@@ -14,9 +14,23 @@ import { buildRotaWorkbook } from "./exportRota";
  * actually opens), so a future exceljs upgrade that changes in-memory
  * shapes but keeps the file format intact won't false-fail here.
  */
+function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  // Not blob.arrayBuffer(): this suite runs under jsdom (vite_config.ts),
+  // whose Blob does not implement that method. FileReader is the one
+  // Blob-reading path jsdom fully supports, so it's used here even
+  // though production code (downloadBlob in RotaDetailPage.tsx) has no
+  // reason to touch it.
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
 async function reload(blob: Blob) {
   const ExcelJS = await import("exceljs");
-  const buffer = await blob.arrayBuffer();
+  const buffer = await blobToArrayBuffer(blob);
   const workbook = new ExcelJS.Workbook();
   // exceljs's Buffer type doesn't line up with a browser ArrayBuffer;
   // this is a test helper only, so a loose cast is a reasonable trade-off
