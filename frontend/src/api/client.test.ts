@@ -87,22 +87,13 @@ describe("apiClient.postForm", () => {
   });
 
   it("sends no explicit JSON Content-Type and passes the FormData through", async () => {
-    // Deliberately reads raw headers/text here rather than calling
-    // request.formData() server-side: under Vitest's jsdom environment,
-    // `new FormData()` in this file resolves to jsdom's FormData class,
-    // not the one Node's undici (which MSW's node interceptor also uses)
-    // checks for internally via `instanceof`. That mismatch is a test
-    // -environment artifact, not a client bug - a real browser has only
-    // one FormData class - but it means undici's own request.formData()
-    // parser throws here regardless of what the client actually sent.
-    // Checking the boundary is present and the field value made it into
-    // the raw body proves the same thing without hitting that parser.
     let receivedContentType: string | null = null;
-    let receivedBody = "";
+    let receivedValue: string | null = null;
     server.use(
       http.post("/api/v1/upload-check", async ({ request }) => {
         receivedContentType = request.headers.get("Content-Type");
-        receivedBody = await request.text();
+        const body = await request.formData();
+        receivedValue = body.get("file") as string | null;
         return HttpResponse.json({ ok: true });
       }),
     );
@@ -115,8 +106,7 @@ describe("apiClient.postForm", () => {
     // The browser/undici sets its own multipart boundary - the client must
     // never override it with application/json.
     expect(receivedContentType).toMatch(/^multipart\/form-data/);
-    expect(receivedContentType).toContain("boundary=");
-    expect(receivedBody).toContain("not-really-a-file");
+    expect(receivedValue).toBe("not-really-a-file");
   });
 
   it("attaches X-API-Token", async () => {
