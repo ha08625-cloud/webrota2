@@ -5,6 +5,16 @@ sessions on a committed rota -- deactivating is fine, but the guard prevents
 the frontend treating soft-delete as a data purge for doctors with history.
 If the doctor only appears on the current draft, scrapping the draft first
 is the correct path.
+
+Counter invariant: every doctor row has exactly one SystemCounter row per
+SystemCounterType (room_move, supervision), created here at doctor creation
+regardless of doctor_type. Trainee/AHP rows sit unused at zero -- the cost
+of a handful of dead rows buys a single unconditional invariant, closing
+the PATCH edge case where a doctor's type changes to Partner/Salaried after
+creation. `generate._write_counters` relies on this invariant via a strict
+`.scalar_one()` and 500s the generation if it is ever violated (this
+happened in production when doctors created through this router predated
+the invariant -- see seed/backfill_system_counters.py for the repair).
 """
 from __future__ import annotations
 
@@ -13,8 +23,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import Doctor, DoctorPreferredRoom, GeneratedRota, RotaSession
-from ...models.enums import RotaStatus
+from ...models import (
+    Doctor,
+    DoctorPreferredRoom,
+    GeneratedRota,
+    RotaSession,
+    SystemCounter,
+)
+from ...models.enums import RotaStatus, SystemCounterType
 from ..deps import get_current_user, get_db
 from ..schemas import (
     DoctorDetailOut,
@@ -60,6 +76,16 @@ def create_doctor(
     )
     db.add(doctor)
     try:
+        # Flush (rather than commit) first: it assigns doctor.id for the
+        # counter rows below, and surfaces a duplicate-code IntegrityError
+        # before any counter rows are staged.
+        db.flush()
+        for counter_type in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+            db.add(
+                SystemCounter(
+                    doctor_id=doctor.id, counter_type=counter_type, raw_count=0
+                )
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
