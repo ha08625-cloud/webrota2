@@ -28,6 +28,7 @@ from .routers import (
     master_rota,
     rooms,
     rota,
+    signatures,
 )
 
 app = FastAPI(title="Rota Generator API", version="0.1.0")
@@ -44,7 +45,7 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api/v1"
-for module in (rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, closures):
+for module in (rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, closures, signatures):
     app.include_router(module.router, prefix=API_PREFIX)
 
 
