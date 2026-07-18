@@ -1,28 +1,26 @@
-"""Seed system counters: one room_move + one supervision row per active
-Partner/Salaried doctor."""
+"""Seed system counters: one room_move + one supervision row per doctor.
+
+Invariant (matches the doctors router): every doctor has exactly one
+SystemCounter row per SystemCounterType, regardless of doctor_type or
+active flag. Trainee/AHP rows are never incremented (only Partner/Salaried
+are displaceable or supervision-eligible) and sit unused at zero -- the
+cost of a handful of dead rows buys a single unconditional invariant that
+survives a later PATCH changing a doctor's type. `generate._write_counters`
+enforces the invariant with a strict `.scalar_one()`.
+
+Fresh-database seed only: not idempotent (uq_system_counter will reject a
+re-run against existing rows). For repairing an existing database, use
+seed/backfill_system_counters.py instead.
+"""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Doctor, SystemCounter
-from app.models.enums import DoctorType, SystemCounterType
-
-_COUNTED_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
+from app.models.enums import SystemCounterType
 
 
 def seed_system_counters(session: Session) -> list[SystemCounter]:
-    """Seed system counters for Partners and Salaried doctors only.
-
-    Trainees and AHPs are never the doctor_id incremented for ROOM_MOVE
-    (only Partner/Salaried are displaceable, see phase7_9a._DISPLACEABLE_TYPES)
-    or SUPERVISION (only Partner/Salaried are eligible supervisors, see
-    phase9c._SUPERVISOR_TYPES), so they never need a row.
-    """
-    doctor_ids = session.execute(
-        select(Doctor.id).where(
-            Doctor.active.is_(True),
-            Doctor.doctor_type.in_(_COUNTED_TYPES),
-        )
-    ).scalars().all()
+    doctor_ids = session.execute(select(Doctor.id)).scalars().all()
 
     counters: list[SystemCounter] = []
     for did in doctor_ids:
