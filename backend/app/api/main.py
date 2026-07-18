@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from .routers import (
+    auth,
     clinic_types,
     closures,
     counters,
@@ -45,7 +46,7 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api/v1"
-for module in (rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, closures, signatures):
+for module in (auth, rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, closures, signatures):
     app.include_router(module.router, prefix=API_PREFIX)
 
 
