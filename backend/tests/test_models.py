@@ -10,6 +10,7 @@ from app.models import (
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
+    DoctorSignature,
     GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -346,3 +347,47 @@ def test_generation_log_entries_via_relationship(session):
     session.refresh(rota)
 
     assert len(rota.generation_log) == 2
+
+
+# --- DoctorSignature (signatures feature, Task 1) ---
+
+def _signature(doctor, image=b"\x89PNG\r\n\x1a\n...", content_type="image/png"):
+    return DoctorSignature(
+        doctor_id=doctor.id,
+        image=image,
+        content_type=content_type,
+        uploaded_at=datetime.datetime(2026, 7, 18, tzinfo=datetime.timezone.utc),
+    )
+
+
+def test_doctor_signature_round_trip(session):
+    d = _doctor(session)
+    sig = _signature(d)
+    session.add(sig)
+    session.flush()
+    session.refresh(sig)
+
+    fetched = session.get(DoctorSignature, sig.id)
+    assert fetched.doctor_id == d.id
+    assert fetched.image == b"\x89PNG\r\n\x1a\n..."
+    assert fetched.content_type == "image/png"
+    assert fetched.uploaded_at == datetime.datetime(
+        2026, 7, 18, tzinfo=datetime.timezone.utc
+    )
+
+
+def test_doctor_signature_unique_per_doctor(session):
+    d = _doctor(session)
+    session.add(_signature(d))
+    session.flush()
+    session.add(_signature(d, image=b"different bytes"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_doctor_signature_second_doctor_allowed(session):
+    d1 = _doctor(session, "AA")
+    d2 = _doctor(session, "BB")
+    session.add(_signature(d1))
+    session.add(_signature(d2))
+    session.flush()  # no error: uniqueness is per doctor_id
