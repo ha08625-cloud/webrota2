@@ -69,4 +69,25 @@ export const handlers: HttpHandler[] = [
   http.delete("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     new HttpResponse(null, { status: 204 }),
   ),
+  // Signatures feature (Task 4) - empty-list default, plus binary defaults
+  // for the image and apply endpoints so tests that don't care about the
+  // exact bytes don't need to stub them individually.
+  http.get("/api/v1/signatures", () => HttpResponse.json([])),
+  http.get("/api/v1/signatures/:doctorId/image", () =>
+    new HttpResponse(new Uint8Array([137, 80, 78, 71]).buffer, {
+      headers: { "Content-Type": "image/png" },
+    }),
+  ),
+  http.post("/api/v1/signatures/:doctorId", () =>
+    HttpResponse.json({ doctor_id: 1, content_type: "image/png", uploaded_at: "2026-07-18T00:00:00Z" }),
+  ),
+  http.delete("/api/v1/signatures/:doctorId", () => new HttpResponse(null, { status: 204 })),
+  http.post("/api/v1/signatures/:doctorId/apply", () =>
+    new HttpResponse(new Uint8Array([1, 2, 3]).buffer, {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "Content-Disposition": 'attachment; filename="document-signed.docx"',
+      },
+    }),
+  ),
 ];
