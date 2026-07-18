@@ -9,6 +9,7 @@ import { LeavePage } from "@/routes/LeavePage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
+import { SignaturesPage } from "@/routes/SignaturesPage";
 
 const NAV_ITEMS = [
   { to: "/", label: "Generate new rotas", end: true },
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { to: "/duty", label: "Assign Duty", end: false },
   { to: "/closures", label: "Closures", end: false },
   { to: "/counters", label: "Counters", end: false },
+  { to: "/signatures", label: "Signatures", end: false },
 ] as const;
 
 export function App() {
@@ -56,6 +58,7 @@ export function App() {
             <Route path="/duty" element={<DutyPage />} />
             <Route path="/closures" element={<ClosuresPage />} />
             <Route path="/counters" element={<CountersPage />} />
+            <Route path="/signatures" element={<SignaturesPage />} />
           </Routes>
         </main>
       </div>
