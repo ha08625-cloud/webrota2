@@ -531,3 +531,13 @@ export interface MasterRotaTemplate {
   name: string;
   sessions: MasterRotaSession[];
 }
+
+// --- Signatures (schemas/signature.py) ---
+// Metadata only - the image itself never travels as JSON. Uploaded via
+// apiClient.postForm, fetched via apiClient.getBlob, see api/signatures.ts.
+
+export interface SignatureMeta {
+  doctor_id: number;
+  content_type: string;
+  uploaded_at: string;
+}
