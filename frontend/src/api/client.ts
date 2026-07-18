@@ -26,17 +26,24 @@ export function onUnauthorized(listener: UnauthorizedListener | null): void {
 /**
  * Shared plumbing for every request shape below: attaches the token
  * header, fires the 401 listener, and returns the raw Response - callers
- * decide how to turn that into JSON, a Blob, or nothing at all. Does not
- * touch Content-Type; each caller sets exactly the headers its transport
- * needs (signatures feature, Task 4 - a shared "set JSON unless already
- * present" default is wrong for multipart, where the browser must set the
- * Content-Type itself to include the boundary).
+ * decide how to turn that into JSON, a Blob, or nothing at all.
+ *
+ * Headers are passed as a plain Record, never wrapped in `new Headers()`.
+ * That wrapping was tried first and caused a real bug: for a FormData
+ * body, the browser/runtime is supposed to compute
+ * `Content-Type: multipart/form-data; boundary=...` itself, but
+ * pre-constructing a Headers instance before the fetch call - even one
+ * with no Content-Type key set - lost that computed boundary under
+ * jsdom + MSW, and the server-side `request.formData()` then rejected
+ * the body outright ("Content-Type was not one of multipart/form-data or
+ * application/x-www-form-urlencoded"). A plain object passed straight
+ * through to fetch()'s `headers` option does not have this problem.
  */
 async function rawFetch(path: string, init: RequestInit): Promise<Response> {
   const token = getToken();
-  const headers = new Headers(init.headers);
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   if (token) {
-    headers.set("X-API-Token", token);
+    headers["X-API-Token"] = token;
   }
 
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
@@ -69,10 +76,10 @@ async function throwIfError(response: Response): Promise<void> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
+  const callerHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+  const headers: Record<string, string> = { Accept: "application/json", ...callerHeaders };
+  if (init.body !== undefined && !("Content-Type" in headers)) {
+    headers["Content-Type"] = "application/json";
   }
 
   const response = await rawFetch(path, { ...init, headers });
@@ -86,15 +93,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 /**
- * POST with a FormData body, JSON response. Deliberately never sets
- * Content-Type - the browser derives `multipart/form-data;
- * boundary=...` from the FormData instance itself, and setting it
- * manually (or letting the shared `request()` force `application/json`)
- * produces a body the server can't parse.
+ * POST with a FormData body, JSON response. Deliberately sets no
+ * Content-Type at all - see rawFetch's docstring for why even an
+ * empty-looking Headers() wrapper is unsafe here.
  */
 async function requestForm<T>(path: string, formData: FormData): Promise<T> {
-  const headers = new Headers();
-  headers.set("Accept", "application/json");
+  const headers: Record<string, string> = { Accept: "application/json" };
 
   const response = await rawFetch(path, { method: "POST", body: formData, headers });
   await throwIfError(response);
