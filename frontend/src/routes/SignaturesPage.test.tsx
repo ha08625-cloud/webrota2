@@ -1,7 +1,7 @@
 import { HttpResponse, http } from "msw";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeDoctor } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -51,6 +51,10 @@ function makeFileDataTransfer(file: File): DataTransfer {
 }
 
 describe("SignaturesPage", () => {
+  beforeEach(() => {
+    vi.mocked(downloadBlob).mockClear();
+  });
+
   it("renders only Partner/Salaried doctors, and omits Trainee/AHP", async () => {
     setUpServer({
       doctors: [
