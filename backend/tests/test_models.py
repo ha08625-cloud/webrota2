@@ -371,7 +371,7 @@ def test_doctor_signature_round_trip(session):
     assert fetched.doctor_id == d.id
     assert fetched.image == b"\x89PNG\r\n\x1a\n..."
     assert fetched.content_type == "image/png"
-    assert fetched.uploaded_at == datetime.datetime(
+    assert fetched.uploaded_at.replace(tzinfo=datetime.timezone.utc) == datetime.datetime(
         2026, 7, 18, tzinfo=datetime.timezone.utc
     )
 
