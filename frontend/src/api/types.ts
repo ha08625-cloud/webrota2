@@ -36,6 +36,29 @@ export interface FastApiValidationError {
   type: string;
 }
 
+// --- Auth (schemas/auth.py) ---
+// Task 5. User management (create/edit/deactivate/reset-password, Task 6)
+// will add its own write-side types alongside these; UserIn/UserPatch are
+// deliberately not added here yet, out of scope for this task.
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface LoginIn {
+  email: string;
+  password: string;
+}
+
+export interface LoginOut {
+  token: string;
+  user: AuthUser;
+}
+
 // --- Enums, mirroring backend/app/models/enums.py wire values exactly ---
 // (Pydantic serialises these enums by value, e.g. "draft", not "DRAFT".)
 
