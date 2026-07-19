@@ -57,7 +57,7 @@ from .master_rota import (
     MasterSessionWriteOut,
 )
 from .signature import SignatureMetaOut
-from .auth import LoginIn, LoginOut, UserOut
+from .auth import LoginIn, LoginOut, UserIn, UserOut, UserPatch
 
 __all__ = [
     "ValidationIssueOut",
@@ -77,5 +77,5 @@ __all__ = [
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
     "SignatureMetaOut",
-    "LoginIn", "LoginOut", "UserOut",
+    "LoginIn", "LoginOut", "UserOut", "UserIn", "UserPatch",
 ]
