@@ -36,10 +36,12 @@ export interface FastApiValidationError {
   type: string;
 }
 
-// --- Auth (schemas/auth.py) ---
-// Task 5. User management (create/edit/deactivate/reset-password, Task 6)
-// will add its own write-side types alongside these; UserIn/UserPatch are
-// deliberately not added here yet, out of scope for this task.
+// --- Auth and user management (schemas/auth.py) ---
+// Task 5 added AuthUser/LoginIn/LoginOut. Task 6 (Users page) adds the
+// write-side shapes below. AuthUser doubles as the read shape for the
+// Users page's list/detail rows - it is byte-identical to UserOut, so
+// api/users.ts imports it directly rather than duplicating an identical
+// interface under a second name.
 
 export interface AuthUser {
   id: number;
@@ -57,6 +59,28 @@ export interface LoginIn {
 export interface LoginOut {
   token: string;
   user: AuthUser;
+}
+
+/** POST /users body (UserIn in schemas/auth.py). Always creates an active user - `active` is not settable here. */
+export interface UserIn {
+  email: string;
+  name: string;
+  password: string;
+}
+
+/**
+ * PATCH /users/{id} body (UserPatch in schemas/auth.py) - every field
+ * optional, only supplied fields are applied (exclude_unset). A supplied
+ * `password` re-hashes it and deletes every session belonging to that
+ * user server-side (routers/users.py) - this is the password-reset
+ * mechanism, there is no separate endpoint for it. A `active: false` that
+ * would leave zero active users is rejected with 409.
+ */
+export interface UserPatch {
+  email?: string;
+  name?: string;
+  active?: boolean;
+  password?: string;
 }
 
 // --- Enums, mirroring backend/app/models/enums.py wire values exactly ---
