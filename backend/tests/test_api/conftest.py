@@ -127,16 +127,20 @@ def client_no_auth(session_factory):
     """Same DB override as `client`, but WITHOUT the get_current_user
     override -- exercises the real auth path (auth plan, Task 4).
 
+    Do NOT request this fixture together with `client` in the same test.
     app.dependency_overrides is a single dict on the shared `app` object,
-    not per-fixture state, so if a test requests both `client` and
-    `client_no_auth`, whichever fixture's setup runs LAST determines the
-    override actually in effect for both TestClient instances -- FastAPI
-    reads dependency_overrides per-request, not at TestClient construction
-    time. This fixture therefore explicitly pops get_current_user rather
-    than assuming `client` never ran first. Tests combining both fixtures
-    must list `client_no_auth` after `client` in the parameter list so
-    this pop is the last write; the reverse order would silently leave the
-    stub auth active on the "unauthenticated" client.
+    checked at request time, not captured per-fixture-instance -- so
+    whichever fixture's setup ran last decides the override in effect for
+    EVERY request made through EITHER TestClient for the rest of that
+    test, including calls through the other one. No parameter ordering
+    fixes this: it is not "client_no_auth's calls are unauthenticated and
+    client's are authenticated", it is "whichever override was set last
+    applies globally until fixture teardown". The two fixtures are
+    mutually exclusive within a single test, full stop. If a test needs
+    both a bootstrap step and real-session behaviour, do the bootstrap
+    through client_no_auth too -- seed the first user directly via
+    db_session (see test_users.py's _seed_user_directly), log in for a
+    real token, and use that token's Authorization header for every call.
     """
 
     def _override_get_db():
