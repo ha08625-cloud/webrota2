@@ -8,10 +8,21 @@ every other test file) is deliberately not used in this file.
 """
 import datetime
 
+from sqlalchemy import func, select
+
 from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import User, UserSession
 
 PROTECTED = "/api/v1/rooms"  # any get_current_user-gated GET works here
+
+
+def _as_aware(dt: datetime.datetime) -> datetime.datetime:
+    """SQLite does not round-trip tzinfo on DateTime(timezone=True) columns
+    -- a row written with an aware UTC value comes back naive after a
+    fetch (same fact as the deps.py bugfix this test suite caught).
+    Every value ever written to these columns is UTC, so this is a safe
+    normalization, not a guess."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=datetime.timezone.utc)
 
 
 def _make_user(db_session, email="a@example.com", password="password123", active=True):
@@ -40,6 +51,12 @@ def _make_session(db_session, user, token=None, expires_delta=datetime.timedelta
     db_session.add(row)
     db_session.commit()
     return token
+
+
+def _session_count(db_session, user_id):
+    return db_session.execute(
+        select(func.count()).select_from(UserSession).where(UserSession.user_id == user_id)
+    ).scalar_one()
 
 
 class TestUnauthenticated:
@@ -107,8 +124,7 @@ class TestLogin:
     def test_login_cleans_up_expired_sessions_for_that_user(self, client_no_auth, db_session):
         user = _make_user(db_session, email="a@example.com", password="password123")
         _make_session(db_session, user, expires_delta=datetime.timedelta(days=-1))
-        before = db_session.query(UserSession).filter_by(user_id=user.id).count()
-        assert before == 1
+        assert _session_count(db_session, user.id) == 1
 
         resp = client_no_auth.post(
             "/api/v1/auth/login",
@@ -117,10 +133,12 @@ class TestLogin:
         assert resp.status_code == 200, resp.text
 
         db_session.expire_all()
-        remaining = db_session.query(UserSession).filter_by(user_id=user.id).all()
+        remaining = db_session.execute(
+            select(UserSession).where(UserSession.user_id == user.id)
+        ).scalars().all()
         # The expired row is gone; only the new session from this login remains.
         assert len(remaining) == 1
-        assert remaining[0].expires_at > datetime.datetime.now(datetime.timezone.utc)
+        assert _as_aware(remaining[0].expires_at) > datetime.datetime.now(datetime.timezone.utc)
 
 
 class TestSessionLifecycle:
