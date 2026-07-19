@@ -125,7 +125,19 @@ def client(session_factory):
 @pytest.fixture
 def client_no_auth(session_factory):
     """Same DB override as `client`, but WITHOUT the get_current_user
-    override -- exercises the real auth path (auth plan, Task 4)."""
+    override -- exercises the real auth path (auth plan, Task 4).
+
+    app.dependency_overrides is a single dict on the shared `app` object,
+    not per-fixture state, so if a test requests both `client` and
+    `client_no_auth`, whichever fixture's setup runs LAST determines the
+    override actually in effect for both TestClient instances -- FastAPI
+    reads dependency_overrides per-request, not at TestClient construction
+    time. This fixture therefore explicitly pops get_current_user rather
+    than assuming `client` never ran first. Tests combining both fixtures
+    must list `client_no_auth` after `client` in the parameter list so
+    this pop is the last write; the reverse order would silently leave the
+    stub auth active on the "unauthenticated" client.
+    """
 
     def _override_get_db():
         db = session_factory()
@@ -135,6 +147,7 @@ def client_no_auth(session_factory):
             db.close()
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides.pop(get_current_user, None)
     try:
         with TestClient(app) as c:
             yield c
