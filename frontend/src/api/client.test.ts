@@ -5,7 +5,7 @@ import { HttpResponse, http } from "msw";
 import { server } from "@/test/msw/server";
 import { clearToken, setToken } from "@/auth/tokenStore";
 
-import { apiClient, onUnauthorized } from "./client";
+import { apiClient, onUnauthorized, triggerUnauthorized } from "./client";
 
 describe("apiClient", () => {
   beforeEach(() => {
@@ -18,11 +18,11 @@ describe("apiClient", () => {
     onUnauthorized(null);
   });
 
-  it("omits X-API-Token when no token is stored", async () => {
+  it("omits Authorization when no token is stored", async () => {
     let receivedHeader: string | null = null;
     server.use(
       http.get("/api/v1/health-check", ({ request }) => {
-        receivedHeader = request.headers.get("X-API-Token");
+        receivedHeader = request.headers.get("Authorization");
         return HttpResponse.json({ ok: true });
       }),
     );
@@ -32,19 +32,19 @@ describe("apiClient", () => {
     expect(receivedHeader).toBeNull();
   });
 
-  it("attaches X-API-Token when a token is stored", async () => {
+  it("attaches Authorization: Bearer <token> when a token is stored", async () => {
     setToken("secret-token");
     let receivedHeader: string | null = null;
     server.use(
       http.get("/api/v1/health-check", ({ request }) => {
-        receivedHeader = request.headers.get("X-API-Token");
+        receivedHeader = request.headers.get("Authorization");
         return HttpResponse.json({ ok: true });
       }),
     );
 
     await apiClient.get("/health-check");
 
-    expect(receivedHeader).toBe("secret-token");
+    expect(receivedHeader).toBe("Bearer secret-token");
   });
 
   it("invokes the unauthorized listener and rejects with status 401", async () => {
@@ -72,6 +72,25 @@ describe("apiClient", () => {
       detail: "boom",
     });
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("triggerUnauthorized", () => {
+  afterEach(() => {
+    onUnauthorized(null);
+  });
+
+  it("invokes the registered listener directly, without a request", () => {
+    const listener = vi.fn();
+    onUnauthorized(listener);
+
+    triggerUnauthorized();
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("is a no-op when no listener is registered", () => {
+    expect(() => triggerUnauthorized()).not.toThrow();
   });
 });
 
@@ -109,19 +128,19 @@ describe("apiClient.postForm", () => {
     expect(receivedValue).toBe("not-really-a-file");
   });
 
-  it("attaches X-API-Token", async () => {
+  it("attaches Authorization: Bearer <token>", async () => {
     setToken("secret-token");
     let receivedHeader: string | null = null;
     server.use(
       http.post("/api/v1/upload-check", ({ request }) => {
-        receivedHeader = request.headers.get("X-API-Token");
+        receivedHeader = request.headers.get("Authorization");
         return HttpResponse.json({ ok: true });
       }),
     );
 
     await apiClient.postForm("/upload-check", new FormData());
 
-    expect(receivedHeader).toBe("secret-token");
+    expect(receivedHeader).toBe("Bearer secret-token");
   });
 
   it("fires the unauthorized listener on 401", async () => {
