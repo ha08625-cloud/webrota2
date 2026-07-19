@@ -3,12 +3,17 @@
 Covers the four reset endpoints added to `backend/app/api/routers/counters.py`:
 single clinic/system reset (200, updates in place), reset-all clinic/system
 (204, every row including ones invisible to GET), 404 on unknown single-reset
-id, the reset-then-scrap interaction (scrap must undo a mid-draft reset by
-restoring the pre-generation snapshot), and the auth shim.
+id, and the reset-then-scrap interaction (scrap must undo a mid-draft reset by
+restoring the pre-generation snapshot).
 
 Uses the shared `client`/`db_session`/`seeded` fixtures from conftest.py.
 `seeded` gives doctors AA (Partner) and BB (Salaried), each with ROOM_MOVE
 and SUPERVISION system counters at raw_count=0.
+
+Auth coverage for this router (and every other router) now lives centrally
+in test_auth.py (auth plan, Task 4) -- the per-router TestAuth class that
+used to live here tested the M3.5 API_TOKEN shim, which get_current_user no
+longer implements, and was removed rather than rewritten.
 """
 from app.models import ClinicCounter, Doctor, SystemCounter
 from app.models.enums import DoctorType, SystemCounterType
@@ -157,10 +162,3 @@ class TestResetThenScrap:
 
         db_session.expire_all()
         assert db_session.get(SystemCounter, counter_id).raw_count == 6
-
-
-class TestAuth:
-    def test_reset_without_token_401_when_env_set(self, client, seeded, monkeypatch):
-        monkeypatch.setenv("API_TOKEN", "s3cret")
-        resp = client.post("/api/v1/counters/clinic/reset-all")
-        assert resp.status_code == 401
