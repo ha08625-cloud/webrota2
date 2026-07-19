@@ -10,6 +10,16 @@ import { makeClinicCounter, makeSystemCounter } from "@/test/fixtures/reference"
  * from needing to stub them individually.
  */
 export const handlers: HttpHandler[] = [
+  // Auth (Task 5). /auth/me 401s by default since LoginGate only calls it
+  // when a token is stored, which most tests never set - a per-test
+  // server.use() overrides this for the auth-specific test files.
+  http.get("/api/v1/auth/me", () =>
+    HttpResponse.json({ detail: "Not authenticated" }, { status: 401 }),
+  ),
+  http.post("/api/v1/auth/login", () =>
+    HttpResponse.json({ detail: "Invalid email or password" }, { status: 401 }),
+  ),
+  http.post("/api/v1/auth/logout", () => new HttpResponse(null, { status: 204 })),
   http.get("/api/v1/rooms", () => HttpResponse.json([])),
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
