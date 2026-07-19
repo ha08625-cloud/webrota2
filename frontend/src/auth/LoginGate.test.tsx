@@ -49,7 +49,7 @@ describe("LoginGate", () => {
 
     renderGate();
 
-    expect(await screen.findByText("Log in")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(screen.queryByText("protected content")).not.toBeInTheDocument();
     expect(meCalled).toBe(false);
   });
@@ -73,7 +73,7 @@ describe("LoginGate", () => {
 
     renderGate();
 
-    expect(await screen.findByText("Log in")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(getToken()).toBeNull();
   });
 
@@ -127,7 +127,7 @@ describe("LoginGate", () => {
     );
     await expect(apiClient.get("/health-check")).rejects.toMatchObject({ status: 401 });
 
-    expect(await screen.findByText("Log in")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(getToken()).toBeNull();
   });
 });
