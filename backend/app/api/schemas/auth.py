@@ -1,4 +1,4 @@
-"""Auth schemas. UserOut never includes password_hash."""
+"""Auth and user-management schemas. UserOut never includes password_hash."""
 import datetime
 
 from pydantic import BaseModel, Field
@@ -21,3 +21,16 @@ class UserOut(BaseModel):
 class LoginOut(BaseModel):
     token: str
     user: UserOut
+
+
+class UserIn(BaseModel):
+    email: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=72)
+
+
+class UserPatch(BaseModel):
+    email: str | None = Field(default=None, min_length=1)
+    name: str | None = Field(default=None, min_length=1)
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=72)
