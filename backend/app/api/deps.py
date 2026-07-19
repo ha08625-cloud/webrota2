@@ -13,6 +13,15 @@ There is no fail-open mode any more: the API_TOKEN env var and all
 X-API-Token handling have been removed entirely. Every router endpoint
 requires a valid session. /health, /docs, and /openapi.json live outside
 the routers (registered directly on the app in main.py) and stay open.
+
+expires_at is normalized to aware UTC before comparison (auth plan, Task 4
+bugfix). SQLite's DateTime(timezone=True) does not round-trip tzinfo: a
+row written with an aware UTC datetime comes back naive after a fetch,
+while Postgres (psycopg2) preserves tz-awareness on TIMESTAMPTZ. Comparing
+a naive value against the aware `now` built below raises TypeError rather
+than a clean 401. Every value ever written to expires_at is UTC (see
+routers/auth.py), so treating a naive read as UTC is correct on both
+backends, not just a SQLite workaround.
 """
 import datetime
 import hashlib
@@ -57,7 +66,10 @@ def get_current_user(
         raise HTTPException(status_code=401, detail=_UNAUTHORIZED_DETAIL)
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    if session_row.expires_at < now:
+    expires_at = session_row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
+    if expires_at < now:
         raise HTTPException(status_code=401, detail=_UNAUTHORIZED_DETAIL)
 
     user = db.get(User, session_row.user_id)
