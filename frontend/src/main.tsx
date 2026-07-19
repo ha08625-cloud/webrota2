@@ -4,7 +4,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  
 import { App } from "./App";
-import { TokenGate } from "./auth/TokenGate";
+import { LoginGate } from "./auth/LoginGate";
 import "./index.css";
  
 const queryClient = new QueryClient({
@@ -12,7 +12,7 @@ const queryClient = new QueryClient({
     queries: {
       // Default TanStack Query behaviour retries every failure 3 times,
       // including 401s - which will never succeed and just delays the
-      // token gate appearing by several seconds. Skip retries for any 4xx
+      // login form appearing by several seconds. Skip retries for any 4xx
       // (client error, not transient); keep a couple of retries for
       // 5xx/network failures, which might be.
       retry: (failureCount, error) => {
@@ -29,9 +29,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <TokenGate>
+      <LoginGate>
         <App />
-      </TokenGate>
+      </LoginGate>
     </QueryClientProvider>
   </React.StrictMode>,
 );
