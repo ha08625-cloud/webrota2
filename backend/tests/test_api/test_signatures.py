@@ -2,6 +2,11 @@
 
 Upload responses use a uniform 200 for both create and replace -- see
 schemas/signature.py.
+
+Auth coverage for this router (and every other router) now lives centrally
+in test_auth.py (auth plan, Task 4) -- the per-router TestAuth class that
+used to live here tested the M3.5 API_TOKEN shim, which get_current_user no
+longer implements, and was removed rather than rewritten.
 """
 import base64
 import io
@@ -220,11 +225,3 @@ class TestApply:
             files={"file": ("letter.docx", big, "application/octet-stream")},
         )
         assert resp.status_code == 413
-
-
-class TestAuth:
-    def test_401_without_token_when_env_set(self, client, db_session, monkeypatch):
-        doctor_id = _make_doctor(db_session)
-        monkeypatch.setenv("API_TOKEN", "s3cret")
-        resp = client.get("/api/v1/signatures")
-        assert resp.status_code == 401
