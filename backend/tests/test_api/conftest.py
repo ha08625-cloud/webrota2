@@ -2,7 +2,19 @@
 
 `client` overrides the app's get_db dependency so every request runs against
 the test engine (same StaticPool + FK-PRAGMA pattern as the project-level
-conftest). `db_session` hands tests a session on the same engine for direct
+conftest), AND overrides get_current_user with a stub `_test_user` (auth
+plan, Task 4) so every other test file keeps working unchanged now that
+get_current_user 401s for real. The stub is a lightweight object, not a DB
+row: overridden dependencies bypass get_current_user's body entirely, so
+nothing ever looks the stub up by id, and no router in this codebase reads
+anything off `user` beyond what routers/counters.py's `user: dict` hint
+suggests -- if a future router needs a real FK to users, switch that test
+to a real row instead of widening the stub.
+
+`client_no_auth` is identical but WITHOUT the get_current_user override --
+it exercises the real auth path and is what test_auth.py uses.
+
+`db_session` hands tests a session on the same engine for direct
 assertions against rows the API doesn't expose (e.g. snapshot tables).
 `seeded` layers base reference data on top: rooms, two doctors with system
 counters, and an active master template covering Monday AM/PM.
@@ -17,7 +29,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 import app.models  # noqa: F401  (registers all models on Base.metadata)
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.api.main import app
 from app.models import (
     Doctor,
@@ -38,6 +50,22 @@ from app.models.enums import (
 )
 
 MONDAY = datetime.date(2026, 1, 5)
+
+
+class _StubUser:
+    """Minimal stand-in for a User ORM row (auth plan, Task 4). Not
+    persisted -- routers under test never look it up by id, they just read
+    attributes off whatever get_current_user returns."""
+
+    def __init__(self):
+        self.id = 1
+        self.email = "test@example.com"
+        self.name = "Test User"
+        self.active = True
+        self.created_at = datetime.datetime.now(datetime.timezone.utc)
+
+
+_test_user = _StubUser()
 
 
 @pytest.fixture
@@ -77,6 +105,28 @@ def db_session(session_factory):
 
 @pytest.fixture
 def client(session_factory):
+    def _override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = lambda: _test_user
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture
+def client_no_auth(session_factory):
+    """Same DB override as `client`, but WITHOUT the get_current_user
+    override -- exercises the real auth path (auth plan, Task 4)."""
+
     def _override_get_db():
         db = session_factory()
         try:
