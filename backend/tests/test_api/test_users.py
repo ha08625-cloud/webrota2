@@ -2,15 +2,27 @@
 
 CRUD happy paths use `client` (the overridden-auth fixture every other test
 file relies on) since the users router itself doesn't care who is calling --
-there is no admin tier. `client_no_auth` is used only where a real login
-session actually needs to exist and be checked (the password-reset
-session-invalidation test).
+there is no admin tier.
+
+`client` and `client_no_auth` are never combined in the same test.
+app.dependency_overrides is a single dict on the shared `app` object,
+checked at request time -- not captured per-fixture-instance -- so
+whichever fixture's setup ran last decides the override in effect for
+EVERY request made through EITHER TestClient for the rest of that test,
+including calls through the other one. There is no ordering of the two
+fixtures that fixes this; they are mutually exclusive within one test.
+test_password_reset_rehashes_and_invalidates_sessions needs a real login
+session to invalidate, so it uses client_no_auth exclusively: it seeds the
+first user directly via db_session (there is no bootstrap endpoint by
+design -- POST /users itself requires auth) and does everything else,
+including creating the target user, through real Bearer tokens obtained
+from real /auth/login calls.
 """
 import datetime
 
 from sqlalchemy import func, select
 
-from app.api.auth_utils import hash_token, new_session_token
+from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import User, UserSession
 
 USERS = "/api/v1/users"
@@ -26,6 +38,24 @@ def _create_user(client, email="a@example.com", name="A User", password="passwor
     resp = client.post(USERS, json={"email": email, "name": name, "password": password})
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+def _seed_user_directly(db_session, email, password, active=True):
+    """Insert a user row without going through the API -- used only to
+    bootstrap the first real login session a test needs, since POST
+    /users itself requires an existing authenticated user (by design,
+    auth plan Design Decision 8)."""
+    user = User(
+        email=email,
+        name="Seeded User",
+        password_hash=hash_password(password),
+        active=active,
+        created_at=datetime.datetime.now(datetime.timezone.utc),
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
 
 
 class TestCrudHappyPaths:
@@ -83,23 +113,42 @@ class TestCrudHappyPaths:
 
 class TestPasswordReset:
     def test_password_reset_rehashes_and_invalidates_sessions(
-        self, client, client_no_auth, db_session
+        self, client_no_auth, db_session
     ):
-        # Create the user and log them in for real, via the no-auth client,
-        # so there is an actual session row to invalidate.
-        created = _create_user(client, email="reset@example.com", password="old-password")
-        login = client_no_auth.post(
+        # Bootstrap: seed an "admin" user directly and log them in for a
+        # real token, since POST /users requires auth and client is off
+        # limits here (see module docstring).
+        _seed_user_directly(db_session, "admin@example.com", "admin-password")
+        admin_login = client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "admin@example.com", "password": "admin-password"},
+        )
+        assert admin_login.status_code == 200, admin_login.text
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['token']}"}
+
+        # Create the target user through the real API, as the admin.
+        create_resp = client_no_auth.post(
+            USERS,
+            headers=admin_headers,
+            json={"email": "reset@example.com", "name": "Reset Target", "password": "old-password"},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        target_id = create_resp.json()["id"]
+
+        # Log the target in for real, so there is an actual session row
+        # to invalidate.
+        target_login = client_no_auth.post(
             "/api/v1/auth/login",
             json={"email": "reset@example.com", "password": "old-password"},
         )
-        assert login.status_code == 200, login.text
-        old_token = login.json()["token"]
+        assert target_login.status_code == 200, target_login.text
+        old_token = target_login.json()["token"]
         assert client_no_auth.get(
             "/api/v1/rooms", headers={"Authorization": f"Bearer {old_token}"}
         ).status_code == 200
 
-        resp = client.patch(
-            f"{USERS}/{created['id']}", json={"password": "new-password"}
+        resp = client_no_auth.patch(
+            f"{USERS}/{target_id}", headers=admin_headers, json={"password": "new-password"}
         )
         assert resp.status_code == 200, resp.text
         assert "password_hash" not in resp.json()
