@@ -17,14 +17,24 @@ let unauthorizedListener: UnauthorizedListener | null = null;
 
 /**
  * Registers the single listener invoked whenever any request comes back
- * 401. Intended for TokenGate to hook into; pass null to unregister.
+ * 401. Intended for LoginGate to hook into; pass null to unregister.
  */
 export function onUnauthorized(listener: UnauthorizedListener | null): void {
   unauthorizedListener = listener;
 }
 
 /**
- * Shared plumbing for every request shape below: attaches the token
+ * Fires the same listener a real 401 would, without a request having
+ * failed. Used by the logout flow (App.tsx) to drop back to the login
+ * form immediately after clearing the token - logout is a 204, not a
+ * 401, so it can't rely on the normal rawFetch path below to trigger it.
+ */
+export function triggerUnauthorized(): void {
+  unauthorizedListener?.();
+}
+
+/**
+ * Shared plumbing for every request shape below: attaches the auth
  * header, fires the 401 listener, and returns the raw Response - callers
  * decide how to turn that into JSON, a Blob, or nothing at all.
  *
@@ -43,7 +53,7 @@ async function rawFetch(path: string, init: RequestInit): Promise<Response> {
   const token = getToken();
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   if (token) {
-    headers["X-API-Token"] = token;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
