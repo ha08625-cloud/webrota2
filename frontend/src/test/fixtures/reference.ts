@@ -1,4 +1,5 @@
 import type {
+  AuthUser,
   ClinicCounter,
   ClinicType,
   Closure,
@@ -119,6 +120,19 @@ export function makeSystemCounter(overrides: Partial<SystemCounter> = {}): Syste
     doctor_code: "AB",
     counter_type: "room_move",
     raw_count: 2,
+    ...overrides,
+  };
+}
+
+let authUserIdCounter = 1;
+
+export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
+  return {
+    id: authUserIdCounter++,
+    email: "ann@example.com",
+    name: "Ann",
+    active: true,
+    created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
 }
