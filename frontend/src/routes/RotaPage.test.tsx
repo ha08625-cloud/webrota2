@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { HttpResponse, http } from "msw";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useParams } from "react-router-dom";
 
 import type { DutyAssignment } from "@/api/types";
 import { makeClinicType, makeClosure, makeDutyAssignment } from "@/test/fixtures/reference";
