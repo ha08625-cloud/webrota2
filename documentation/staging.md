@@ -56,32 +56,6 @@ Insert an editable step between "pick a date range" and "run the generation phas
 
 ---
 
-# Task 1: Data model and migration
-
-**A.** State of the world: nothing for this feature exists yet. This task creates the two staging tables. The latest migration is `backend/alembic/versions/010_users_sessions.py`.
-
-**B.** Files:
-
-- New: `backend/app/models/staging.py`
-- Edit: `backend/app/models/__init__.py` (export `RotaStaging`, `RotaStagingSession`)
-- New: `backend/alembic/versions/011_rota_staging.py`
-- Edit: `backend/tests/test_models.py` (model-level tests)
-- Reference (read, do not edit): `backend/app/models/master_rota.py` (the shape being mirrored), `backend/app/models/rota.py` (`RotaConfig`), `backend/app/models/enums.py` (`enum_col`, `_snake`), `backend/alembic/versions/002_rota_session_template_type.py` (the enum-reuse pattern), `backend/alembic/versions/010_users_sessions.py` (current head)
-
-Deliverables: both models, the migration, passing model tests.
-
-**C.** Instructions:
-
-`RotaStaging` (`rota_stagings`): `id` PK; `config_id` FK `rota_configs.id`, non-null, unique (one staging per config); `source_template_id` FK `master_rota_templates.id`, non-null; `created_at` timezone-aware datetime, non-null, default now-UTC (copy `RotaConfig.created_at`'s lambda pattern); `completed_at` timezone-aware datetime, nullable, no default. Relationship `sessions` to `RotaStagingSession` with `cascade="all, delete-orphan"` and `back_populates`, matching `MasterRotaTemplate.sessions`. No relationship from `RotaConfig` to `RotaStaging` is needed.
-
-`RotaStagingSession` (`rota_staging_sessions`): `id` PK; `staging_id` FK `rota_stagings.id`, non-null; `doctor_id` FK `doctors.id`, non-null; `week` Integer, non-null, `CheckConstraint("week BETWEEN 1 AND 4", name="ck_rss_week")`; `day` / `period` / `session_type` enum columns via `enum_col(Day)` / `enum_col(Period)` / `enum_col(MasterSessionType)`; `room_id` FK `rooms.id`, nullable; `UniqueConstraint("staging_id", "doctor_id", "week", "day", "period", name="uq_rss_slot")`. Mirror `MasterRotaSession`'s relationships (`staging` back-populating, plus plain `doctor` and `room`).
-
-Migration 011: revision `"011"`, down_revision `"010"`. Two `op.create_table` calls, `rota_stagings` first. The three enum columns must reuse the existing Postgres types (`day`, `period`, `master_session_type`) -- copy migration 002's helper pattern exactly: on Postgres, `postgresql.ENUM(PyEnum, name=_snake(PyEnum.__name__), create_type=False, values_callable=...)`; on SQLite, plain `sa.Enum`. `downgrade()` drops `rota_staging_sessions` then `rota_stagings` and must NOT drop any enum type (other tables depend on all three -- same warning as 002's docstring). Docstring should note: additive only, no backfill, tables start empty.
-
-Tests in `backend/tests/test_models.py`, following its existing style: create a staging with sessions and assert round-trip; assert `uq_rss_slot` rejects a duplicate slot; assert deleting the staging cascades its sessions; assert `config_id` uniqueness rejects a second staging on the same config. Note the conftest enables SQLite FK enforcement, so FK assertions are real.
-
----
-
 # Task 2: Engine changes
 
 **A.** State of the world: Task 1 is complete -- `RotaStaging` / `RotaStagingSession` exist and are exported from `backend/app/models/__init__.py`. This task makes the engine read a staging copy when one exists and centralises the lock helpers. No phase files change.
@@ -251,3 +225,29 @@ Tests: `StagingGrid` -- renders sessions, closed-day header greyed, leave badge 
 # Documentation follow-up (after implementation)
 
 Architecture.md: new "Staging" subsection under the rota lifecycle (the two tables, the `completed_at` lifecycle, the `template_start_week=1` invariant and why, the lock triangle between staging/draft/generate, the context branch); table count 21 -> 23; migration list gains 011; outstanding-tasks note that staging has no undo. Phase-pipeline.md is unaffected (no phase changes).
+
+# Task 1: Data model and migration
+
+**A.** State of the world: nothing for this feature exists yet. This task creates the two staging tables. The latest migration is `backend/alembic/versions/010_users_sessions.py`.
+
+**B.** Files:
+
+- New: `backend/app/models/staging.py`
+- Edit: `backend/app/models/__init__.py` (export `RotaStaging`, `RotaStagingSession`)
+- New: `backend/alembic/versions/011_rota_staging.py`
+- Edit: `backend/tests/test_models.py` (model-level tests)
+- Reference (read, do not edit): `backend/app/models/master_rota.py` (the shape being mirrored), `backend/app/models/rota.py` (`RotaConfig`), `backend/app/models/enums.py` (`enum_col`, `_snake`), `backend/alembic/versions/002_rota_session_template_type.py` (the enum-reuse pattern), `backend/alembic/versions/010_users_sessions.py` (current head)
+
+Deliverables: both models, the migration, passing model tests.
+
+**C.** Instructions:
+
+`RotaStaging` (`rota_stagings`): `id` PK; `config_id` FK `rota_configs.id`, non-null, unique (one staging per config); `source_template_id` FK `master_rota_templates.id`, non-null; `created_at` timezone-aware datetime, non-null, default now-UTC (copy `RotaConfig.created_at`'s lambda pattern); `completed_at` timezone-aware datetime, nullable, no default. Relationship `sessions` to `RotaStagingSession` with `cascade="all, delete-orphan"` and `back_populates`, matching `MasterRotaTemplate.sessions`. No relationship from `RotaConfig` to `RotaStaging` is needed.
+
+`RotaStagingSession` (`rota_staging_sessions`): `id` PK; `staging_id` FK `rota_stagings.id`, non-null; `doctor_id` FK `doctors.id`, non-null; `week` Integer, non-null, `CheckConstraint("week BETWEEN 1 AND 4", name="ck_rss_week")`; `day` / `period` / `session_type` enum columns via `enum_col(Day)` / `enum_col(Period)` / `enum_col(MasterSessionType)`; `room_id` FK `rooms.id`, nullable; `UniqueConstraint("staging_id", "doctor_id", "week", "day", "period", name="uq_rss_slot")`. Mirror `MasterRotaSession`'s relationships (`staging` back-populating, plus plain `doctor` and `room`).
+
+Migration 011: revision `"011"`, down_revision `"010"`. Two `op.create_table` calls, `rota_stagings` first. The three enum columns must reuse the existing Postgres types (`day`, `period`, `master_session_type`) -- copy migration 002's helper pattern exactly: on Postgres, `postgresql.ENUM(PyEnum, name=_snake(PyEnum.__name__), create_type=False, values_callable=...)`; on SQLite, plain `sa.Enum`. `downgrade()` drops `rota_staging_sessions` then `rota_stagings` and must NOT drop any enum type (other tables depend on all three -- same warning as 002's docstring). Docstring should note: additive only, no backfill, tables start empty.
+
+Tests in `backend/tests/test_models.py`, following its existing style: create a staging with sessions and assert round-trip; assert `uq_rss_slot` rejects a duplicate slot; assert deleting the staging cascades its sessions; assert `config_id` uniqueness rejects a second staging on the same config. Note the conftest enables SQLite FK enforcement, so FK assertions are real.
+
+---

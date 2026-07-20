@@ -1,6 +1,7 @@
 import datetime
 
 from app.engine.context import load_context
+from app.models import RotaConfig
 from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType
 
 from .factories import (
@@ -10,6 +11,8 @@ from .factories import (
     make_leave,
     make_master_session,
     make_room,
+    make_staging,
+    make_staging_session,
     make_template,
 )
 
@@ -170,3 +173,103 @@ class TestActiveTemplate:
 
         assert ctx.active_template is None
         assert ctx.template_sessions == {}
+
+
+class TestStaging:
+    """Staging plan, Task 2: load_context() prefers a staging copy over the
+    live template when one exists for the config being generated.
+    """
+
+    def test_staging_sessions_used_instead_of_template(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        template_room = make_room(session, code="D1")
+        staging_room = make_room(session, code="D2")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=template_room,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+        staging = make_staging(session, config, t)
+        make_staging_session(
+            session, staging, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM, room=staging_room,
+        )
+
+        ctx = load_context(session, config)
+
+        key = (d.id, 1, Day.MONDAY, Period.AM)
+        assert ctx.template_sessions[key] == (MasterSessionType.REQUIRES_ROOM, staging_room.id)
+        assert ctx.active_template is t
+
+    def test_staging_resolves_source_template_even_if_deactivated(self, session, monday):
+        """source_template_id is loaded by id, not via the is_active query,
+        so deactivating the template between staging create and generate
+        cannot brick an in-progress staging (Design Decision 5).
+        """
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+        staging = make_staging(session, config, t)
+        make_staging_session(
+            session, staging, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+
+        t.is_active = False
+        session.flush()
+
+        ctx = load_context(session, config)
+
+        assert ctx.active_template is t
+        key = (d.id, 1, Day.MONDAY, Period.AM)
+        assert ctx.template_sessions[key] == (MasterSessionType.NO_SURGERY, None)
+
+    def test_no_staging_falls_back_to_template_unchanged(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        ctx = load_context(session, config)
+
+        assert ctx.active_template is t
+        key = (d.id, 1, Day.MONDAY, Period.AM)
+        assert ctx.template_sessions[key] == (MasterSessionType.NO_SURGERY, None)
+
+    def test_completed_staging_still_used(self, session, monday):
+        """The branch does not check completed_at (Design Decision 6): a
+        rebuild_rota_grid() call against a staging-born rota after the
+        staging is completed must still read the staged sessions.
+        """
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+        staging = make_staging(
+            session, config, t,
+            completed_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        make_staging_session(
+            session, staging, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+
+        ctx = load_context(session, config)
+
+        key = (d.id, 1, Day.MONDAY, Period.AM)
+        assert ctx.template_sessions[key] == (MasterSessionType.REQUIRES_ROOM, None)

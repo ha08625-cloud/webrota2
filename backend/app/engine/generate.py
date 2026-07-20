@@ -29,6 +29,7 @@ from ..models import (
     RotaConfig,
     RotaGenerationLogEntry,
     RotaSession,
+    RotaStaging,
     RotaSystemCounterSnapshot,
     SystemCounter,
 )
@@ -210,6 +211,45 @@ def get_active_draft(db: Session) -> GeneratedRota | None:
     return db.execute(
         select(GeneratedRota).where(GeneratedRota.status == RotaStatus.DRAFT)
     ).scalars().first()
+
+
+def get_active_staging(db: Session) -> RotaStaging | None:
+    """The single active staging, or None. At most one active staging
+    exists globally (staging plan, Design Decision 7); ordered by id for
+    deterministic behaviour, matching get_active_draft()'s style.
+    """
+    return db.execute(
+        select(RotaStaging).where(RotaStaging.completed_at.is_(None))
+        .order_by(RotaStaging.id)
+    ).scalars().first()
+
+
+def find_overlapping_committed_rota(
+    db: Session, start_date: datetime.date, num_weeks: int
+) -> tuple[GeneratedRota, RotaConfig] | None:
+    """A committed rota whose date range intersects the requested range.
+
+    Only COMMITTED rotas are checked: the at-most-one-draft rule already
+    blocks generation while a draft exists (any week), and a scrapped rota
+    is deleted outright, leaving no row to check against. Returns the first
+    overlap found, ordered by start_date for a deterministic error message.
+
+    Moved here from `routers/rota.py` (staging plan, Task 2) so the staging
+    router can reuse it at both create and complete time without importing
+    from the API layer.
+    """
+    new_end = start_date + datetime.timedelta(days=num_weeks * 7)
+    rows = db.execute(
+        select(GeneratedRota, RotaConfig)
+        .join(RotaConfig, GeneratedRota.config_id == RotaConfig.id)
+        .where(GeneratedRota.status == RotaStatus.COMMITTED)
+        .order_by(RotaConfig.start_date)
+    ).all()
+    for rota, config in rows:
+        existing_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+        if config.start_date < new_end and start_date < existing_end:
+            return rota, config
+    return None
 
 
 def commit_rota(db: Session, rota_id: int) -> GeneratedRota:

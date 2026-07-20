@@ -24,6 +24,8 @@ from ..models import (
     PracticeClosure,
     Room,
     RotaConfig,
+    RotaStaging,
+    RotaStagingSession,
 )
 from ..models.enums import Period, RoomType
 from .datatypes import (
@@ -93,7 +95,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
     date_to_genslot = build_date_to_genslot(week_dates)
     first_open_weekday_by_week = build_first_open_weekday(week_dates, closed_dates)
 
-    active_template, template_sessions = _load_active_template(db)
+    active_template, template_sessions = _load_staging_or_template(db, config)
 
     return GenerationContext(
         doctors=doctors,
@@ -197,6 +199,42 @@ def _load_active_template(
     template = active[0]
     session_rows = db.execute(
         select(MasterRotaSession).where(MasterRotaSession.template_id == template.id)
+    ).scalars().all()
+    template_sessions = {
+        (s.doctor_id, s.week, s.day, s.period): (s.session_type, s.room_id)
+        for s in session_rows
+    }
+    return template, template_sessions
+
+
+def _load_staging_or_template(
+    db: Session, config: RotaConfig
+) -> tuple[MasterRotaTemplate | None, dict]:
+    """Prefer a staging copy over the live template, if one exists for this
+    config (staging plan, Task 2).
+
+    Staging rows are keyed by *generation* week, not template week, and a
+    staging config always persists `template_start_week = 1` (enforced by
+    the staging router, Task 3) -- so `template_week()` is the identity for
+    a staging run and Phases 0/2's week mapping is a no-op. This is the
+    invariant that lets the phases run unchanged against a staged copy.
+
+    Does not check `completed_at`: this branch also fires for
+    `rebuild_rota_grid()` calls made against a staging-born rota after the
+    staging is completed, where the staged sessions remain the correct
+    `template_sessions` source (Design Decision 6 in the plan).
+    """
+    staging = db.execute(
+        select(RotaStaging).where(RotaStaging.config_id == config.id)
+    ).scalars().first()
+
+    if staging is None:
+        return _load_active_template(db)
+
+    template = db.get(MasterRotaTemplate, staging.source_template_id)
+
+    session_rows = db.execute(
+        select(RotaStagingSession).where(RotaStagingSession.staging_id == staging.id)
     ).scalars().all()
     template_sessions = {
         (s.doctor_id, s.week, s.day, s.period): (s.session_type, s.room_id)

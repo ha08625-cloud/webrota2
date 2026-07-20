@@ -33,6 +33,8 @@ from .factories import (
     make_master_session,
     make_preferred_room,
     make_room,
+    make_staging,
+    make_staging_session,
     make_system_counter,
     make_template,
 )
@@ -571,3 +573,50 @@ class TestGenerationLogPersistence:
         # this is real per-phase output, not an artifact of the write path.
         assert any(r.phase == "phase4" and r.action == "assign_duty" for r in rows)
         assert any(r.phase == "phase5" and r.action == "assign_clinic" for r in rows)
+
+
+class TestGenerateFromStaging:
+    """Staging plan, Task 2: a full generate() run over a staging config
+    reads the staged rows, not the template's, proving the pipeline
+    consumes the copy end to end. `template_start_week` is left at the
+    config default of 1 -- staging rows are keyed by generation week and
+    template_week() is the identity there (Design Decision 4).
+    """
+
+    def test_full_pipeline_reflects_staged_pattern_not_template(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        template_room = make_room(session, code="D1", room_type=RoomType.D)
+        staging_room = make_room(session, code="D2", room_type=RoomType.D)
+
+        # Template says NO_SURGERY -- the staged copy overrides it to a
+        # PRE_ASSIGNED session in a different room.
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.NO_SURGERY,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        staging = make_staging(session, config, t)
+        make_staging_session(
+            session, staging, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=staging_room,
+        )
+
+        result = generate(session, config.id)
+
+        assert result.status in ("success", "partial")
+        assert result.rota_id is not None
+
+        rota_sessions = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+        assert len(rota_sessions) == 1
+
+        row = rota_sessions[0]
+        assert row.template_type == MasterSessionType.PRE_ASSIGNED
+        assert row.room_id == staging_room.id
+        assert row.room_id != template_room.id

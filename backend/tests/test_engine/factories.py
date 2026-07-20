@@ -24,6 +24,8 @@ from app.models import (
     MasterRotaTemplate,
     PracticeClosure,
     Room,
+    RotaStaging,
+    RotaStagingSession,
     SystemCounter,
 )
 from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, Site
@@ -159,3 +161,25 @@ def make_closure(session, date_: datetime.date, name=None) -> PracticeClosure:
     session.add(c)
     session.flush()
     return c
+
+
+def make_staging(session, config, template, completed_at=None) -> RotaStaging:
+    s = RotaStaging(
+        config_id=config.id, source_template_id=template.id, completed_at=completed_at,
+    )
+    session.add(s)
+    session.flush()
+    return s
+
+
+def make_staging_session(
+    session, staging, doctor, week, day, period,
+    session_type=MasterSessionType.NO_SURGERY, room=None,
+) -> RotaStagingSession:
+    s = RotaStagingSession(
+        staging_id=staging.id, doctor_id=doctor.id, week=week, day=day, period=period,
+        session_type=session_type, room_id=(room.id if room is not None else None),
+    )
+    session.add(s)
+    session.flush()
+    return s

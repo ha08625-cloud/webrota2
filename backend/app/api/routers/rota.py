@@ -60,6 +60,7 @@ from ...models import (
 from ...models.enums import MasterSessionType, RotaStatus, SessionRole
 from ...engine.generate import (
     commit_rota,
+    find_overlapping_committed_rota,
     force_delete_rota,
     generate,
     get_active_draft,
@@ -115,30 +116,6 @@ def _require_committed(rota: GeneratedRota) -> None:
             status_code=409,
             detail=f"Rota {rota.id} is a draft; this operation is committed-only",
         )
-
-
-def _find_overlapping_committed_rota(
-    db: Session, start_date: datetime.date, num_weeks: int
-) -> tuple[GeneratedRota, RotaConfig] | None:
-    """A committed rota whose date range intersects the requested range.
-
-    Only COMMITTED rotas are checked: the at-most-one-draft rule already
-    blocks generation while a draft exists (any week), and a scrapped rota
-    is deleted outright, leaving no row to check against. Returns the first
-    overlap found, ordered by start_date for a deterministic error message.
-    """
-    new_end = start_date + datetime.timedelta(days=num_weeks * 7)
-    rows = db.execute(
-        select(GeneratedRota, RotaConfig)
-        .join(RotaConfig, GeneratedRota.config_id == RotaConfig.id)
-        .where(GeneratedRota.status == RotaStatus.COMMITTED)
-        .order_by(RotaConfig.start_date)
-    ).all()
-    for rota, config in rows:
-        existing_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
-        if config.start_date < new_end and start_date < existing_end:
-            return rota, config
-    return None
 
 
 def _leave_lookup(
@@ -320,7 +297,7 @@ def generate_rota(
             detail="A draft rota already exists; commit or scrap it first",
         )
 
-    overlap = _find_overlapping_committed_rota(
+    overlap = find_overlapping_committed_rota(
         db, payload.start_date, payload.num_weeks
     )
     if overlap is not None:
