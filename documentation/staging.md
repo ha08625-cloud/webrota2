@@ -56,40 +56,6 @@ Insert an editable step between "pick a date range" and "run the generation phas
 
 ---
 
-# Task 2: Engine changes
-
-**A.** State of the world: Task 1 is complete -- `RotaStaging` / `RotaStagingSession` exist and are exported from `backend/app/models/__init__.py`. This task makes the engine read a staging copy when one exists and centralises the lock helpers. No phase files change.
-
-**B.** Files:
-
-- Edit: `backend/app/engine/context.py`
-- Edit: `backend/app/engine/generate.py` (new `get_active_staging`; receive `find_overlapping_committed_rota`)
-- Edit: `backend/app/api/routers/rota.py` (delete its private `_find_overlapping_committed_rota`, import the engine version; no behaviour change in this task)
-- Edit: `backend/tests/test_context.py`
-- Edit: `backend/tests/test_engine/test_generate.py`
-- Reference: `backend/app/engine/week_map.py` (`template_week`), `backend/app/engine/phases/phase0.py` and `phase2.py` (the lookups being satisfied), `backend/tests/test_engine/factories.py`, `backend/tests/test_engine/conftest.py`
-
-Deliverables: staging-aware `load_context()`, the two helpers in `generate.py`, router import swap, passing tests.
-
-**C.** Instructions:
-
-In `context.py`, replace the `active_template, template_sessions = _load_active_template(db)` line in `load_context()` with a call to a new `_load_staging_or_template(db, config)`:
-
-- Query `RotaStaging` where `config_id == config.id` (`.scalars().first()`; uniqueness makes at most one).
-- If found: `template = db.get(MasterRotaTemplate, staging.source_template_id)` (may be None if the template row was removed by direct DB surgery -- return it as-is and let Phase 0's existing `active_template is None` error fire). Build `template_sessions` from the staging's session rows keyed `(doctor_id, week, day, period) -> (session_type, room_id)` -- identical dict shape to the template path. Do not check `completed_at` (Design Decision 6).
-- If not found: fall through to the existing `_load_active_template(db)` unchanged.
-
-Add a docstring note on the new helper: staging rows are keyed by generation week and staging configs always persist `template_start_week = 1` (enforced by the staging router, Task 3), so `template_week()` is the identity and the phases' week mapping is a no-op -- this invariant is what lets the phases run unchanged.
-
-In `generate.py`, next to `get_active_draft`:
-
-- `get_active_staging(db) -> RotaStaging | None`: `select(RotaStaging).where(RotaStaging.completed_at.is_(None))`, ordered by id, `.first()` (defensive determinism, matching `get_active_draft`'s style).
-- Move `_find_overlapping_committed_rota` from `routers/rota.py` verbatim, renamed `find_overlapping_committed_rota` (public), docstring intact. Update `routers/rota.py` to import and call it; delete the private copy.
-
-Tests. In `test_context.py`: with a staging present for the config, `load_context()` returns the staged sessions (not the template's) and `active_template` resolves via `source_template_id` even when the source template's `is_active` is False; without a staging, behaviour is unchanged. In `test_engine/test_generate.py`: a full `generate()` run over a staging config (config with `template_start_week=1`, staging rows differing from the template) produces `RotaSession` rows reflecting the staged pattern, proving the pipeline consumes the copy end to end.
-
----
-
 # Task 3: Staging router -- create, read, edit, abandon
 
 **A.** State of the world: Tasks 1-2 are complete -- models exist, `load_context()` is staging-aware, and `get_active_draft` / `get_active_staging` / `find_overlapping_committed_rota` are all importable from `backend.app.engine.generate`. This task adds the staging CRUD surface. The `complete` endpoint is Task 4.
@@ -251,3 +217,35 @@ Migration 011: revision `"011"`, down_revision `"010"`. Two `op.create_table` ca
 Tests in `backend/tests/test_models.py`, following its existing style: create a staging with sessions and assert round-trip; assert `uq_rss_slot` rejects a duplicate slot; assert deleting the staging cascades its sessions; assert `config_id` uniqueness rejects a second staging on the same config. Note the conftest enables SQLite FK enforcement, so FK assertions are real.
 
 ---
+
+# Task 2: Engine changes
+
+**A.** State of the world: Task 1 is complete -- `RotaStaging` / `RotaStagingSession` exist and are exported from `backend/app/models/__init__.py`. This task makes the engine read a staging copy when one exists and centralises the lock helpers. No phase files change.
+
+**B.** Files:
+
+- Edit: `backend/app/engine/context.py`
+- Edit: `backend/app/engine/generate.py` (new `get_active_staging`; receive `find_overlapping_committed_rota`)
+- Edit: `backend/app/api/routers/rota.py` (delete its private `_find_overlapping_committed_rota`, import the engine version; no behaviour change in this task)
+- Edit: `backend/tests/test_context.py`
+- Edit: `backend/tests/test_engine/test_generate.py`
+- Reference: `backend/app/engine/week_map.py` (`template_week`), `backend/app/engine/phases/phase0.py` and `phase2.py` (the lookups being satisfied), `backend/tests/test_engine/factories.py`, `backend/tests/test_engine/conftest.py`
+
+Deliverables: staging-aware `load_context()`, the two helpers in `generate.py`, router import swap, passing tests.
+
+**C.** Instructions:
+
+In `context.py`, replace the `active_template, template_sessions = _load_active_template(db)` line in `load_context()` with a call to a new `_load_staging_or_template(db, config)`:
+
+- Query `RotaStaging` where `config_id == config.id` (`.scalars().first()`; uniqueness makes at most one).
+- If found: `template = db.get(MasterRotaTemplate, staging.source_template_id)` (may be None if the template row was removed by direct DB surgery -- return it as-is and let Phase 0's existing `active_template is None` error fire). Build `template_sessions` from the staging's session rows keyed `(doctor_id, week, day, period) -> (session_type, room_id)` -- identical dict shape to the template path. Do not check `completed_at` (Design Decision 6).
+- If not found: fall through to the existing `_load_active_template(db)` unchanged.
+
+Add a docstring note on the new helper: staging rows are keyed by generation week and staging configs always persist `template_start_week = 1` (enforced by the staging router, Task 3), so `template_week()` is the identity and the phases' week mapping is a no-op -- this invariant is what lets the phases run unchanged.
+
+In `generate.py`, next to `get_active_draft`:
+
+- `get_active_staging(db) -> RotaStaging | None`: `select(RotaStaging).where(RotaStaging.completed_at.is_(None))`, ordered by id, `.first()` (defensive determinism, matching `get_active_draft`'s style).
+- Move `_find_overlapping_committed_rota` from `routers/rota.py` verbatim, renamed `find_overlapping_committed_rota` (public), docstring intact. Update `routers/rota.py` to import and call it; delete the private copy.
+
+Tests. In `test_context.py`: with a staging present for the config, `load_context()` returns the staged sessions (not the template's) and `active_template` resolves via `source_template_id` even when the source template's `is_active` is False; without a staging, behaviour is unchanged. In `test_engine/test_generate.py`: a full `generate()` run over a staging config (config with `template_start_week=1`, staging rows differing from the template) produces `RotaSession` rows reflecting the staged pattern, proving the pipeline consumes the copy end to end.

@@ -56,6 +56,14 @@ from .master_rota import (
     MasterSessionPatchIn,
     MasterSessionWriteOut,
 )
+from .staging import (
+    StagingCreateIn,
+    StagingOut,
+    StagingSessionCreateIn,
+    StagingSessionOut,
+    StagingSessionPatchIn,
+    StagingSessionWriteOut,
+)
 from .signature import SignatureMetaOut
 from .auth import LoginIn, LoginOut, UserIn, UserOut, UserPatch
 
@@ -76,6 +84,8 @@ __all__ = [
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
+    "StagingCreateIn", "StagingOut", "StagingSessionOut",
+    "StagingSessionPatchIn", "StagingSessionCreateIn", "StagingSessionWriteOut",
     "SignatureMetaOut",
     "LoginIn", "LoginOut", "UserOut", "UserIn", "UserPatch",
 ]
