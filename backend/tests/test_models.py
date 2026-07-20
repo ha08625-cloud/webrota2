@@ -10,7 +10,6 @@ from app.models import (
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
-    DoctorSignature,
     GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -19,6 +18,8 @@ from app.models import (
     RotaClosure,
     RotaConfig,
     RotaGenerationLogEntry,
+    RotaStaging,
+    RotaStagingSession,
 )
 from app.models.enums import (
     Day,
@@ -349,45 +350,100 @@ def test_generation_log_entries_via_relationship(session):
     assert len(rota.generation_log) == 2
 
 
-# --- DoctorSignature (signatures feature, Task 1) ---
+# --- RotaStaging / RotaStagingSession (staging plan, Task 1) ---
 
-def _signature(doctor, image=b"\x89PNG\r\n\x1a\n...", content_type="image/png"):
-    return DoctorSignature(
-        doctor_id=doctor.id,
-        image=image,
-        content_type=content_type,
-        uploaded_at=datetime.datetime(2026, 7, 18, tzinfo=datetime.timezone.utc),
-    )
-
-
-def test_doctor_signature_round_trip(session):
-    d = _doctor(session)
-    sig = _signature(d)
-    session.add(sig)
+def _template(session, name="Default"):
+    t = MasterRotaTemplate(name=name)
+    session.add(t)
     session.flush()
-    session.refresh(sig)
-
-    fetched = session.get(DoctorSignature, sig.id)
-    assert fetched.doctor_id == d.id
-    assert fetched.image == b"\x89PNG\r\n\x1a\n..."
-    assert fetched.content_type == "image/png"
-    assert fetched.uploaded_at.replace(tzinfo=datetime.timezone.utc) == datetime.datetime(
-        2026, 7, 18, tzinfo=datetime.timezone.utc
-    )
+    return t
 
 
-def test_doctor_signature_unique_per_doctor(session):
-    d = _doctor(session)
-    session.add(_signature(d))
+def _config(session, start=datetime.date(2026, 4, 6)):
+    config = RotaConfig(start_date=start, num_weeks=1, template_start_week=1)
+    session.add(config)
     session.flush()
-    session.add(_signature(d, image=b"different bytes"))
+    return config
+
+
+def _staging(session, template=None, config=None):
+    template = template or _template(session)
+    config = config or _config(session)
+    staging = RotaStaging(config_id=config.id, source_template_id=template.id)
+    session.add(staging)
+    session.flush()
+    return staging
+
+
+def test_staging_round_trip_with_sessions(session):
+    d = _doctor(session)
+    r = _room(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.REQUIRES_ROOM,
+        room_id=r.id,
+    ))
+    session.flush()
+    session.refresh(staging)
+
+    assert len(staging.sessions) == 1
+    assert staging.sessions[0].doctor_id == d.id
+    assert staging.sessions[0].room_id == r.id
+    assert staging.completed_at is None
+
+
+def test_staging_session_slot_unique(session):
+    d = _doctor(session)
+    staging = _staging(session)
+
+    def rss():
+        return RotaStagingSession(
+            staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+            period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+        )
+
+    session.add(rss())
+    session.flush()
+
+    session.add(rss())  # duplicate slot -> rejected
     with pytest.raises(IntegrityError):
         session.flush()
 
 
-def test_doctor_signature_second_doctor_allowed(session):
-    d1 = _doctor(session, "AA")
-    d2 = _doctor(session, "BB")
-    session.add(_signature(d1))
-    session.add(_signature(d2))
-    session.flush()  # no error: uniqueness is per doctor_id
+def test_staging_session_week_check(session):
+    d = _doctor(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=5, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_staging_cascades_sessions_on_delete(session):
+    d = _doctor(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    session.flush()
+
+    session.delete(staging)
+    session.flush()
+
+    remaining = session.query(RotaStagingSession).filter_by(staging_id=staging.id).all()
+    assert remaining == []
+
+
+def test_staging_config_id_unique(session):
+    config = _config(session)
+    _staging(session, config=config)
+
+    session.add(RotaStaging(
+        config_id=config.id, source_template_id=_template(session, "Second").id,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()

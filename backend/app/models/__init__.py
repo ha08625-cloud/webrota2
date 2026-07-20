@@ -28,6 +28,7 @@ from .counter_snapshot import RotaClinicCounterSnapshot, RotaSystemCounterSnapsh
 from .leave import LeaveEntry
 from .duty import DutyAssignment
 from .master_rota import MasterRotaTemplate, MasterRotaSession
+from .staging import RotaStaging, RotaStagingSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
 from .closure import PracticeClosure, RotaClosure
 from .generation_log import RotaGenerationLogEntry
@@ -43,7 +44,8 @@ __all__ = [
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
     "SystemCounter", "LeaveEntry", "DutyAssignment", "MasterRotaTemplate",
-    "MasterRotaSession", "RotaConfig", "GeneratedRota", "RotaSession",
+    "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
+    "GeneratedRota", "RotaSession",
     "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",
     "PracticeClosure", "RotaClosure", "RotaGenerationLogEntry",
     "DoctorSignature", "User", "UserSession",
