@@ -3,8 +3,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import { useActiveStaging } from "@/api/staging";
 import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
-import { makeStagingSession } from "@/test/fixtures/staging";
+import { makeStaging, makeStagingSession } from "@/test/fixtures/staging";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -160,6 +161,7 @@ describe("StagingGrid", () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     let capturedBody: unknown;
     server.use(
+      http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 7, sessions: [] }))),
       http.post("/api/v1/staging/:stagingId/sessions", async ({ request }) => {
         capturedBody = await request.json();
         return HttpResponse.json(
@@ -175,9 +177,26 @@ describe("StagingGrid", () => {
       }),
     );
 
-    renderWithProviders(
-      <StagingGrid sessions={[]} stagingId={7} startDate="2026-08-03" numWeeks={1} closedDates={[]} onToast={noop} />,
-    );
+    // StagingGrid takes `sessions` as a prop rather than subscribing
+    // itself - in production, StagingPage's useActiveStaging() is what
+    // re-renders it with fresh data after a mutation's setQueryData call.
+    // Same harness technique as MasterRotaGrid_test.tsx's create test.
+    function Harness() {
+      const { data } = useActiveStaging();
+      if (!data) return null;
+      return (
+        <StagingGrid
+          sessions={data.sessions}
+          stagingId={data.staging_id}
+          startDate={data.start_date}
+          numWeeks={data.num_weeks}
+          closedDates={data.closed_dates}
+          onToast={noop}
+        />
+      );
+    }
+
+    renderWithProviders(<Harness />);
     const cell = await screen.findByTestId("staging-cell-1-1-Monday-AM");
     const user = userEvent.setup();
     await user.click(within(cell).getByLabelText("Add session for AB Monday AM"));
