@@ -8,6 +8,7 @@ import { useParams } from "react-router-dom";
 import type { DutyAssignment } from "@/api/types";
 import { makeClinicType, makeClosure, makeDutyAssignment } from "@/test/fixtures/reference";
 import { makeRotaSummary } from "@/test/fixtures/rota";
+import { makeStaging } from "@/test/fixtures/staging";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 import { addDays, getUpcomingMondays } from "@/lib/date";
@@ -15,9 +16,8 @@ import { weekDutySlots } from "@/lib/dutyWeekSlots";
 
 import { RotaPage } from "./RotaPage";
 
-function DetailProbe() {
-  const params = useParams<{ id: string }>();
-  return <div data-testid="detail-probe">detail:{params.id}</div>;
+function StagingProbe() {
+  return <div data-testid="staging-probe">staging page</div>;
 }
 
 /** Builds one DutyAssignment per slot returned by weekDutySlots, so the
@@ -30,7 +30,7 @@ function makeFullWeekAssignments(weekStartDate: string): DutyAssignment[] {
 }
 
 describe("RotaPage", () => {
-  it("shows the generate form when there is no active draft", async () => {
+  it("shows the generate form when there is no active draft or staging", async () => {
     server.use(
       http.get("/api/v1/rota", () =>
         HttpResponse.json([makeRotaSummary({ rota_id: 1, status: "committed" })]),
@@ -53,6 +53,37 @@ describe("RotaPage", () => {
     expect(await screen.findByText(/Draft in progress/)).toBeInTheDocument();
     expect(screen.queryByText("Generate a rota")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/rota/5");
+  });
+
+  it("shows the active staging card, not the generate form, when a staging is in progress and there is no draft", async () => {
+    server.use(
+      http.get("/api/v1/rota", () => HttpResponse.json([])),
+      http.get("/api/v1/staging/active", () =>
+        HttpResponse.json(makeStaging({ staging_id: 9, start_date: "2026-08-03", num_weeks: 2 })),
+      ),
+    );
+
+    renderWithProviders(<RotaPage />);
+
+    expect(await screen.findByText(/Staging in progress/)).toBeInTheDocument();
+    expect(screen.getByText(/Staging in progress/)).toHaveTextContent("2 weeks");
+    expect(screen.queryByText("Generate a rota")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Resume staging" })).toHaveAttribute("href", "/staging");
+  });
+
+  it("prefers the draft banner over the staging banner when both somehow exist", async () => {
+    // A rollback_commit can produce a draft while a staging is still
+    // active (staging plan, Design Decision 7) - the draft banner takes
+    // precedence since a draft is the more immediately actionable state.
+    server.use(
+      http.get("/api/v1/rota", () => HttpResponse.json([makeRotaSummary({ rota_id: 5, status: "draft" })])),
+      http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 9 }))),
+    );
+
+    renderWithProviders(<RotaPage />);
+
+    expect(await screen.findByText(/Draft in progress/)).toBeInTheDocument();
+    expect(screen.queryByText(/Staging in progress/)).not.toBeInTheDocument();
   });
 
   it("shows the empty state when there are no committed rotas", async () => {
@@ -122,17 +153,17 @@ describe("RotaPage", () => {
     expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
   });
 
-  it("sends the correct payload, including the hidden template_start_week", async () => {
+  it("sends the correct payload, including the hidden template_start_week, to POST /staging", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     let capturedBody: unknown = null;
     server.use(
-      http.post("/api/v1/rota/generate", async ({ request }) => {
+      http.post("/api/v1/staging", async ({ request }) => {
         capturedBody = await request.json();
-        return HttpResponse.json({ rota_id: 42, status: "draft", issues: [] });
+        return HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 });
       }),
     );
 
-    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/rota/:id", element: <DetailProbe /> }] });
+    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/staging", element: <StagingProbe /> }] });
     await screen.findByText("Generate a rota");
 
     const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
@@ -142,7 +173,7 @@ describe("RotaPage", () => {
     const user = userEvent.setup();
     await user.selectOptions(weekSelect, chosenWeek);
     await user.selectOptions(screen.getByLabelText("Number of weeks"), "2");
-    await user.click(screen.getByRole("button", { name: "Generate rota" }));
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
 
     await waitFor(() => {
       expect(capturedBody).toEqual({
@@ -153,28 +184,25 @@ describe("RotaPage", () => {
     });
   });
 
-  it("navigates to /rota/{rota_id} using the server's rota_id on success", async () => {
-    // Guards against reading data.id instead of data.rota_id: that bug
-    // would navigate to "/rota/undefined" and this probe would show
-    // "detail:undefined", not "detail:42".
+  it("navigates to /staging on a successful staging create", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     server.use(
-      http.post("/api/v1/rota/generate", () => HttpResponse.json({ rota_id: 42, status: "draft", issues: [] })),
+      http.post("/api/v1/staging", () => HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 })),
     );
 
-    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/rota/:id", element: <DetailProbe /> }] });
+    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/staging", element: <StagingProbe /> }] });
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Generate rota" }));
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
 
-    expect(await screen.findByTestId("detail-probe")).toHaveTextContent("detail:42");
+    expect(await screen.findByTestId("staging-probe")).toBeInTheDocument();
   });
 
-  it("renders a 409 (draft already exists) as a plain error message", async () => {
+  it("renders a 409 (staging or draft already exists) as a plain error message", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     server.use(
-      http.post("/api/v1/rota/generate", () =>
+      http.post("/api/v1/staging", () =>
         HttpResponse.json({ detail: "A draft rota already exists; commit or scrap it first" }, { status: 409 }),
       ),
     );
@@ -183,7 +211,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Generate rota" }));
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
 
     expect(await screen.findByText("A draft rota already exists; commit or scrap it first")).toBeInTheDocument();
   });
@@ -191,7 +219,7 @@ describe("RotaPage", () => {
   it("renders a Phase 0 validation-issue list on 422", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     server.use(
-      http.post("/api/v1/rota/generate", () =>
+      http.post("/api/v1/staging", () =>
         HttpResponse.json(
           {
             detail: [
@@ -215,7 +243,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Generate rota" }));
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
 
     expect(await screen.findByText(/Duty doctor is on leave/)).toBeInTheDocument();
   });
@@ -223,7 +251,7 @@ describe("RotaPage", () => {
   it("renders a standard FastAPI request-validation error list on 422", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     server.use(
-      http.post("/api/v1/rota/generate", () =>
+      http.post("/api/v1/staging", () =>
         HttpResponse.json(
           { detail: [{ loc: ["body", "start_date"], msg: "field required", type: "missing" }] },
           { status: 422 },
@@ -235,7 +263,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Generate rota" }));
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
 
     expect(await screen.findByText("field required")).toBeInTheDocument();
   });

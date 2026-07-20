@@ -1,79 +1,17 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { useActiveStaging, useCreateStaging } from "@/api/staging";
 import { useClinicTypes } from "@/api/clinicTypes";
 import { useClosures } from "@/api/closures";
 import { useDuty } from "@/api/duty";
-import { useGenerateRota, useRotaList } from "@/api/rota";
-import type { ApiError, FastApiValidationError, GenerateRotaIn, ValidationIssue } from "@/api/types";
+import { useRotaList } from "@/api/rota";
+import type { CreateStagingIn } from "@/api/types";
+import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { addDays, formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 
 const UPCOMING_WEEK_COUNT = 12;
-
-function isValidationIssueList(detail: unknown): detail is ValidationIssue[] {
-  return (
-    Array.isArray(detail) &&
-    detail.length > 0 &&
-    detail.every((item) => typeof item === "object" && item !== null && "message" in item)
-  );
-}
-
-function isFastApiErrorList(detail: unknown): detail is FastApiValidationError[] {
-  return (
-    Array.isArray(detail) &&
-    detail.length > 0 &&
-    detail.every((item) => typeof item === "object" && item !== null && "msg" in item)
-  );
-}
-
-/**
- * Renders whichever of the three shapes a failed /rota/generate call can
- * come back as: a plain-string 409 (draft already exists), a list of
- * Phase 0 ValidationIssues (business-logic 422), or a list of standard
- * FastAPI request-validation errors (422 from a body Pydantic itself
- * rejected - shouldn't happen given the client-side checks, but the
- * client-side checks aren't the source of truth, so this is handled
- * rather than assumed away).
- */
-function GenerateErrorMessage({ error }: { error: ApiError }) {
-  if (isValidationIssueList(error.detail)) {
-    return (
-      <div className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
-        <p className="font-medium">Generation failed:</p>
-        <ul className="mt-1 list-inside list-disc">
-          {error.detail.map((issue, index) => (
-            <li key={index}>
-              {issue.message}
-              {issue.week !== null && issue.day !== null
-                ? ` (week ${issue.week}, ${issue.day}${issue.period ? ` ${issue.period}` : ""})`
-                : ""}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  if (isFastApiErrorList(error.detail)) {
-    return (
-      <div className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
-        <p className="font-medium">Invalid request:</p>
-        <ul className="mt-1 list-inside list-disc">
-          {error.detail.map((item, index) => (
-            <li key={index}>{item.msg}</li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  return (
-    <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
-      {typeof error.detail === "string" ? error.detail : "Something went wrong generating the rota."}
-    </p>
-  );
-}
 
 /**
  * Advisory duty-staffing status for every week the selected (startDate,
@@ -178,9 +116,16 @@ function ClinicStatusList() {
   );
 }
 
-function GenerateRotaForm() {
+/**
+ * The generate form no longer generates directly (staging plan, Task 6):
+ * submitting creates a staging - a copy of the active template's rows for
+ * the chosen range - and navigates to /staging, where the one-off edits
+ * happen before the Phase 0-12 pipeline actually runs (StagingPage's
+ * "Complete and generate" action).
+ */
+function StartStagingForm() {
   const navigate = useNavigate();
-  const generateRota = useGenerateRota();
+  const createStaging = useCreateStaging();
   const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
   const [startDate, setStartDate] = useState(upcomingMondays[0]);
   const [numWeeks, setNumWeeks] = useState<1 | 2 | 4>(1);
@@ -190,17 +135,16 @@ function GenerateRotaForm() {
 
     // template_start_week is intentionally not a form field - always 1
     // for now (product decision: hide it until there's a real need to
-    // start generation mid-template).
-    const payload: GenerateRotaIn = {
+    // start generation mid-template). Staging create applies it once at
+    // copy time and discards it (staging plan, Design Decision 4).
+    const payload: CreateStagingIn = {
       start_date: startDate,
       num_weeks: numWeeks,
       template_start_week: 1,
     };
 
-    generateRota.mutate(payload, {
-      onSuccess: (data) => {
-        navigate(`/rota/${data.rota_id}`);
-      },
+    createStaging.mutate(payload, {
+      onSuccess: () => navigate("/staging"),
     });
   }
 
@@ -247,13 +191,13 @@ function GenerateRotaForm() {
 
       <button
         type="submit"
-        disabled={generateRota.isPending}
+        disabled={createStaging.isPending}
         className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
-        {generateRota.isPending ? "Generating..." : "Generate rota"}
+        {createStaging.isPending ? "Starting..." : "Start staging"}
       </button>
 
-      {generateRota.isError ? <GenerateErrorMessage error={generateRota.error} /> : null}
+      {createStaging.isError ? <GenerateErrorMessage error={createStaging.error} /> : null}
     </form>
   );
 }
@@ -262,9 +206,10 @@ type HistoryTab = "committed" | "archived";
 
 export function RotaPage() {
   const { data: rotas, isLoading, isError } = useRotaList();
+  const { data: activeStaging, isLoading: stagingLoading } = useActiveStaging();
   const [historyTab, setHistoryTab] = useState<HistoryTab>("committed");
 
-  if (isLoading) {
+  if (isLoading || stagingLoading) {
     return <p className="text-sm text-ink/70">Loading rotas...</p>;
   }
 
@@ -299,9 +244,19 @@ export function RotaPage() {
             Open draft
           </Link>
         </div>
+      ) : activeStaging ? (
+        <div className="mt-4 rounded border border-accent/40 bg-accent/5 p-4">
+          <p className="text-sm font-medium text-ink">
+            Staging in progress - started {formatDate(activeStaging.start_date)}, {activeStaging.num_weeks} week
+            {activeStaging.num_weeks > 1 ? "s" : ""}
+          </p>
+          <Link to="/staging" className="mt-2 inline-block text-sm font-medium text-accent underline">
+            Resume staging
+          </Link>
+        </div>
       ) : (
         <div className="mt-4">
-          <GenerateRotaForm />
+          <StartStagingForm />
         </div>
       )}
 

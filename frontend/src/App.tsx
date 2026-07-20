@@ -15,10 +15,12 @@ import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
 import { SignaturesPage } from "@/routes/SignaturesPage";
+import { StagingPage } from "@/routes/StagingPage";
 import { UsersPage } from "@/routes/UsersPage";
 
 const NAV_ITEMS = [
   { to: "/", label: "Generate new rotas", end: true },
+  { to: "/staging", label: "Staging", end: false },
   { to: "/master-rota", label: "Master Rota", end: false },
   { to: "/clinic-types", label: "Clinic Types", end: false },
   { to: "/doctors", label: "Staff", end: false },
@@ -82,6 +84,7 @@ export function App() {
         <main className="flex-1 p-6">
           <Routes>
             <Route path="/" element={<RotaPage />} />
+            <Route path="/staging" element={<StagingPage />} />
             <Route path="/rota/:id" element={<RotaDetailPage />} />
             <Route path="/master-rota" element={<MasterRotaPage />} />
             <Route path="/clinic-types" element={<ClinicTypesPage />} />
