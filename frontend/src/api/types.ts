@@ -579,6 +579,58 @@ export interface MasterRotaTemplate {
   sessions: MasterRotaSession[];
 }
 
+// --- Staging (schemas/staging.py, staging plan) ---
+// The editable one-off holiday-cover surface between the master template
+// and generation (Task 5). StagingSession is MasterRotaSession's shape
+// plus is_on_leave - a staging row has a real calendar date (via its
+// config's start_date), so leave is something the editor can and should
+// show, unlike the dateless master template.
+
+export interface StagingSession {
+  session_id: number;
+  doctor_id: number;
+  doctor_code: string;
+  doctor_type: DoctorType;
+  week: number;
+  day: Day;
+  period: Period;
+  session_type: MasterSessionType;
+  room_id: number | null;
+  room_code: string | null;
+  is_on_leave: boolean;
+}
+
+/**
+ * GET /staging/active and the response of every staging write endpoint's
+ * underlying staging. completed_at null means active; set means
+ * completed (staging plan, Design Decision 2). closed_dates is live
+ * PracticeClosure data in the create-to-complete range, not a snapshot
+ * (Design Decision 10).
+ */
+export interface Staging {
+  staging_id: number;
+  config_id: number;
+  start_date: string;
+  num_weeks: number;
+  created_at: string;
+  completed_at: string | null;
+  closed_dates: string[];
+  sessions: StagingSession[];
+}
+
+/** POST /staging body. Same shape as GenerateRotaIn - a staging is created
+ * from exactly the inputs generation would take, before generation runs. */
+export interface CreateStagingIn {
+  start_date: string;
+  num_weeks: 1 | 2 | 4;
+  template_start_week: number;
+}
+
+export interface StagingSessionWriteOut {
+  session: StagingSession;
+  displaced_session: StagingSession | null;
+}
+
 // --- Signatures (schemas/signature.py) ---
 // Metadata only - the image itself never travels as JSON. Uploaded via
 // apiClient.postForm, fetched via apiClient.getBlob, see api/signatures.ts.

@@ -56,30 +56,6 @@ Insert an editable step between "pick a date range" and "run the generation phas
 
 ---
 
-# Task 5: Frontend API layer
-
-**A.** State of the world: the backend (Tasks 1-4) is complete: `/api/v1/staging` supports create / get-active / session PATCH-POST-DELETE / abandon / complete. This task adds the typed client and TanStack Query hooks; the UI is Task 6.
-
-**B.** Files:
-
-- New: `frontend/src/api/staging.ts`
-- New: `frontend/src/api/staging.test.tsx`
-- Edit: `frontend/src/api/types.ts` (staging types)
-- Edit: `frontend/test/msw/handlers.ts` (default staging handlers)
-- Reference: `frontend/src/api/masterRota.ts` (the pattern to mirror, including cache splicing), `frontend/src/api/rota.ts` (`GenerateRotaOut` handling), `frontend/src/api/client.ts`, `frontend/src/test/renderWithProviders.tsx`
-
-Deliverables: hooks with cache-splice updates, MSW-based tests.
-
-**C.** Instructions:
-
-Types in `types.ts`: `StagingSession` (the `MasterRotaSession` shape plus `is_on_leave: boolean`), `Staging` (`staging_id, config_id, start_date, num_weeks, created_at, completed_at, closed_dates: string[], sessions: StagingSession[]`), `CreateStagingIn` (`start_date, num_weeks, template_start_week`), and the write-out shape `{ session, displaced_session }`.
-
-`staging.ts`, mirroring `masterRota.ts`'s structure: a `stagingKeys` object with a single `active` key; `useActiveStaging()` -- `GET /staging/active`, and a 404 must resolve to `null` rather than an error (check how `client.ts` surfaces status; catch and return null on 404 so `RotaPage` can branch on it without error states); `useCreateStaging()` (POST, on success set the `active` cache to the returned payload); `useUpdateStagingSession` / `useCreateStagingSession` / `useDeleteStagingSession` (splice/append/remove within the cached `Staging.sessions` array by `session_id`, copying `spliceMasterSessions`' approach -- note the container differs: sessions nest inside the `Staging` object, so the splice rebuilds `{ ...staging, sessions }`); `useAbandonStaging()` (DELETE, on success set the `active` cache to null); `useCompleteStaging()` (POST complete, returns the `GenerateRotaOut` shape -- on success set the `active` staging cache to null and invalidate the rota list key so `RotaPage` picks up the new draft).
-
-Tests: MSW handlers per endpoint; assert the 404-as-null behaviour of `useActiveStaging`; assert each mutation splices the cache correctly (mirror `masterRota`'s test structure); assert complete clears the active cache. Add passing default handlers to `frontend/test/msw/handlers.ts` following its conventions.
-
----
-
 # Task 6: Frontend staging page and RotaPage wiring
 
 **A.** State of the world: Tasks 1-5 are complete -- the backend works and `frontend/src/api/staging.ts` provides all hooks. This task builds the editing UI and reroutes the generate flow through it.
@@ -249,3 +225,27 @@ Tests:
 - Phase 0 retry path (the key end-to-end test): create a staging; PATCH a staged slot that carries a pre-planned `DutyAssignment` to `no_surgery`; complete -> 422 `duty_on_incompatible_slot`; assert staging and config survive and `GET /staging/active` still returns it; PATCH the slot back; complete -> success.
 - Locks: `/rota/generate` 409s while a staging is active; complete 409s when a draft exists (create a committed rota, start staging for a non-overlapping range, `rollback-commit` the committed rota, attempt complete); complete 409s on a completed staging (idempotence guard); overlap re-check at complete time (commit a rota overlapping the staging's range via direct model setup after the staging was created, then complete -> 409).
 - Post-complete lifecycle sanity: scrap the staging-born draft; assert `GET /staging/active` still 404s (completed staging does not resurrect -- the regression the `completed_at` design exists to prevent) and a fresh `/rota/generate` or staging create succeeds.
+
+---
+
+# Task 5: Frontend API layer
+
+**A.** State of the world: the backend (Tasks 1-4) is complete: `/api/v1/staging` supports create / get-active / session PATCH-POST-DELETE / abandon / complete. This task adds the typed client and TanStack Query hooks; the UI is Task 6.
+
+**B.** Files:
+
+- New: `frontend/src/api/staging.ts`
+- New: `frontend/src/api/staging.test.tsx`
+- Edit: `frontend/src/api/types.ts` (staging types)
+- Edit: `frontend/test/msw/handlers.ts` (default staging handlers)
+- Reference: `frontend/src/api/masterRota.ts` (the pattern to mirror, including cache splicing), `frontend/src/api/rota.ts` (`GenerateRotaOut` handling), `frontend/src/api/client.ts`, `frontend/src/test/renderWithProviders.tsx`
+
+Deliverables: hooks with cache-splice updates, MSW-based tests.
+
+**C.** Instructions:
+
+Types in `types.ts`: `StagingSession` (the `MasterRotaSession` shape plus `is_on_leave: boolean`), `Staging` (`staging_id, config_id, start_date, num_weeks, created_at, completed_at, closed_dates: string[], sessions: StagingSession[]`), `CreateStagingIn` (`start_date, num_weeks, template_start_week`), and the write-out shape `{ session, displaced_session }`.
+
+`staging.ts`, mirroring `masterRota.ts`'s structure: a `stagingKeys` object with a single `active` key; `useActiveStaging()` -- `GET /staging/active`, and a 404 must resolve to `null` rather than an error (check how `client.ts` surfaces status; catch and return null on 404 so `RotaPage` can branch on it without error states); `useCreateStaging()` (POST, on success set the `active` cache to the returned payload); `useUpdateStagingSession` / `useCreateStagingSession` / `useDeleteStagingSession` (splice/append/remove within the cached `Staging.sessions` array by `session_id`, copying `spliceMasterSessions`' approach -- note the container differs: sessions nest inside the `Staging` object, so the splice rebuilds `{ ...staging, sessions }`); `useAbandonStaging()` (DELETE, on success set the `active` cache to null); `useCompleteStaging()` (POST complete, returns the `GenerateRotaOut` shape -- on success set the `active` staging cache to null and invalidate the rota list key so `RotaPage` picks up the new draft).
+
+Tests: MSW handlers per endpoint; assert the 404-as-null behaviour of `useActiveStaging`; assert each mutation splices the cache correctly (mirror `masterRota`'s test structure); assert complete clears the active cache. Add passing default handlers to `frontend/test/msw/handlers.ts` following its conventions.

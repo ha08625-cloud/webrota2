@@ -2,6 +2,7 @@ import type { HttpHandler } from "msw";
 import { HttpResponse, http } from "msw";
 
 import { makeClinicCounter, makeSystemCounter } from "@/test/fixtures/reference";
+import { makeStaging, makeStagingSession } from "@/test/fixtures/staging";
 
 /**
  * Default handlers, overridden per-test via server.use(...) for
@@ -78,6 +79,31 @@ export const handlers: HttpHandler[] = [
   ),
   http.delete("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     new HttpResponse(null, { status: 204 }),
+  ),
+  // Staging (Task 5). No active staging by default - the expected steady
+  // state (staging plan, Design Decision 7: at most one exists globally)
+  // - so RotaPage's default-path tests never need to stub this
+  // individually; per-test server.use() supplies an active staging where
+  // needed, mirroring the auth/me 401 default's convention above.
+  http.get("/api/v1/staging/active", () =>
+    HttpResponse.json({ detail: "No active staging" }, { status: 404 }),
+  ),
+  http.post("/api/v1/staging", () => HttpResponse.json(makeStaging(), { status: 201 })),
+  http.patch("/api/v1/staging/:stagingId/sessions/:sessionId", () =>
+    HttpResponse.json({ session: makeStagingSession(), displaced_session: null }),
+  ),
+  http.post("/api/v1/staging/:stagingId/sessions", () =>
+    HttpResponse.json(
+      { session: makeStagingSession({ session_id: 999 }), displaced_session: null },
+      { status: 201 },
+    ),
+  ),
+  http.delete("/api/v1/staging/:stagingId/sessions/:sessionId", () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
+  http.delete("/api/v1/staging/:stagingId", () => new HttpResponse(null, { status: 204 })),
+  http.post("/api/v1/staging/:stagingId/complete", () =>
+    HttpResponse.json({ rota_id: 1, status: "draft", issues: [] }),
   ),
   // Signatures feature (Task 4) - empty-list default, plus binary defaults
   // for the image and apply endpoints so tests that don't care about the
