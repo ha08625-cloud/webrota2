@@ -1,8 +1,6 @@
-"""Staging router: create, read, edit, and abandon an editable copy of the
-active template's rows for a date range (staging plan, Task 3).
-
-Complete (POST /staging/{staging_id}/complete, which runs the generation
-pipeline against the staged copy) is Task 4 and is not in this file.
+"""Staging router: create, read, edit, complete, and abandon an editable
+copy of the active template's rows for a date range (staging plan, Tasks
+3-4).
 
 Editing mirrors the master rota template's contract verbatim (see
 routers/master_rota.py) -- pair setter, same-slot room displacement
@@ -10,6 +8,11 @@ including the PRE_ASSIGNED -> REQUIRES_ROOM demotion, permissive verbatim
 writer with no eligibility checks. The staging plan's Design Decision 9
 covers the one addition: session create 422s when week exceeds this
 staging's own num_weeks.
+
+Complete (POST /staging/{staging_id}/complete) runs the existing Phase
+0-12 pipeline against the staged copy's config, exactly as
+routers/rota.py's generate_rota does against a directly-submitted config
+(staging plan, Task 4, Design Decision 8).
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from ...engine.generate import (
     find_overlapping_committed_rota,
+    generate,
     get_active_draft,
     get_active_staging,
 )
@@ -36,15 +40,17 @@ from ...models import (
     RotaStaging,
     RotaStagingSession,
 )
-from ...models.enums import MasterSessionType
+from ...models.enums import MasterSessionType, RotaStatus
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    GenerateRotaOut,
     StagingCreateIn,
     StagingOut,
     StagingSessionCreateIn,
     StagingSessionOut,
     StagingSessionPatchIn,
     StagingSessionWriteOut,
+    ValidationIssueOut,
 )
 
 router = APIRouter(prefix="/staging", tags=["staging"])
@@ -299,6 +305,70 @@ def get_active_staging_endpoint(
     if staging is None:
         raise HTTPException(status_code=404, detail="No active staging")
     return _staging_out(db, staging)
+
+
+@router.post("/{staging_id}/complete", response_model=GenerateRotaOut)
+def complete_staging(
+    staging_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> GenerateRotaOut:
+    """Run the Phase 0-12 pipeline against the staged copy and mark the
+    staging completed (staging plan, Task 4, Design Decisions 3, 6, 8).
+
+    Re-checks the two locks that could have changed since create time:
+    - no active draft (rollback_commit can produce one mid-staging even
+      though /rota/generate is blocked while staging is active)
+    - no committed-rota overlap (create-time check was fail-fast; this is
+      the authoritative re-check)
+
+    On Phase 0 failure (422): nothing here is committed, so only this
+    request's own writes are rolled back. The staging rows and its
+    RotaConfig were committed by earlier requests and survive -- this is
+    a deliberate divergence from generate_rota, which discards the
+    RotaConfig it created in the same request on failure. The user fixes
+    the offending staged edit and completes again.
+    """
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+
+    if get_active_draft(db) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A draft rota exists; commit or scrap it before completing staging",
+        )
+
+    config = db.get(RotaConfig, staging.config_id)
+    overlap = find_overlapping_committed_rota(db, config.start_date, config.num_weeks)
+    if overlap is not None:
+        existing_rota, existing_config = overlap
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A committed rota (id={existing_rota.id}) already covers "
+                f"{existing_config.start_date.isoformat()} "
+                f"({existing_config.num_weeks} week(s)); overlapping weeks "
+                "cannot be regenerated"
+            ),
+        )
+
+    result = generate(db, staging.config_id)
+    if result.status == "failed":
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                ValidationIssueOut.model_validate(i).model_dump()
+                for i in result.issues
+            ],
+        )
+
+    staging.completed_at = datetime.datetime.now(datetime.timezone.utc)
+    db.commit()
+    return GenerateRotaOut(
+        rota_id=result.rota_id,
+        status=RotaStatus.DRAFT,
+        issues=[ValidationIssueOut.model_validate(i) for i in result.issues],
+    )
 
 
 @router.patch(

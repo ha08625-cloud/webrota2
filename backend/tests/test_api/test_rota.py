@@ -54,6 +54,21 @@ class TestGenerate:
         })
         assert resp.status_code == 409
 
+    def test_generate_409_when_staging_active(self, client, seeded):
+        # Full lock-interaction coverage (both directions, plus the
+        # complete-time re-checks) lives in test_staging.py; this is the
+        # one assertion from rota.py's own side of the lock.
+        staging = client.post("/api/v1/staging", json={
+            "start_date": (MONDAY + datetime.timedelta(days=14)).isoformat(),
+            "num_weeks": 1, "template_start_week": 1,
+        })
+        assert staging.status_code == 201, staging.text
+
+        resp = client.post("/api/v1/rota/generate", json={
+            "start_date": MONDAY.isoformat(), "num_weeks": 1, "template_start_week": 1,
+        })
+        assert resp.status_code == 409
+
     def test_generate_409_when_overlaps_committed_rota(self, client, seeded):
         make_clinic_type_via_api(client, seeded)
         out = generate_rota(client, num_weeks=1)  # covers MONDAY .. MONDAY+7

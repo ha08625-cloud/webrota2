@@ -1,7 +1,12 @@
 """Rota router: generation lifecycle and session swaps (M3 Task 3).
 
-Lifecycle rules (finalised M3 plan, extended M3.7):
+Lifecycle rules (finalised M3 plan, extended M3.7; staging lock added by
+the staging plan, Task 4):
 - One draft globally: generate returns 409 while any draft exists.
+- generate also returns 409 while a staging session is in progress
+  (routers/staging.py) -- staged edits run through POST
+  /staging/{id}/complete instead, which calls the same generate()
+  engine function against the staging's own config.
 - generate also returns 409 if the requested date range overlaps a
   COMMITTED rota's range -- a committed week cannot be redrafted. Scrapped
   rotas are deleted outright and so never block a re-generation.
@@ -64,6 +69,7 @@ from ...engine.generate import (
     force_delete_rota,
     generate,
     get_active_draft,
+    get_active_staging,
     rollback_commit,
     scrap_rota,
 )
@@ -295,6 +301,11 @@ def generate_rota(
         raise HTTPException(
             status_code=409,
             detail="A draft rota already exists; commit or scrap it first",
+        )
+    if get_active_staging(db) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A staging session is in progress; complete or abandon it first",
         )
 
     overlap = find_overlapping_committed_rota(

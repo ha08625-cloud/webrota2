@@ -6,16 +6,17 @@ committed overlap, active-template count), GET /staging/active's 404 and
 its is_on_leave/closed_dates derivation, PATCH displacement (including
 the PRE_ASSIGNED -> REQUIRES_ROOM demotion), the completed-staging 409 on
 PATCH/POST/DELETE, session POST's week-range 422 and duplicate-slot 409,
-and abandon's cascade plus the fresh-create-after-abandon path.
-
-complete() is Task 4 and is not exercised here -- "completed" staging
-state is set directly via db_session for the 409 tests.
+abandon's cascade plus the fresh-create-after-abandon path, and (Task 4)
+complete's happy path, its Phase 0 failure-and-retry path, its lock
+interactions with the draft/generate lifecycle, and the completed-staging
+non-resurrection regression.
 """
 import datetime
 
 from sqlalchemy import select
 
 from app.models import (
+    DutyAssignment,
     GeneratedRota,
     LeaveEntry,
     MasterRotaSession,
@@ -27,6 +28,7 @@ from app.models import (
 )
 from app.models.enums import (
     Day,
+    DutyType,
     MasterSessionType,
     Period,
     RotaStatus,
@@ -324,3 +326,183 @@ def test_abandon_409s_on_completed_staging(client, db_session, seeded):
 
     delete = client.delete(f"/api/v1/staging/{staging_id}")
     assert delete.status_code == 409, delete.text
+
+
+# ---------------------------------------------------------------------------
+# complete: happy path
+# ---------------------------------------------------------------------------
+
+def test_complete_happy_path(client, db_session, seeded):
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+    by_key = _sessions_by_key(resp.json())
+    target = by_key[("AA", 1, "Monday", "AM")]
+
+    patch = client.patch(
+        f"/api/v1/staging/{staging_id}/sessions/{target['session_id']}",
+        json={"session_type": "no_surgery", "room_id": None},
+    )
+    assert patch.status_code == 200, patch.text
+
+    complete = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert complete.status_code == 200, complete.text
+    body = complete.json()
+    assert body["status"] == "draft"
+    rota_id = body["rota_id"]
+
+    rota = client.get(f"/api/v1/rota/{rota_id}").json()
+    aa_am = next(
+        s for s in rota["sessions"]
+        if s["doctor_code"] == "AA" and s["week"] == 1 and s["day"] == "Monday"
+        and s["period"] == "AM"
+    )
+    assert aa_am["template_type"] == "no_surgery"
+
+    db_session.expire_all()
+    staging = db_session.get(RotaStaging, staging_id)
+    assert staging.completed_at is not None
+    still_exists = db_session.execute(
+        select(RotaStagingSession).where(RotaStagingSession.staging_id == staging_id)
+    ).scalars().all()
+    assert still_exists  # staging rows retained, not deleted
+
+    active = client.get("/api/v1/staging/active")
+    assert active.status_code == 404, active.text
+
+
+# ---------------------------------------------------------------------------
+# complete: Phase 0 failure and retry
+# ---------------------------------------------------------------------------
+
+def test_complete_phase0_failure_survives_and_retry_succeeds(client, db_session, seeded):
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+    config_id = resp.json()["config_id"]
+    by_key = _sessions_by_key(resp.json())
+    target = by_key[("AA", 1, "Monday", "AM")]
+
+    db_session.add(DutyAssignment(
+        date=MONDAY, period=Period.AM, doctor_id=seeded["doctor_aa"],
+        duty_type=DutyType.PRIMARY,
+    ))
+    db_session.commit()
+
+    patch = client.patch(
+        f"/api/v1/staging/{staging_id}/sessions/{target['session_id']}",
+        json={"session_type": "no_surgery", "room_id": None},
+    )
+    assert patch.status_code == 200, patch.text
+
+    fail = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert fail.status_code == 422, fail.text
+    checks = {i["check"] for i in fail.json()["detail"]}
+    assert "duty_on_incompatible_slot" in checks
+
+    db_session.expire_all()
+    assert db_session.get(RotaStaging, staging_id) is not None
+    assert db_session.get(RotaConfig, config_id) is not None
+    active = client.get("/api/v1/staging/active")
+    assert active.status_code == 200, active.text
+    assert active.json()["staging_id"] == staging_id
+
+    patch_back = client.patch(
+        f"/api/v1/staging/{staging_id}/sessions/{target['session_id']}",
+        json={"session_type": "requires_room", "room_id": None},
+    )
+    assert patch_back.status_code == 200, patch_back.text
+
+    retry = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert retry.status_code == 200, retry.text
+
+
+# ---------------------------------------------------------------------------
+# complete / generate: lock interactions
+# ---------------------------------------------------------------------------
+
+def test_generate_409s_while_staging_active(client, seeded):
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+
+    gen = client.post("/api/v1/rota/generate", json={
+        "start_date": (MONDAY + datetime.timedelta(days=14)).isoformat(),
+        "num_weeks": 1, "template_start_week": 1,
+    })
+    assert gen.status_code == 409, gen.text
+
+
+def test_complete_409s_when_draft_exists_via_rollback(client, db_session, seeded):
+    # Commit a rota on one range, start staging on a non-overlapping range,
+    # then roll the committed rota back to draft -- this is the one path
+    # that can produce a draft while a staging is in progress (create-time
+    # only blocks direct /rota/generate).
+    committed = generate_rota(client)
+    rota = db_session.get(GeneratedRota, committed["rota_id"])
+    rota.status = RotaStatus.COMMITTED
+    rota.committed_at = datetime.datetime.now(datetime.timezone.utc)
+    db_session.commit()
+
+    staging = _create_staging(client, start_date=MONDAY + datetime.timedelta(days=14))
+    assert staging.status_code == 201, staging.text
+    staging_id = staging.json()["staging_id"]
+
+    rollback = client.post(f"/api/v1/rota/{committed['rota_id']}/rollback-commit")
+    assert rollback.status_code == 200, rollback.text
+
+    complete = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert complete.status_code == 409, complete.text
+
+
+def test_complete_409s_on_completed_staging(client, db_session, seeded):
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+
+    staging = db_session.get(RotaStaging, staging_id)
+    staging.completed_at = datetime.datetime.now(datetime.timezone.utc)
+    db_session.commit()
+
+    complete = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert complete.status_code == 409, complete.text
+
+
+def test_complete_409s_on_overlap_recheck(client, db_session, seeded):
+    # Overlap did not exist at create time; a rota is committed into the
+    # staging's own range afterwards, so only the complete-time re-check
+    # catches it.
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+    config_id = resp.json()["config_id"]
+
+    other_config = RotaConfig(start_date=MONDAY, num_weeks=1, template_start_week=1)
+    db_session.add(other_config)
+    db_session.flush()
+    db_session.add(GeneratedRota(
+        config_id=other_config.id, status=RotaStatus.COMMITTED,
+        committed_at=datetime.datetime.now(datetime.timezone.utc),
+    ))
+    db_session.commit()
+    assert other_config.id != config_id
+
+    complete = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert complete.status_code == 409, complete.text
+
+
+# ---------------------------------------------------------------------------
+# post-complete lifecycle sanity
+# ---------------------------------------------------------------------------
+
+def test_scrap_after_complete_does_not_resurrect_staging(client, db_session, seeded):
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+
+    complete = client.post(f"/api/v1/staging/{staging_id}/complete")
+    assert complete.status_code == 200, complete.text
+    rota_id = complete.json()["rota_id"]
+
+    scrap = client.delete(f"/api/v1/rota/{rota_id}")
+    assert scrap.status_code == 204, scrap.text
+
+    active = client.get("/api/v1/staging/active")
+    assert active.status_code == 404, active.text
+
+    fresh = _create_staging(client, start_date=MONDAY + datetime.timedelta(days=14))
+    assert fresh.status_code == 201, fresh.text
