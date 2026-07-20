@@ -56,48 +56,6 @@ Insert an editable step between "pick a date range" and "run the generation phas
 
 ---
 
-# Task 3: Staging router -- create, read, edit, abandon
-
-**A.** State of the world: Tasks 1-2 are complete -- models exist, `load_context()` is staging-aware, and `get_active_draft` / `get_active_staging` / `find_overlapping_committed_rota` are all importable from `backend.app.engine.generate`. This task adds the staging CRUD surface. The `complete` endpoint is Task 4.
-
-**B.** Files:
-
-- New: `backend/app/api/schemas/staging.py`
-- Edit: `backend/app/api/schemas/__init__.py` (exports)
-- New: `backend/app/api/routers/staging.py`
-- Edit: `backend/app/api/main.py` (add `staging` to the router registration tuple)
-- New: `backend/tests/test_api/test_staging.py`
-- Reference: `backend/app/api/routers/master_rota.py` (the contract being mirrored -- read closely), `backend/app/api/schemas/master_rota.py` (`MasterSessionPairIn`), `backend/app/api/routers/rota.py` (`_leave_lookup` pattern, `generate_rota`'s check ordering), `backend/app/engine/week_map.py` (`template_week`, `build_week_dates`), `backend/tests/test_api/conftest.py`, `backend/tests/test_api/test_session_assign.py` or the master rota tests for style
-
-Deliverables: schemas, router registered under `/api/v1/staging`, comprehensive API tests.
-
-**C.** Instructions:
-
-Schemas (`schemas/staging.py`):
-
-- `StagingCreateIn`: `start_date: datetime.date`, `num_weeks: int` (validate in {1, 2, 4}), `template_start_week: int = Field(default=1, ge=1, le=4)`. Same field names as `GenerateRotaIn` deliberately.
-- `StagingSessionOut`: `session_id, doctor_id, doctor_code, doctor_type, week, day, period, session_type, room_id, room_code, is_on_leave: bool`. (`MasterRotaSessionOut` plus `is_on_leave`.)
-- `StagingOut`: `staging_id, config_id, start_date, num_weeks, created_at, completed_at, closed_dates: list[datetime.date], sessions: list[StagingSessionOut]`. Document that `closed_dates` is live `PracticeClosure` data in the range, not a snapshot (none exists yet).
-- `StagingSessionPatchIn(MasterSessionPairIn)` and `StagingSessionCreateIn(MasterSessionPairIn)` with `doctor_id, week (ge=1, le=4), day, period` -- import and subclass `MasterSessionPairIn` from `schemas/master_rota.py` so the room/type pair validation cannot drift.
-- `StagingSessionWriteOut`: `session, displaced_session: StagingSessionOut | None` (the `MasterSessionWriteOut` shape).
-
-Router (`routers/staging.py`, prefix `/staging`, all endpoints requiring `get_current_user`):
-
-Helper `_staging_or_404(db, staging_id)`; helper `_require_active(staging)` raising 409 when `completed_at` is not None ("staging is completed; ..."); a `_session_outs`-style serialiser joining doctor/room codes and deriving `is_on_leave` (build `week_dates` via `build_week_dates(config.start_date, config.num_weeks)`, leave keys via a copy of `routers/rota.py._leave_lookup`'s query); a `_find_room_holder` scoped to `(staging_id, week, day, period, room_id)` copied from the master rota router's, including its `.first()` rationale and optional `exclude_id`.
-
-- `POST /staging` (201, returns `StagingOut`). Checks in order, each a 409 with a clear message: `get_active_draft` is None; `get_active_staging` is None; `find_overlapping_committed_rota` returns None (reuse `generate_rota`'s message format); exactly one `MasterRotaTemplate` with `is_active` is True (zero or multiple both 409 -- the engine's strict rule, message naming the count). Then: create `RotaConfig(start_date, num_weeks, template_start_week=1)` -- the literal 1 is Design Decision 4; add a comment pointing at it. Create `RotaStaging(config_id=..., source_template_id=template.id)`. Copy: for `gen_week` in 1..num_weeks, `tw = template_week(gen_week, payload.template_start_week)`, and for every `MasterRotaSession` of the template with `week == tw`, create a `RotaStagingSession` with `week=gen_week` and the same `(doctor_id, day, period, session_type, room_id)`. Copy rows regardless of closures (Design Decision 10). Flush, commit, return the full `StagingOut`.
-- `GET /staging/active` (returns `StagingOut`, 404 when none active). Selects via the `completed_at IS NULL` query, loads config and sessions, serialises.
-- `PATCH /staging/{staging_id}/sessions/{session_id}` (returns `StagingSessionWriteOut`). 404s for unknown staging / session-not-in-staging; `_require_active`; then mirror `master_rota.patch_session` exactly: validate room exists when non-null, displacement with the `PRE_ASSIGNED -> REQUIRES_ROOM` demotion, verbatim pair write, flush, commit.
-- `POST /staging/{staging_id}/sessions` (201, `StagingSessionWriteOut`). Mirror `master_rota.create_session`: doctor-exists 404, duplicate-slot 409, displacement before insert. Additionally 422 when `payload.week > config.num_weeks` ("week {n} is outside this staging's {num_weeks}-week range").
-- `DELETE /staging/{staging_id}/sessions/{session_id}` (204). Mirror `master_rota.delete_session`; `_require_active`.
-- `DELETE /staging/{staging_id}` (204, abandon). `_require_active` (a completed staging is a retained record; 409). Delete the staging first (ORM cascades the sessions), then `db.delete` its `RotaConfig` -- explicit order, and safe because an active staging by construction has no `GeneratedRota` (the only creation path is `complete`, which marks completion in the same transaction). Commit.
-
-Register in `main.py` by adding `staging` to the import and the registration tuple.
-
-Tests (`test_api/test_staging.py`), using the standard `client` fixture. Cover at minimum: create copies the right rows for `template_start_week=1` and for `template_start_week=3` with `num_weeks=2` (assert the week-3 and week-4 template rows landed as staging weeks 1 and 2, and the persisted config has `template_start_week == 1`); create 409s on zero active templates and on two; create 409s when a draft exists; second create 409s while one staging is active; committed-overlap 409; `GET /staging/active` 404s when none and returns sessions with `is_on_leave` true for a doctor with a matching `LeaveEntry` and `closed_dates` reflecting a `PracticeClosure` in range; PATCH displacement clears the holder's room and demotes a displaced `PRE_ASSIGNED`; PATCH/POST/DELETE all 409 on a completed staging (set `completed_at` directly in the test); session POST 422s for week 2 on a 1-week staging and 409s on a duplicate slot; abandon deletes staging, sessions, and config, and a fresh create then succeeds.
-
----
-
 # Task 4: Complete endpoint and generate lock
 
 **A.** State of the world: Tasks 1-3 are complete -- the staging CRUD surface works end to end and `/api/v1/staging` is registered. This task adds `POST /staging/{staging_id}/complete`, adds the staging lock to `/rota/generate`, and tests the lifecycle interactions between the two workflows.
@@ -249,3 +207,45 @@ In `generate.py`, next to `get_active_draft`:
 - Move `_find_overlapping_committed_rota` from `routers/rota.py` verbatim, renamed `find_overlapping_committed_rota` (public), docstring intact. Update `routers/rota.py` to import and call it; delete the private copy.
 
 Tests. In `test_context.py`: with a staging present for the config, `load_context()` returns the staged sessions (not the template's) and `active_template` resolves via `source_template_id` even when the source template's `is_active` is False; without a staging, behaviour is unchanged. In `test_engine/test_generate.py`: a full `generate()` run over a staging config (config with `template_start_week=1`, staging rows differing from the template) produces `RotaSession` rows reflecting the staged pattern, proving the pipeline consumes the copy end to end.
+
+# Task 3: Staging router -- create, read, edit, abandon
+
+**A.** State of the world: Tasks 1-2 are complete -- models exist, `load_context()` is staging-aware, and `get_active_draft` / `get_active_staging` / `find_overlapping_committed_rota` are all importable from `backend.app.engine.generate`. This task adds the staging CRUD surface. The `complete` endpoint is Task 4.
+
+**B.** Files:
+
+- New: `backend/app/api/schemas/staging.py`
+- Edit: `backend/app/api/schemas/__init__.py` (exports)
+- New: `backend/app/api/routers/staging.py`
+- Edit: `backend/app/api/main.py` (add `staging` to the router registration tuple)
+- New: `backend/tests/test_api/test_staging.py`
+- Reference: `backend/app/api/routers/master_rota.py` (the contract being mirrored -- read closely), `backend/app/api/schemas/master_rota.py` (`MasterSessionPairIn`), `backend/app/api/routers/rota.py` (`_leave_lookup` pattern, `generate_rota`'s check ordering), `backend/app/engine/week_map.py` (`template_week`, `build_week_dates`), `backend/tests/test_api/conftest.py`, `backend/tests/test_api/test_session_assign.py` or the master rota tests for style
+
+Deliverables: schemas, router registered under `/api/v1/staging`, comprehensive API tests.
+
+**C.** Instructions:
+
+Schemas (`schemas/staging.py`):
+
+- `StagingCreateIn`: `start_date: datetime.date`, `num_weeks: int` (validate in {1, 2, 4}), `template_start_week: int = Field(default=1, ge=1, le=4)`. Same field names as `GenerateRotaIn` deliberately.
+- `StagingSessionOut`: `session_id, doctor_id, doctor_code, doctor_type, week, day, period, session_type, room_id, room_code, is_on_leave: bool`. (`MasterRotaSessionOut` plus `is_on_leave`.)
+- `StagingOut`: `staging_id, config_id, start_date, num_weeks, created_at, completed_at, closed_dates: list[datetime.date], sessions: list[StagingSessionOut]`. Document that `closed_dates` is live `PracticeClosure` data in the range, not a snapshot (none exists yet).
+- `StagingSessionPatchIn(MasterSessionPairIn)` and `StagingSessionCreateIn(MasterSessionPairIn)` with `doctor_id, week (ge=1, le=4), day, period` -- import and subclass `MasterSessionPairIn` from `schemas/master_rota.py` so the room/type pair validation cannot drift.
+- `StagingSessionWriteOut`: `session, displaced_session: StagingSessionOut | None` (the `MasterSessionWriteOut` shape).
+
+Router (`routers/staging.py`, prefix `/staging`, all endpoints requiring `get_current_user`):
+
+Helper `_staging_or_404(db, staging_id)`; helper `_require_active(staging)` raising 409 when `completed_at` is not None ("staging is completed; ..."); a `_session_outs`-style serialiser joining doctor/room codes and deriving `is_on_leave` (build `week_dates` via `build_week_dates(config.start_date, config.num_weeks)`, leave keys via a copy of `routers/rota.py._leave_lookup`'s query); a `_find_room_holder` scoped to `(staging_id, week, day, period, room_id)` copied from the master rota router's, including its `.first()` rationale and optional `exclude_id`.
+
+- `POST /staging` (201, returns `StagingOut`). Checks in order, each a 409 with a clear message: `get_active_draft` is None; `get_active_staging` is None; `find_overlapping_committed_rota` returns None (reuse `generate_rota`'s message format); exactly one `MasterRotaTemplate` with `is_active` is True (zero or multiple both 409 -- the engine's strict rule, message naming the count). Then: create `RotaConfig(start_date, num_weeks, template_start_week=1)` -- the literal 1 is Design Decision 4; add a comment pointing at it. Create `RotaStaging(config_id=..., source_template_id=template.id)`. Copy: for `gen_week` in 1..num_weeks, `tw = template_week(gen_week, payload.template_start_week)`, and for every `MasterRotaSession` of the template with `week == tw`, create a `RotaStagingSession` with `week=gen_week` and the same `(doctor_id, day, period, session_type, room_id)`. Copy rows regardless of closures (Design Decision 10). Flush, commit, return the full `StagingOut`.
+- `GET /staging/active` (returns `StagingOut`, 404 when none active). Selects via the `completed_at IS NULL` query, loads config and sessions, serialises.
+- `PATCH /staging/{staging_id}/sessions/{session_id}` (returns `StagingSessionWriteOut`). 404s for unknown staging / session-not-in-staging; `_require_active`; then mirror `master_rota.patch_session` exactly: validate room exists when non-null, displacement with the `PRE_ASSIGNED -> REQUIRES_ROOM` demotion, verbatim pair write, flush, commit.
+- `POST /staging/{staging_id}/sessions` (201, `StagingSessionWriteOut`). Mirror `master_rota.create_session`: doctor-exists 404, duplicate-slot 409, displacement before insert. Additionally 422 when `payload.week > config.num_weeks` ("week {n} is outside this staging's {num_weeks}-week range").
+- `DELETE /staging/{staging_id}/sessions/{session_id}` (204). Mirror `master_rota.delete_session`; `_require_active`.
+- `DELETE /staging/{staging_id}` (204, abandon). `_require_active` (a completed staging is a retained record; 409). Delete the staging first (ORM cascades the sessions), then `db.delete` its `RotaConfig` -- explicit order, and safe because an active staging by construction has no `GeneratedRota` (the only creation path is `complete`, which marks completion in the same transaction). Commit.
+
+Register in `main.py` by adding `staging` to the import and the registration tuple.
+
+Tests (`test_api/test_staging.py`), using the standard `client` fixture. Cover at minimum: create copies the right rows for `template_start_week=1` and for `template_start_week=3` with `num_weeks=2` (assert the week-3 and week-4 template rows landed as staging weeks 1 and 2, and the persisted config has `template_start_week == 1`); create 409s on zero active templates and on two; create 409s when a draft exists; second create 409s while one staging is active; committed-overlap 409; `GET /staging/active` 404s when none and returns sessions with `is_on_leave` true for a doctor with a matching `LeaveEntry` and `closed_dates` reflecting a `PracticeClosure` in range; PATCH displacement clears the holder's room and demotes a displaced `PRE_ASSIGNED`; PATCH/POST/DELETE all 409 on a completed staging (set `completed_at` directly in the test); session POST 422s for week 2 on a 1-week staging and 409s on a duplicate slot; abandon deletes staging, sessions, and config, and a fresh create then succeeds.
+
+---

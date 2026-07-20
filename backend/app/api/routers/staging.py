@@ -485,5 +485,9 @@ def abandon_staging(
 
     config = db.get(RotaConfig, staging.config_id)
     db.delete(staging)  # ORM cascade removes RotaStagingSession rows
+    db.flush()  # staging row must be gone before the config delete below --
+    # SQLite enforces FK constraints per-statement, and there is no
+    # relationship() between RotaConfig and RotaStaging for the unit of
+    # work to infer ordering from, so this cannot be left implicit.
     db.delete(config)
     db.commit()

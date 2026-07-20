@@ -208,7 +208,7 @@ def test_patch_displacement_clears_holder_and_demotes_pre_assigned(
 
     steal = client.patch(
         f"/api/v1/staging/{staging_id}/sessions/{target['session_id']}",
-        json={"session_type": "requires_room", "room_id": room_id},
+        json={"session_type": "pre_assigned", "room_id": room_id},
     )
     assert steal.status_code == 200, steal.text
     body = steal.json()
