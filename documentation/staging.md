@@ -56,41 +56,6 @@ Insert an editable step between "pick a date range" and "run the generation phas
 
 ---
 
-# Task 4: Complete endpoint and generate lock
-
-**A.** State of the world: Tasks 1-3 are complete -- the staging CRUD surface works end to end and `/api/v1/staging` is registered. This task adds `POST /staging/{staging_id}/complete`, adds the staging lock to `/rota/generate`, and tests the lifecycle interactions between the two workflows.
-
-**B.** Files:
-
-- Edit: `backend/app/api/routers/staging.py`
-- Edit: `backend/app/api/routers/rota.py`
-- Edit: `backend/tests/test_api/test_staging.py`
-- Edit: `backend/tests/test_api/test_rota.py` (the generate-lock test)
-- Reference: `backend/app/api/routers/rota.py`'s `generate_rota` (the shape being reproduced), `backend/app/engine/generate.py` (`generate`, `get_active_draft`, `get_active_staging`, `find_overlapping_committed_rota`, `rollback_commit`), `backend/tests/test_api/test_lifecycle.py` (style for lifecycle tests)
-
-Deliverables: working complete endpoint returning `GenerateRotaOut`, the generate lock, lifecycle tests green.
-
-**C.** Instructions:
-
-`POST /staging/{staging_id}/complete` (response model `GenerateRotaOut`, imported from the rota schemas):
-
-1. `_staging_or_404`, `_require_active`.
-2. 409 if `get_active_draft(db)` is not None -- message should mention that a rolled-back commit counts ("a draft rota exists; commit or scrap it before completing staging"). This check is not redundant with create-time: `rollback_commit` can produce a draft while staging is in progress.
-3. 409 if `find_overlapping_committed_rota(db, config.start_date, config.num_weeks)` finds one -- authoritative re-check; reuse the same message format.
-4. `result = generate(db, staging.config_id)`. On `result.status == "failed"`: raise the same 422-with-issues shape as `generate_rota`, without committing -- the rollback discards only this run's writes; the staging rows and config, committed by earlier requests, survive (Design Decision 8). Add a comment stating this is deliberate divergence from `generate_rota`'s discard-on-failure.
-5. On success: `staging.completed_at = now (UTC)`, `db.commit()`, return `GenerateRotaOut(rota_id=result.rota_id, status=DRAFT, issues=...)`. The completion flag and the rota land in one transaction, so no state exists where a rota was generated but the staging still reads active.
-
-In `routers/rota.py::generate_rota`, after the existing draft check: 409 if `get_active_staging(db)` is not None ("a staging session is in progress; complete or abandon it first"). Update the module docstring's lifecycle rules list.
-
-Tests:
-
-- Happy path: create staging, edit a session, complete; assert a draft `GeneratedRota` exists whose sessions reflect the edit, `completed_at` is set, staging rows still exist, and `GET /staging/active` now 404s.
-- Phase 0 retry path (the key end-to-end test): create a staging; PATCH a staged slot that carries a pre-planned `DutyAssignment` to `no_surgery`; complete -> 422 `duty_on_incompatible_slot`; assert staging and config survive and `GET /staging/active` still returns it; PATCH the slot back; complete -> success.
-- Locks: `/rota/generate` 409s while a staging is active; complete 409s when a draft exists (create a committed rota, start staging for a non-overlapping range, `rollback-commit` the committed rota, attempt complete); complete 409s on a completed staging (idempotence guard); overlap re-check at complete time (commit a rota overlapping the staging's range via direct model setup after the staging was created, then complete -> 409).
-- Post-complete lifecycle sanity: scrap the staging-born draft; assert `GET /staging/active` still 404s (completed staging does not resurrect -- the regression the `completed_at` design exists to prevent) and a fresh `/rota/generate` or staging create succeeds.
-
----
-
 # Task 5: Frontend API layer
 
 **A.** State of the world: the backend (Tasks 1-4) is complete: `/api/v1/staging` supports create / get-active / session PATCH-POST-DELETE / abandon / complete. This task adds the typed client and TanStack Query hooks; the UI is Task 6.
@@ -249,3 +214,38 @@ Register in `main.py` by adding `staging` to the import and the registration tup
 Tests (`test_api/test_staging.py`), using the standard `client` fixture. Cover at minimum: create copies the right rows for `template_start_week=1` and for `template_start_week=3` with `num_weeks=2` (assert the week-3 and week-4 template rows landed as staging weeks 1 and 2, and the persisted config has `template_start_week == 1`); create 409s on zero active templates and on two; create 409s when a draft exists; second create 409s while one staging is active; committed-overlap 409; `GET /staging/active` 404s when none and returns sessions with `is_on_leave` true for a doctor with a matching `LeaveEntry` and `closed_dates` reflecting a `PracticeClosure` in range; PATCH displacement clears the holder's room and demotes a displaced `PRE_ASSIGNED`; PATCH/POST/DELETE all 409 on a completed staging (set `completed_at` directly in the test); session POST 422s for week 2 on a 1-week staging and 409s on a duplicate slot; abandon deletes staging, sessions, and config, and a fresh create then succeeds.
 
 ---
+
+---
+
+# Task 4: Complete endpoint and generate lock
+
+**A.** State of the world: Tasks 1-3 are complete -- the staging CRUD surface works end to end and `/api/v1/staging` is registered. This task adds `POST /staging/{staging_id}/complete`, adds the staging lock to `/rota/generate`, and tests the lifecycle interactions between the two workflows.
+
+**B.** Files:
+
+- Edit: `backend/app/api/routers/staging.py`
+- Edit: `backend/app/api/routers/rota.py`
+- Edit: `backend/tests/test_api/test_staging.py`
+- Edit: `backend/tests/test_api/test_rota.py` (the generate-lock test)
+- Reference: `backend/app/api/routers/rota.py`'s `generate_rota` (the shape being reproduced), `backend/app/engine/generate.py` (`generate`, `get_active_draft`, `get_active_staging`, `find_overlapping_committed_rota`, `rollback_commit`), `backend/tests/test_api/test_lifecycle.py` (style for lifecycle tests)
+
+Deliverables: working complete endpoint returning `GenerateRotaOut`, the generate lock, lifecycle tests green.
+
+**C.** Instructions:
+
+`POST /staging/{staging_id}/complete` (response model `GenerateRotaOut`, imported from the rota schemas):
+
+1. `_staging_or_404`, `_require_active`.
+2. 409 if `get_active_draft(db)` is not None -- message should mention that a rolled-back commit counts ("a draft rota exists; commit or scrap it before completing staging"). This check is not redundant with create-time: `rollback_commit` can produce a draft while staging is in progress.
+3. 409 if `find_overlapping_committed_rota(db, config.start_date, config.num_weeks)` finds one -- authoritative re-check; reuse the same message format.
+4. `result = generate(db, staging.config_id)`. On `result.status == "failed"`: raise the same 422-with-issues shape as `generate_rota`, without committing -- the rollback discards only this run's writes; the staging rows and config, committed by earlier requests, survive (Design Decision 8). Add a comment stating this is deliberate divergence from `generate_rota`'s discard-on-failure.
+5. On success: `staging.completed_at = now (UTC)`, `db.commit()`, return `GenerateRotaOut(rota_id=result.rota_id, status=DRAFT, issues=...)`. The completion flag and the rota land in one transaction, so no state exists where a rota was generated but the staging still reads active.
+
+In `routers/rota.py::generate_rota`, after the existing draft check: 409 if `get_active_staging(db)` is not None ("a staging session is in progress; complete or abandon it first"). Update the module docstring's lifecycle rules list.
+
+Tests:
+
+- Happy path: create staging, edit a session, complete; assert a draft `GeneratedRota` exists whose sessions reflect the edit, `completed_at` is set, staging rows still exist, and `GET /staging/active` now 404s.
+- Phase 0 retry path (the key end-to-end test): create a staging; PATCH a staged slot that carries a pre-planned `DutyAssignment` to `no_surgery`; complete -> 422 `duty_on_incompatible_slot`; assert staging and config survive and `GET /staging/active` still returns it; PATCH the slot back; complete -> success.
+- Locks: `/rota/generate` 409s while a staging is active; complete 409s when a draft exists (create a committed rota, start staging for a non-overlapping range, `rollback-commit` the committed rota, attempt complete); complete 409s on a completed staging (idempotence guard); overlap re-check at complete time (commit a rota overlapping the staging's range via direct model setup after the staging was created, then complete -> 409).
+- Post-complete lifecycle sanity: scrap the staging-born draft; assert `GET /staging/active` still 404s (completed staging does not resurrect -- the regression the `completed_at` design exists to prevent) and a fresh `/rota/generate` or staging create succeeds.
