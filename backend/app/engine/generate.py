@@ -63,7 +63,7 @@ def generate(db: Session, config_id: int) -> GenerationResult:
 
     grid, counters = run_phase2(context, config, db)
     log = DecisionLog()
-    issues.extend(run_phase4(context, grid, log))
+    issues.extend(run_phase4(context, grid, counters, log))
     issues.extend(run_phase5(context, grid, counters, log))
     issues.extend(run_phase7_to_9a(context, grid, counters, log))
     issues.extend(run_phase9b(context, grid, log))
