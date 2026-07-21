@@ -96,50 +96,68 @@ export function formatWeekLabel(dateString: string): string {
   return `w/c ${day} ${month} ${year}`;
 }
 
+export function formatDateWithDay(dateString: string): string {
+  // Uses parseLocalDate to avoid the UTC midnight parsing bug
+  // that occurs when using the native Date constructor on "YYYY-MM-DD" strings.
+  const dayName = parseLocalDate(dateString).toLocaleDateString("en-GB", { weekday: "short" });
+  return `${dayName}, ${dateString}`;
+}
+
+// --- 4-weekly duty periods ---------------------------------------------
+
 /**
- * The fixed origin of the 4-weekly duty period cycle - a Monday. The
- * practice is not currently running a 4-weekly cycle, so this is simply
- * the Monday of the week this feature was written; every period start is
- * `anchor + n * 28 days`. Changing the phase later means editing this
- * constant and redeploying.
+ * A Monday. The team is not currently running a 4-weekly duty cycle, so
+ * this phase is arbitrary - it is simply the Monday of the week this
+ * constant was introduced. Every period start is anchor + n * 28 days,
+ * n negative for periods before the anchor. Hardcoded rather than derived
+ * from "this week's Monday", since deriving it would shift every boundary
+ * forward a week whenever the week ticks over, defeating the point of a
+ * fixed cycle. Changing the phase later means editing this constant and
+ * redeploying.
  */
 export const DUTY_PERIOD_ANCHOR = "2026-07-20";
 
-/** Length of a duty period in weeks. Drives both the dropdown window and
- * the counter date range, so the two can never drift apart. */
+/** Length of a duty period in weeks. Drives both the DutyGrid window and the counter date range, so the two can never drift apart. */
 export const DUTY_PERIOD_WEEKS = 4;
 
 /**
- * Converts a "YYYY-MM-DD" string to a UTC epoch value for period-index
- * arithmetic. Deliberately UTC, not local: `floor((date - anchor) / 28
- * days)` computed over local millisecond values is off by one for any
- * 28-day span that crosses a DST change (that span is 28 days minus or
- * plus one hour locally). UTC values have no DST, so the index is always
- * an exact multiple of 28 days. Do not "simplify" this back to local-time
- * subtraction.
+ * Converts a "YYYY-MM-DD" string to a UTC epoch value. Used only for the
+ * period-index arithmetic below - see getDutyPeriodStart for why UTC
+ * matters there.
  */
-function toUtcMs(dateString: string): number {
+function toUTCEpoch(dateString: string): number {
   const [year, month, day] = dateString.split("-").map(Number);
   return Date.UTC(year, month - 1, day);
 }
 
 /**
- * Returns the "YYYY-MM-DD" start date of the fixed 4-weekly duty period
- * containing `dateString`. Uses `Math.floor`, not truncating division, so
- * dates before the anchor resolve to the correct (negative) period index
- * rather than rounding toward the anchor.
+ * Returns the "YYYY-MM-DD" start date of the fixed 28-day duty period
+ * containing `dateString`.
+ *
+ * The period index is computed on UTC epoch values, not local
+ * milliseconds. floor((date - anchor) / 28 days) over local Date objects
+ * is off by one for any period spanning a DST change, since a 28-day span
+ * containing the October UK clock change is actually 28 days + 1 hour of
+ * wall-clock time in local milliseconds. Date.UTC(...) values have no DST,
+ * so the index is always exactly right; the resulting start date is then
+ * produced with the existing DST-safe addDays. Do not "simplify" this back
+ * to local-time subtraction - that reintroduces the off-by-one.
+ *
+ * Math.floor (not truncating division) is required so dates before the
+ * anchor produce the correct negative index.
  */
 export function getDutyPeriodStart(dateString: string): string {
   const periodMs = DUTY_PERIOD_WEEKS * 7 * 86_400_000;
-  const index = Math.floor((toUtcMs(dateString) - toUtcMs(DUTY_PERIOD_ANCHOR)) / periodMs);
+  const index = Math.floor((toUTCEpoch(dateString) - toUTCEpoch(DUTY_PERIOD_ANCHOR)) / periodMs);
   return addDays(DUTY_PERIOD_ANCHOR, index * DUTY_PERIOD_WEEKS * 7);
 }
 
 /**
- * Returns the "YYYY-MM-DD" start dates of `pastCount` periods before,
- * the period containing `from` (defaults to today), and `futureCount`
- * periods after - ascending. Mirrors getUpcomingMondays' `Date` parameter
- * so both can be driven by the same kind of test fixture.
+ * Returns the "YYYY-MM-DD" start dates of the duty period containing
+ * `from` (defaults to today), plus `pastCount` periods before it and
+ * `futureCount` periods after it, ascending. `pastCount + futureCount + 1`
+ * results in total. Takes a Date (matching getUpcomingMondays' signature)
+ * so callers can pass `new Date()` directly.
  */
 export function getDutyPeriodStarts(pastCount: number, futureCount: number, from: Date = new Date()): string[] {
   const currentStart = getDutyPeriodStart(toDateKey(from));
@@ -151,24 +169,26 @@ export function getDutyPeriodStarts(pastCount: number, futureCount: number, from
 }
 
 /**
- * Formats a "YYYY-MM-DD" period start as its inclusive span, e.g.
- * "20 Jul - 16 Aug 2026" or, crossing a year, "21 Dec 2026 - 17 Jan 2027".
- * Pinned to "en-GB" for month names for the same reason formatWeekLabel
- * is - a select list needs one unambiguous day-month-year order for
- * every user, not a locale-dependent one.
+ * Formats a duty period's inclusive span, e.g. "20 Jul - 16 Aug 2026" or,
+ * crossing a year boundary, "21 Dec 2026 - 17 Jan 2027". Pinned to
+ * "en-GB" for month names for the same reason formatWeekLabel is - a
+ * select list needs one unambiguous day-month-year order for every user,
+ * not a locale-dependent one.
  */
 export function formatPeriodLabel(startDateString: string): string {
-  const endDateString = addDays(startDateString, DUTY_PERIOD_WEEKS * 7 - 1);
   const start = parseLocalDate(startDateString);
-  const end = parseLocalDate(endDateString);
+  const end = parseLocalDate(addDays(startDateString, DUTY_PERIOD_WEEKS * 7 - 1));
 
   const startDay = start.getDate();
   const startMonth = start.toLocaleDateString("en-GB", { month: "short" });
   const startYear = start.getFullYear();
+
   const endDay = end.getDate();
   const endMonth = end.toLocaleDateString("en-GB", { month: "short" });
   const endYear = end.getFullYear();
 
-  const startLabel = startYear === endYear ? `${startDay} ${startMonth}` : `${startDay} ${startMonth} ${startYear}`;
-  return `${startLabel} - ${endDay} ${endMonth} ${endYear}`;
+  if (startYear === endYear) {
+    return `${startDay} ${startMonth} - ${endDay} ${endMonth} ${endYear}`;
+  }
+  return `${startDay} ${startMonth} ${startYear} - ${endDay} ${endMonth} ${endYear}`;
 }

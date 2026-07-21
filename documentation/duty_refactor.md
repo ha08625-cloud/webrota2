@@ -40,53 +40,6 @@ Out of scope, deliberately:
 
 ---
 
-## Task 1: Duty period helpers in `date.ts`
-
-**A. State of the world**
-
-Nothing has been implemented yet. This is the first of three tasks. `frontend/src/lib/date.ts` currently exports `parseLocalDate`, `isMonday`, `formatDate`, `formatDateTime`, `addDays`, `getUpcomingMondays`, `formatWeekLabel`, and a private `toDateKey`.
-
-**B. Files and deliverables**
-
-- `frontend/src/lib/date.ts` — modified, full file as artifact
-- `frontend/src/lib/date.test.ts` — modified, full file as artifact (existing tests unchanged, new describe blocks added)
-
-**C. Instructions**
-
-Add to `date.ts`, leaving every existing export untouched (`getUpcomingMondays` is still used by `RotaPage` and must not be removed or altered):
-
-```ts
-export const DUTY_PERIOD_ANCHOR = "2026-07-20"; // a Monday
-export const DUTY_PERIOD_WEEKS = 4;
-```
-
-Add a private helper that converts a `"YYYY-MM-DD"` string to a UTC epoch value via `Date.UTC(year, month - 1, day)`.
-
-Add `getDutyPeriodStart(dateString: string): string` — returns the start date of the period containing `dateString`:
-- index = `Math.floor((utc(dateString) - utc(DUTY_PERIOD_ANCHOR)) / (DUTY_PERIOD_WEEKS * 7 * 86_400_000))`
-- return `addDays(DUTY_PERIOD_ANCHOR, index * DUTY_PERIOD_WEEKS * 7)`
-- `Math.floor` handles dates before the anchor correctly (negative index); do not use truncating division.
-
-Add `getDutyPeriodStarts(pastCount: number, futureCount: number, from: Date = new Date()): string[]` — the period containing `from`, plus `pastCount` before it and `futureCount` after it, ascending, all via `addDays` from the current period start.
-
-Add `formatPeriodLabel(startDateString: string): string` — the period's inclusive span, pinned to `"en-GB"` for month names for the same reason `formatWeekLabel` is (a select list needs one unambiguous day-month-year order for every user, not a locale-dependent one). End date is `addDays(start, DUTY_PERIOD_WEEKS * 7 - 1)`. Format:
-- same year: `"20 Jul - 16 Aug 2026"`
-- crossing a year: `"21 Dec 2026 - 17 Jan 2027"`
-
-Each new export gets a comment in the style of the existing ones, explaining the *why*, not the *what*. In particular the UTC arithmetic in `getDutyPeriodStart` needs a comment recording that it exists to avoid the DST off-by-one, or someone will "simplify" it back to local-time subtraction.
-
-Tests to add:
-- `getDutyPeriodStart` returns the anchor for the anchor itself, for anchor+27 days, and not for anchor+28
-- anchor+28 returns anchor+28
-- a date before the anchor returns anchor-28 (negative index)
-- **DST regression**: with the 2026-07-20 anchor, period 3 runs 2026-10-12 to 2026-11-08 and contains the 25 October UK clock change. Assert `getDutyPeriodStart("2026-11-08") === "2026-10-12"` and `getDutyPeriodStart("2026-11-09") === "2026-11-09"`. Label this test as the DST guard so it is not deleted as redundant.
-- `getDutyPeriodStarts(1, 5, new Date(2026, 7, 5))` returns 7 ascending starts, 28 days apart, with the fourth-from... (specifically: element 0 is the period before the one containing 5 Aug 2026, element 1 is the containing period)
-- `formatPeriodLabel` for both the same-year and year-crossing cases
-
-Note for whoever writes these: `getDutyPeriodStarts` takes a `Date` (matching `getUpcomingMondays`' signature), so construct fixtures with `new Date(year, monthIndex, day)` — never `new Date("2026-08-05")`, which parses as UTC midnight and can land on the previous day.
-
----
-
 ## Task 2: Period-scoped duty counts in `api/duty.ts`
 
 **A. State of the world**
@@ -151,3 +104,50 @@ Tests:
 ## After implementation
 
 `Architecture.md` line 263 describes DutyPage as "a week-at-a-time editable grid" with a rolling selector, and will need a sentence on the fixed 4-weekly period, the hardcoded anchor, and the fact that duty counters are period-scoped with no all-time view anywhere in the app.
+
+---
+
+## Task 1: Duty period helpers in `date.ts`
+
+**A. State of the world**
+
+Nothing has been implemented yet. This is the first of three tasks. `frontend/src/lib/date.ts` currently exports `parseLocalDate`, `isMonday`, `formatDate`, `formatDateTime`, `addDays`, `getUpcomingMondays`, `formatWeekLabel`, and a private `toDateKey`.
+
+**B. Files and deliverables**
+
+- `frontend/src/lib/date.ts` — modified, full file as artifact
+- `frontend/src/lib/date.test.ts` — modified, full file as artifact (existing tests unchanged, new describe blocks added)
+
+**C. Instructions**
+
+Add to `date.ts`, leaving every existing export untouched (`getUpcomingMondays` is still used by `RotaPage` and must not be removed or altered):
+
+```ts
+export const DUTY_PERIOD_ANCHOR = "2026-07-20"; // a Monday
+export const DUTY_PERIOD_WEEKS = 4;
+```
+
+Add a private helper that converts a `"YYYY-MM-DD"` string to a UTC epoch value via `Date.UTC(year, month - 1, day)`.
+
+Add `getDutyPeriodStart(dateString: string): string` — returns the start date of the period containing `dateString`:
+- index = `Math.floor((utc(dateString) - utc(DUTY_PERIOD_ANCHOR)) / (DUTY_PERIOD_WEEKS * 7 * 86_400_000))`
+- return `addDays(DUTY_PERIOD_ANCHOR, index * DUTY_PERIOD_WEEKS * 7)`
+- `Math.floor` handles dates before the anchor correctly (negative index); do not use truncating division.
+
+Add `getDutyPeriodStarts(pastCount: number, futureCount: number, from: Date = new Date()): string[]` — the period containing `from`, plus `pastCount` before it and `futureCount` after it, ascending, all via `addDays` from the current period start.
+
+Add `formatPeriodLabel(startDateString: string): string` — the period's inclusive span, pinned to `"en-GB"` for month names for the same reason `formatWeekLabel` is (a select list needs one unambiguous day-month-year order for every user, not a locale-dependent one). End date is `addDays(start, DUTY_PERIOD_WEEKS * 7 - 1)`. Format:
+- same year: `"20 Jul - 16 Aug 2026"`
+- crossing a year: `"21 Dec 2026 - 17 Jan 2027"`
+
+Each new export gets a comment in the style of the existing ones, explaining the *why*, not the *what*. In particular the UTC arithmetic in `getDutyPeriodStart` needs a comment recording that it exists to avoid the DST off-by-one, or someone will "simplify" it back to local-time subtraction.
+
+Tests to add:
+- `getDutyPeriodStart` returns the anchor for the anchor itself, for anchor+27 days, and not for anchor+28
+- anchor+28 returns anchor+28
+- a date before the anchor returns anchor-28 (negative index)
+- **DST regression**: with the 2026-07-20 anchor, period 3 runs 2026-10-12 to 2026-11-08 and contains the 25 October UK clock change. Assert `getDutyPeriodStart("2026-11-08") === "2026-10-12"` and `getDutyPeriodStart("2026-11-09") === "2026-11-09"`. Label this test as the DST guard so it is not deleted as redundant.
+- `getDutyPeriodStarts(1, 5, new Date(2026, 7, 5))` returns 7 ascending starts, 28 days apart, with the fourth-from... (specifically: element 0 is the period before the one containing 5 Aug 2026, element 1 is the containing period)
+- `formatPeriodLabel` for both the same-year and year-crossing cases
+
+Note for whoever writes these: `getDutyPeriodStarts` takes a `Date` (matching `getUpcomingMondays`' signature), so construct fixtures with `new Date(year, monthIndex, day)` — never `new Date("2026-08-05")`, which parses as UTC midnight and can land on the previous day.
