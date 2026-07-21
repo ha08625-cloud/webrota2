@@ -18,7 +18,7 @@ Per duty row, in order:
      protected doctor (Partner/AHP, or anyone already holding a role),
      fall through to the sweep; otherwise evict the occupant and relocate
      them (Salaried via the shared preference-then-C/W/SR search,
-     Trainee via a D-room-only search), then take the room.
+     Trainee/Locum via a D-room-only search), then take the room.
   5. Fallback sweep: the first free D room by code descending (D8 down to
      D1); failing that, evict the lowest-weighted-room-move-score
      Salaried occupant of any D room (Trainees are never sweep victims).
@@ -51,7 +51,7 @@ from ..datatypes import (
     SessionSlot,
     ValidationIssue,
 )
-from ..room_relocation import find_relocation_room, find_trainee_d_room
+from ..room_relocation import find_d_room_only, find_relocation_room
 
 PHASE = "phase4"
 
@@ -229,7 +229,9 @@ def _resolve_duty_room(
         return issues
 
     # Fallback sweep: evict the lowest-weighted-score Salaried D-room
-    # occupant. Trainees are never sweep victims (Design Decision 12c).
+    # occupant. Trainees and Locums are never sweep victims (Design
+    # Decision 12c) -- the sweep selects Salaried occupants only, so this
+    # was already true for Locum by construction.
     sweep_candidates: list[tuple[int, int]] = []
     for room_id in d_room_ids_desc:
         occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
@@ -283,8 +285,8 @@ def _evict_and_place(
     evictee_code = evictee.code if evictee is not None else f"id={evictee_id}"
     room_code = context.room_by_id[d_room_id].code
 
-    if evictee is not None and evictee.doctor_type == DoctorType.TRAINEE:
-        new_room = find_trainee_d_room(context, grid, evictee_id, gen_week, day, period)
+    if evictee is not None and evictee.doctor_type in (DoctorType.TRAINEE, DoctorType.LOCUM):
+        new_room = find_d_room_only(context, grid, evictee_id, gen_week, day, period)
     else:
         new_room = find_relocation_room(context, grid, evictee_id, gen_week, day, period)
 
