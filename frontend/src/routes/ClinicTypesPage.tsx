@@ -4,7 +4,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useState } from "react";
 
-import { useClinicTypes, useDeleteClinicType, useReorderClinicTypes } from "@/api/clinicTypes";
+import { useClinicTypes, useDeleteClinicType, usePatchClinicType, useReorderClinicTypes } from "@/api/clinicTypes";
 import type { ClinicType } from "@/api/types";
 import { ClinicTypeFormDialog } from "@/components/ClinicTypeFormDialog";
 
@@ -13,15 +13,24 @@ interface DialogState {
   clinicType?: ClinicType;
 }
 
+interface ToggleHandlers {
+  onToggleEnabled: (ct: ClinicType, checked: boolean) => void;
+  onToggleRoomRequired: (ct: ClinicType, checked: boolean) => void;
+  togglesDisabled: boolean;
+}
+
 function SortableClinicTypeRow({
   clinicType,
   onEdit,
   onDelete,
+  onToggleEnabled,
+  onToggleRoomRequired,
+  togglesDisabled,
 }: {
   clinicType: ClinicType;
   onEdit: (ct: ClinicType) => void;
   onDelete: (ct: ClinicType) => void;
-}) {
+} & ToggleHandlers) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: clinicType.id,
   });
@@ -45,7 +54,24 @@ function SortableClinicTypeRow({
         </button>
       </td>
       <td className="py-1 pr-4">{clinicType.name}</td>
-      <td className="py-1 pr-4">{clinicType.room_required ? "Yes" : "No"}</td>
+      <td className="py-1 pr-4">
+        <input
+          type="checkbox"
+          aria-label={`Room required for ${clinicType.name}`}
+          checked={clinicType.room_required}
+          disabled={togglesDisabled}
+          onChange={(e) => onToggleRoomRequired(clinicType, e.target.checked)}
+        />
+      </td>
+      <td className="py-1 pr-4">
+        <input
+          type="checkbox"
+          aria-label={`Enabled for ${clinicType.name}`}
+          checked={clinicType.is_enabled}
+          disabled={togglesDisabled}
+          onChange={(e) => onToggleEnabled(clinicType, e.target.checked)}
+        />
+      </td>
       <td className="py-1 pr-4">{clinicType.category ?? "-"}</td>
       <td className="py-1 pr-4">{clinicType.schedules.length}</td>
       <td className="py-1">
@@ -64,9 +90,11 @@ export function ClinicTypesPage() {
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
   const deleteClinicType = useDeleteClinicType();
   const reorderClinicTypes = useReorderClinicTypes();
+  const patchClinicType = usePatchClinicType();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [reorderError, setReorderError] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const [enabledOrder, setEnabledOrder] = useState<ClinicType[]>([]);
 
   // clinicTypes arrives from the API already ordered by clinic_priority,
@@ -135,6 +163,42 @@ export function ClinicTypesPage() {
     });
   }
 
+  // Both toggle handlers share one error slot and one mutation. All
+  // checkboxes on the page are disabled while a patch is in flight (see
+  // togglesDisabled below) rather than tracking per-row pending state -
+  // this is what narrows a disable-toggle racing a drag reorder (the
+  // reorder endpoint 409s on a stale enabled-id set), and the list this
+  // size doesn't need anything finer-grained.
+  function handleToggleEnabled(clinicType: ClinicType, checked: boolean) {
+    setToggleError(null);
+    patchClinicType.mutate(
+      { id: clinicType.id, payload: { is_enabled: checked } },
+      {
+        onError: (err) => {
+          setToggleError(typeof err.detail === "string" ? err.detail : "Could not update this clinic type.");
+        },
+      },
+    );
+  }
+
+  function handleToggleRoomRequired(clinicType: ClinicType, checked: boolean) {
+    setToggleError(null);
+    patchClinicType.mutate(
+      { id: clinicType.id, payload: { room_required: checked } },
+      {
+        onError: (err) => {
+          setToggleError(typeof err.detail === "string" ? err.detail : "Could not update this clinic type.");
+        },
+      },
+    );
+  }
+
+  const toggleHandlers: ToggleHandlers = {
+    onToggleEnabled: handleToggleEnabled,
+    onToggleRoomRequired: handleToggleRoomRequired,
+    togglesDisabled: patchClinicType.isPending,
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -150,6 +214,7 @@ export function ClinicTypesPage() {
 
       {deleteError ? <p className="mt-3 text-sm text-red-700">{deleteError}</p> : null}
       {reorderError ? <p className="mt-3 text-sm text-red-700">{reorderError}</p> : null}
+      {toggleError ? <p className="mt-3 text-sm text-red-700">{toggleError}</p> : null}
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load clinic types.</p> : null}
@@ -175,6 +240,7 @@ export function ClinicTypesPage() {
                       <th className="py-1" />
                       <th className="py-1 pr-4 font-medium">Name</th>
                       <th className="py-1 pr-4 font-medium">Room required</th>
+                      <th className="py-1 pr-4 font-medium">Enabled</th>
                       <th className="py-1 pr-4 font-medium">Category</th>
                       <th className="py-1 pr-4 font-medium">Schedule slots</th>
                       <th className="py-1" />
@@ -182,7 +248,13 @@ export function ClinicTypesPage() {
                   </thead>
                   <tbody>
                     {enabledOrder.map((ct) => (
-                      <SortableClinicTypeRow key={ct.id} clinicType={ct} onEdit={openEdit} onDelete={handleDelete} />
+                      <SortableClinicTypeRow
+                        key={ct.id}
+                        clinicType={ct}
+                        onEdit={openEdit}
+                        onDelete={handleDelete}
+                        {...toggleHandlers}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -199,6 +271,7 @@ export function ClinicTypesPage() {
                     <th className="py-1" />
                     <th className="py-1 pr-4 font-medium">Name</th>
                     <th className="py-1 pr-4 font-medium">Room required</th>
+                    <th className="py-1 pr-4 font-medium">Enabled</th>
                     <th className="py-1 pr-4 font-medium">Category</th>
                     <th className="py-1 pr-4 font-medium">Schedule slots</th>
                     <th className="py-1" />
@@ -209,7 +282,24 @@ export function ClinicTypesPage() {
                     <tr key={ct.id} className="border-t border-border">
                       <td className="py-1" />
                       <td className="py-1 pr-4">{ct.name}</td>
-                      <td className="py-1 pr-4">{ct.room_required ? "Yes" : "No"}</td>
+                      <td className="py-1 pr-4">
+                        <input
+                          type="checkbox"
+                          aria-label={`Room required for ${ct.name}`}
+                          checked={ct.room_required}
+                          disabled={toggleHandlers.togglesDisabled}
+                          onChange={(e) => handleToggleRoomRequired(ct, e.target.checked)}
+                        />
+                      </td>
+                      <td className="py-1 pr-4">
+                        <input
+                          type="checkbox"
+                          aria-label={`Enabled for ${ct.name}`}
+                          checked={ct.is_enabled}
+                          disabled={toggleHandlers.togglesDisabled}
+                          onChange={(e) => handleToggleEnabled(ct, e.target.checked)}
+                        />
+                      </td>
                       <td className="py-1 pr-4">{ct.category ?? "-"}</td>
                       <td className="py-1 pr-4">{ct.schedules.length}</td>
                       <td className="py-1">
