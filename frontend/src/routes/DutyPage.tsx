@@ -5,14 +5,20 @@ import { useDoctors } from "@/api/doctors";
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import type { DutyType, Period } from "@/api/types";
 import { DutyGrid } from "@/components/DutyGrid";
-import { formatWeekLabel, getUpcomingMondays } from "@/lib/date";
+import { formatPeriodLabel, getDutyPeriodStarts } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
-const UPCOMING_WEEK_COUNT = 12;
+const PAST_PERIOD_COUNT = 1;
+const FUTURE_PERIOD_COUNT = 5;
 
 export function DutyPage() {
-  const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
-  const [selectedWeek, setSelectedWeek] = useState(upcomingMondays[0]);
+  const periodStarts = useMemo(
+    () => getDutyPeriodStarts(PAST_PERIOD_COUNT, FUTURE_PERIOD_COUNT),
+    [],
+  );
+  // Index PAST_PERIOD_COUNT is the period containing today - admins need to
+  // land on the in-progress period by default, not the next upcoming one.
+  const [selectedPeriod, setSelectedPeriod] = useState(periodStarts[PAST_PERIOD_COUNT]);
 
   const { data: allDoctors } = useDoctors(false);
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
@@ -57,24 +63,24 @@ export function DutyPage() {
 
       <div className="mt-4">
         <label className="block text-xs font-medium text-ink/70" htmlFor="duty-week-select">
-          Start week
+          Duty period
         </label>
         <select
           id="duty-week-select"
-          value={selectedWeek}
-          onChange={(e) => setSelectedWeek(e.target.value)}
+          value={selectedPeriod}
+          onChange={(e) => setSelectedPeriod(e.target.value)}
           className="mt-1 rounded border border-border p-1 text-sm"
         >
-          {upcomingMondays.map((monday) => (
-            <option key={monday} value={monday}>
-              {formatWeekLabel(monday)}
+          {periodStarts.map((start) => (
+            <option key={start} value={start}>
+              {formatPeriodLabel(start)}
             </option>
           ))}
         </select>
       </div>
 
       <div className="mt-4">
-        <DutyGrid startWeekDate={selectedWeek} />
+        <DutyGrid startWeekDate={selectedPeriod} />
       </div>
 
       <form
@@ -153,15 +159,17 @@ export function DutyPage() {
       </form>
       {addError ? <p className="mt-2 text-sm text-red-700">{addError}</p> : null}
 
-      {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
-      {isError ? <p className="mt-4 text-sm text-red-700">Could not load duty assignments.</p> : null}
+      <h2 className="mt-8 text-sm font-medium text-ink/70">All duty assignments</h2>
+
+      {isLoading ? <p className="mt-2 text-sm text-ink/70">Loading...</p> : null}
+      {isError ? <p className="mt-2 text-sm text-red-700">Could not load duty assignments.</p> : null}
 
       {assignments && assignments.length === 0 ? (
-        <p className="mt-4 text-sm text-ink/50">No duty assignments.</p>
+        <p className="mt-2 text-sm text-ink/50">No duty assignments.</p>
       ) : null}
 
       {assignments && assignments.length > 0 ? (
-        <table className="mt-4 min-w-full text-sm">
+        <table className="mt-2 min-w-full text-sm">
           <thead>
             <tr className="text-left text-ink/70">
               <th className="py-1 pr-4 font-medium">Date</th>

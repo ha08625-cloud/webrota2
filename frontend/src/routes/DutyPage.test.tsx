@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { makeClosure, makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
-import { getUpcomingMondays } from "@/lib/date";
+import { getDutyPeriodStarts } from "@/lib/date";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -37,10 +37,13 @@ describe("DutyPage", () => {
   });
 
   it("mounts its embedded duty grid with a closed day greyed out (M5)", async () => {
-    const [firstMonday] = getUpcomingMondays(1);
+    // Current period start (0 past, 0 future) is always the first week
+    // rendered for the page's default selection, so a closure there is
+    // guaranteed to fall inside the displayed 4-week window.
+    const [currentPeriodStart] = getDutyPeriodStarts(0, 0);
     setUpServer();
     server.use(
-      http.get("/api/v1/closures", () => HttpResponse.json([makeClosure({ date: firstMonday })])),
+      http.get("/api/v1/closures", () => HttpResponse.json([makeClosure({ date: currentPeriodStart })])),
     );
     renderWithProviders(<DutyPage />);
 
@@ -118,17 +121,18 @@ describe("DutyPage", () => {
     expect(await screen.findByText(/already exists for this date\/period\/type/)).toBeInTheDocument();
   });
 
-  it("renders a week selector with the next 12 upcoming Mondays as options", async () => {
+  it("renders a duty period selector with 1 past, the current, and 5 future periods, defaulting to the current one", async () => {
     setUpServer();
     renderWithProviders(<DutyPage />);
 
-    const select = (await screen.findByLabelText("Start week")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText("Duty period")) as HTMLSelectElement;
     const options = Array.from(select.querySelectorAll("option"));
-    expect(options).toHaveLength(12);
-    // "w/c 13 Jul 2026" shape - exact date depends on today, so only the
-    // format is asserted here (see date_test.ts for the date arithmetic
-    // itself, which is tested against fixed dates).
-    expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
+    expect(options).toHaveLength(7);
+    // Exact dates depend on today, so only the format and default
+    // selection are asserted here (see date_test.ts for the period
+    // arithmetic itself, tested against fixed dates).
+    expect(options[0].textContent).toMatch(/^\d{1,2} \w{3}( \d{4})? - \d{1,2} \w{3} \d{4}$/);
+    expect(select.value).toBe(options[1].value);
   });
 
   it("mounts the duty grid for the selected start week, showing all 4 weeks above the existing table", async () => {

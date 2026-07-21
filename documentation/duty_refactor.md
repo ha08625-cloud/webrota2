@@ -40,31 +40,6 @@ Out of scope, deliberately:
 
 ---
 
-## Task 2: Period-scoped duty counts in `api/duty.ts`
-
-**A. State of the world**
-
-Task 1 is complete: `date.ts` exports `DUTY_PERIOD_ANCHOR`, `DUTY_PERIOD_WEEKS`, `getDutyPeriodStart`, `getDutyPeriodStarts` and `formatPeriodLabel`.
-
-`useDutyCounts()` currently takes no arguments and calls `GET /duty/counts` unfiltered, with query key `["duty", "counts"]`. The backend endpoint already supports `from_date` and `to_date` query parameters; no backend work is required in this task or any other.
-
-**B. Files and deliverables**
-
-- `frontend/src/api/duty.ts` — modified, full file as artifact
-- `frontend/src/api/duty.test.tsx` — modified, full file as artifact
-
-**C. Instructions**
-
-Give `useDutyCounts` an optional range argument, `{ from: string; to: string } | undefined`, both `"YYYY-MM-DD"`.
-
-- When a range is given, request `/duty/counts?from_date=${from}&to_date=${to}`. Follow the existing convention in `api/leave.ts` and build the query string into the path directly; `apiClient.get` takes a path only.
-- `dutyKeys.counts` becomes a function of the range so that switching period refetches rather than serving the previous period's numbers. Keep the unranged key shape as-is when no range is passed, so the existing `dutyKeys.all` invalidation in the create/delete mutations still covers every variant (it does — `all` is the prefix).
-- The mutation `onSuccess` handlers are unchanged: they already invalidate `dutyKeys.all`.
-
-Tests: assert the request URL carries both params when a range is supplied and neither when it does not, and that two different ranges produce two different cache entries rather than one shared one. Use the existing MSW handler pattern in `frontend/test/msw/handlers.ts`.
-
----
-
 ## Task 3: Period selector and scoped counter columns
 
 **A. State of the world**
@@ -151,3 +126,29 @@ Tests to add:
 - `formatPeriodLabel` for both the same-year and year-crossing cases
 
 Note for whoever writes these: `getDutyPeriodStarts` takes a `Date` (matching `getUpcomingMondays`' signature), so construct fixtures with `new Date(year, monthIndex, day)` — never `new Date("2026-08-05")`, which parses as UTC midnight and can land on the previous day.
+
+
+---
+
+## Task 2: Period-scoped duty counts in `api/duty.ts`
+
+**A. State of the world**
+
+Task 1 is complete: `date.ts` exports `DUTY_PERIOD_ANCHOR`, `DUTY_PERIOD_WEEKS`, `getDutyPeriodStart`, `getDutyPeriodStarts` and `formatPeriodLabel`.
+
+`useDutyCounts()` currently takes no arguments and calls `GET /duty/counts` unfiltered, with query key `["duty", "counts"]`. The backend endpoint already supports `from_date` and `to_date` query parameters; no backend work is required in this task or any other.
+
+**B. Files and deliverables**
+
+- `frontend/src/api/duty.ts` — modified, full file as artifact
+- `frontend/src/api/duty.test.tsx` — modified, full file as artifact
+
+**C. Instructions**
+
+Give `useDutyCounts` an optional range argument, `{ from: string; to: string } | undefined`, both `"YYYY-MM-DD"`.
+
+- When a range is given, request `/duty/counts?from_date=${from}&to_date=${to}`. Follow the existing convention in `api/leave.ts` and build the query string into the path directly; `apiClient.get` takes a path only.
+- `dutyKeys.counts` becomes a function of the range so that switching period refetches rather than serving the previous period's numbers. Keep the unranged key shape as-is when no range is passed, so the existing `dutyKeys.all` invalidation in the create/delete mutations still covers every variant (it does — `all` is the prefix).
+- The mutation `onSuccess` handlers are unchanged: they already invalidate `dutyKeys.all`.
+
+Tests: assert the request URL carries both params when a range is supplied and neither when it does not, and that two different ranges produce two different cache entries rather than one shared one. Use the existing MSW handler pattern in `frontend/test/msw/handlers.ts`.

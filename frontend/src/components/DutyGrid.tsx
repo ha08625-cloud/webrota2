@@ -15,7 +15,7 @@ import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts } from "@/api/duty
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
-import { addDays, formatWeekLabel } from "@/lib/date";
+import { addDays, DUTY_PERIOD_WEEKS, formatWeekLabel } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
@@ -23,7 +23,6 @@ import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/reso
 import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
 
 const PERIODS: Period[] = ["AM", "PM"];
-const WEEK_COUNT = 4;
 
 function findAssignment(
   assignments: DutyAssignment[],
@@ -41,7 +40,17 @@ interface DutyGridProps {
 export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
-  const { data: countsData, isLoading: countsLoading } = useDutyCounts();
+  // Counters are deliberately period-scoped, not all-time: the 4-weekly
+  // duty periods feature removed the all-time view rather than moving it
+  // (see lib/date.ts and the implementation plan's Design Decision 5).
+  // The range is derived from the same startWeekDate and DUTY_PERIOD_WEEKS
+  // the grid itself renders, so the counters can never drift out of step
+  // with the weeks actually shown.
+  const countsRange = useMemo(
+    () => ({ from: startWeekDate, to: addDays(startWeekDate, DUTY_PERIOD_WEEKS * 7 - 1) }),
+    [startWeekDate],
+  );
+  const { data: countsData, isLoading: countsLoading } = useDutyCounts(countsRange);
   const { data: closures } = useClosures();
   const createDuty = useCreateDuty();
   const deleteDuty = useDeleteDuty();
@@ -49,7 +58,7 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const [activeDoctor, setActiveDoctor] = useState<DraggableDoctor | null>(null);
 
   const weekStartDates = useMemo(
-    () => Array.from({ length: WEEK_COUNT }, (_, i) => addDays(startWeekDate, i * 7)),
+    () => Array.from({ length: DUTY_PERIOD_WEEKS }, (_, i) => addDays(startWeekDate, i * 7)),
     [startWeekDate],
   );
 

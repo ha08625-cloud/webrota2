@@ -184,6 +184,41 @@ describe("DutyGrid", () => {
     expect(await screen.findByText("0.00")).toBeInTheDocument();
   });
 
+  it("requests counts scoped to the rendered 4-week period, not all-time", async () => {
+    setUpServer();
+    let capturedUrl: URL | undefined;
+    server.use(
+      http.get("/api/v1/duty/counts", ({ request }) => {
+        capturedUrl = new URL(request.url);
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    await waitFor(() => expect(capturedUrl).toBeDefined());
+    // Window is 2026-07-13 through 2026-08-07 (4 weeks, inclusive) - see
+    // the WEEK_START_DATES comment above for how that span is derived.
+    expect(capturedUrl?.searchParams.get("from_date")).toBe("2026-07-13");
+    expect(capturedUrl?.searchParams.get("to_date")).toBe("2026-08-07");
+  });
+
+  it("a doctor with no duties in the period renders 0, not a dash, once counts have loaded", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true })],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 0 }]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByText("0")).toBeInTheDocument();
+    expect(screen.queryByText("–")).not.toBeInTheDocument();
+  });
+
   it("displays en-dash placeholders while loading counts", async () => {
     // 1. Setup base routes so doctors load and the grid actually renders the chips
     setUpServer();
