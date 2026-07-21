@@ -60,6 +60,25 @@ class TestPass1FreeRoom:
         assert entries[0].room_id == d_room.id
         assert "pass 1" in entries[0].message
 
+    def test_locum_free_d_room_assigned_both_sessions(self, session, config_1wk):
+        """Locum behaves as Trainee-minus-supervision (Locum ticket, Design
+        Decision 1) -- it joins the same D-room candidate pool as
+        Trainee/AHP in both Pass 1 and Pass 2.
+        """
+        t = make_template(session, is_active=True)
+        locum = make_doctor(session, code="LL", doctor_type=DoctorType.LOCUM)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        _requires_room(session, t, locum, period=Period.AM)
+        _requires_room(session, t, locum, period=Period.PM)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(locum.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(locum.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
+        assert not any(i.phase == "phase7_9a" for i in issues)
+
 
 class TestPass1Displacement:
     def test_displaces_full_day_occupant_once(self, session, config_1wk):
@@ -475,6 +494,29 @@ class TestPass2SingleSession:
         assert displace_entries[0].period == Period.AM
         assert "pass 2" in displace_entries[0].message
 
+    def test_locum_single_session_displacement(self, session, config_1wk):
+        """Locum joins the Pass 2 single-session D-room candidate pool on
+        the same footing as Trainee/AHP (Locum ticket, Design Decision 1).
+        """
+        t = make_template(session, is_active=True)
+        locum = make_doctor(session, code="LL", doctor_type=DoctorType.LOCUM)
+        occupant = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, locum, period=Period.AM)
+        _pre_assigned(session, t, occupant, d_room, period=Period.AM)
+        make_preferred_room(session, occupant, preference_order=1, room=fallback)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(locum.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
+        assert counters.system[(occupant.id, SystemCounterType.ROOM_MOVE)] == 1
+        assert not any(i.phase == "phase7_9a" and i.severity == "warning" for i in issues)
+
 
 class TestPass3PartnerSalariedFallback:
     def test_first_free_preferred_room_assigned_no_displacement(self, session, config_1wk):
@@ -533,7 +575,7 @@ class TestPass3PartnerSalariedFallback:
         assert "pass 3" in entries[0].message
         assert "fallback" in entries[0].message
 
-    def test_fallback_order_d_before_c_before_w_before_sr(self, session, config_1wk):
+    def test_fallback_order_sr_before_d_before_c_before_w(self, session, config_1wk):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
         w_room = make_room(session, code="W1", room_type=RoomType.W)
@@ -547,26 +589,26 @@ class TestPass3PartnerSalariedFallback:
         log = DecisionLog()
         issues = run_phase7_to_9a(ctx, grid, counters, log)
 
-        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
         assert not any(i.check == "no_partner_salaried_room" for i in issues)
 
-    def test_fallback_order_c_before_w_and_sr_when_d_occupied(self, session, config_1wk):
+    def test_fallback_order_d_before_c_and_w_when_sr_occupied(self, session, config_1wk):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
-        d_occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
-        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
         w_room = make_room(session, code="W1", room_type=RoomType.W)
         c_room = make_room(session, code="C1", room_type=RoomType.C)
-        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
 
         _requires_room(session, t, partner)
-        _pre_assigned(session, t, d_occupant, d_room)
+        _pre_assigned(session, t, sr_occupant, sr_room)
 
         ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
         issues = run_phase7_to_9a(ctx, grid, counters, log)
 
-        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == c_room.id
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert not any(i.check == "no_partner_salaried_room" for i in issues)
 
     def test_fallback_within_type_orders_by_code_not_creation_order(self, session, config_1wk):
