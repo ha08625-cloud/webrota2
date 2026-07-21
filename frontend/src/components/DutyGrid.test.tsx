@@ -197,10 +197,12 @@ describe("DutyGrid", () => {
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     await waitFor(() => expect(capturedUrl).toBeDefined());
-    // Window is 2026-07-13 through 2026-08-07 (4 weeks, inclusive) - see
-    // the WEEK_START_DATES comment above for how that span is derived.
+    // A 28-day period runs Monday (day 0) to Sunday (day 27) of the 4th
+    // week, not to that week's Friday - week 4 starts 2026-08-03, so the
+    // period's last calendar day is 2026-08-09, even though the grid's
+    // last rendered weekday column is Friday 2026-08-07.
     expect(capturedUrl?.searchParams.get("from_date")).toBe("2026-07-13");
-    expect(capturedUrl?.searchParams.get("to_date")).toBe("2026-08-07");
+    expect(capturedUrl?.searchParams.get("to_date")).toBe("2026-08-09");
   });
 
   it("a doctor with no duties in the period renders 0, not a dash, once counts have loaded", async () => {
