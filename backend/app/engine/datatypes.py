@@ -238,12 +238,22 @@ class CounterState:
         return raw / spw
 
     def weighted_system_score(
-        self, doctor_id: int, counter_type: SystemCounterType, spw: float
+        self,
+        doctor_id: int,
+        counter_type: SystemCounterType,
+        spw: float,
+        multiplier: float = 1.0,
     ) -> float:
+        """`raw / spw`, scaled by `multiplier`. `spw=0` -> inf regardless of
+        `multiplier` -- an undefined score stays undefined. `multiplier` is
+        currently only passed by Phase 9C (supervision-preference weighting
+        of the SUPERVISION counter); ROOM_MOVE callers pass nothing and get
+        the unscaled score, unchanged from before this parameter existed.
+        """
         if spw == 0:
             return math.inf
         raw = self.system.get((doctor_id, counter_type), 0)
-        return raw / spw
+        return (raw / spw) * multiplier
 
     def increment_clinic(self, doctor_id: int, clinic_type_id: int) -> None:
         key = (doctor_id, clinic_type_id)

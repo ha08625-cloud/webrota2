@@ -28,7 +28,15 @@ inline their logic into `phase12.py`.
 """
 from __future__ import annotations
 
-from ...models.enums import Day, DoctorType, MasterSessionType, Period, RoomType, SystemCounterType
+from ...models.enums import (
+    Day,
+    DoctorType,
+    MasterSessionType,
+    Period,
+    RoomType,
+    SupervisionPreference,
+    SystemCounterType,
+)
 from ..datatypes import (
     CounterState,
     DecisionLog,
@@ -47,6 +55,21 @@ _EXCLUDED_TEMPLATE_TYPES = frozenset({
 })
 _SUPERVISOR_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 _SUPERVISOR_ROOM_TYPES = (RoomType.D, RoomType.SR)
+
+# Deprioritises (does not exclude) pool candidates by supervision
+# preference. NONE uses a large finite multiplier rather than math.inf so
+# that relative ordering between multiple "none"-preference doctors is
+# preserved when they are the only candidates left -- math.inf would
+# collapse them all to the alphabetical tiebreak regardless of their
+# actual supervision history. Deliberately not used by `_assign_sr_priority`
+# (the SR-room fast path is preference-blind by design) and does not affect
+# how the SUPERVISION counter itself increments.
+_PREFERENCE_MULTIPLIERS = {
+    SupervisionPreference.NONE: 1_000_000,
+    SupervisionPreference.LESS: 1.5,
+    SupervisionPreference.NORMAL: 1.0,
+    SupervisionPreference.MORE: 0.66,
+}
 
 
 def count_supervisable_trainees(
@@ -133,6 +156,7 @@ def run_phase9c(
                     counters.weighted_system_score(
                         slot.doctor_id, SystemCounterType.SUPERVISION,
                         context.spw_by_id.get(slot.doctor_id, 0.0),
+                        _PREFERENCE_MULTIPLIERS[context.doctor_by_id[slot.doctor_id].supervision_preference],
                     ),
                     context.doctor_by_id[slot.doctor_id].code,
                 ))
@@ -160,20 +184,38 @@ def _pool_selection_reason(
 ) -> str:
     """Describe why `pool[0]` was picked over the field, mirroring Phase 5's
     `_selection_reason` but keyed on the SUPERVISION system counter -- the
-    pool has no priority-tier concept, so this only ever compares scores."""
+    pool has no priority-tier concept, so this only ever compares scores.
+
+    If the preference multiplier changed the outcome (the raw, unweighted
+    scores would have picked someone else), the message says so explicitly,
+    so the generation log never disagrees with what actually happened.
+    """
     if len(pool) == 1:
         return "only eligible doctor"
 
     a, b = pool[0], pool[1]
+    mult_a = _PREFERENCE_MULTIPLIERS[context.doctor_by_id[a.doctor_id].supervision_preference]
+    mult_b = _PREFERENCE_MULTIPLIERS[context.doctor_by_id[b.doctor_id].supervision_preference]
     score_a = counters.weighted_system_score(
-        a.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(a.doctor_id, 0.0),
+        a.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(a.doctor_id, 0.0), mult_a,
     )
     score_b = counters.weighted_system_score(
+        b.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(b.doctor_id, 0.0), mult_b,
+    )
+    if score_a == score_b:
+        return "alphabetical tie-break"
+
+    raw_a = counters.weighted_system_score(
+        a.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(a.doctor_id, 0.0),
+    )
+    raw_b = counters.weighted_system_score(
         b.doctor_id, SystemCounterType.SUPERVISION, context.spw_by_id.get(b.doctor_id, 0.0),
     )
-    if score_a != score_b:
-        return f"lowest weighted supervision score {score_a:.2f} vs {score_b:.2f}"
-    return "alphabetical tie-break"
+    # a is the winner post-multiplier (score_a < score_b, checked above). If
+    # a's raw (unweighted) score was actually higher than b's, the raw order
+    # would have picked b -- the multiplier is what flipped the outcome.
+    suffix = " (preference-adjusted)" if raw_a > raw_b else ""
+    return f"lowest weighted supervision score {score_a:.2f} vs {score_b:.2f}{suffix}"
 
 
 def _assign_sr_priority(

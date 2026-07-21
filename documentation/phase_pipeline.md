@@ -181,7 +181,14 @@ The port from the original GAS design (absorbed from the now-retired `algorithms
 2. **SR priority:** the first eligible occupant of an SR room (rooms ordered by `code` for determinism - the schema does not constrain SR to exactly one room even though the seed currently has one) is assigned immediately.
 3. Otherwise build the pool of every eligible-supervisor slot in the session.
 4. Empty pool -> `supervision_unassignable` warning, no assignment (Phase 12 Check 4 also independently reports the session).
-5. Otherwise select by lowest weighted `SUPERVISION` score (`raw_count / sessions_per_week`; `spw=0` scores infinity, never selected), alphabetical tiebreak by doctor code - the same selection pattern as Phase 5.
+5. Otherwise select by lowest weighted `SUPERVISION` score (`raw_count / sessions_per_week`; `spw=0` scores infinity, never selected), scaled by the doctor's `supervision_preference` multiplier, alphabetical tiebreak by doctor code - the same selection pattern as Phase 5.
+
+**Supervision preference (pool selection only):** each doctor has a `supervision_preference` (`none`/`less`/`normal`/`more`, default `normal`) that multiplies their weighted `SUPERVISION` score before the pool comparison in step 5 - `{NONE: 1_000_000, LESS: 1.5, NORMAL: 1.0, MORE: 0.66}`, hardcoded in `phase9c.py`. Lower score still wins, so a higher multiplier deprioritises. Two scoping points, both deliberate:
+
+- **The SR-priority fast path (step 2) is preference-blind.** A `none`-preference doctor occupying the SR room that session is still auto-assigned with no comparison to anyone else. Only the pool path (step 5) applies the multiplier.
+- **The multiplier deprioritises, it does not exclude.** A `none`-preference doctor can still be selected from the pool if they are the sole eligible doctor that session - step 4's "only eligible doctor" case has no competitor to lose to. Supervision must still happen even when the only available doctor dislikes it.
+
+The multiplier never changes what the `SUPERVISION` counter counts, only who gets picked; the Counters page continues to show the plain unweighted (`raw / spw`) score, same shared display component as `ROOM_MOVE`. When the multiplier changes the pool winner from what the raw score would have picked, the generation log message is suffixed `(preference-adjusted)`.
 
 **Manual-edit escape hatch:** `is_supervising` is included in the session PATCH (`SessionPatchIn`), applied verbatim with no eligibility check - consistent with the rest of the editing API's apply-then-warn model. Phase 12 Check 4 prong 2 (`supervision_on_incompatible_slot`) surfaces misuse on the re-run every edit endpoint already triggers. Edits never touch the `SUPERVISION` system counter, matching the existing rule that counters are written only at generation time.
 
