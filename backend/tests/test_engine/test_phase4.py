@@ -458,6 +458,58 @@ class TestEviction:
         assert len(not_relocated) == 1
         assert not_relocated[0].severity == "warning"
 
+    def test_preferred_room_occupied_by_locum_evicted_to_free_d_room(
+        self, session, config_1wk, monday
+    ):
+        """Locum behaves as Trainee-minus-supervision (Locum ticket, Design
+        Decision 1): an evicted Locum is relocated within D rooms only,
+        never into C/W/SR, same as Trainee.
+        """
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        locum = make_doctor(session, code="LL", doctor_type=DoctorType.LOCUM)
+        preferred = make_room(session, code="D3", room_type=RoomType.D)
+        other_d = make_room(session, code="D5", room_type=RoomType.D)
+        make_preferred_room(session, duty_doc, preference_order=1, room=preferred)
+        _pre_assigned(session, t, locum, preferred)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, counters, log)
+
+        assert grid.get(duty_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == preferred.id
+        assert grid.get(locum.id, 1, Day.MONDAY, Period.AM).assigned_room_id == other_d.id
+        assert counters.system[(locum.id, SystemCounterType.ROOM_MOVE)] == 1
+        assert not any(i.check == "duty_evictee_not_relocated" for i in issues)
+
+    def test_locum_never_a_fallback_sweep_victim(self, session, config_1wk, monday):
+        """The fallback sweep selects Salaried occupants only (Design
+        Decision 12c); a Locum sitting in a D room must never be chosen
+        even when it has the lowest weighted room-move score in the
+        practice.
+        """
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="ZZ")
+        locum = make_doctor(session, code="LL", doctor_type=DoctorType.LOCUM, spw="10.0")
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        make_system_counter(session, locum, SystemCounterType.ROOM_MOVE, raw_count=0)
+        _pre_assigned(session, t, locum, d1)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, counters, log)
+
+        # No free D room and no eligible sweep victim (Locum is not
+        # Salaried) -- the duty doctor is left roomless, and the Locum is
+        # never touched.
+        assert grid.get(duty_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
+        assert grid.get(locum.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+        assert any(i.check == "duty_no_d_room_available" for i in issues)
+
     def test_salaried_eviction_relocation_fails_still_roomless_but_counter_incremented(
         self, session, config_1wk, monday
     ):
