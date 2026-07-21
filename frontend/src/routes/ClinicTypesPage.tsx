@@ -13,6 +13,36 @@ interface DialogState {
   clinicType?: ClinicType;
 }
 
+const DAY_ORDER: Record<string, number> = {
+  Monday: 0,
+  Tuesday: 1,
+  Wednesday: 2,
+  Thursday: 3,
+  Friday: 4,
+};
+
+const DAY_ABBREVIATION: Record<string, string> = {
+  Monday: "Mon",
+  Tuesday: "Tue",
+  Wednesday: "Wed",
+  Thursday: "Thu",
+  Friday: "Fri",
+};
+
+/**
+ * Renders every schedule slot as "Mon AM, Wed PM, ..." instead of a bare
+ * count, sorted weekday-then-period so the list reads in week order
+ * regardless of the order slots were added in the form.
+ */
+function formatSchedules(schedules: ClinicType["schedules"]): string {
+  if (schedules.length === 0) return "-";
+  return schedules
+    .slice()
+    .sort((a, b) => DAY_ORDER[a.day] - DAY_ORDER[b.day] || a.period.localeCompare(b.period))
+    .map((s) => `${DAY_ABBREVIATION[s.day]} ${s.period}`)
+    .join(", ");
+}
+
 interface ToggleHandlers {
   onToggleEnabled: (ct: ClinicType, checked: boolean) => void;
   onToggleRoomRequired: (ct: ClinicType, checked: boolean) => void;
@@ -72,8 +102,7 @@ function SortableClinicTypeRow({
           onChange={(e) => onToggleEnabled(clinicType, e.target.checked)}
         />
       </td>
-      <td className="py-1 pr-4">{clinicType.category ?? "-"}</td>
-      <td className="py-1 pr-4">{clinicType.schedules.length}</td>
+      <td className="py-1 pr-4">{formatSchedules(clinicType.schedules)}</td>
       <td className="py-1">
         <button type="button" onClick={() => onEdit(clinicType)} className="mr-3 text-xs text-accent">
           Edit
@@ -241,8 +270,7 @@ export function ClinicTypesPage() {
                       <th className="py-1 pr-4 font-medium">Name</th>
                       <th className="py-1 pr-4 font-medium">Room required</th>
                       <th className="py-1 pr-4 font-medium">Enabled</th>
-                      <th className="py-1 pr-4 font-medium">Category</th>
-                      <th className="py-1 pr-4 font-medium">Schedule slots</th>
+                      <th className="py-1 pr-4 font-medium">Schedule</th>
                       <th className="py-1" />
                     </tr>
                   </thead>
@@ -272,8 +300,7 @@ export function ClinicTypesPage() {
                     <th className="py-1 pr-4 font-medium">Name</th>
                     <th className="py-1 pr-4 font-medium">Room required</th>
                     <th className="py-1 pr-4 font-medium">Enabled</th>
-                    <th className="py-1 pr-4 font-medium">Category</th>
-                    <th className="py-1 pr-4 font-medium">Schedule slots</th>
+                    <th className="py-1 pr-4 font-medium">Schedule</th>
                     <th className="py-1" />
                   </tr>
                 </thead>
@@ -300,8 +327,7 @@ export function ClinicTypesPage() {
                           onChange={(e) => handleToggleEnabled(ct, e.target.checked)}
                         />
                       </td>
-                      <td className="py-1 pr-4">{ct.category ?? "-"}</td>
-                      <td className="py-1 pr-4">{ct.schedules.length}</td>
+                      <td className="py-1 pr-4">{formatSchedules(ct.schedules)}</td>
                       <td className="py-1">
                         <button type="button" onClick={() => openEdit(ct)} className="mr-3 text-xs text-accent">
                           Edit
