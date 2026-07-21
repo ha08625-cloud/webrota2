@@ -8,9 +8,11 @@ relocation is a separate, deliberately different search
 preference list) and stays there -- it has no call site here and none is
 added.
 
-`find_trainee_d_room` was added for Phase 4 (Design Decision 8): when a
-duty doctor evicts a Trainee from a D room, the Trainee is relocated
-within D rooms only, never into C/W/SR.
+`find_d_room_only` was added for Phase 4 (Design Decision 8): when a duty
+doctor evicts a Trainee from a D room, the Trainee is relocated within D
+rooms only, never into C/W/SR. Renamed from `find_trainee_d_room` when
+Locum was added (Locum ticket, Design Decision 1: Locum behaves as
+Trainee-minus-supervision and shares this same relocation path).
 
 This module has no knowledge of Phase 4 or duty -- it is the generic
 "where does a displaced doctor go" search, usable by any phase that
@@ -54,12 +56,12 @@ def find_relocation_room(
     return None
 
 
-def find_trainee_d_room(
+def find_d_room_only(
     context: GenerationContext, grid: RotaGrid, doctor_id: int,
     gen_week: int, day: Day, period: Period,
 ) -> int | None:
     """Single-session, D-room-only relocation search for a displaced
-    Trainee (Phase 4, Design Decision 8).
+    Trainee or Locum (Phase 4, Design Decision 8).
 
     Tries the doctor's own preferred D-type rooms in preference order
     first, then any other free D room by code ascending -- the engine's
@@ -67,6 +69,9 @@ def find_trainee_d_room(
     order Phase 4's own fallback sweep uses when placing the duty doctor
     (see phase4.py Design Decision 8/12a: those two orderings solve
     different problems and are not meant to be harmonised).
+
+    Used for both Trainee and Locum evictees -- Locum behaves as
+    Trainee-minus-supervision (Locum ticket, Design Decision 1).
 
     Returns `None` if no D room is free. Never falls back to C/W/SR.
     """
