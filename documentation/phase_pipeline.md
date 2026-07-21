@@ -161,14 +161,14 @@ The GAS-era "both prefer the same room; Partner wins" row was dropped during the
 **Purpose:** Assign a supervising Partner/Salaried doctor to every session with at least one trainee requiring supervision.
 
 **Reads:** The grid, the counter state, `GenerationContext` (doctor types, room types).  
-**Writes:** `is_supervising=True` on the selected slot; increments the selected doctor's `SUPERVISION` system counter. Emits a `supervision_unassignable` warning when no eligible supervisor exists for a session.  
-**Depends on:** Phase 9B (rooms must be final; room type drives eligibility).  
+**Writes:** `is_supervising=True` on the selected slot; increments the selected doctor's `SUPERVISION` system counter; may also swap two doctors' room assignments for the session (see step 5 below) - this is the one point after Phase 9B where a room assignment changes. Emits a `supervision_unassignable` warning when no eligible supervisor exists for a session.  
+**Depends on:** Phase 9B (rooms must be resolved before eligibility, and current occupancy, can be evaluated; Phase 9C may itself further adjust room assignments via the SR swap).  
 **Python implementation:** `run_phase9c(context, grid, counters)` in `phase9c.py`. Exposes two shared, module-level public predicates - `count_supervisable_trainees` and `is_eligible_supervisor` - reused verbatim by Phase 12 Check 4, so the assignment rule and the validation rule cannot drift apart.
 
 The port from the original GAS design (absorbed from the now-retired `algorithms.md`) diverges in three confirmed places:
 
 1. **Single supervisor pool - the GAS duty-helper fallback pool is dropped.** Duty helpers are deliberately kept away from supervising in practice (it interferes with duty-helper work), so there is no secondary pool. A duty helper holds `role=CLINIC`, so the single pool's `role is None` criterion excludes them for free - no `ClinicTypeInfo.category` plumbing was needed.
-2. **The SR-priority doctor's `SUPERVISION` counter IS incremented**, same as a pool-selected doctor. GAS did not increment it, which slightly favoured SR occupants for future selection; the counter now means "times supervised", full stop, regardless of which path assigned it.
+2. **No SR-priority fast path.** GAS (and an earlier iteration of this port) auto-assigned the SR-room occupant ahead of the pool comparison, whether or not they were the fairest choice by counter. That fast path has been removed: selection is always by weighted `SUPERVISION` score across the whole D/SR pool, so a doctor already sitting in SR competes on the same footing as one sitting in D.
 3. **The trainee count is not persisted.** `is_supervising: bool` is the only persisted output - `is_on_leave` is derived from `leave_entries` at read time, so a persisted count would go stale whenever leave is added after generation (or an edit flips a trainee's slot to `NO_SURGERY`). The frontend derives the count client-side for the badge (see `superviseeCount.ts`), mirroring the same rule.
 
 **Trainee counting rule** (`count_supervisable_trainees`): a trainee counts toward "needs supervision" iff their slot exists, `doctor_type == TRAINEE`, not on leave, not WFH, and `template_type` is not `NO_SURGERY`/`ADMIN_TIME`. **No room criterion:** a trainee holding a C or W room still counts, even though eligible supervisors are by definition on-site in D/SR rooms - this matches GAS and is the intended model, not an oversight.
@@ -178,15 +178,14 @@ The port from the original GAS design (absorbed from the now-retired `algorithms
 **Per session, in order:**
 
 1. Count supervisable trainees. Zero -> skip the session entirely.
-2. **SR priority:** the first eligible occupant of an SR room (rooms ordered by `code` for determinism - the schema does not constrain SR to exactly one room even though the seed currently has one) is assigned immediately.
-3. Otherwise build the pool of every eligible-supervisor slot in the session.
-4. Empty pool -> `supervision_unassignable` warning, no assignment (Phase 12 Check 4 also independently reports the session).
-5. Otherwise select by lowest weighted `SUPERVISION` score (`raw_count / sessions_per_week`; `spw=0` scores infinity, never selected), scaled by the doctor's `supervision_preference` multiplier, alphabetical tiebreak by doctor code - the same selection pattern as Phase 5.
+2. Build the pool of every eligible-supervisor slot in the session (D or SR room, no SR-first shortcut).
+3. Empty pool -> `supervision_unassignable` warning, no assignment (Phase 12 Check 4 also independently reports the session).
+4. Otherwise select by lowest weighted `SUPERVISION` score (`raw_count / sessions_per_week`; `spw=0` scores infinity, never selected), scaled by the doctor's `supervision_preference` multiplier, alphabetical tiebreak by doctor code - the same selection pattern as Phase 5. Sets `is_supervising=True` and increments the selected doctor's `SUPERVISION` counter.
+5. **SR swap:** if the selected supervisor is not already sitting in an SR room, and an SR room (rooms ordered by `code` for determinism - the schema does not constrain SR to exactly one room even though the seed currently has one) is occupied by a different doctor, the two doctors' room assignments are swapped - the supervisor takes the SR room, the displaced doctor takes the supervisor's vacated room. Excluded edge case: if the selected supervisor is already sitting in an SR room, no swap happens. If no SR room is occupied by anyone else, no swap happens. The swap is a pure room move: it does not touch `is_supervising` or the `SUPERVISION` counter of either doctor beyond what step 4 already set.
 
-**Supervision preference (pool selection only):** each doctor has a `supervision_preference` (`none`/`less`/`normal`/`more`, default `normal`) that multiplies their weighted `SUPERVISION` score before the pool comparison in step 5 - `{NONE: 1_000_000, LESS: 1.5, NORMAL: 1.0, MORE: 0.66}`, hardcoded in `phase9c.py`. Lower score still wins, so a higher multiplier deprioritises. Two scoping points, both deliberate:
+**Supervision preference (pool selection only):** each doctor has a `supervision_preference` (`none`/`less`/`normal`/`more`, default `normal`) that multiplies their weighted `SUPERVISION` score before the pool comparison in step 4 - `{NONE: 1_000_000, LESS: 1.5, NORMAL: 1.0, MORE: 0.66}`, hardcoded in `phase9c.py`. Lower score still wins, so a higher multiplier deprioritises. Applies uniformly to every pool candidate now that there is no SR-priority fast path to exempt from it. One scoping point remains deliberate:
 
-- **The SR-priority fast path (step 2) is preference-blind.** A `none`-preference doctor occupying the SR room that session is still auto-assigned with no comparison to anyone else. Only the pool path (step 5) applies the multiplier.
-- **The multiplier deprioritises, it does not exclude.** A `none`-preference doctor can still be selected from the pool if they are the sole eligible doctor that session - step 4's "only eligible doctor" case has no competitor to lose to. Supervision must still happen even when the only available doctor dislikes it.
+- **The multiplier deprioritises, it does not exclude.** A `none`-preference doctor can still be selected from the pool if they are the sole eligible doctor that session - step 3's "only eligible doctor" case has no competitor to lose to. Supervision must still happen even when the only available doctor dislikes it.
 
 The multiplier never changes what the `SUPERVISION` counter counts, only who gets picked; the Counters page continues to show the plain unweighted (`raw / spw`) score, same shared display component as `ROOM_MOVE`. When the multiplier changes the pool winner from what the raw score would have picked, the generation log message is suffixed `(preference-adjusted)`.
 

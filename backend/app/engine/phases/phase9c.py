@@ -1,25 +1,37 @@
 """Phase 9C -- trainee supervision assignment.
 
-Runs after Phase 9B (rooms are final by then; room type drives eligibility)
-and before Phase 12. For every session with at least one trainee requiring
-supervision, assigns a supervisor: the SR-room occupant if eligible,
-otherwise the eligible Partner/Salaried doctor with the lowest weighted
-SUPERVISION score (alphabetical tiebreak). Emits a warning, and leaves the
-session unassigned, when no eligible supervisor exists.
+Runs after Phase 9B (rooms are final coming in; room type drives initial
+eligibility) and before Phase 12. For every session with at least one
+trainee requiring supervision, assigns a supervisor from the single
+eligible pool (Partner/Salaried, in a D or SR room, unclaimed) by lowest
+weighted SUPERVISION score. If the selected supervisor is not already
+sitting in an SR room, and an SR room is occupied by someone else, the
+supervisor is then swapped into that SR room -- this is the one place in
+the pipeline where Phase 9C itself writes a room assignment, rather than
+only reading the room state Phase 9B left behind. Emits a warning, and
+leaves the session unassigned, when no eligible supervisor exists.
 
 Implementation plan decisions this module encodes:
   1. Single supervisor pool -- no duty-helper fallback. A duty helper holds
      role=CLINIC, so `is_eligible_supervisor`'s `role is None` criterion
      excludes them for free; no ClinicTypeInfo.category plumbing needed.
-  2. The SR-priority doctor's SUPERVISION counter IS incremented, same as a
-     pool-selected doctor -- the counter means "times supervised", full
-     stop, unlike the original GAS behaviour which favoured SR occupants.
-  3. `is_supervising` is the only persisted output. The trainee count is
+  2. No SR-priority fast path. Selection is always by weighted SUPERVISION
+     score across the whole eligible pool -- a doctor already sitting in
+     SR competes on the same footing as a doctor sitting in D, rather than
+     being auto-assigned ahead of the pool comparison.
+  3. Post-selection SR swap. Once the supervisor is chosen, if an SR room
+     is occupied by a different doctor, the chosen supervisor is swapped
+     into it and the displaced doctor takes the supervisor's vacated room.
+     Excluded edge case: if the chosen supervisor is already sitting in an
+     SR room, no swap happens. The swap is a pure room move -- it does not
+     touch `is_supervising` or the SUPERVISION counter of either doctor
+     beyond what selection already set.
+  4. `is_supervising` is the only persisted output. The trainee count is
      deliberately NOT persisted -- see `count_supervisable_trainees`.
-  4. Trainee counting rule has no room criterion: an off-site (C/W-roomed)
+  5. Trainee counting rule has no room criterion: an off-site (C/W-roomed)
      trainee still counts, even though eligible supervisors are by
      definition on-site (D/SR). This matches GAS and is intended.
-  5. `count_supervisable_trainees` and `is_eligible_supervisor` are the
+  6. `count_supervisable_trainees` and `is_eligible_supervisor` are the
      single shared predicates reused by Phase 12 Check 4, so the assignment
      rule and the validation rule cannot drift apart.
 
@@ -61,9 +73,8 @@ _SUPERVISOR_ROOM_TYPES = (RoomType.D, RoomType.SR)
 # that relative ordering between multiple "none"-preference doctors is
 # preserved when they are the only candidates left -- math.inf would
 # collapse them all to the alphabetical tiebreak regardless of their
-# actual supervision history. Deliberately not used by `_assign_sr_priority`
-# (the SR-room fast path is preference-blind by design) and does not affect
-# how the SUPERVISION counter itself increments.
+# actual supervision history. Applies to every pool candidate now that
+# there is no SR-priority fast path to exempt.
 _PREFERENCE_MULTIPLIERS = {
     SupervisionPreference.NONE: 1_000_000,
     SupervisionPreference.LESS: 1.5,
@@ -79,7 +90,7 @@ def count_supervisable_trainees(
 
     A trainee counts iff their slot exists, doctor_type == TRAINEE, not on
     leave, not WFH, and template_type is not NO_SURGERY/ADMIN_TIME. No room
-    criterion (Decision 4, confirmed): holding a role, or sitting in a C/W
+    criterion (Decision 5, confirmed): holding a role, or sitting in a C/W
     room, does not remove the need for supervision.
     """
     count = 0
@@ -134,9 +145,6 @@ def run_phase9c(
                 if n == 0:
                     continue
 
-                if _assign_sr_priority(context, grid, counters, sr_rooms, gen_week, day, period, n, log):
-                    continue
-
                 pool = [
                     slot for slot in grid.sessions_for_slot(gen_week, day, period)
                     if is_eligible_supervisor(context, grid, slot)
@@ -175,6 +183,8 @@ def run_phase9c(
                         f"eligible pool ({reason}) for {n} trainee(s)."
                     ),
                 )
+
+                _swap_into_sr(context, grid, sr_rooms, gen_week, day, period, chosen, log)
 
     return issues
 
@@ -218,37 +228,47 @@ def _pool_selection_reason(
     return f"lowest weighted supervision score {score_a:.2f} vs {score_b:.2f}{suffix}"
 
 
-def _assign_sr_priority(
+def _swap_into_sr(
     context: GenerationContext,
     grid: RotaGrid,
-    counters: CounterState,
     sr_rooms,
     gen_week: int,
     day: Day,
     period: Period,
-    n: int,
+    chosen: SessionSlot,
     log: DecisionLog,
-) -> bool:
-    """Assign the SR occupant if eligible. Returns True if assigned."""
+) -> None:
+    """If `chosen` is not already sitting in an SR room, and the (first, by
+    room code) occupied SR room holds a different doctor, swap `chosen`
+    into that SR room and move the displaced doctor into `chosen`'s
+    vacated room.
+
+    Excluded edge case: `chosen` already occupying an SR room is a no-op --
+    they are already where the swap would otherwise put them.
+    """
+    chosen_room_id = chosen.assigned_room_id
+    if chosen_room_id is not None and any(r.id == chosen_room_id for r in sr_rooms):
+        return
+
     for room in sr_rooms:
         occupant_id = grid.get_room_occupant(gen_week, day, period, room.id)
-        if occupant_id is None:
+        if occupant_id is None or occupant_id == chosen.doctor_id:
             continue
-        slot = grid.get(occupant_id, gen_week, day, period)
-        if slot is None:
-            continue  # defensive: occupancy index and grid disagree
-        if is_eligible_supervisor(context, grid, slot):
-            slot.is_supervising = True
-            counters.increment_system(occupant_id, SystemCounterType.SUPERVISION)
-            log.add(
-                phase=PHASE, action="assign_supervisor",
-                week=gen_week, day=day, period=period, doctor_id=occupant_id,
-                room_id=room.id,
-                message=(
-                    f"Assigned {context.doctor_by_id[occupant_id].code} as "
-                    f"supervisor on {day.value} {period.value} (SR-room "
-                    f"occupant) for {n} trainee(s)."
-                ),
-            )
-            return True
-    return False
+
+        grid.free_room(gen_week, day, period, chosen.doctor_id)
+        grid.free_room(gen_week, day, period, occupant_id)
+        grid.assign_room(gen_week, day, period, chosen.doctor_id, room.id)
+        if chosen_room_id is not None:
+            grid.assign_room(gen_week, day, period, occupant_id, chosen_room_id)
+
+        log.add(
+            phase=PHASE, action="swap_supervisor_into_sr",
+            week=gen_week, day=day, period=period, doctor_id=chosen.doctor_id,
+            room_id=room.id,
+            message=(
+                f"Swapped {context.doctor_by_id[chosen.doctor_id].code} into SR "
+                f"room {room.code} with {context.doctor_by_id[occupant_id].code} "
+                f"on {day.value} {period.value} (week {gen_week})."
+            ),
+        )
+        return

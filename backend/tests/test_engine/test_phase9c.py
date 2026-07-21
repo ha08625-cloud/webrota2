@@ -41,8 +41,17 @@ def _pre_assigned(session, template, doctor, room, week=1, day=Day.MONDAY, perio
     )
 
 
-class TestSrPriorityPath:
-    def test_sr_occupant_assigned_supervisor(self, session, config_1wk):
+class TestSrSwap:
+    """There is no SR-priority fast path any more (see phase9c.py Decision
+    2): selection is always by weighted SUPERVISION score across the whole
+    D/SR pool. These tests cover the post-selection swap-into-SR step that
+    replaced it (Decision 3), including its excluded edge case.
+    """
+
+    def test_only_candidate_already_in_sr_no_swap_entry(self, session, config_1wk):
+        # Sole eligible doctor happens to sit in SR -- selected via the
+        # normal pool path (there is only one candidate), and the swap step
+        # is a no-op because they are already where the swap would put them.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
@@ -57,23 +66,47 @@ class TestSrPriorityPath:
 
         slot = grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM)
         assert slot.is_supervising is True
+        assert slot.assigned_room_id == sr_room.id
         assert counters.system[(sr_occupant.id, SystemCounterType.SUPERVISION)] == 1
         assert not any(i.phase == "phase9c" for i in issues)
 
-        entries = [e for e in log.entries if e.action == "assign_supervisor"]
-        assert len(entries) == 1
-        entry = entries[0]
-        assert entry.doctor_id == sr_occupant.id
-        assert entry.room_id == sr_room.id
-        assert entry.week == 1 and entry.day == Day.MONDAY and entry.period == Period.AM
-        assert "SR-room occupant" in entry.message
-        assert "1 trainee" in entry.message
+        assign_entries = [e for e in log.entries if e.action == "assign_supervisor"]
+        assert len(assign_entries) == 1
+        assert assign_entries[0].doctor_id == sr_occupant.id
+        assert assign_entries[0].room_id == sr_room.id
+        assert "only eligible doctor" in assign_entries[0].message
 
-    def test_sr_occupant_ineligible_falls_through_to_pool(self, session, config_1wk):
+        assert not any(e.action == "swap_supervisor_into_sr" for e in log.entries)
+
+    def test_sr_unoccupied_no_swap(self, session, config_1wk):
+        # An SR room exists in the practice but nobody sits in it this
+        # session -- the D-room winner has nothing to swap with and stays
+        # where they are.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        make_room(session, code="SR1", room_type=RoomType.SR)  # unoccupied this session
+
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, supervisor, d_room)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        slot = grid.get(supervisor.id, 1, Day.MONDAY, Period.AM)
+        assert slot.is_supervising is True
+        assert slot.assigned_room_id == d_room.id
+        assert not any(e.action == "swap_supervisor_into_sr" for e in log.entries)
+
+    def test_ineligible_sr_occupant_falls_through_and_is_swapped_out(self, session, config_1wk):
         # SR occupant is a Trainee, not Partner/Salaried -- not an eligible
-        # supervisor, so the SR-priority path must fall through to the pool.
+        # supervisor, so the pool winner is the D-room doctor. That winner
+        # is then swapped into SR, displacing the trainee into the vacated
+        # D room.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(session, code="TR", doctor_type=DoctorType.TRAINEE)
         sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
         pool_doctor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
@@ -87,15 +120,58 @@ class TestSrPriorityPath:
         log = DecisionLog()
         run_phase9c(ctx, grid, counters, log)
 
-        entries = [e for e in log.entries if e.action == "assign_supervisor"]
-        assert len(entries) == 1
-        assert entries[0].doctor_id == pool_doctor.id
-        assert "eligible pool" in entries[0].message
+        assign_entries = [e for e in log.entries if e.action == "assign_supervisor"]
+        assert len(assign_entries) == 1
+        assert assign_entries[0].doctor_id == pool_doctor.id
+        assert "eligible pool" in assign_entries[0].message
+        # Recorded at selection time, before the swap moves the room.
+        assert assign_entries[0].room_id == d_room.id
 
-    def test_sr_occupant_with_none_preference_still_assigned_via_fast_path(self, session, config_1wk):
-        # The SR-priority fast path is deliberately preference-blind: an
-        # occupant set to "none" is still auto-assigned with no comparison
-        # to anyone else in the pool, even when a pool candidate exists.
+        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+
+        swap_entries = [e for e in log.entries if e.action == "swap_supervisor_into_sr"]
+        assert len(swap_entries) == 1
+        assert swap_entries[0].doctor_id == pool_doctor.id
+        assert swap_entries[0].room_id == sr_room.id
+
+    def test_pool_winner_not_in_sr_swaps_with_sr_occupant(self, session, config_1wk):
+        # Plain two-candidate pool win (lower raw SUPERVISION count), then
+        # the winner -- sitting in D -- is swapped into SR with the
+        # occupant, who takes the winner's vacated D room.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        winner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0")
+        sr_occupant = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0")
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, winner, d_room)
+        _pre_assigned(session, t, sr_occupant, sr_room)
+        make_system_counter(session, winner, SystemCounterType.SUPERVISION, raw_count=0)
+        make_system_counter(session, sr_occupant, SystemCounterType.SUPERVISION, raw_count=5)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        assert grid.get(winner.id, 1, Day.MONDAY, Period.AM).is_supervising is True
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).is_supervising is False
+        assert grid.get(winner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+
+        swap_entries = [e for e in log.entries if e.action == "swap_supervisor_into_sr"]
+        assert len(swap_entries) == 1
+        assert swap_entries[0].doctor_id == winner.id
+        assert "AA" in swap_entries[0].message and "BB" in swap_entries[0].message
+
+    def test_none_preference_sr_occupant_no_longer_auto_assigned(self, session, config_1wk):
+        # There is no SR-priority fast path any more, so a "none"-preference
+        # doctor sitting in SR gets no special treatment: the preference
+        # multiplier still deprioritises them against a lower-scoring D-room
+        # candidate, and the D-room candidate wins the pool comparison
+        # outright before any swap is considered.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(
@@ -109,15 +185,21 @@ class TestSrPriorityPath:
         _requires_room(session, t, trainee)
         _pre_assigned(session, t, sr_occupant, sr_room)
         _pre_assigned(session, t, pool_doctor, d_room)
+        make_system_counter(session, sr_occupant, SystemCounterType.SUPERVISION, raw_count=1)
+        make_system_counter(session, pool_doctor, SystemCounterType.SUPERVISION, raw_count=0)
 
         ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
         run_phase9c(ctx, grid, counters, log)
 
-        entries = [e for e in log.entries if e.action == "assign_supervisor"]
-        assert len(entries) == 1
-        assert entries[0].doctor_id == sr_occupant.id
-        assert "SR-room occupant" in entries[0].message
+        assign_entries = [e for e in log.entries if e.action == "assign_supervisor"]
+        assert len(assign_entries) == 1
+        assert assign_entries[0].doctor_id == pool_doctor.id
+
+        # Winner was in D, not SR, so the swap step then moves them into SR.
+        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).is_supervising is False
 
 
 class TestPoolPath:
