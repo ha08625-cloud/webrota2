@@ -96,9 +96,79 @@ export function formatWeekLabel(dateString: string): string {
   return `w/c ${day} ${month} ${year}`;
 }
 
-export function formatDateWithDay(dateString: string): string {
-  // Uses parseLocalDate to avoid the UTC midnight parsing bug 
-  // that occurs when using the native Date constructor on "YYYY-MM-DD" strings.
-  const dayName = parseLocalDate(dateString).toLocaleDateString("en-GB", { weekday: "short" });
-  return `${dayName}, ${dateString}`;
+/**
+ * The fixed origin of the 4-weekly duty period cycle - a Monday. The
+ * practice is not currently running a 4-weekly cycle, so this is simply
+ * the Monday of the week this feature was written; every period start is
+ * `anchor + n * 28 days`. Changing the phase later means editing this
+ * constant and redeploying.
+ */
+export const DUTY_PERIOD_ANCHOR = "2026-07-20";
+
+/** Length of a duty period in weeks. Drives both the dropdown window and
+ * the counter date range, so the two can never drift apart. */
+export const DUTY_PERIOD_WEEKS = 4;
+
+/**
+ * Converts a "YYYY-MM-DD" string to a UTC epoch value for period-index
+ * arithmetic. Deliberately UTC, not local: `floor((date - anchor) / 28
+ * days)` computed over local millisecond values is off by one for any
+ * 28-day span that crosses a DST change (that span is 28 days minus or
+ * plus one hour locally). UTC values have no DST, so the index is always
+ * an exact multiple of 28 days. Do not "simplify" this back to local-time
+ * subtraction.
+ */
+function toUtcMs(dateString: string): number {
+  const [year, month, day] = dateString.split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+/**
+ * Returns the "YYYY-MM-DD" start date of the fixed 4-weekly duty period
+ * containing `dateString`. Uses `Math.floor`, not truncating division, so
+ * dates before the anchor resolve to the correct (negative) period index
+ * rather than rounding toward the anchor.
+ */
+export function getDutyPeriodStart(dateString: string): string {
+  const periodMs = DUTY_PERIOD_WEEKS * 7 * 86_400_000;
+  const index = Math.floor((toUtcMs(dateString) - toUtcMs(DUTY_PERIOD_ANCHOR)) / periodMs);
+  return addDays(DUTY_PERIOD_ANCHOR, index * DUTY_PERIOD_WEEKS * 7);
+}
+
+/**
+ * Returns the "YYYY-MM-DD" start dates of `pastCount` periods before,
+ * the period containing `from` (defaults to today), and `futureCount`
+ * periods after - ascending. Mirrors getUpcomingMondays' `Date` parameter
+ * so both can be driven by the same kind of test fixture.
+ */
+export function getDutyPeriodStarts(pastCount: number, futureCount: number, from: Date = new Date()): string[] {
+  const currentStart = getDutyPeriodStart(toDateKey(from));
+  const starts: string[] = [];
+  for (let i = -pastCount; i <= futureCount; i++) {
+    starts.push(addDays(currentStart, i * DUTY_PERIOD_WEEKS * 7));
+  }
+  return starts;
+}
+
+/**
+ * Formats a "YYYY-MM-DD" period start as its inclusive span, e.g.
+ * "20 Jul - 16 Aug 2026" or, crossing a year, "21 Dec 2026 - 17 Jan 2027".
+ * Pinned to "en-GB" for month names for the same reason formatWeekLabel
+ * is - a select list needs one unambiguous day-month-year order for
+ * every user, not a locale-dependent one.
+ */
+export function formatPeriodLabel(startDateString: string): string {
+  const endDateString = addDays(startDateString, DUTY_PERIOD_WEEKS * 7 - 1);
+  const start = parseLocalDate(startDateString);
+  const end = parseLocalDate(endDateString);
+
+  const startDay = start.getDate();
+  const startMonth = start.toLocaleDateString("en-GB", { month: "short" });
+  const startYear = start.getFullYear();
+  const endDay = end.getDate();
+  const endMonth = end.toLocaleDateString("en-GB", { month: "short" });
+  const endYear = end.getFullYear();
+
+  const startLabel = startYear === endYear ? `${startDay} ${startMonth}` : `${startDay} ${startMonth} ${startYear}`;
+  return `${startLabel} - ${endDay} ${endMonth} ${endYear}`;
 }

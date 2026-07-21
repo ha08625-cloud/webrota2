@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { addDays, formatDate, formatWeekLabel, getUpcomingMondays, isMonday, parseLocalDate } from "./date";
-
-import { formatDateWithDay } from "./date";
-
-describe("formatDateWithDay", () => {
-  it("prepends the short weekday name to the ISO date string", () => {
-    // These tests rely on parseLocalDate to safely handle timezones,
-    // ensuring "2026-08-03" doesn't shift to Sunday in western timezones.
-    expect(formatDateWithDay("2026-08-03")).toBe("Mon, 2026-08-03");
-    expect(formatDateWithDay("2026-08-09")).toBe("Sun, 2026-08-09");
-  });
-});
+import {
+  addDays,
+  DUTY_PERIOD_ANCHOR,
+  formatDate,
+  formatPeriodLabel,
+  formatWeekLabel,
+  getDutyPeriodStart,
+  getDutyPeriodStarts,
+  getUpcomingMondays,
+  isMonday,
+  parseLocalDate,
+} from "./date";
 
 describe("parseLocalDate", () => {
   it("parses a date-only string as local midnight, not UTC", () => {
@@ -79,5 +79,62 @@ describe("formatWeekLabel", () => {
 describe("formatDate", () => {
   it("still formats a date-only string (regression check, unchanged behaviour)", () => {
     expect(formatDate("2026-07-13")).toContain("2026");
+  });
+});
+
+describe("getDutyPeriodStart", () => {
+  it("returns the anchor for the anchor itself", () => {
+    expect(getDutyPeriodStart(DUTY_PERIOD_ANCHOR)).toBe(DUTY_PERIOD_ANCHOR);
+  });
+
+  it("returns the anchor for the last day of its period (anchor + 27 days)", () => {
+    expect(getDutyPeriodStart(addDays(DUTY_PERIOD_ANCHOR, 27))).toBe(DUTY_PERIOD_ANCHOR);
+  });
+
+  it("returns the next period start for anchor + 28 days, not the anchor", () => {
+    const nextStart = addDays(DUTY_PERIOD_ANCHOR, 28);
+    expect(getDutyPeriodStart(nextStart)).toBe(nextStart);
+  });
+
+  it("returns a negative-index period start for a date before the anchor", () => {
+    const before = addDays(DUTY_PERIOD_ANCHOR, -1);
+    expect(getDutyPeriodStart(before)).toBe(addDays(DUTY_PERIOD_ANCHOR, -28));
+  });
+
+  it("DST guard: correctly places the period spanning the UK clock change", () => {
+    // With the 2026-07-20 anchor, period index 3 runs 2026-10-12 to
+    // 2026-11-08 and contains the 25 October 2026 UK clock change. A
+    // local-millisecond implementation of the period-index calculation
+    // is off by one across this boundary; this test exists to catch
+    // that regression, not to re-prove already-covered boundary logic.
+    expect(getDutyPeriodStart("2026-11-08")).toBe("2026-10-12");
+    expect(getDutyPeriodStart("2026-11-09")).toBe("2026-11-09");
+  });
+});
+
+describe("getDutyPeriodStarts", () => {
+  it("returns ascending period starts 28 days apart, centred on the containing period", () => {
+    const starts = getDutyPeriodStarts(1, 5, new Date(2026, 7, 5));
+    expect(starts).toHaveLength(7);
+
+    const containingStart = getDutyPeriodStart("2026-08-05");
+    expect(starts[0]).toBe(addDays(containingStart, -28));
+    expect(starts[1]).toBe(containingStart);
+    expect(starts[2]).toBe(addDays(containingStart, 28));
+    expect(starts[6]).toBe(addDays(containingStart, 5 * 28));
+
+    for (let i = 1; i < starts.length; i++) {
+      expect(addDays(starts[i - 1], 28)).toBe(starts[i]);
+    }
+  });
+});
+
+describe("formatPeriodLabel", () => {
+  it("formats a period that stays within one year", () => {
+    expect(formatPeriodLabel("2026-07-20")).toBe("20 Jul - 16 Aug 2026");
+  });
+
+  it("formats a period that crosses a year boundary", () => {
+    expect(formatPeriodLabel("2026-12-21")).toBe("21 Dec 2026 - 17 Jan 2027");
   });
 });
