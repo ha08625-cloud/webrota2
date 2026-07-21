@@ -14,6 +14,7 @@ class DoctorType(str, enum.Enum):
     PARTNER = "Partner"
     SALARIED = "Salaried"
     TRAINEE = "Trainee"
+    LOCUM = "Locum"
     AHP = "AHP"
 
 
