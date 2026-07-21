@@ -31,7 +31,7 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
     not a bug.
   Pass 3 (Partner/Salaried fallback): no displacement -- walk the doctor's
     own preference list first; if nothing on it is free, force the doctor
-    into the first free room by type priority D > C > W > SR (rooms
+    into the first free room by type priority SR > D > C > W (rooms
     ordered by code within a type). Only if every room in the practice is
     occupied does the slot remain unresolved.
 
@@ -40,7 +40,7 @@ Preference Assignment" algorithm from algorithms.md: preferred list first,
 then any free room of an eligible non-D type (C, W, SR) as a fallback.
 Pass 1 skips the preference-list step and goes straight to the C/W/SR pool
 (see above) -- this asymmetry between Pass 1 and Pass 2 is deliberate, not
-an inconsistency. Pass 3 has its own, separate fallback: D/C/W/SR by type
+an inconsistency. Pass 3 has its own, separate fallback: SR/D/C/W by type
 priority, with D rooms deliberately included. This is a genuine, intended
 difference from the Pass 1/2 displaced-doctor pool (C/W/SR, D excluded) --
 Pass 3 runs last, after all Trainee/AHP D-room demand has already been
@@ -72,6 +72,11 @@ PHASE = "phase7_9a"
 _DAYS = (Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY)
 _PERIODS = (Period.AM, Period.PM)
 _DISPLACEABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
+# Doctor types that need a D room (Passes 1 and 2). Locum behaves as
+# Trainee-minus-supervision (Locum ticket, Design Decision 1) -- it is
+# added here alongside Trainee/AHP so the two candidate functions below
+# cannot drift.
+_D_ROOM_TYPES = (DoctorType.TRAINEE, DoctorType.AHP, DoctorType.LOCUM)
 _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 
 # Pass 3's own fallback order -- deliberately its own type sequence, not a
@@ -79,7 +84,7 @@ _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 # Pass 1/2 displaced-doctor pool above) because Pass 3 runs last, after all
 # Trainee/AHP D-room demand has already been resolved by Passes 1 and 2, so
 # any D room still free at this point is genuine surplus.
-_PASS3_FALLBACK_TYPE_ORDER = (RoomType.D, RoomType.C, RoomType.W, RoomType.SR)
+_PASS3_FALLBACK_TYPE_ORDER = (RoomType.SR, RoomType.D, RoomType.C, RoomType.W)
 
 
 def run_phase7_to_9a(
@@ -252,7 +257,7 @@ def _full_day_candidates(
 ) -> list[int]:
     result = []
     for doctor in context.doctors:  # already ordered by code
-        if doctor.doctor_type not in (DoctorType.TRAINEE, DoctorType.AHP):
+        if doctor.doctor_type not in _D_ROOM_TYPES:
             continue
         am_slot = grid.get(doctor.id, gen_week, day, Period.AM)
         pm_slot = grid.get(doctor.id, gen_week, day, Period.PM)
@@ -449,7 +454,7 @@ def _single_session_candidates(
 ) -> list[int]:
     result = []
     for doctor in context.doctors:
-        if doctor.doctor_type not in (DoctorType.TRAINEE, DoctorType.AHP):
+        if doctor.doctor_type not in _D_ROOM_TYPES:
             continue
         slot = grid.get(doctor.id, gen_week, day, period)
         if slot is None or slot.is_on_leave:
@@ -549,7 +554,7 @@ def _pass3_partner_salaried_fallback(
             message = (
                 f"Assigned fallback room {context.room_by_id[chosen].code} to "
                 f"{doctor.code} (pass 3, no preferred room free; forced into "
-                f"first free room by type priority D > C > W > SR)."
+                f"first free room by type priority SR > D > C > W)."
             )
         else:
             message = (
@@ -567,8 +572,8 @@ def _pass3_partner_salaried_fallback(
 
 
 def _pass3_fallback_sequence(context: GenerationContext) -> list[int]:
-    """Room ids in Pass 3's forced-fallback order: D, then C, then W, then
-    SR, sorted by code within each type. Built once per call of
+    """Room ids in Pass 3's forced-fallback order: SR, then D, then C, then
+    W, sorted by code within each type. Built once per call of
     `_pass3_partner_salaried_fallback` -- it depends only on `context`, not
     on the grid, so it does not need rebuilding per doctor or per room
     check.
