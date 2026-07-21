@@ -263,7 +263,15 @@ export function ClinicTypesPage() {
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={enabledOrder.map((ct) => ct.id)} strategy={verticalListSortingStrategy}>
-                <table className="mt-2 min-w-full text-sm">
+                <table className="mt-2 w-full table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-8" />
+                    <col className="w-1/4" />
+                    <col className="w-28" />
+                    <col className="w-20" />
+                    <col />
+                    <col className="w-28" />
+                  </colgroup>
                   <thead>
                     <tr className="text-left text-ink/70">
                       <th className="py-1" />
@@ -293,7 +301,15 @@ export function ClinicTypesPage() {
           {disabled.length > 0 ? (
             <>
               <h2 className="mt-6 text-sm font-semibold text-ink/70">Disabled</h2>
-              <table className="mt-2 min-w-full text-sm">
+              <table className="mt-2 w-full table-fixed text-sm">
+                <colgroup>
+                  <col className="w-8" />
+                  <col className="w-1/4" />
+                  <col className="w-28" />
+                  <col className="w-20" />
+                  <col />
+                  <col className="w-28" />
+                </colgroup>
                 <thead>
                   <tr className="text-left text-ink/70">
                     <th className="py-1" />
