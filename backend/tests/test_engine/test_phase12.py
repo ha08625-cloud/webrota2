@@ -21,7 +21,7 @@ from .factories import (
 def _build(session, config):
     ctx = load_context(session, config)
     grid, counters = run_phase2(ctx, config, session)
-    return ctx, grid
+    return ctx, grid, counters
 
 
 class TestDutyCoverage:
@@ -56,9 +56,9 @@ class TestDutyCoverage:
         make_duty(session, monday, Period.AM, d1, DutyType.PRIMARY)
         make_duty(session, monday, Period.AM, d2, DutyType.SECONDARY)
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
-        run_phase4(ctx, grid, log)
+        run_phase4(ctx, grid, counters, log)
         issues = run_phase12(ctx, grid)
 
         assert not any(

@@ -181,7 +181,7 @@ class TestEligibilityExclusions:
         ctx = load_context(session, config_1wk)
         grid, counters = run_phase2(ctx, config_1wk, session)
         log = DecisionLog()
-        run_phase4(ctx, grid, log)  # apply duty role BEFORE phase5
+        run_phase4(ctx, grid, counters, log)  # apply duty role BEFORE phase5
         issues = run_phase5(ctx, grid, counters, log)
 
         slot = grid.get(d.id, 1, Day.MONDAY, Period.AM)
