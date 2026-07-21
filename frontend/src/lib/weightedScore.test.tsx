@@ -5,7 +5,10 @@ import type { Doctor } from "@/api/types";
 import { computeWeightedScore, formatWeightedScore } from "./weightedScore";
 
 function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
-  return { id: 1, code: "AB", doctor_type: "Partner", sessions_per_week: "10.0", active: true, ...overrides };
+  return {
+    id: 1, code: "AB", doctor_type: "Partner", sessions_per_week: "10.0", active: true,
+    supervision_preference: "normal", ...overrides,
+  };
 }
 
 describe("computeWeightedScore", () => {
