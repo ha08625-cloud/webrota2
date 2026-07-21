@@ -230,7 +230,7 @@ export interface ClinicTypePatch {
 
 // --- Doctors (schemas_doctor.py) ---
 
-export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
+export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP";
 
 /**
  * Doctor.supervision_preference (enums.py). Multiplies the doctor's
