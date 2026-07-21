@@ -232,12 +232,21 @@ export interface ClinicTypePatch {
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "AHP";
 
+/**
+ * Doctor.supervision_preference (enums.py). Multiplies the doctor's
+ * weighted SUPERVISION score in Phase 9C's fallback pool selection -
+ * "none" deprioritises heavily but does not exclude, "more" prioritises.
+ * Default "normal" leaves the score unweighted.
+ */
+export type SupervisionPreference = "none" | "less" | "normal" | "more";
+
 export interface Doctor {
   id: number;
   code: string;
   doctor_type: DoctorType;
   sessions_per_week: string;
   active: boolean;
+  supervision_preference: SupervisionPreference;
 }
 
 /** POST /doctors body. `active` is not settable here - always true server-side. */
@@ -245,6 +254,7 @@ export interface DoctorIn {
   code: string;
   doctor_type: DoctorType;
   sessions_per_week: string;
+  supervision_preference: SupervisionPreference;
 }
 
 /**
@@ -252,13 +262,16 @@ export interface DoctorIn {
  * are applied (DoctorPatch in schemas_doctor.py). DoctorFormDialog sends
  * code/doctor_type/sessions_per_week together as a full set; the
  * "Deactivate instead" action sends `active` alone; the DoctorsPage
- * sessions/week stepper sends `sessions_per_week` alone.
+ * sessions/week stepper sends `sessions_per_week` alone. The DoctorsPage
+ * supervision-preference dropdown sends `supervision_preference` alone,
+ * the same pattern as the sessions/week stepper.
  */
 export interface DoctorPatch {
   code?: string;
   doctor_type?: DoctorType;
   sessions_per_week?: string;
   active?: boolean;
+  supervision_preference?: SupervisionPreference;
 }
 
 /**

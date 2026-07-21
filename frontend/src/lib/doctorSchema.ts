@@ -1,8 +1,9 @@
 import { z } from "zod";
 
-import type { Doctor, DoctorIn, DoctorType } from "@/api/types";
+import type { Doctor, DoctorIn, DoctorType, SupervisionPreference } from "@/api/types";
 
 const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "AHP"]);
+const supervisionPreferenceEnum = z.enum(["none", "less", "normal", "more"]);
 
 export const doctorFormSchema = z.object({
   code: z.string().min(1, "Code is required"),
@@ -13,12 +14,13 @@ export const doctorFormSchema = z.object({
    * Doctor.sessions_per_week: string (Decimal(4,1) server-side).
    */
   sessionsPerWeek: z.number().nonnegative("Must be zero or more"),
+  supervisionPreference: supervisionPreferenceEnum,
 });
 
 export type DoctorFormValues = z.infer<typeof doctorFormSchema>;
 
 export function emptyFormValues(): DoctorFormValues {
-  return { code: "", doctorType: "Partner", sessionsPerWeek: 10.0 };
+  return { code: "", doctorType: "Partner", sessionsPerWeek: 10.0, supervisionPreference: "normal" };
 }
 
 export function formValuesFromDoctor(doctor: Doctor): DoctorFormValues {
@@ -26,6 +28,7 @@ export function formValuesFromDoctor(doctor: Doctor): DoctorFormValues {
     code: doctor.code,
     doctorType: doctor.doctor_type,
     sessionsPerWeek: Number(doctor.sessions_per_week),
+    supervisionPreference: doctor.supervision_preference,
   };
 }
 
@@ -34,6 +37,7 @@ export function toWirePayload(values: DoctorFormValues): DoctorIn {
     code: values.code,
     doctor_type: values.doctorType as DoctorType,
     sessions_per_week: values.sessionsPerWeek.toFixed(1),
+    supervision_preference: values.supervisionPreference as SupervisionPreference,
   };
 }
 

@@ -8,7 +8,7 @@ import type { FormEvent } from "react";
 
 import { useCreateDoctor, useDoctor, useReplacePreferredRooms, useUpdateDoctor } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
-import type { ApiError, Doctor, DoctorType, RoomType } from "@/api/types";
+import type { ApiError, Doctor, DoctorType, RoomType, SupervisionPreference } from "@/api/types";
 import {
   type DoctorFormValues,
   doctorFormSchema,
@@ -21,6 +21,12 @@ import { type PreferredRoomRow, moveRow, toWireRows } from "@/lib/reorderPreferr
 
 const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "AHP"];
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
+const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "less", label: "Less" },
+  { value: "normal", label: "Normal" },
+  { value: "more", label: "More" },
+];
 
 interface DoctorFormDialogProps {
   /** undefined = create mode. Render with a `key` on the doctor's id (or
@@ -249,6 +255,26 @@ export function DoctorFormDialog({ doctor, open, onOpenChange }: DoctorFormDialo
               {fieldErrors.sessionsPerWeek ? (
                 <p className="mt-1 text-xs text-red-700">{fieldErrors.sessionsPerWeek}</p>
               ) : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="doc-supervision-preference">
+                Supervision preference
+              </label>
+              <select
+                id="doc-supervision-preference"
+                value={values.supervisionPreference}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, supervisionPreference: e.target.value as SupervisionPreference }))
+                }
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              >
+                {SUPERVISION_PREFERENCES.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {doctor ? (

@@ -65,49 +65,6 @@ Boundaries (confirmed):
    `downgrade()` after `drop_column` — not just `create_type=False` on the
    column, which alone would never emit `CREATE TYPE` at all.
 
-## Task 2: Engine changes
-
-**A.** State of the world: the data model and API schemas from Task 1 are
-in place; doctors can now be created/edited with a
-`supervision_preference`, but the engine ignores it completely. Phase 9C's
-pool selection in `run_phase9c` and `_pool_selection_reason` currently sort
-and compare purely on `weighted_system_score(..., SystemCounterType.SUPERVISION, spw)`
-with no multiplier.
-
-**B.** Files:
-- `backend/app/engine/datatypes.py` — extend `weighted_system_score`.
-- `backend/app/engine/phases/phase9c.py` — add the multiplier table, thread
-  it through pool sort and `_pool_selection_reason`.
-- `docs/phase-pipeline.md` — update the Phase 9C section once the above
-  lands.
-
-**C.** Instructions:
-- In `datatypes.py`, change the signature to
-  `weighted_system_score(self, doctor_id, counter_type, spw, multiplier=1.0)`.
-  Keep the `spw == 0` branch returning `math.inf` unconditionally (ignore
-  `multiplier` there). Otherwise return `(raw / spw) * multiplier`. Do not
-  touch `weighted_clinic_score` — this is system-counter-only.
-- In `phase9c.py`, add
-  `_PREFERENCE_MULTIPLIERS = {SupervisionPreference.NONE: 1_000_000, SupervisionPreference.LESS: 1.5, SupervisionPreference.NORMAL: 1.0, SupervisionPreference.MORE: 0.66}`
-  near the existing module-level constants (`_SUPERVISOR_TYPES`, etc.), and
-  import `SupervisionPreference` from `...models.enums`.
-- In the pool `.sort()` call inside `run_phase9c`, look up each slot's
-  doctor's `supervision_preference` and pass the corresponding multiplier
-  into `weighted_system_score`. Same change in `_pool_selection_reason`'s
-  two `weighted_system_score` calls (`score_a`, `score_b`), so the log
-  message and the actual selection can never disagree.
-- Update `_pool_selection_reason`'s message: when the multiplier materially
-  changed which doctor won (i.e., the raw unweighted order would have
-  picked someone else), say so explicitly — e.g. append
-  "(preference-adjusted)" to the existing "lowest weighted supervision
-  score X vs Y" string. Exact wording is an implementation-time call;
-  don't over-engineer this, one clause is enough for the generation log to
-  be honest about what happened.
-- Leave `_assign_sr_priority` untouched — confirmed out of scope.
-- Update `docs/phase-pipeline.md`'s Phase 9C section to mention the
-  preference multiplier and both "not literally never" caveats from the
-  Scope section above, so the doc doesn't overstate what "none" does.
-
 ## Task 3: Frontend
 
 **A.** State of the world: Tasks 1-2 are complete. The API accepts and
@@ -214,3 +171,46 @@ system today. `Doctor` has `code`, `doctor_type`, `sessions_per_week`,
 - Do not touch `backend_app_api_routers_doctors.py` — confirmed in Task 3
   that the router is a generic `model_dump(exclude_unset=True)` /
   `setattr` pass-through and needs no changes for a new schema field.
+
+  ## Task 2: Engine changes
+
+**A.** State of the world: the data model and API schemas from Task 1 are
+in place; doctors can now be created/edited with a
+`supervision_preference`, but the engine ignores it completely. Phase 9C's
+pool selection in `run_phase9c` and `_pool_selection_reason` currently sort
+and compare purely on `weighted_system_score(..., SystemCounterType.SUPERVISION, spw)`
+with no multiplier.
+
+**B.** Files:
+- `backend/app/engine/datatypes.py` — extend `weighted_system_score`.
+- `backend/app/engine/phases/phase9c.py` — add the multiplier table, thread
+  it through pool sort and `_pool_selection_reason`.
+- `docs/phase-pipeline.md` — update the Phase 9C section once the above
+  lands.
+
+**C.** Instructions:
+- In `datatypes.py`, change the signature to
+  `weighted_system_score(self, doctor_id, counter_type, spw, multiplier=1.0)`.
+  Keep the `spw == 0` branch returning `math.inf` unconditionally (ignore
+  `multiplier` there). Otherwise return `(raw / spw) * multiplier`. Do not
+  touch `weighted_clinic_score` — this is system-counter-only.
+- In `phase9c.py`, add
+  `_PREFERENCE_MULTIPLIERS = {SupervisionPreference.NONE: 1_000_000, SupervisionPreference.LESS: 1.5, SupervisionPreference.NORMAL: 1.0, SupervisionPreference.MORE: 0.66}`
+  near the existing module-level constants (`_SUPERVISOR_TYPES`, etc.), and
+  import `SupervisionPreference` from `...models.enums`.
+- In the pool `.sort()` call inside `run_phase9c`, look up each slot's
+  doctor's `supervision_preference` and pass the corresponding multiplier
+  into `weighted_system_score`. Same change in `_pool_selection_reason`'s
+  two `weighted_system_score` calls (`score_a`, `score_b`), so the log
+  message and the actual selection can never disagree.
+- Update `_pool_selection_reason`'s message: when the multiplier materially
+  changed which doctor won (i.e., the raw unweighted order would have
+  picked someone else), say so explicitly — e.g. append
+  "(preference-adjusted)" to the existing "lowest weighted supervision
+  score X vs Y" string. Exact wording is an implementation-time call;
+  don't over-engineer this, one clause is enough for the generation log to
+  be honest about what happened.
+- Leave `_assign_sr_priority` untouched — confirmed out of scope.
+- Update `docs/phase-pipeline.md`'s Phase 9C section to mention the
+  preference multiplier and both "not literally never" caveats from the
+  Scope section above, so the doc doesn't overstate what "none" does.

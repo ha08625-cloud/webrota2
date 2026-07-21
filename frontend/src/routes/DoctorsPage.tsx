@@ -1,14 +1,20 @@
 import { useState } from "react";
 
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
-import type { Doctor } from "@/api/types";
+import type { Doctor, SupervisionPreference } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
-import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 interface DialogState {
   open: boolean;
   doctor?: Doctor;
 }
+
+const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "less", label: "Less" },
+  { value: "normal", label: "Normal" },
+  { value: "more", label: "More" },
+];
 
 interface DeleteErrorState {
   doctor: Doctor;
@@ -44,6 +50,12 @@ export function DoctorsPage() {
     const next = Math.max(0, current + direction * SESSION_STEP);
     if (next === current) return;
     updateDoctor.mutate({ id: doctor.id, payload: { sessions_per_week: next.toFixed(1) } });
+  }
+
+  function handleSupervisionPreferenceChange(doctor: Doctor, value: SupervisionPreference) {
+    if (updateDoctor.isPending) return;
+    if (value === doctor.supervision_preference) return;
+    updateDoctor.mutate({ id: doctor.id, payload: { supervision_preference: value } });
   }
 
   function openCreate() {
@@ -130,57 +142,68 @@ export function DoctorsPage() {
               <th className="py-1 pr-4 font-medium">Code</th>
               <th className="py-1 pr-4 font-medium">Type</th>
               <th className="py-1 pr-4 font-medium">Sessions/week</th>
+              <th className="py-1 pr-4 font-medium">Supervision</th>
               <th className="py-1" />
             </tr>
           </thead>
-          {groupDoctorsByType(doctors).map((group) => (
-            <tbody key={group.type}>
-              <tr className="border-t border-border bg-ink/5">
-                <th colSpan={4} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
-                  {group.label}
-                </th>
-              </tr>
-              {group.doctors.map((d) => (
-                <tr key={d.id} className="border-t border-border">
-                  <td className="py-1 pr-4">{d.code}</td>
-                  <td className="py-1 pr-4">{d.doctor_type}</td>
-                  <td className="py-1 pr-4">
-                    <div className="flex items-center gap-1">
-                      <span className="tabular-nums">{d.sessions_per_week}</span>
-                      <div className="flex flex-col leading-none">
-                        <button
-                          type="button"
-                          onClick={() => adjustSessions(d, 1)}
-                          disabled={updateDoctor.isPending}
-                          aria-label={`Increase sessions per week for ${d.code}`}
-                          className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adjustSessions(d, -1)}
-                          disabled={updateDoctor.isPending}
-                          aria-label={`Decrease sessions per week for ${d.code}`}
-                          className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
-                        >
-                          ▼
-                        </button>
-                      </div>
+          <tbody>
+            {doctors.map((d) => (
+              <tr key={d.id} className="border-t border-border">
+                <td className="py-1 pr-4">{d.code}</td>
+                <td className="py-1 pr-4">{d.doctor_type}</td>
+                <td className="py-1 pr-4">
+                  <div className="flex items-center gap-1">
+                    <span className="tabular-nums">{d.sessions_per_week}</span>
+                    <div className="flex flex-col leading-none">
+                      <button
+                        type="button"
+                        onClick={() => adjustSessions(d, 1)}
+                        disabled={updateDoctor.isPending}
+                        aria-label={`Increase sessions per week for ${d.code}`}
+                        className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => adjustSessions(d, -1)}
+                        disabled={updateDoctor.isPending}
+                        aria-label={`Decrease sessions per week for ${d.code}`}
+                        className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                      >
+                        ▼
+                      </button>
                     </div>
-                  </td>
-                  <td className="py-1">
-                    <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
-                      Edit
-                    </button>
-                    <button type="button" onClick={() => handleDelete(d)} className="text-xs text-red-700">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          ))}
+                  </div>
+                </td>
+                <td className="py-1 pr-4">
+                  <select
+                    aria-label={`Supervision preference for ${d.code}`}
+                    value={d.supervision_preference}
+                    disabled={updateDoctor.isPending}
+                    onChange={(e) =>
+                      handleSupervisionPreferenceChange(d, e.target.value as SupervisionPreference)
+                    }
+                    className="rounded border border-border p-1 text-sm disabled:opacity-50"
+                  >
+                    {SUPERVISION_PREFERENCES.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="py-1">
+                  <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => handleDelete(d)} className="text-xs text-red-700">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       ) : null}
 
