@@ -19,7 +19,7 @@ import {
 } from "@/lib/doctorSchema";
 import { type PreferredRoomRow, moveRow, toWireRows } from "@/lib/reorderPreferredRooms";
 
-const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "AHP"];
+const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", Locum", "AHP"];
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
 const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[] = [
   { value: "none", label: "None" },
