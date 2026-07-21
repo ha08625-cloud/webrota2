@@ -575,13 +575,13 @@ class TestPass3PartnerSalariedFallback:
         assert "pass 3" in entries[0].message
         assert "fallback" in entries[0].message
 
-    def test_fallback_order_sr_before_d_before_c_before_w(self, session, config_1wk):
+    def test_fallback_order_d_before_c_before_w_before_sr(self, session, config_1wk):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
         w_room = make_room(session, code="W1", room_type=RoomType.W)
         c_room = make_room(session, code="C1", room_type=RoomType.C)
         d_room = make_room(session, code="D1", room_type=RoomType.D)
-        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
         # No preferred rooms configured at all -- straight to fallback.
         _requires_room(session, t, partner)
 
@@ -589,26 +589,26 @@ class TestPass3PartnerSalariedFallback:
         log = DecisionLog()
         issues = run_phase7_to_9a(ctx, grid, counters, log)
 
-        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
         assert not any(i.check == "no_partner_salaried_room" for i in issues)
 
-    def test_fallback_order_d_before_c_and_w_when_sr_occupied(self, session, config_1wk):
+    def test_fallback_order_c_before_w_and_sr_when_d_occupied(self, session, config_1wk):
         t = make_template(session, is_active=True)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
-        sr_occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
-        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
-        w_room = make_room(session, code="W1", room_type=RoomType.W)
-        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        d_occupant = make_doctor(session, code="OO", doctor_type=DoctorType.SALARIED)
         d_room = make_room(session, code="D1", room_type=RoomType.D)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        w_room = make_room(session, code="W1", room_type=RoomType.W)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
 
         _requires_room(session, t, partner)
-        _pre_assigned(session, t, sr_occupant, sr_room)
+        _pre_assigned(session, t, d_occupant, d_room)
 
         ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
         issues = run_phase7_to_9a(ctx, grid, counters, log)
 
-        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == c_room.id
         assert not any(i.check == "no_partner_salaried_room" for i in issues)
 
     def test_fallback_within_type_orders_by_code_not_creation_order(self, session, config_1wk):
