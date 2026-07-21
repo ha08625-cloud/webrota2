@@ -3,10 +3,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "./client";
 import type { DutyAssignment, DutyIn, DutyCount } from "./types";
 
+export interface DutyCountsRange {
+  from: string;
+  to: string;
+}
+
 export const dutyKeys = {
   all: ["duty"] as const,
   list: () => [...dutyKeys.all, "list"] as const,
-  counts: () => [...dutyKeys.all, "counts"] as const,
+  counts: (range?: DutyCountsRange) =>
+    range
+      ? ([...dutyKeys.all, "counts", range.from, range.to] as const)
+      : ([...dutyKeys.all, "counts"] as const),
 };
 
 /**
@@ -40,9 +48,18 @@ export function useDeleteDuty() {
   });
 }
 
-export function useDutyCounts() {
+/**
+ * When `range` is omitted, fetches unfiltered (all-time) counts. The
+ * 4-weekly duty periods feature (see lib/date.ts) always passes a range
+ * scoped to the selected period; the unranged form is kept only so any
+ * other caller/test relying on the old behaviour is not silently changed.
+ */
+export function useDutyCounts(range?: DutyCountsRange) {
   return useQuery({
-    queryKey: dutyKeys.counts(),
-    queryFn: () => apiClient.get<DutyCount[]>("/duty/counts"),
+    queryKey: dutyKeys.counts(range),
+    queryFn: () =>
+      apiClient.get<DutyCount[]>(
+        range ? `/duty/counts?from_date=${range.from}&to_date=${range.to}` : "/duty/counts",
+      ),
   });
 }
