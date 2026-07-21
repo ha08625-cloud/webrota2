@@ -206,31 +206,6 @@ Also worth a line in phase-pipeline.md: Phase 4 is now a counter-mutating
 phase, so the list of phases threaded with `CounterState` (currently 5,
 7-9A, 9C) gains 4.
 
----
-
-## Task 1: Extract shared single-session relocation helper
-
-**A. State of the world:** `phase7_9a.py`'s `_best_available_room`
-implements the preferred-rooms-excluding-D then C/W/SR-fallback search.
-Its only call site is Pass 2 (`periods=(period,)`); Pass 1 uses the
-separate `_pass1_receiving_room` and is untouched by this ticket. Nothing
-has been built for this ticket yet.
-
-**B. Files:**
-- New: `backend/app/engine/room_relocation.py` — the extracted search as a
-  public function.
-- Modified: `backend/app/engine/phases/phase7_9a.py` — Pass 2 calls the
-  shared helper; `_best_available_room` is deleted.
-- Unchanged but must pass: `backend/tests/test_engine/test_phase7_9a.py` —
-  this task is a pure refactor with no behaviour change.
-
-**C. Instructions:** Move `_best_available_room` into the new module as
-`find_relocation_room(context, grid, doctor_id, gen_week, day, period)`,
-simplifying the `periods` tuple to a single period (no full-day caller
-exists). Preserve exact behaviour: preferred rooms first with D-type
-skipped, then free C/W/SR rooms by id order. Update Pass 2's call site.
-Keep the module free of any Phase 4 knowledge — Task 2 adds its Trainee
-variant alongside, not inside, this function.
 
 ## Task 2: Phase 4 duty room assignment
 
@@ -356,3 +331,30 @@ Total-failure paths (Decision 13, one test each)
   that the Phase 4 warning is the only signal for this case.
 
 Assert decision-log entries and counter increments throughout.
+
+
+---
+
+## Task 1: Extract shared single-session relocation helper
+
+**A. State of the world:** `phase7_9a.py`'s `_best_available_room`
+implements the preferred-rooms-excluding-D then C/W/SR-fallback search.
+Its only call site is Pass 2 (`periods=(period,)`); Pass 1 uses the
+separate `_pass1_receiving_room` and is untouched by this ticket. Nothing
+has been built for this ticket yet.
+
+**B. Files:**
+- New: `backend/app/engine/room_relocation.py` — the extracted search as a
+  public function.
+- Modified: `backend/app/engine/phases/phase7_9a.py` — Pass 2 calls the
+  shared helper; `_best_available_room` is deleted.
+- Unchanged but must pass: `backend/tests/test_engine/test_phase7_9a.py` —
+  this task is a pure refactor with no behaviour change.
+
+**C. Instructions:** Move `_best_available_room` into the new module as
+`find_relocation_room(context, grid, doctor_id, gen_week, day, period)`,
+simplifying the `periods` tuple to a single period (no full-day caller
+exists). Preserve exact behaviour: preferred rooms first with D-type
+skipped, then free C/W/SR rooms by id order. Update Pass 2's call site.
+Keep the module free of any Phase 4 knowledge — Task 2 adds its Trainee
+variant alongside, not inside, this function.

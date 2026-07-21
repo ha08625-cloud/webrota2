@@ -65,6 +65,7 @@ from ...models.enums import (
     SystemCounterType,
 )
 from ..datatypes import CounterState, DecisionLog, GenerationContext, RotaGrid, ValidationIssue
+from ..room_relocation import find_relocation_room
 
 PHASE = "phase7_9a"
 
@@ -412,8 +413,8 @@ def _pass2_single_session(
             continue
 
         displaced_id, d_room_id, tier = candidate
-        new_room = _best_available_room(
-            context, grid, displaced_id, gen_week, day, periods=(period,),
+        new_room = find_relocation_room(
+            context, grid, displaced_id, gen_week, day, period,
         )
         if new_room is None:
             issues.append(_warning(
@@ -597,38 +598,6 @@ def _first_free_room_single(
     for room_id in room_ids:
         if grid.is_room_free(gen_week, day, period, room_id):
             return room_id
-    return None
-
-
-def _best_available_room(
-    context: GenerationContext, grid: RotaGrid, doctor_id: int,
-    gen_week: int, day: Day, periods: tuple[Period, ...],
-) -> int | None:
-    """The room-preference-assignment algorithm for a displaced doctor.
-
-    Tries the doctor's own preferred rooms first (skipping D rooms -- they
-    were just displaced *out* of a D room), then falls back to any free
-    room of an eligible non-D type (C, W, SR). The room must be free in
-    every period in `periods` simultaneously (both AM and PM for a
-    full-day displacement, or just the one period for a single-session
-    displacement).
-    """
-    def _free_in_all(room_id: int) -> bool:
-        return all(grid.is_room_free(gen_week, day, p, room_id) for p in periods)
-
-    for room_id in context.preferred_rooms_by_doctor.get(doctor_id, ()):
-        if context.room_by_id[room_id].room_type == RoomType.D:
-            continue
-        if _free_in_all(room_id):
-            return room_id
-
-    fallback_ids = sorted(
-        r.id for r in context.rooms if r.room_type in _ROOM_MOVE_FALLBACK_TYPES
-    )
-    for room_id in fallback_ids:
-        if _free_in_all(room_id):
-            return room_id
-
     return None
 
 
