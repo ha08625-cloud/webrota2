@@ -55,6 +55,11 @@ def _clinic(session, name="Dragon"):
 
 # --- CRUD + relationships ---
 
+def test_doctor_type_includes_locum():
+    assert DoctorType.LOCUM.value == "Locum"
+    assert DoctorType.LOCUM in DoctorType
+
+
 def test_room_crud(session):
     r = _room(session)
     assert session.get(Room, r.id).code == "D4"
