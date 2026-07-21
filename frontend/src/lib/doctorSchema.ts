@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { Doctor, DoctorIn, DoctorType, SupervisionPreference } from "@/api/types";
 
-const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "AHP"]);
+const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "Locum", "AHP"]);
 const supervisionPreferenceEnum = z.enum(["none", "less", "normal", "more"]);
 
 export const doctorFormSchema = z.object({
