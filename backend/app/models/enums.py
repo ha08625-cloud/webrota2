@@ -17,6 +17,13 @@ class DoctorType(str, enum.Enum):
     AHP = "AHP"
 
 
+class SupervisionPreference(str, enum.Enum):
+    NONE = "none"
+    LESS = "less"
+    NORMAL = "normal"
+    MORE = "more"
+
+
 class RoomType(str, enum.Enum):
     D = "D"
     C = "C"

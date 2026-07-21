@@ -13,7 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from .enums import DoctorType, RoomType, enum_col
+from .enums import DoctorType, RoomType, SupervisionPreference, enum_col
 
 
 class Doctor(Base):
@@ -26,6 +26,11 @@ class Doctor(Base):
         Numeric(4, 1), nullable=False, default=Decimal("10.0")
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    supervision_preference: Mapped[SupervisionPreference] = mapped_column(
+        enum_col(SupervisionPreference),
+        nullable=False,
+        default=SupervisionPreference.NORMAL,
+    )
 
     preferred_rooms: Mapped[list["DoctorPreferredRoom"]] = relationship(
         back_populates="doctor",
