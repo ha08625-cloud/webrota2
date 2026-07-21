@@ -207,65 +207,6 @@ phase, so the list of phases threaded with `CounterState` (currently 5,
 7-9A, 9C) gains 4.
 
 
-## Task 2: Phase 4 duty room assignment
-
-**A. State of the world:** Task 1's shared helper exists. `phase4.py`
-currently only applies `role` and never touches rooms, counters, or
-`is_wfh`; its docstring incorrectly claims room resolution happens later
-in Phases 7-9A. `run_phase4(context, grid, log)` has no `CounterState`
-parameter.
-
-**B. Files:**
-- Modified: `backend/app/engine/phases/phase4.py` — full room-resolution
-  logic per Design Decisions 1-13; corrected module docstring; new
-  `CounterState` parameter.
-- Modified: `backend/app/engine/generate.py` — pass `counters` to
-  `run_phase4` (line 66 of the current file).
-- Modified: `backend/app/engine/room_relocation.py` — add the
-  Trainee D-only relocation search (Decision 8) as a second public
-  function, e.g. `find_trainee_d_room(context, grid, doctor_id, gen_week,
-  day, period)`: preferred D-type rooms in preference order, then free D
-  rooms by code ascending.
-- Possibly modified: `backend/app/engine/datatypes.py` — only if
-  `ValidationIssue`/`DecisionLogEntry` need new fields (unlikely; both are
-  already generic enough).
-
-**C. Instructions:** Implement, in order per duty row (the existing sorted
-iteration is kept — primary before secondary within a session):
-
-1. Existing no-slot and role-conflict warnings — both skip room logic
-   entirely, unchanged.
-2. Apply the role (unchanged).
-3. WFH override (Decision 3): clear `is_wfh`, log it.
-4. Self-check (Decision 1): already in a D room, stop here.
-5. Preferred-room placement (Decisions 4-8, 10): protected occupant falls
-   through to the sweep; expendable occupant is evicted and relocated by
-   type.
-6. Fallback sweep (Decision 12): free D room by code descending, then
-   lowest-weighted-score Salaried eviction.
-7. Total failure (Decision 13): warn, leave any existing room intact.
-
-Hard implementation rules:
-- Never call `grid.free_room` on the duty doctor's own slot. Every
-  placement is `grid.assign_room`.
-- `grid.free_room` on an evictee is called only in the
-  relocation-failed branch of Decision 10.
-- Increment ROOM_MOVE on every eviction, both branches (Decision 9).
-
-Add `DecisionLog` entries for every room outcome, matching the message
-style of `phase4.py` and `phase7_9a.py`: self-already-placed,
-WFH-abandoned, preferred-room assign, preferred-room assign that also
-moved the doctor out of their own non-D room, displacement + relocation,
-displacement + relocation-failed, sweep free assign, sweep eviction
-assign, total failure. Counter-based sweep selections should state the
-deciding stage inline ("lowest weighted room-move score, tie broken on
-doctor code"), per the DecisionLog convention in architecture.md.
-
-New warning checks, both `severity="warning"`:
-- evictee could not be relocated (Decision 11);
-- duty doctor could not secure a D room (Decision 13), worded "could not
-  secure a D room".
-
 ## Task 3: Tests
 
 **A. State of the world:** Tasks 1 and 2 are implemented.
@@ -358,3 +299,63 @@ exists). Preserve exact behaviour: preferred rooms first with D-type
 skipped, then free C/W/SR rooms by id order. Update Pass 2's call site.
 Keep the module free of any Phase 4 knowledge — Task 2 adds its Trainee
 variant alongside, not inside, this function.
+
+
+## Task 2: Phase 4 duty room assignment
+
+**A. State of the world:** Task 1's shared helper exists. `phase4.py`
+currently only applies `role` and never touches rooms, counters, or
+`is_wfh`; its docstring incorrectly claims room resolution happens later
+in Phases 7-9A. `run_phase4(context, grid, log)` has no `CounterState`
+parameter.
+
+**B. Files:**
+- Modified: `backend/app/engine/phases/phase4.py` — full room-resolution
+  logic per Design Decisions 1-13; corrected module docstring; new
+  `CounterState` parameter.
+- Modified: `backend/app/engine/generate.py` — pass `counters` to
+  `run_phase4` (line 66 of the current file).
+- Modified: `backend/app/engine/room_relocation.py` — add the
+  Trainee D-only relocation search (Decision 8) as a second public
+  function, e.g. `find_trainee_d_room(context, grid, doctor_id, gen_week,
+  day, period)`: preferred D-type rooms in preference order, then free D
+  rooms by code ascending.
+- Possibly modified: `backend/app/engine/datatypes.py` — only if
+  `ValidationIssue`/`DecisionLogEntry` need new fields (unlikely; both are
+  already generic enough).
+
+**C. Instructions:** Implement, in order per duty row (the existing sorted
+iteration is kept — primary before secondary within a session):
+
+1. Existing no-slot and role-conflict warnings — both skip room logic
+   entirely, unchanged.
+2. Apply the role (unchanged).
+3. WFH override (Decision 3): clear `is_wfh`, log it.
+4. Self-check (Decision 1): already in a D room, stop here.
+5. Preferred-room placement (Decisions 4-8, 10): protected occupant falls
+   through to the sweep; expendable occupant is evicted and relocated by
+   type.
+6. Fallback sweep (Decision 12): free D room by code descending, then
+   lowest-weighted-score Salaried eviction.
+7. Total failure (Decision 13): warn, leave any existing room intact.
+
+Hard implementation rules:
+- Never call `grid.free_room` on the duty doctor's own slot. Every
+  placement is `grid.assign_room`.
+- `grid.free_room` on an evictee is called only in the
+  relocation-failed branch of Decision 10.
+- Increment ROOM_MOVE on every eviction, both branches (Decision 9).
+
+Add `DecisionLog` entries for every room outcome, matching the message
+style of `phase4.py` and `phase7_9a.py`: self-already-placed,
+WFH-abandoned, preferred-room assign, preferred-room assign that also
+moved the doctor out of their own non-D room, displacement + relocation,
+displacement + relocation-failed, sweep free assign, sweep eviction
+assign, total failure. Counter-based sweep selections should state the
+deciding stage inline ("lowest weighted room-move score, tie broken on
+doctor code"), per the DecisionLog convention in architecture.md.
+
+New warning checks, both `severity="warning"`:
+- evictee could not be relocated (Decision 11);
+- duty doctor could not secure a D room (Decision 13), worded "could not
+  secure a D room".
