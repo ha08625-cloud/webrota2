@@ -2,15 +2,16 @@ import type { Doctor, DoctorType } from "@/api/types";
 
 /**
  * Fixed display order for doctor-type groups across every doctor dropdown
- * in the app. Not alphabetical by design - Partner/Salaried/Trainee/AHP
+ * in the app. Not alphabetical by design - Partner/Salaried/Trainee/Locum/AHP
  * reflects seniority convention, not the type strings' sort order.
  */
-export const DOCTOR_TYPE_ORDER: DoctorType[] = ["Partner", "Salaried", "Trainee", "AHP"];
+export const DOCTOR_TYPE_ORDER: DoctorType[] = ["Partner", "Salaried", "Trainee", "Locum", "AHP"];
 
 const DOCTOR_TYPE_LABELS: Record<DoctorType, string> = {
   Partner: "Partners",
   Salaried: "Salaried",
   Trainee: "Trainees",
+  Locum: "Locums",
   AHP: "AHP",
 };
 
@@ -48,7 +49,7 @@ export interface DoctorGroup {
 
 /**
  * Groups the given doctors by type (fixed order: Partner, Salaried,
- * Trainee, AHP), sorted alphabetically by code within each group.
+ * Trainee, Locum, AHP), sorted alphabetically by code within each group.
  *
  * A type with no doctors in the *input* list is omitted entirely, rather
  * than rendered as an empty group - callers that need "doctors not yet
