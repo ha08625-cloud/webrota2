@@ -31,7 +31,7 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
     not a bug.
   Pass 3 (Partner/Salaried fallback): no displacement -- walk the doctor's
     own preference list first; if nothing on it is free, force the doctor
-    into the first free room by type priority SR > D > C > W (rooms
+    into the first free room by type priority D > C > W > SR (rooms
     ordered by code within a type). Only if every room in the practice is
     occupied does the slot remain unresolved.
 
@@ -40,7 +40,7 @@ Preference Assignment" algorithm from algorithms.md: preferred list first,
 then any free room of an eligible non-D type (C, W, SR) as a fallback.
 Pass 1 skips the preference-list step and goes straight to the C/W/SR pool
 (see above) -- this asymmetry between Pass 1 and Pass 2 is deliberate, not
-an inconsistency. Pass 3 has its own, separate fallback: SR/D/C/W by type
+an inconsistency. Pass 3 has its own, separate fallback: D/C/W/SR by type
 priority, with D rooms deliberately included. This is a genuine, intended
 difference from the Pass 1/2 displaced-doctor pool (C/W/SR, D excluded) --
 Pass 3 runs last, after all Trainee/AHP D-room demand has already been
@@ -79,7 +79,7 @@ _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 # Pass 1/2 displaced-doctor pool above) because Pass 3 runs last, after all
 # Trainee/AHP D-room demand has already been resolved by Passes 1 and 2, so
 # any D room still free at this point is genuine surplus.
-_PASS3_FALLBACK_TYPE_ORDER = (RoomType.SR, RoomType.D, RoomType.C, RoomType.W)
+_PASS3_FALLBACK_TYPE_ORDER = (RoomType.D, RoomType.C, RoomType.W, RoomType.SR)
 
 
 def run_phase7_to_9a(
@@ -549,7 +549,7 @@ def _pass3_partner_salaried_fallback(
             message = (
                 f"Assigned fallback room {context.room_by_id[chosen].code} to "
                 f"{doctor.code} (pass 3, no preferred room free; forced into "
-                f"first free room by type priority SR > D > C > W)."
+                f"first free room by type priority D > C > W > SR)."
             )
         else:
             message = (
@@ -567,8 +567,8 @@ def _pass3_partner_salaried_fallback(
 
 
 def _pass3_fallback_sequence(context: GenerationContext) -> list[int]:
-    """Room ids in Pass 3's forced-fallback order: SR, then D, then C, then
-    W, sorted by code within each type. Built once per call of
+    """Room ids in Pass 3's forced-fallback order: D, then C, then W, then
+    SR, sorted by code within each type. Built once per call of
     `_pass3_partner_salaried_fallback` -- it depends only on `context`, not
     on the grid, so it does not need rebuilding per doctor or per room
     check.
