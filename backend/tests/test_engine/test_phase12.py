@@ -34,7 +34,7 @@ class TestDutyCoverage:
         )
         # no DutyAssignment at all -- expected 1 primary Monday AM, found 0
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         matching = [i for i in issues if i.check == "duty_coverage_primary"
@@ -74,7 +74,7 @@ class TestDutyCoverage:
             session, t, d, week=1, day=Day.TUESDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         primary_issue = next(
@@ -120,7 +120,7 @@ class TestClinicCoverage:
             schedules=[(Day.MONDAY, Period.AM)], doctor_eligibilities=[(d.id, 1)],
         )
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         # phase5 not run -- clinic_type_id never set
         issues = run_phase12(ctx, grid)
 
@@ -140,7 +140,7 @@ class TestClinicCoverage:
             schedules=[(Day.MONDAY, Period.AM)], doctor_eligibilities=[(d.id, 1)],
         )
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         # manually simulate what phase5 would have done
         grid.get(d.id, 1, Day.MONDAY, Period.AM).clinic_type_id = ct.id
         issues = run_phase12(ctx, grid)
@@ -162,7 +162,7 @@ class TestClinicCoverage:
             doctor_eligibilities=[(d1.id, 1), (d2.id, 1)],
         )
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         # simulate a bug where both doctors ended up assigned
         grid.get(d1.id, 1, Day.MONDAY, Period.AM).clinic_type_id = ct.id
         grid.get(d2.id, 1, Day.MONDAY, Period.AM).clinic_type_id = ct.id
@@ -181,7 +181,7 @@ class TestUnresolvedRooms:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         assert any(i.check == "unresolved_room" for i in issues)
@@ -194,7 +194,7 @@ class TestUnresolvedRooms:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.PRE_ASSIGNED, room=room,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         # PRE_ASSIGNED isn't REQUIRES_ROOM by definition, so exercise the
         # actual check condition directly: a REQUIRES_ROOM slot that DOES
         # have a room assigned.
@@ -214,7 +214,7 @@ class TestUnresolvedRooms:
         )
         make_leave(session, d, monday, Period.AM)
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "unresolved_room" for i in issues)
@@ -235,7 +235,7 @@ class TestRoleOnIncompatibleSlot:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.NO_SURGERY,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
         issues = run_phase12(ctx, grid)
 
@@ -248,7 +248,7 @@ class TestRoleOnIncompatibleSlot:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.ADMIN_TIME,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         # Clinic role too, not just duty - M3.7 covers any role.
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.CLINIC
         issues = run_phase12(ctx, grid)
@@ -263,7 +263,7 @@ class TestRoleOnIncompatibleSlot:
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
         make_leave(session, d, monday, Period.AM)
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
         issues = run_phase12(ctx, grid)
 
@@ -276,7 +276,7 @@ class TestRoleOnIncompatibleSlot:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.WFH,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
         issues = run_phase12(ctx, grid)
 
@@ -289,7 +289,7 @@ class TestRoleOnIncompatibleSlot:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
         issues = run_phase12(ctx, grid)
 
@@ -302,7 +302,7 @@ class TestRoleOnIncompatibleSlot:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.NO_SURGERY,
         )
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "role_on_incompatible_slot" for i in issues)
@@ -324,7 +324,7 @@ class TestRoomOnLeaveSlot:
         )
         make_leave(session, d, monday, Period.AM)
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.assign_room(1, Day.MONDAY, Period.AM, d.id, room.id)
         issues = run_phase12(ctx, grid)
 
@@ -346,7 +346,7 @@ class TestRoomOnLeaveSlot:
         )
         make_leave(session, d, monday, Period.AM)
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         grid.assign_room(1, Day.MONDAY, Period.AM, d.id, room.id)
         grid.get(d.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
         issues = run_phase12(ctx, grid)
@@ -363,7 +363,7 @@ class TestRoomOnLeaveSlot:
         )
         make_leave(session, d, monday, Period.AM)
 
-        ctx, grid = _build(session, config_1wk)
+        ctx, grid, counters = _build(session, config_1wk)
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "room_on_leave_slot" for i in issues)
