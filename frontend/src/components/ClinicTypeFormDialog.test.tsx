@@ -69,6 +69,165 @@ describe("ClinicTypeFormDialog - create mode", () => {
     expect(within(doctorSelect).queryByRole("option", { name: "CD" })).not.toBeInTheDocument();
   });
 
+  it("the add-select groups doctors by type in Partner, Salaried, Trainee, AHP order, alphabetical within type", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "LFM", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CL", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 3, code: "EM", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor") as HTMLSelectElement;
+    await within(doctorSelect).findByRole("option", { name: "CL" });
+
+    const groups = Array.from(doctorSelect.querySelectorAll("optgroup"));
+    expect(groups.map((g) => g.label)).toEqual(["Partners", "Salaried"]);
+    const partnerCodes = Array.from(groups[0].querySelectorAll("option")).map((o) => o.textContent);
+    // First option in the group is the "All partners" bulk-add row, followed
+    // by the individual doctors in alphabetical order.
+    expect(partnerCodes).toEqual(["All partners", "CL", "LFM"]);
+  });
+
+  it("'All doctors' adds every not-yet-added doctor at once, each at priority 1000", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "All doctors" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
+
+    await user.selectOptions(doctorSelect, "all");
+
+    expect(within(doctorRows).getByText("AB")).toBeInTheDocument();
+    expect(within(doctorRows).getByText("CD")).toBeInTheDocument();
+    expect(screen.getByLabelText("Priority for AB")).toHaveValue(1000);
+    expect(screen.getByLabelText("Priority for CD")).toHaveValue(1000);
+  });
+
+  it("'All doctors' excludes Trainees and AHPs, adding only Partners and Salaried doctors", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true }),
+        makeDoctor({ id: 3, code: "EF", doctor_type: "Trainee", active: true }),
+        makeDoctor({ id: 4, code: "GH", doctor_type: "AHP", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "All doctors" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
+
+    await user.selectOptions(doctorSelect, "all");
+
+    expect(within(doctorRows).getByText("AB")).toBeInTheDocument();
+    expect(within(doctorRows).getByText("CD")).toBeInTheDocument();
+    expect(within(doctorRows).queryByText("EF")).not.toBeInTheDocument();
+    expect(within(doctorRows).queryByText("GH")).not.toBeInTheDocument();
+    // Trainee and AHP are still individually available, or reachable via
+    // their own "All <type>" group option - "All doctors" just doesn't
+    // sweep them in.
+    expect(within(doctorSelect).getByRole("option", { name: "EF" })).toBeInTheDocument();
+    expect(within(doctorSelect).getByRole("option", { name: "GH" })).toBeInTheDocument();
+  });
+
+  it("'All doctors' does not appear when only Trainees/AHPs remain to be added", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 3, code: "EF", doctor_type: "Trainee", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
+
+    await user.selectOptions(doctorSelect, "1");
+
+    expect(within(doctorSelect).queryByRole("option", { name: "All doctors" })).not.toBeInTheDocument();
+    expect(within(doctorSelect).getByRole("option", { name: "EF" })).toBeInTheDocument();
+  });
+
+  it("'All doctors' only adds doctors not already added, without duplicating an existing row", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
+
+    await user.selectOptions(doctorSelect, "1");
+    await user.selectOptions(doctorSelect, "all");
+
+    expect(within(doctorRows).getAllByText("AB")).toHaveLength(1);
+    expect(within(doctorRows).getByText("CD")).toBeInTheDocument();
+  });
+
+  it("an 'All <type>' option adds only not-yet-added doctors of that type", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 3, code: "EF", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "All partners" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
+
+    await user.selectOptions(doctorSelect, "all:Partner");
+
+    expect(within(doctorRows).getByText("AB")).toBeInTheDocument();
+    expect(within(doctorRows).getByText("CD")).toBeInTheDocument();
+    expect(within(doctorRows).queryByText("EF")).not.toBeInTheDocument();
+  });
+
+  it("a fully-added type's group, including its 'All <type>' option, disappears from the dropdown", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Salaried", active: true }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor") as HTMLSelectElement;
+    await within(doctorSelect).findByRole("option", { name: "AB" });
+
+    await user.selectOptions(doctorSelect, "1");
+
+    const remainingGroups = Array.from(doctorSelect.querySelectorAll("optgroup")).map((g) => g.label);
+    expect(remainingGroups).toEqual(["Salaried"]);
+    expect(within(doctorSelect).queryByRole("option", { name: "All partners" })).not.toBeInTheDocument();
+  });
+
+  it("'All doctors' disappears once every doctor has already been added", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor");
+    await within(doctorSelect).findByRole("option", { name: "AB" });
+
+    await user.selectOptions(doctorSelect, "1");
+
+    expect(within(doctorSelect).queryByRole("option", { name: "All doctors" })).not.toBeInTheDocument();
+  });
+
   it("adding a specific room and a room type produces two distinct rows", async () => {
     setUpServer({ rooms: [makeRoom({ id: 1, code: "D1", room_type: "D" })] });
     const user = userEvent.setup();

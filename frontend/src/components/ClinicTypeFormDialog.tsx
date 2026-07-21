@@ -57,6 +57,12 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
     (d) => !values.doctorEligibilities.some((row) => row.doctorId === d.id),
   );
   const notYetAddedGroups = groupDoctorsByType(notYetAddedDoctors);
+  // "All doctors" bulk-add is deliberately scoped to Partner/Salaried only -
+  // Trainees and AHPs are excluded and must be added individually or via
+  // their own "All <type>" group option.
+  const notYetAddedCoreDoctors = notYetAddedDoctors.filter(
+    (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
+  );
 
   function toggleSchedule(day: Day, period: Period) {
     setValues((prev) => {
@@ -305,7 +311,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val === "all") {
-                    addManyDoctorEligibilities(notYetAddedDoctors.map((d) => d.id));
+                    addManyDoctorEligibilities(notYetAddedCoreDoctors.map((d) => d.id));
                   } else if (val.startsWith("all:")) {
                     const type = val.slice(4) as DoctorType;
                     addManyDoctorEligibilities(
@@ -321,7 +327,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                 <option value="" disabled>
                   Add doctor...
                 </option>
-                {notYetAddedDoctors.length > 0 ? <option value="all">All doctors</option> : null}
+                {notYetAddedCoreDoctors.length > 0 ? <option value="all">All doctors</option> : null}
                 {notYetAddedGroups.map((group) => (
                   <optgroup key={group.type} label={group.label}>
                     <option value={`all:${group.type}`}>All {group.type === "AHP" ? "AHP" : group.label.toLowerCase()}</option>
