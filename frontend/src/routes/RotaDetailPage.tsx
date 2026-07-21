@@ -22,6 +22,7 @@ import { useRooms } from "@/api/rooms";
 import type { RotaSummary } from "@/api/types";
 import { ForceDeleteRotaDialog } from "@/components/ForceDeleteRotaDialog";
 import { IssuesPanel } from "@/components/IssuesPanel";
+import { GenerationLogPanel } from "@/components/GenerationLogPanel";
 import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -460,6 +461,7 @@ export function RotaDetailPage() {
           )}
         </div>
         <IssuesPanel rotaId={currentRotaId} />
+        <GenerationLogPanel rotaId={currentRotaId} />
       </div>
 
       <ToastDisplay message={toast?.message} />
