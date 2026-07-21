@@ -28,7 +28,16 @@ from app.models import (
     RotaStagingSession,
     SystemCounter,
 )
-from app.models.enums import Day, DoctorType, DutyType, MasterSessionType, Period, RoomType, Site
+from app.models.enums import (
+    Day,
+    DoctorType,
+    DutyType,
+    MasterSessionType,
+    Period,
+    RoomType,
+    Site,
+    SupervisionPreference,
+)
 
 # clinic_types.clinic_priority now has a partial unique index over enabled
 # rows (migration 005). Tests that don't care about a specific priority
@@ -47,11 +56,13 @@ def make_room(session, code="D1", room_type=RoomType.D, site=Site.SHC) -> Room:
 
 
 def make_doctor(
-    session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0", active=True
+    session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0", active=True,
+    supervision_preference=SupervisionPreference.NORMAL,
 ) -> Doctor:
     d = Doctor(
         code=code, doctor_type=doctor_type,
         sessions_per_week=Decimal(spw), active=active,
+        supervision_preference=supervision_preference,
     )
     session.add(d)
     session.flush()

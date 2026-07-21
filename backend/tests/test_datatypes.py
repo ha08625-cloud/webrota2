@@ -139,6 +139,30 @@ class TestCounterState:
         assert cs.weighted_clinic_score(1, 1, spw=0) == math.inf
         assert cs.weighted_system_score(1, SystemCounterType.ROOM_MOVE, spw=0) == math.inf
 
+    def test_spw_zero_returns_inf_regardless_of_multiplier(self):
+        # The spw==0 short-circuit must ignore multiplier entirely - an
+        # undefined score stays undefined no matter how it would have been
+        # scaled. Covers both a below-1 and an above-1 multiplier.
+        cs = CounterState()
+        cs.increment_system(1, SystemCounterType.SUPERVISION)
+        assert cs.weighted_system_score(1, SystemCounterType.SUPERVISION, spw=0, multiplier=0.66) == math.inf
+        assert cs.weighted_system_score(1, SystemCounterType.SUPERVISION, spw=0, multiplier=1_000_000) == math.inf
+
+    def test_weighted_system_score_default_multiplier_is_unscaled(self):
+        # No multiplier passed -- existing ROOM_MOVE callers must see
+        # identical behaviour to before the parameter existed.
+        cs = CounterState()
+        cs.increment_system(1, SystemCounterType.ROOM_MOVE)
+        cs.increment_system(1, SystemCounterType.ROOM_MOVE)
+        assert cs.weighted_system_score(1, SystemCounterType.ROOM_MOVE, spw=4.0) == 0.5
+
+    def test_weighted_system_score_applies_multiplier(self):
+        cs = CounterState()
+        cs.increment_system(1, SystemCounterType.SUPERVISION)
+        cs.increment_system(1, SystemCounterType.SUPERVISION)
+        # raw=2, spw=4.0 -> unscaled 0.5; multiplier=1.5 -> 0.75
+        assert cs.weighted_system_score(1, SystemCounterType.SUPERVISION, spw=4.0, multiplier=1.5) == 0.75
+
     def test_increment_clinic_and_weighted_score(self):
         cs = CounterState()
         cs.increment_clinic(1, 1)

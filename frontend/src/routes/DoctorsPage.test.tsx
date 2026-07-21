@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -29,6 +29,34 @@ describe("DoctorsPage", () => {
     renderWithProviders(<DoctorsPage />);
 
     expect(await screen.findByText("AB")).toBeInTheDocument();
+  });
+
+  it("shows the doctor's supervision preference in the inline dropdown", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", supervision_preference: "more" })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    expect(screen.getByLabelText("Supervision preference for AB")).toHaveValue("more");
+  });
+
+  it("changing the supervision preference dropdown sends a PATCH with only that field", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", supervision_preference: "normal" })] });
+    let patchBody: unknown;
+    server.use(
+      http.patch("/api/v1/doctors/1", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 1, code: "AB", supervision_preference: "less" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorsPage />);
+    await screen.findByText("AB");
+
+    await user.selectOptions(screen.getByLabelText("Supervision preference for AB"), "less");
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).toEqual({ supervision_preference: "less" });
   });
 
   it("New Doctor opens the dialog in create mode", async () => {
