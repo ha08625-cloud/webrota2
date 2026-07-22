@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
 import type { Doctor, DoctorType, SupervisionPreference } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
+import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 interface DialogState {
   open: boolean;
@@ -159,75 +160,82 @@ export function DoctorsPage() {
               <th className="py-1" />
             </tr>
           </thead>
-          <tbody>
-            {doctors.map((d) => {
-              const showExtras = showSessionsAndSupervision(d.doctor_type);
-              return (
-                <tr key={d.id} className="border-t border-border">
-                  <td className="py-1 pr-4">{d.code}</td>
-                  <td className="py-1 pr-4">{d.doctor_type}</td>
-                  <td className="py-1 pr-4">
-                    {showExtras ? (
-                      <div className="flex items-center gap-1">
-                        <span className="tabular-nums">{d.sessions_per_week}</span>
-                        <div className="flex flex-col leading-none">
-                          <button
-                            type="button"
-                            onClick={() => adjustSessions(d, 1)}
-                            disabled={updateDoctor.isPending}
-                            aria-label={`Increase sessions per week for ${d.code}`}
-                            className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => adjustSessions(d, -1)}
-                            disabled={updateDoctor.isPending}
-                            aria-label={`Decrease sessions per week for ${d.code}`}
-                            className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
-                          >
-                            ▼
-                          </button>
+          {groupDoctorsByType(doctors).map((group) => (
+            <tbody key={group.type}>
+              <tr className="border-t border-border bg-ink/5">
+                <th colSpan={5} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
+                  {group.label}
+                </th>
+              </tr>
+              {group.doctors.map((d) => {
+                const showExtras = showSessionsAndSupervision(d.doctor_type);
+                return (
+                  <tr key={d.id} className="border-t border-border">
+                    <td className="py-1 pr-4">{d.code}</td>
+                    <td className="py-1 pr-4">{d.doctor_type}</td>
+                    <td className="py-1 pr-4">
+                      {showExtras ? (
+                        <div className="flex items-center gap-1">
+                          <span className="tabular-nums">{d.sessions_per_week}</span>
+                          <div className="flex flex-col leading-none">
+                            <button
+                              type="button"
+                              onClick={() => adjustSessions(d, 1)}
+                              disabled={updateDoctor.isPending}
+                              aria-label={`Increase sessions per week for ${d.code}`}
+                              className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => adjustSessions(d, -1)}
+                              disabled={updateDoctor.isPending}
+                              aria-label={`Decrease sessions per week for ${d.code}`}
+                              className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                            >
+                              ▼
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <span className="text-ink/40">—</span>
-                    )}
-                  </td>
-                  <td className="py-1 pr-4">
-                    {showExtras ? (
-                      <select
-                        aria-label={`Supervision preference for ${d.code}`}
-                        value={d.supervision_preference}
-                        disabled={updateDoctor.isPending}
-                        onChange={(e) =>
-                          handleSupervisionPreferenceChange(d, e.target.value as SupervisionPreference)
-                        }
-                        className="rounded border border-border p-1 text-sm disabled:opacity-50"
-                      >
-                        {SUPERVISION_PREFERENCES.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {p.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-ink/40">—</span>
-                    )}
-                  </td>
-                  <td className="py-1">
-                    <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
-                      Edit
-                    </button>
-                    <button type="button" onClick={() => handleDelete(d)} className="text-xs text-red-700">
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+                      ) : (
+                        <span className="text-ink/40">—</span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-4">
+                      {showExtras ? (
+                        <select
+                          aria-label={`Supervision preference for ${d.code}`}
+                          value={d.supervision_preference}
+                          disabled={updateDoctor.isPending}
+                          onChange={(e) =>
+                            handleSupervisionPreferenceChange(d, e.target.value as SupervisionPreference)
+                          }
+                          className="rounded border border-border p-1 text-sm disabled:opacity-50"
+                        >
+                          {SUPERVISION_PREFERENCES.map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-ink/40">—</span>
+                      )}
+                    </td>
+                    <td className="py-1">
+                      <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => handleDelete(d)} className="text-xs text-red-700">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
         </table>
       ) : null}
 
