@@ -153,9 +153,12 @@ describe("DutyGrid", () => {
     await waitFor(() => expect(within(cell).queryByText("AB")).not.toBeInTheDocument());
   });
 
-  it("renders counts and weighted score", async () => {
-    // 1. Call setUpServer with explicit sessions_per_week as strings to ensure the math 
-    //    matches our assertions ("8.0" spw -> 5.00 score for 4 duties).
+  it("renders period counts and weighted score", async () => {
+    // Call setUpServer with explicit sessions_per_week as strings to ensure the math
+    // matches our assertions ("8.0" spw -> 5.00 score for 4 duties). The mock handler
+    // below returns the same counts regardless of the requested range, so this test
+    // only asserts on the period-scoped columns (testid-scoped, since the annual
+    // columns render the same values from the same mock data).
     setUpServer({
       doctors: [
         makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" }),
@@ -172,40 +175,68 @@ describe("DutyGrid", () => {
       )
     );
 
-    // 2. Use renderWithProviders instead of render, and stick to the MONDAY constant
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
-    
+
     // Doctor 1 (AB): raw 4, "8.0" sessions_per_week -> 5.00 score
-    expect(await screen.findByText("4")).toBeInTheDocument();
-    expect(await screen.findByText("5.00")).toBeInTheDocument();
+    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("4");
+    expect(screen.getByTestId("duty-period-wtd-1")).toHaveTextContent("5.00");
 
     // Doctor 2 (CD): raw 0, "4.0" sessions_per_week -> 0.00 score
-    expect(await screen.findByText("0")).toBeInTheDocument();
-    expect(await screen.findByText("0.00")).toBeInTheDocument();
+    expect(screen.getByTestId("duty-period-raw-2")).toHaveTextContent("0");
+    expect(screen.getByTestId("duty-period-wtd-2")).toHaveTextContent("0.00");
   });
 
-  it("requests counts scoped to the rendered 4-week period, not all-time", async () => {
-    setUpServer();
-    let capturedUrl: URL | undefined;
+  it("renders the annual counter alongside the period counter", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" })],
+    });
+
     server.use(
       http.get("/api/v1/duty/counts", ({ request }) => {
-        capturedUrl = new URL(request.url);
+        const url = new URL(request.url);
+        // Distinguish the two ranges by from_date, mirroring how the real
+        // API would return different totals for the period vs the year.
+        const raw = url.searchParams.get("from_date") === "2026-01-01" ? 20 : 4;
+        return HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: raw }]);
+      }),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("4");
+    expect(screen.getByTestId("duty-period-wtd-1")).toHaveTextContent("5.00");
+    expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("20");
+    expect(screen.getByTestId("duty-annual-wtd-1")).toHaveTextContent("25.00");
+  });
+
+  it("requests counts scoped to the rendered 4-week period and separately to the full calendar year", async () => {
+    setUpServer();
+    const capturedUrls: URL[] = [];
+    server.use(
+      http.get("/api/v1/duty/counts", ({ request }) => {
+        capturedUrls.push(new URL(request.url));
         return HttpResponse.json([]);
       }),
     );
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    await waitFor(() => expect(capturedUrl).toBeDefined());
+    await waitFor(() => expect(capturedUrls.length).toBeGreaterThanOrEqual(2));
+
     // A 28-day period runs Monday (day 0) to Sunday (day 27) of the 4th
     // week, not to that week's Friday - week 4 starts 2026-08-03, so the
     // period's last calendar day is 2026-08-09, even though the grid's
     // last rendered weekday column is Friday 2026-08-07.
-    expect(capturedUrl?.searchParams.get("from_date")).toBe("2026-07-13");
-    expect(capturedUrl?.searchParams.get("to_date")).toBe("2026-08-09");
+    const periodUrl = capturedUrls.find((u) => u.searchParams.get("from_date") === "2026-07-13");
+    expect(periodUrl?.searchParams.get("to_date")).toBe("2026-08-09");
+
+    // MONDAY (2026-07-13) falls in calendar year 2026, so the annual
+    // range is the whole of 2026, independent of the period window.
+    const annualUrl = capturedUrls.find((u) => u.searchParams.get("from_date") === "2026-01-01");
+    expect(annualUrl?.searchParams.get("to_date")).toBe("2026-12-31");
   });
 
-  it("a doctor with no duties in the period renders 0, not a dash, once counts have loaded", async () => {
+  it("a doctor with no duties in the period or year renders 0, not a dash, once counts have loaded", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true })],
     });
@@ -217,12 +248,13 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    expect(await screen.findByText("0")).toBeInTheDocument();
+    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("0");
+    expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("0");
     expect(screen.queryByText("–")).not.toBeInTheDocument();
   });
 
   it("displays en-dash placeholders while loading counts", async () => {
-    // 1. Setup base routes so doctors load and the grid actually renders the chips
+    // Setup base routes so doctors load and the grid actually renders the chips
     setUpServer();
     
     server.use(
@@ -232,10 +264,10 @@ describe("DutyGrid", () => {
       })
     );
 
-    // 2. Use renderWithProviders
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     
-    // Verify doctor chips rendered but numbers haven't populated yet
+    // Verify doctor chips rendered but neither the period nor annual
+    // numbers have populated yet.
     await waitFor(() => {
       expect(screen.getAllByText("–").length).toBeGreaterThan(0);
     });

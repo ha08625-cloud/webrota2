@@ -8,6 +8,7 @@ import {
   getDutyPeriodStart,
   getDutyPeriodStarts,
   getUpcomingMondays,
+  getYearRange,
   isMonday,
   parseLocalDate,
 } from "./date";
@@ -134,6 +135,21 @@ describe("getDutyPeriodStarts", () => {
 
   it("returns exactly pastCount + futureCount + 1 results", () => {
     expect(getDutyPeriodStarts(2, 3, new Date(2026, 7, 5))).toHaveLength(6);
+  });
+});
+
+describe("getYearRange", () => {
+  it("returns 1 Jan to 31 Dec of the year containing the date", () => {
+    expect(getYearRange("2026-07-13")).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+  });
+
+  it("uses the year of the date itself at each end of the calendar year", () => {
+    expect(getYearRange("2026-01-01")).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+    expect(getYearRange("2026-12-31")).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+  });
+
+  it("does not roll over into the next year", () => {
+    expect(getYearRange("2027-01-01")).toEqual({ from: "2027-01-01", to: "2027-12-31" });
   });
 });
 

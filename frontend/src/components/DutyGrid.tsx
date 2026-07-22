@@ -15,7 +15,7 @@ import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts } from "@/api/duty
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
-import { addDays, DUTY_PERIOD_WEEKS, formatWeekLabel } from "@/lib/date";
+import { addDays, DUTY_PERIOD_WEEKS, formatWeekLabel, getYearRange } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
@@ -51,6 +51,16 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
     [startWeekDate],
   );
   const { data: countsData, isLoading: countsLoading } = useDutyCounts(countsRange);
+  // Annual counter: a second, independent range covering the calendar
+  // year containing the selected period's start date (1 Jan - 31 Dec,
+  // arbitrary cutoffs - user-confirmed). This shifts as the user
+  // navigates periods, unlike the period-scoped counter's fixed 28-day
+  // window. It is additive alongside the period counter, not a
+  // reinstatement of the all-time view removed when 4-weekly periods
+  // were introduced (see the comment above) - a fixed calendar year is
+  // a different, bounded concept from an unbounded all-time count.
+  const annualRange = useMemo(() => getYearRange(startWeekDate), [startWeekDate]);
+  const { data: annualCountsData, isLoading: annualCountsLoading } = useDutyCounts(annualRange);
   const { data: closures } = useClosures();
   const createDuty = useCreateDuty();
   const deleteDuty = useDeleteDuty();
@@ -80,6 +90,12 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
     for (const c of countsData ?? []) map.set(c.doctor_id, c.raw_count);
     return map;
   }, [countsData]);
+
+  const annualCountsById = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const c of annualCountsData ?? []) map.set(c.doctor_id, c.raw_count);
+    return map;
+  }, [annualCountsData]);
 
   const dutyEligibleDoctors = (allDoctors ?? []).filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
@@ -138,10 +154,20 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex gap-6">
-        <div className="w-56 shrink-0">
+        <div className="w-80 shrink-0">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-medium text-ink/70">Doctors</h2>
-            <div className="flex gap-1 text-xs text-ink/50">
+            <div className="flex gap-3 text-xs text-ink/50">
+              <span className="w-[4.5rem] text-center">Period</span>
+              <span className="w-[4.5rem] text-center">Year</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 text-xs text-ink/50">
+            <div className="flex gap-1">
+              <span className="w-8 text-right">n</span>
+              <span className="w-10 text-right">wtd</span>
+            </div>
+            <div className="flex gap-1">
               <span className="w-8 text-right">n</span>
               <span className="w-10 text-right">wtd</span>
             </div>
@@ -156,13 +182,43 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
                     const doctor = doctorsById.get(d.id);
                     const wtd = raw === null ? null : formatWeightedScore(computeWeightedScore(raw, doctor));
 
+                    const annualRaw = annualCountsLoading ? null : (annualCountsById.get(d.id) ?? 0);
+                    const annualWtd =
+                      annualRaw === null ? null : formatWeightedScore(computeWeightedScore(annualRaw, doctor));
+
                     return (
-                      <div key={d.id} className="flex items-center gap-1">
+                      <div key={d.id} className="flex items-center gap-3">
                         <div className="flex-1">
                           <DraggableDoctorChip doctorId={d.id} doctorCode={d.code} />
                         </div>
-                        <span className="w-8 text-right text-xs tabular-nums text-ink/70">{raw ?? "–"}</span>
-                        <span className="w-10 text-right text-xs tabular-nums text-ink/70">{wtd ?? "–"}</span>
+                        <div className="flex gap-1">
+                          <span
+                            data-testid={`duty-period-raw-${d.id}`}
+                            className="w-8 text-right text-xs tabular-nums text-ink/70"
+                          >
+                            {raw ?? "–"}
+                          </span>
+                          <span
+                            data-testid={`duty-period-wtd-${d.id}`}
+                            className="w-10 text-right text-xs tabular-nums text-ink/70"
+                          >
+                            {wtd ?? "–"}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          <span
+                            data-testid={`duty-annual-raw-${d.id}`}
+                            className="w-8 text-right text-xs tabular-nums text-ink/70"
+                          >
+                            {annualRaw ?? "–"}
+                          </span>
+                          <span
+                            data-testid={`duty-annual-wtd-${d.id}`}
+                            className="w-10 text-right text-xs tabular-nums text-ink/70"
+                          >
+                            {annualWtd ?? "–"}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}

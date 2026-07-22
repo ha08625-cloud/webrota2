@@ -169,6 +169,21 @@ export function getDutyPeriodStarts(pastCount: number, futureCount: number, from
 }
 
 /**
+ * Returns the "1 Jan - 31 Dec" span of the calendar year containing
+ * `dateString`, as "YYYY-MM-DD" from/to strings. Backs the Duty page's
+ * annual counter, which deliberately tracks a fixed calendar year rather
+ * than a rolling 12 months - arbitrary cutoffs are acceptable for this
+ * feature (user-confirmed). `to` is inclusive (Dec 31), matching the
+ * `/duty/counts` endpoint's inclusive `to_date` semantics, so this is
+ * equivalent to "up to but not including next 1 Jan" without an
+ * addDays year-rollover call.
+ */
+export function getYearRange(dateString: string): { from: string; to: string } {
+  const year = parseLocalDate(dateString).getFullYear();
+  return { from: `${year}-01-01`, to: `${year}-12-31` };
+}
+
+/**
  * Formats a duty period's inclusive span, e.g. "20 Jul - 16 Aug 2026" or,
  * crossing a year boundary, "21 Dec 2026 - 17 Jan 2027". Pinned to
  * "en-GB" for month names for the same reason formatWeekLabel is - a
