@@ -186,6 +186,219 @@ def test_get_active_reports_leave_and_closed_dates(client, db_session, seeded):
 
 
 # ---------------------------------------------------------------------------
+# create: extra session override table (extra sessions plan, Task 2)
+# ---------------------------------------------------------------------------
+
+TUESDAY = MONDAY + datetime.timedelta(days=1)
+WEDNESDAY = MONDAY + datetime.timedelta(days=2)
+
+
+def _plan_extra_session(client, doctor_id, date, period="AM"):
+    resp = client.post("/api/v1/extra-sessions", json={
+        "doctor_id": doctor_id, "date": date.isoformat(), "period": period,
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_override_no_surgery_becomes_requires_room(client, db_session, seeded):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "requires_room"
+    assert row["room_id"] is None
+    assert row["is_extra_session"] is True
+
+
+def test_override_admin_time_without_room_becomes_requires_room(
+    client, db_session, seeded
+):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.ADMIN_TIME,
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "requires_room"
+    assert row["room_id"] is None
+    assert row["is_extra_session"] is True
+
+
+def test_override_admin_time_with_room_becomes_pre_assigned(
+    client, db_session, seeded
+):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.ADMIN_TIME,
+        room_id=seeded["room_c1"],
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "pre_assigned"
+    assert row["room_id"] == seeded["room_c1"]
+    assert row["is_extra_session"] is True
+
+
+def test_override_wfh_becomes_requires_room(client, db_session, seeded):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.WFH,
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "requires_room"
+    assert row["room_id"] is None
+    assert row["is_extra_session"] is True
+
+
+def test_missing_template_row_creates_new_requires_room_session(
+    client, db_session, seeded
+):
+    # No MasterRotaSession row at all for AA/Wednesday/AM (Design Decision 5).
+    _plan_extra_session(client, seeded["doctor_aa"], WEDNESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Wednesday", "AM")]
+    assert row["session_type"] == "requires_room"
+    assert row["room_id"] is None
+    assert row["is_extra_session"] is True
+
+
+def test_pre_assigned_template_row_untouched_by_extra_session(
+    client, db_session, seeded
+):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.PRE_ASSIGNED,
+        room_id=seeded["room_c1"],
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "pre_assigned"
+    assert row["room_id"] == seeded["room_c1"]
+    assert row["is_extra_session"] is True
+
+
+def test_requires_room_template_row_untouched_by_extra_session(
+    client, db_session, seeded
+):
+    # seeded's AA/Monday/AM row is already REQUIRES_ROOM.
+    _plan_extra_session(client, seeded["doctor_aa"], MONDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Monday", "AM")]
+    assert row["session_type"] == "requires_room"
+    assert row["room_id"] is None
+    assert row["is_extra_session"] is True
+
+
+def test_extra_session_on_leave_slot_leaves_row_untouched(client, db_session, seeded):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    db_session.commit()
+    # Extra session planned first, leave added afterwards -- the ordering
+    # case the /extra-sessions POST's own leave check cannot catch
+    # (Design Decision 6).
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+    db_session.add(LeaveEntry(
+        doctor_id=seeded["doctor_aa"], date=TUESDAY, period=Period.AM,
+    ))
+    db_session.commit()
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "no_surgery"
+    assert row["is_on_leave"] is True
+
+
+def test_extra_session_with_no_template_row_skipped_when_on_leave(
+    client, db_session, seeded
+):
+    # Design Decision 5 + 6 together: no template row, and leave supersedes
+    # the planned extra session -- no staged row should be created at all.
+    _plan_extra_session(client, seeded["doctor_aa"], WEDNESDAY)
+    db_session.add(LeaveEntry(
+        doctor_id=seeded["doctor_aa"], date=WEDNESDAY, period=Period.AM,
+    ))
+    db_session.commit()
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    by_key = _sessions_by_key(resp.json())
+    assert ("AA", 1, "Wednesday", "AM") not in by_key
+
+
+def test_extra_session_outside_staging_range_does_not_appear(
+    client, db_session, seeded
+):
+    far_date = MONDAY + datetime.timedelta(days=21)
+    _plan_extra_session(client, seeded["doctor_aa"], far_date)
+
+    resp = _create_staging(client, num_weeks=1)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert all(s["is_extra_session"] is False for s in body["sessions"])
+
+
+def test_is_extra_session_survives_patch_editing_cell_back(client, db_session, seeded):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    db_session.commit()
+    _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
+
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+    row = _sessions_by_key(resp.json())[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "requires_room"
+
+    patch = client.patch(
+        f"/api/v1/staging/{staging_id}/sessions/{row['session_id']}",
+        json={"session_type": "no_surgery", "room_id": None},
+    )
+    assert patch.status_code == 200, patch.text
+    # Looks wrong at a glance -- is_extra_session means "a planned extra
+    # session exists here", not "the override produced this row" (Design
+    # Decision 8), so it stays True even though the admin edited the cell
+    # back to NO_SURGERY.
+    assert patch.json()["session"]["is_extra_session"] is True
+
+    active = client.get("/api/v1/staging/active").json()
+    row = _sessions_by_key(active)[("AA", 1, "Tuesday", "AM")]
+    assert row["session_type"] == "no_surgery"
+    assert row["is_extra_session"] is True
+
+
+# ---------------------------------------------------------------------------
 # PATCH: displacement
 # ---------------------------------------------------------------------------
 

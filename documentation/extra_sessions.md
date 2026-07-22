@@ -113,12 +113,8 @@ meaningless here. Single date plus period covers the real workflow.
 An extra session becomes an ordinary `Requires room` or `Pre-assigned` slot, so existing
 Phase 5 counter increments apply with zero special-casing.
 
-**12. WFH overrides to `Requires room`. FLAGGED FOR CONFIRMATION.**
-A planned extra session on a WFH slot pulls the doctor into the building. This is the one
-row of the override table a user could find surprising, and it is a widening of the
-original scope (which triggered on `No surgery` and `Admin time` only). If it should
-instead be left untouched, the change is removing one enum value from `_OVERRIDABLE_TYPES`
-in Task 2 — nothing else in this plan depends on it.
+**12. WFH overrides to `Requires room`.**
+A planned extra session on a WFH slot pulls the doctor into the building. 
 
 ---
 
@@ -135,83 +131,6 @@ Applied per staged slot at `POST /staging` creation time.
 | No row at all | `Requires room` (new row created) | null |
 | `Requires room` or `Pre-assigned` | untouched | untouched |
 | Leave exists for the slot | untouched (override skipped) | untouched |
-
----
-
-# Task 1: Data model and CRUD API
-
-## A. State of the world
-
-Nothing has been built yet. This task adds the `ExtraSessionEntry` table, its migration,
-schemas, and a minimal `/extra-sessions` router, plus the one-way conflict reporting on
-bulk leave creation. No staging or frontend code is touched.
-
-## B. Files and deliverables
-
-**New**
-- `backend/app/models/extra_session.py` — `ExtraSessionEntry`
-- `backend/alembic/versions/014_extra_session_entries.py` — create table
-- `backend/app/api/schemas/extra_session.py` — `ExtraSessionIn`, `ExtraSessionOut`
-- `backend/app/api/routers/extra_sessions.py` — list, create, delete
-- `backend/tests/test_api/test_extra_sessions.py`
-
-**Edited**
-- `backend/app/models/__init__.py` — import and `__all__`
-- `backend/app/api/schemas/__init__.py` — import and `__all__`
-- `backend/app/api/main.py` — add `extra_sessions` to the import tuple and the
-  `include_router` loop on line 51
-- `backend/app/api/schemas/leave.py` — `LeaveBulkOut` gains
-  `superseded_extra_sessions: list[ExtraSessionOut]`
-- `backend/app/api/routers/leave.py` — populate that field in `create_leave_bulk`
-- `backend/tests/test_api/test_leave_duty.py` — cover the supersede reporting
-
-## C. Instructions
-
-**Model.** Copy `backend/app/models/leave.py` verbatim, renaming the class to
-`ExtraSessionEntry`, `__tablename__` to `extra_session_entries`, and the unique constraint
-to `uq_extra_session_slot`. Same three columns, same `enum_col(Period)`, same
-`ForeignKey("doctors.id")`. Export from `models/__init__.py` alongside `LeaveEntry`.
-
-**Migration.** Revision `014`, `down_revision = "013"`. Plain `op.create_table` mirroring
-how `leave_entries` is created in `001_initial_schema.py`, including the named unique
-constraint. No new enum type is introduced — `Period` already exists — so nothing needs to
-touch `_create_enum_types()`. `downgrade()` is a real `op.drop_table`.
-
-**Schemas.** `ExtraSessionIn` (`doctor_id`, `date`, `period`) and
-`ExtraSessionOut(ExtraSessionIn)` adding `id`, with
-`model_config = {"from_attributes": True}` — identical to `LeaveIn`/`LeaveOut`. No
-validators on the model; the weekday and leave-conflict rules need the request context and
-the DB respectively, so both live in the router.
-
-**Router.** `prefix="/extra-sessions"`, `tags=["extra-sessions"]`, every endpoint taking
-`user: dict = Depends(get_current_user)` like every other router.
-
-- `GET ""` — optional `doctor_id`, `from_date`, `to_date` query params, ordered by
-  `date, doctor_id`. Copy `list_leave` exactly.
-- `POST ""` — 201. In order:
-  1. 404 if the doctor does not exist.
-  2. 422 if `payload.date.weekday() > 4`, message naming the date and that extra sessions
-     are weekdays only (Decision 3).
-  3. 409 if a `LeaveEntry` exists for `(doctor_id, date, period)`, message:
-     `"Dr X is on leave on <date> <period>; remove the leave first"` (Decision 6).
-  4. Insert, catching `IntegrityError` as a 409 duplicate, exactly as `create_leave` does.
-- `DELETE "/{entry_id}"` — 204, 404 if absent. Copy `delete_leave`.
-
-Do **not** port `_release_draft_rooms`, `_expand_periods`, `_date_range`, or either bulk
-endpoint.
-
-**Leave supersede reporting.** In `create_leave_bulk`, after the candidate list is built
-and before the commit, query `ExtraSessionEntry` for the same `doctor_id` where
-`(date, period)` is in `candidates`. Return the matching rows as
-`superseded_extra_sessions` on `LeaveBulkOut`. Do not delete them and do not fail the
-request (Decision 7). Query over the whole candidate set including duplicates, matching
-how `_release_draft_rooms` is deliberately called for duplicates too.
-
-**Tests.** `backend/tests/test_api/test_extra_sessions.py` covering: create and list
-round-trip; 404 unknown doctor; 422 weekend date; 409 duplicate; 409 when leave exists;
-delete 204 then 404; the `doctor_id`/`from_date`/`to_date` filters. Add one test to
-`test_leave_duty.py` asserting `superseded_extra_sessions` is populated when bulk leave
-covers a planned extra session, and that the extra session row still exists afterwards.
 
 ---
 
@@ -366,3 +285,81 @@ calling the API; shows the banner when an active staging exists and hides it whe
 leave. Add MSW handlers for `GET`/`POST /extra-sessions` and `DELETE
 /extra-sessions/:id`, plus `is_extra_session: false` on the staging fixture so existing
 tests keep compiling.
+
+
+---
+
+# Task 1: Data model and CRUD API
+
+## A. State of the world
+
+Nothing has been built yet. This task adds the `ExtraSessionEntry` table, its migration,
+schemas, and a minimal `/extra-sessions` router, plus the one-way conflict reporting on
+bulk leave creation. No staging or frontend code is touched.
+
+## B. Files and deliverables
+
+**New**
+- `backend/app/models/extra_session.py` — `ExtraSessionEntry`
+- `backend/alembic/versions/014_extra_session_entries.py` — create table
+- `backend/app/api/schemas/extra_session.py` — `ExtraSessionIn`, `ExtraSessionOut`
+- `backend/app/api/routers/extra_sessions.py` — list, create, delete
+- `backend/tests/test_api/test_extra_sessions.py`
+
+**Edited**
+- `backend/app/models/__init__.py` — import and `__all__`
+- `backend/app/api/schemas/__init__.py` — import and `__all__`
+- `backend/app/api/main.py` — add `extra_sessions` to the import tuple and the
+  `include_router` loop on line 51
+- `backend/app/api/schemas/leave.py` — `LeaveBulkOut` gains
+  `superseded_extra_sessions: list[ExtraSessionOut]`
+- `backend/app/api/routers/leave.py` — populate that field in `create_leave_bulk`
+- `backend/tests/test_api/test_leave_duty.py` — cover the supersede reporting
+
+## C. Instructions
+
+**Model.** Copy `backend/app/models/leave.py` verbatim, renaming the class to
+`ExtraSessionEntry`, `__tablename__` to `extra_session_entries`, and the unique constraint
+to `uq_extra_session_slot`. Same three columns, same `enum_col(Period)`, same
+`ForeignKey("doctors.id")`. Export from `models/__init__.py` alongside `LeaveEntry`.
+
+**Migration.** Revision `014`, `down_revision = "013"`. Plain `op.create_table` mirroring
+how `leave_entries` is created in `001_initial_schema.py`, including the named unique
+constraint. No new enum type is introduced — `Period` already exists — so nothing needs to
+touch `_create_enum_types()`. `downgrade()` is a real `op.drop_table`.
+
+**Schemas.** `ExtraSessionIn` (`doctor_id`, `date`, `period`) and
+`ExtraSessionOut(ExtraSessionIn)` adding `id`, with
+`model_config = {"from_attributes": True}` — identical to `LeaveIn`/`LeaveOut`. No
+validators on the model; the weekday and leave-conflict rules need the request context and
+the DB respectively, so both live in the router.
+
+**Router.** `prefix="/extra-sessions"`, `tags=["extra-sessions"]`, every endpoint taking
+`user: dict = Depends(get_current_user)` like every other router.
+
+- `GET ""` — optional `doctor_id`, `from_date`, `to_date` query params, ordered by
+  `date, doctor_id`. Copy `list_leave` exactly.
+- `POST ""` — 201. In order:
+  1. 404 if the doctor does not exist.
+  2. 422 if `payload.date.weekday() > 4`, message naming the date and that extra sessions
+     are weekdays only (Decision 3).
+  3. 409 if a `LeaveEntry` exists for `(doctor_id, date, period)`, message:
+     `"Dr X is on leave on <date> <period>; remove the leave first"` (Decision 6).
+  4. Insert, catching `IntegrityError` as a 409 duplicate, exactly as `create_leave` does.
+- `DELETE "/{entry_id}"` — 204, 404 if absent. Copy `delete_leave`.
+
+Do **not** port `_release_draft_rooms`, `_expand_periods`, `_date_range`, or either bulk
+endpoint.
+
+**Leave supersede reporting.** In `create_leave_bulk`, after the candidate list is built
+and before the commit, query `ExtraSessionEntry` for the same `doctor_id` where
+`(date, period)` is in `candidates`. Return the matching rows as
+`superseded_extra_sessions` on `LeaveBulkOut`. Do not delete them and do not fail the
+request (Decision 7). Query over the whole candidate set including duplicates, matching
+how `_release_draft_rooms` is deliberately called for duplicates too.
+
+**Tests.** `backend/tests/test_api/test_extra_sessions.py` covering: create and list
+round-trip; 404 unknown doctor; 422 weekend date; 409 duplicate; 409 when leave exists;
+delete 204 then 404; the `doctor_id`/`from_date`/`to_date` filters. Add one test to
+`test_leave_duty.py` asserting `superseded_extra_sessions` is populated when bulk leave
+covers a planned extra session, and that the extra session row still exists afterwards.

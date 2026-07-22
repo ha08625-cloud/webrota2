@@ -12,6 +12,14 @@ StagingSessionOut is MasterRotaSessionOut plus is_on_leave: a staging row
 has a real calendar date (via its config's start_date), so leave -- unlike
 on the master template -- is something the editor can and should show.
 
+is_extra_session (extra sessions plan, Task 2, Design Decision 8) is
+derived the same way, from ExtraSessionEntry, and means "a planned extra
+session exists for this doctor/date/period" -- not "this row was produced
+by the override". Those diverge whenever the override did not fire (the
+template row was already working, leave blocked it, the entry was added
+after staging started, or the cell was edited back), so the frontend
+badge is labelled accordingly rather than implying the row's origin.
+
 StagingSessionPatchIn / StagingSessionCreateIn subclass MasterSessionPairIn
 from schemas/master_rota.py so the (session_type, room_id) pair validation
 cannot drift between the two grids.
@@ -46,6 +54,7 @@ class StagingSessionOut(BaseModel):
     room_id: int | None = None
     room_code: str | None = None
     is_on_leave: bool
+    is_extra_session: bool
 
 
 class StagingOut(BaseModel):

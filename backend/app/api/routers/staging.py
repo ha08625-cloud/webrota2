@@ -13,6 +13,16 @@ Complete (POST /staging/{staging_id}/complete) runs the existing Phase
 0-12 pipeline against the staged copy's config, exactly as
 routers/rota.py's generate_rota does against a directly-submitted config
 (staging plan, Task 4, Design Decision 8).
+
+`create_staging`'s copy loop is no longer a pure copy (extra sessions
+plan, Task 2): a template row that lands on a planned `ExtraSessionEntry`
+is written to the staged copy per the override table (extra sessions
+plan's Design Decisions 3-6, 12), and a planned extra session with no
+template row at all creates a new staged row (Design Decision 5). The
+override is skipped wherever leave already exists for the slot (Decision
+6). `is_extra_session` on `StagingSessionOut` is derived the same way as
+`is_on_leave` -- it means "a planned extra session exists for this slot",
+not "the override fired here" (Decision 8); see `_extra_session_lookup`.
 """
 from __future__ import annotations
 
@@ -28,9 +38,10 @@ from ...engine.generate import (
     get_active_draft,
     get_active_staging,
 )
-from ...engine.week_map import build_week_dates, template_week
+from ...engine.week_map import build_date_to_genslot, build_week_dates, template_week
 from ...models import (
     Doctor,
+    ExtraSessionEntry,
     LeaveEntry,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -92,6 +103,32 @@ def _leave_lookup(
     return {(e.doctor_id, e.date, e.period) for e in rows}
 
 
+def _extra_session_lookup(
+    db: Session, config: RotaConfig
+) -> set[tuple[int, datetime.date, object]]:
+    """Identical shape to _leave_lookup, over ExtraSessionEntry instead
+    (extra sessions plan, Task 2). Used both to derive is_extra_session on
+    read and to drive the override in create_staging's copy loop."""
+    range_start = config.start_date
+    range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+    rows = db.execute(
+        select(ExtraSessionEntry).where(
+            ExtraSessionEntry.date >= range_start, ExtraSessionEntry.date < range_end
+        )
+    ).scalars().all()
+    return {(e.doctor_id, e.date, e.period) for e in rows}
+
+
+# Template types a planned extra session can override (extra sessions
+# plan, override table). WFH is included per Design Decision 12 -- remove
+# it from this set to leave WFH template rows untouched by the override.
+_OVERRIDABLE_TYPES = frozenset({
+    MasterSessionType.NO_SURGERY,
+    MasterSessionType.ADMIN_TIME,
+    MasterSessionType.WFH,
+})
+
+
 def _session_outs(
     db: Session, config: RotaConfig, sessions: list[RotaStagingSession]
 ) -> list[StagingSessionOut]:
@@ -102,6 +139,7 @@ def _session_outs(
     room_codes = {r.id: r.code for r in db.execute(select(Room)).scalars()}
     week_dates = build_week_dates(config.start_date, config.num_weeks)
     leave = _leave_lookup(db, config)
+    extra = _extra_session_lookup(db, config)
 
     out: list[StagingSessionOut] = []
     for s in sessions:
@@ -121,6 +159,10 @@ def _session_outs(
             is_on_leave=(
                 session_date is not None
                 and (s.doctor_id, session_date, s.period) in leave
+            ),
+            is_extra_session=(
+                session_date is not None
+                and (s.doctor_id, session_date, s.period) in extra
             ),
         ))
     return out
@@ -276,9 +318,34 @@ def create_staging(
     for row in template_rows:
         rows_by_week.setdefault(row.week, []).append(row)
 
+    # extra sessions plan, Task 2: the copy loop applies the override
+    # table (Design Decisions 3-6, 12) instead of copying verbatim.
+    extra = _extra_session_lookup(db, config)
+    leave = _leave_lookup(db, config)
+    week_dates = build_week_dates(payload.start_date, payload.num_weeks)
+    covered_slots: set[tuple[int, int, object, object]] = set()
+
     for gen_week in range(1, payload.num_weeks + 1):
         tw = template_week(gen_week, payload.template_start_week)
         for row in rows_by_week.get(tw, []):
+            session_date = week_dates[(gen_week, row.day)]
+            covered_slots.add((row.doctor_id, gen_week, row.day, row.period))
+
+            session_type = row.session_type
+            room_id = row.room_id
+            slot_key = (row.doctor_id, session_date, row.period)
+            if (
+                slot_key in extra
+                and slot_key not in leave
+                and row.session_type in _OVERRIDABLE_TYPES
+            ):
+                if row.session_type == MasterSessionType.ADMIN_TIME and row.room_id is not None:
+                    session_type = MasterSessionType.PRE_ASSIGNED
+                    # room_id stays as row.room_id
+                else:
+                    session_type = MasterSessionType.REQUIRES_ROOM
+                    room_id = None
+
             # Copied regardless of closures (Design Decision 10) -- Phase
             # 2's closed-date skip remains the single closure authority.
             db.add(RotaStagingSession(
@@ -287,9 +354,39 @@ def create_staging(
                 week=gen_week,
                 day=row.day,
                 period=row.period,
-                session_type=row.session_type,
-                room_id=row.room_id,
+                session_type=session_type,
+                room_id=room_id,
             ))
+
+    # Extra sessions with no corresponding template row (Design Decision
+    # 5): the part-timer-working-an-extra-day case. Created as a new
+    # REQUIRES_ROOM row unless leave supersedes it.
+    date_to_genslot = build_date_to_genslot(week_dates)
+    extra_rows = db.execute(
+        select(ExtraSessionEntry).where(
+            ExtraSessionEntry.date >= payload.start_date,
+            ExtraSessionEntry.date
+            < payload.start_date + datetime.timedelta(days=payload.num_weeks * 7),
+        )
+    ).scalars().all()
+    for entry in extra_rows:
+        genslot = date_to_genslot.get(entry.date)
+        if genslot is None:
+            continue  # outside the range, or a weekend -- never in the map
+        gen_week, day = genslot
+        if (entry.doctor_id, gen_week, day, entry.period) in covered_slots:
+            continue  # a template row already exists for this slot
+        if (entry.doctor_id, entry.date, entry.period) in leave:
+            continue  # leave wins (Design Decision 6)
+        db.add(RotaStagingSession(
+            staging_id=staging.id,
+            doctor_id=entry.doctor_id,
+            week=gen_week,
+            day=day,
+            period=entry.period,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+            room_id=None,
+        ))
 
     db.flush()
     db.commit()
