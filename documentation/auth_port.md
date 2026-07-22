@@ -2,9 +2,6 @@
 
 Status: DRAFT — for review before any code is written.
 Source system: Econsult (this project). Target system: Rota Generator (separate project/repo).
-Approach: Copy and adapt (Option B from the earlier discussion — not a shared session,
-not a merged app). The two systems will have independently deployed, independently
-running copies of the same auth logic, each with its own database.
 
 ---
 
@@ -36,11 +33,7 @@ Build in this order — each stage depends on the one before it.
   `admin_users`, `admin_sessions`, `admin_auth_codes` in the rota generator's database.
   Reference `0002_user_management_cascade.py` too if the rota generator needs
   user-deletion cascade behaviour.
-- Decision needed: does the rota generator reuse the *same list of admin people* as
-  econsult (same emails), or is it a fresh, separate admin user list? This affects
-  whether user provisioning is a one-off manual step (per `create_admin_user.py`) or
-  needs a sync mechanism. Recommend: separate list, manually provisioned — simplest,
-  avoids coupling the two systems' user lifecycles.
+- One-off manual step to seed admin users
 
 ### Stage 2 — Core auth logic (backend)
 - **[COPY]** `auth_service.py` — password hashing (bcrypt), OTP generation/hashing,
@@ -70,7 +63,7 @@ Build in this order — each stage depends on the one before it.
 - **[COPY, with trimming]** `admin_auth_router.py` — `/auth/login`, `/auth/verify`,
   `/auth/request-reset`, `/auth/set-password`, `/auth/logout`. Logic transplants
   almost directly; decide up front whether audit logging (Stage 6) is in scope before
-  copying, since several endpoints currently treat a failed audit write as a hard 500.
+  copying, since several endpoints currently treat a failed audit write as a hard 500. yes audit logging is in scope
 - **[COPY]** `rate_limit.py` — SlowAPI setup, in-memory storage, `extract_ip` from
   `http_utils.py`. Easy to port, easy to forget — flagging explicitly so it isn't
   dropped silently.
@@ -94,7 +87,7 @@ Build in this order — each stage depends on the one before it.
   yes: **[REWRITE]** `audit_repository.py` and an `admin_audit_router.py` equivalent,
   plus an `audit_log` table in Stage 1's migration. If no: strip audit calls out of
   the copied router in Stage 4 — but note this is a real reduction in security/
-  compliance posture versus the source system, not a neutral simplification.
+  compliance posture versus the source system, not a neutral simplification. Yes we should add audit logging
 
 ### Stage 7 — Email delivery
 - **[REWRITE]** `AdminDeliveryService` / `MailgunHttpAdminDeliveryService` equivalent.
@@ -136,18 +129,12 @@ Build in this order — each stage depends on the one before it.
 
 ---
 
-## 4. Open Questions Before Coding Starts
+## 4. Open Questions Before Coding Starts (1-3 answered, 4 to be determined)
 
-1. Same admin user list as econsult, or a separate one? (Affects Stage 1.)
+1. Same admin user list as econsult, or a separate one? (Affects Stage 1.) separate user list
 2. Is a compliance-grade audit trail actually needed for the rota generator, or is
-   basic logging sufficient? (Affects Stage 4 and Stage 6 scope significantly.)
-3. Same Mailgun sending subdomain as econsult, or a new one? (Affects Stage 7.)
+   basic logging sufficient? (Affects Stage 4 and Stage 6 scope significantly.) compliance grade audit trail is in scope
+3. Same Mailgun sending subdomain as econsult, or a new one? (Affects Stage 7.) separate subdomain
 4. Does the rota generator already have any app skeleton (FastAPI app, `main.py`,
    `db.py` connection pattern), or is this port happening into an empty project?
    This changes how much of Stage 3's "[NEW] wiring" already exists.
-
----
-
-*This plan should be reviewed and approved before any implementation begins, per
-project workflow. Once approved, work should proceed stage by stage, with each
-stage's files delivered as reviewable artifacts before moving to the next.*
