@@ -25,6 +25,7 @@ from .routers import (
     counters,
     doctors,
     duty,
+    extra_sessions,
     leave,
     master_rota,
     rooms,
@@ -48,7 +49,7 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api/v1"
-for module in (auth, rota, clinic_types, doctors, leave, duty, rooms, counters, master_rota, staging, closures, signatures, users):
+for module in (auth, rota, clinic_types, doctors, leave, extra_sessions, duty, rooms, counters, master_rota, staging, closures, signatures, users):
     app.include_router(module.router, prefix=API_PREFIX)
 
 

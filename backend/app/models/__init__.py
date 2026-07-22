@@ -26,6 +26,7 @@ from .clinic_type import (
 from .counter import ClinicCounter, SystemCounter
 from .counter_snapshot import RotaClinicCounterSnapshot, RotaSystemCounterSnapshot
 from .leave import LeaveEntry
+from .extra_session import ExtraSessionEntry
 from .duty import DutyAssignment
 from .master_rota import MasterRotaTemplate, MasterRotaSession
 from .staging import RotaStaging, RotaStagingSession
@@ -43,7 +44,7 @@ __all__ = [
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
-    "SystemCounter", "LeaveEntry", "DutyAssignment", "MasterRotaTemplate",
+    "SystemCounter", "LeaveEntry", "ExtraSessionEntry", "DutyAssignment", "MasterRotaTemplate",
     "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
     "GeneratedRota", "RotaSession",
     "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",

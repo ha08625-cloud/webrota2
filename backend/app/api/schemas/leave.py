@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, model_validator
 
 from ...models.enums import Period
+from .extra_session import ExtraSessionOut
 
 MAX_BULK_RANGE_DAYS = 366
 
@@ -44,6 +45,7 @@ class LeaveBulkSkippedOut(BaseModel):
 class LeaveBulkOut(BaseModel):
     created: list[LeaveOut]
     skipped: list[LeaveBulkSkippedOut]
+    superseded_extra_sessions: list[ExtraSessionOut]
 
 
 class LeaveBulkDeleteIn(BaseModel):

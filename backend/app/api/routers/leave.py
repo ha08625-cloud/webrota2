@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 
 from ...engine.generate import get_active_draft
 from ...engine.week_map import build_date_to_genslot, build_week_dates
-from ...models import Doctor, LeaveEntry, RotaSession
+from ...models import Doctor, ExtraSessionEntry, LeaveEntry, RotaSession
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    ExtraSessionOut,
     LeaveBulkDeleteIn,
     LeaveBulkDeleteOut,
     LeaveBulkIn,
@@ -141,6 +142,10 @@ def create_leave_bulk(
     duplicates - a duplicate skip means the leave already existed, and
     releasing again is a harmless no-op or a heal of stale state (leave
     added before this feature shipped). See M4.3 Task 3, design decision 4.
+
+    Any planned extra session covered by this range is reported in
+    `superseded_extra_sessions` - never deleted, never blocked (extra
+    sessions plan, Design Decision 7).
     """
     if db.get(Doctor, payload.doctor_id) is None:
         raise HTTPException(
@@ -192,6 +197,25 @@ def create_leave_bulk(
     # rooms; the commit is hoisted here to cover that case too.
     _release_draft_rooms(db, payload.doctor_id, candidates)
 
+    # Report (never delete or block on) any planned extra session this
+    # range covers - leave is the more authoritative fact, but the admin
+    # should see what it superseded (extra sessions plan, Design
+    # Decision 7). Queried by date range over the whole candidate set,
+    # duplicates included, same shape as the `existing` duplicate check
+    # above - an extra session can never fall on a weekend (create-time
+    # 422s that), so this is equivalent to filtering by the exact
+    # candidate pairs.
+    superseded: list[ExtraSessionEntry] = []
+    if candidates:
+        superseded_stmt = (
+            select(ExtraSessionEntry)
+            .where(ExtraSessionEntry.doctor_id == payload.doctor_id)
+            .where(ExtraSessionEntry.date >= payload.start_date)
+            .where(ExtraSessionEntry.date <= payload.end_date)
+            .where(ExtraSessionEntry.period.in_(periods))
+        )
+        superseded = db.execute(superseded_stmt).scalars().all()
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -208,7 +232,10 @@ def create_leave_bulk(
 
     skipped.sort(key=lambda s: (s.date, s.period.value))
     created = [LeaveOut.model_validate(entry) for entry in to_insert]
-    return LeaveBulkOut(created=created, skipped=skipped)
+    superseded_out = [ExtraSessionOut.model_validate(e) for e in superseded]
+    return LeaveBulkOut(
+        created=created, skipped=skipped, superseded_extra_sessions=superseded_out
+    )
 
 
 @router.post("/bulk-delete", response_model=LeaveBulkDeleteOut, status_code=200)
