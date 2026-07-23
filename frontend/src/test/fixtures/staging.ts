@@ -15,6 +15,7 @@ export function makeStagingSession(overrides: Partial<StagingSession> = {}): Sta
     room_id: null,
     room_code: null,
     is_on_leave: false,
+    is_extra_session: false,
     ...overrides,
   };
 }

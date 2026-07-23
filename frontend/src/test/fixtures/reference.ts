@@ -6,6 +6,7 @@ import type {
   Doctor,
   DoctorDetail,
   DutyAssignment,
+  ExtraSessionEntry,
   LeaveEntry,
   Room,
   SystemCounter,
@@ -67,6 +68,18 @@ let leaveIdCounter = 1;
 export function makeLeaveEntry(overrides: Partial<LeaveEntry> = {}): LeaveEntry {
   return {
     id: leaveIdCounter++,
+    doctor_id: 1,
+    date: "2026-08-03",
+    period: "AM",
+    ...overrides,
+  };
+}
+
+let extraSessionIdCounter = 1;
+
+export function makeExtraSessionEntry(overrides: Partial<ExtraSessionEntry> = {}): ExtraSessionEntry {
+  return {
+    id: extraSessionIdCounter++,
     doctor_id: 1,
     date: "2026-08-03",
     period: "AM",

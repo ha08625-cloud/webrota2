@@ -45,7 +45,7 @@ function captureBulkBodies() {
   server.use(
     http.post("/api/v1/leave/bulk", async ({ request }) => {
       bodies.push((await request.json()) as (typeof bodies)[number]);
-      return HttpResponse.json({ created: [], skipped: [] });
+      return HttpResponse.json({ created: [], skipped: [], superseded_extra_sessions: [] });
     }),
   );
   return bodies;
@@ -261,12 +261,14 @@ describe("LeavePage", () => {
             return HttpResponse.json({
               created: [makeLeaveEntry({ date: "2026-07-13", period: "PM" })],
               skipped: [],
+              superseded_extra_sessions: [],
             });
           }
           if (body.period === "AM") {
             return HttpResponse.json({
               created: [],
               skipped: [{ date: "2026-07-17", period: "AM", reason: "duplicate" }],
+              superseded_extra_sessions: [],
             });
           }
           return HttpResponse.json({
@@ -280,6 +282,7 @@ describe("LeavePage", () => {
               { date: "2026-07-16", period: "AM", reason: "duplicate" },
               { date: "2026-07-16", period: "PM", reason: "duplicate" },
             ],
+            superseded_extra_sessions: [],
           });
         }),
       );
@@ -312,6 +315,7 @@ describe("LeavePage", () => {
           return HttpResponse.json({
             created: [makeLeaveEntry()],
             skipped: [],
+            superseded_extra_sessions: [],
           });
         }),
       );
@@ -328,6 +332,33 @@ describe("LeavePage", () => {
 
       expect(
         await screen.findByText(/2026-07-17 \(AM\): server error\. 1 entries added\./),
+      ).toBeInTheDocument();
+    });
+
+    it("appends a supersede warning when the bulk-add response reports superseded extra sessions", async () => {
+      setUpServer();
+      server.use(
+        http.post("/api/v1/leave/bulk", () =>
+          HttpResponse.json({
+            created: [makeLeaveEntry({ date: "2026-07-13", period: "AM" })],
+            skipped: [],
+            superseded_extra_sessions: [
+              { id: 1, doctor_id: 1, date: "2026-07-13", period: "AM" },
+            ],
+          }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await selectFormDoctor(user, "AB");
+      await typeDates(user, "2026-07-13", "2026-07-13");
+      await user.click(screen.getByRole("button", { name: "Add leave" }));
+
+      expect(
+        await screen.findByText(
+          "1 entries added. Warning: this leave supersedes 1 planned extra session (2026-07-13) - review them on the Extra Sessions page.",
+        ),
       ).toBeInTheDocument();
     });
 

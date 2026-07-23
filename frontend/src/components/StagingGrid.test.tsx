@@ -119,6 +119,50 @@ describe("StagingGrid", () => {
     expect(await screen.findByText("Normal clinic")).toBeInTheDocument();
   });
 
+  it("shows an Extra planned badge on a session flagged is_extra_session", async () => {
+    setUpServer();
+    const session = makeStagingSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "requires_room", room_id: null, room_code: null, is_extra_session: true,
+    });
+    renderWithProviders(
+      <StagingGrid
+        sessions={[session]}
+        stagingId={1}
+        startDate="2026-08-03"
+        numWeeks={1}
+        closedDates={[]}
+        onToast={noop}
+      />,
+    );
+
+    const cell = await screen.findByTestId("staging-cell-1-1-Monday-AM");
+    expect(within(cell).getByText("Extra planned")).toBeInTheDocument();
+  });
+
+  it("shows both badges together when a session is both on leave and has a planned extra session", async () => {
+    setUpServer();
+    const session = makeStagingSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "no_surgery", room_id: null, room_code: null,
+      is_on_leave: true, is_extra_session: true,
+    });
+    renderWithProviders(
+      <StagingGrid
+        sessions={[session]}
+        stagingId={1}
+        startDate="2026-08-03"
+        numWeeks={1}
+        closedDates={[]}
+        onToast={noop}
+      />,
+    );
+
+    const cell = await screen.findByTestId("staging-cell-1-1-Monday-AM");
+    expect(within(cell).getByText("Leave")).toBeInTheDocument();
+    expect(within(cell).getByText("Extra planned")).toBeInTheDocument();
+  });
+
   it("PATCHes the staging session when an existing cell is edited", async () => {
     setUpServer();
     const session = makeStagingSession({

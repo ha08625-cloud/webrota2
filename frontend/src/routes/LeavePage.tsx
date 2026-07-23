@@ -158,12 +158,14 @@ export function LeavePage() {
     let created = 0;
     let duplicates = 0;
     let weekends = 0;
+    const supersededDates: string[] = [];
     const failures: string[] = [];
     results.forEach((result, index) => {
       if (result.status === "fulfilled") {
         created += result.value.created.length;
         duplicates += result.value.skipped.filter((s) => s.reason === "duplicate").length;
         weekends += result.value.skipped.filter((s) => s.reason === "weekend").length;
+        supersededDates.push(...result.value.superseded_extra_sessions.map((e) => e.date));
       } else {
         failures.push(`${segmentLabel(plan[index])}: ${errorDetail(result.reason, "could not be added")}.`);
       }
@@ -172,7 +174,16 @@ export function LeavePage() {
     const parts = [`${created} entries added`];
     if (duplicates > 0) parts.push(`${duplicates} already existed`);
     if (weekends > 0) parts.push(`${weekends} weekend slots skipped`);
-    const summary = `${parts.join(", ")}.`;
+    let summary = `${parts.join(", ")}.`;
+    if (supersededDates.length > 0) {
+      // Warning, not an error - the leave was created successfully
+      // (extra sessions plan, Design Decision 7). Nothing is deleted
+      // automatically; the admin decides whether to remove the planned
+      // extra sessions on the Extra Sessions page.
+      summary += ` Warning: this leave supersedes ${supersededDates.length} planned extra session${
+        supersededDates.length === 1 ? "" : "s"
+      } (${supersededDates.join(", ")}) - review them on the Extra Sessions page.`;
+    }
 
     if (failures.length > 0) {
       // Partial failure is reported honestly, per segment, alongside

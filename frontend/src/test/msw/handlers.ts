@@ -25,6 +25,14 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
+  http.get("/api/v1/extra-sessions", () => HttpResponse.json([])),
+  http.post("/api/v1/extra-sessions", () =>
+    HttpResponse.json(
+      { id: 999, doctor_id: 1, date: "2026-08-03", period: "AM" },
+      { status: 201 },
+    ),
+  ),
+  http.delete("/api/v1/extra-sessions/:id", () => new HttpResponse(null, { status: 204 })),
   http.get("/api/v1/duty", () => HttpResponse.json([])),
   http.get("/api/v1/duty/counts", () => HttpResponse.json([])),
   http.get("/api/v1/closures", () => HttpResponse.json([])),

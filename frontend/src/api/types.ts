@@ -326,9 +326,16 @@ export interface LeaveBulkSkipped {
   reason: "weekend" | "duplicate";
 }
 
+/**
+ * Extra sessions superseded by this bulk-add call (extra sessions plan,
+ * Task 1, Design Decision 7). Leave is created regardless - nothing here
+ * is deleted automatically - this is reporting only, so LeavePage can
+ * warn the admin which planned extra sessions may now be stale.
+ */
 export interface LeaveBulkOut {
   created: LeaveEntry[];
   skipped: LeaveBulkSkipped[];
+  superseded_extra_sessions: ExtraSessionEntry[];
 }
 
 export interface LeaveBulkDeleteIn {
@@ -340,6 +347,24 @@ export interface LeaveBulkDeleteIn {
 
 export interface LeaveBulkDeleteOut {
   deleted_count: number;
+}
+
+// --- Extra sessions (schemas/extra_session.py, extra sessions plan) ---
+// Plans a doctor working a session they would not normally work
+// (Task 1). No bulk endpoints (Design Decision 10) - a single date plus
+// period covers the real workflow, unlike leave's date-range semantics.
+
+export interface ExtraSessionEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+}
+
+export interface ExtraSessionIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
 }
 
 // --- Duty (schemas_duty.py) ---
@@ -598,6 +623,15 @@ export interface MasterRotaTemplate {
 // plus is_on_leave - a staging row has a real calendar date (via its
 // config's start_date), so leave is something the editor can and should
 // show, unlike the dateless master template.
+//
+// is_extra_session (extra sessions plan, Task 2, Design Decision 8) is
+// derived the same way, from ExtraSessionEntry, and means "a planned
+// extra session exists for this doctor/date/period" - not "this row was
+// produced by the override". Those diverge whenever the override did not
+// fire (the template row was already working, leave blocked it, the
+// entry was added after staging started, or the cell was edited back),
+// so the StagingGrid badge is labelled "Extra planned" rather than
+// implying the row's origin.
 
 export interface StagingSession {
   session_id: number;
@@ -611,6 +645,7 @@ export interface StagingSession {
   room_id: number | null;
   room_code: string | null;
   is_on_leave: boolean;
+  is_extra_session: boolean;
 }
 
 /**

@@ -36,6 +36,16 @@ interface StagingGridProps {
  *  - a session with is_on_leave gets a small amber "Leave" badge -
  *    informational only, the popover stays available, since the whole
  *    point of staging is often to arrange cover for that exact leave;
+ *  - a session with is_extra_session gets a small sky "Extra planned"
+ *    badge, informational only in the same way. is_extra_session means
+ *    "a planned extra session exists for this doctor/date/period", not
+ *    "this row was produced by the override" - the two can diverge (the
+ *    template row was already working, leave blocked the override, the
+ *    entry was added after staging started, or the cell was edited
+ *    back), which is why the badge is worded as a plan rather than a
+ *    claim about this row's origin. Both badges can appear on the same
+ *    cell (leave plus a stale planned extra session), which is
+ *    intentional and is what makes that conflict visible to the admin;
  *  - no undo plumbing: mutation results go straight to a plain success/
  *    error toast via onToast, there is no MasterUndoEntry construction.
  *
@@ -226,6 +236,9 @@ function CellContent({ session }: { session: StagingSession }) {
       <SessionTypeBadge sessionType={session.session_type} />
       {session.is_on_leave ? (
         <div className="rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-900">Leave</div>
+      ) : null}
+      {session.is_extra_session ? (
+        <div className="rounded bg-sky-100 px-1 text-[10px] font-medium text-sky-900">Extra planned</div>
       ) : null}
       {session.room_code ? <div className="text-xs font-medium">{session.room_code}</div> : null}
     </>
