@@ -4,7 +4,7 @@ import type { FormEvent } from "react";
 import { useDoctors } from "@/api/doctors";
 import { useCreateExtraSession, useDeleteExtraSession, useExtraSessions } from "@/api/extraSessions";
 import { useActiveStaging } from "@/api/staging";
-import type { ApiError, Period } from "@/api/types";
+import type { ApiError, ExtraSessionEntry, Period } from "@/api/types";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
@@ -208,7 +208,7 @@ export function ExtraSessionsPage() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {entries.map((entry: ExtraSessionEntry) => (
               <tr key={entry.id} className="border-t border-border">
                 <td className="py-1 pr-4">{formatDateWithDay(entry.date)}</td>
                 <td className="py-1 pr-4">{doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}</td>
