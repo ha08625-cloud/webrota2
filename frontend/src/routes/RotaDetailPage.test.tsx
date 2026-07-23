@@ -94,7 +94,8 @@ describe("RotaDetailPage", () => {
     await user.click(await screen.findByRole("button", { name: "Commit" }));
 
     expect(committed).toBe(true);
-    expect(await screen.findByTestId("home-probe")).toBeInTheDocument();
+    await screen.findByText(/committed and read-only/);
+    expect(screen.queryByTestId("home-probe")).not.toBeInTheDocument();
     expect(queryClient.getQueryData(rotaKeys.detail(7))).toMatchObject({ rota_id: 7, status: "committed" });
   });
 
