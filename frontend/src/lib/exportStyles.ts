@@ -37,6 +37,18 @@ export const FONT_HEX: Record<FontColor, string> = {
 export const CLOSED_COLUMN_HEX = "E5E7EB";
 
 /**
+ * Room-sheet occupied-cell fill (M-export room-sheet plan). Deliberately
+ * one shade lighter than CLOSED_COLUMN_HEX (bg-gray-100 vs bg-gray-200)
+ * rather than reusing the on-screen room view's red-100: user-confirmed
+ * decision to keep the export muted, and the two greys must stay visibly
+ * distinct from each other since both can appear in the same sheet
+ * (an occupied room on an otherwise-open day vs a fully closed day).
+ * Available cells get no fill (white), matching BACKGROUND_HEX's `null`
+ * convention above.
+ */
+export const ROOM_OCCUPIED_HEX = "F3F4F6";
+
+/**
  * exceljs fills/fonts take 8-digit ARGB (`FFRRGGBB`). The maps above stay
  * as plain 6-digit hex so the Tailwind correspondence is readable at a
  * glance; convert at the point of use.

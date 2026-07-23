@@ -1,8 +1,9 @@
 import type { ClinicType, Day, Doctor, Period, Room, Rota, RotaSession } from "@/api/types";
 import { formatDate } from "@/lib/date";
 import { cellStyle } from "@/lib/cellStyle";
-import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, argb } from "@/lib/exportStyles";
+import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
+import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
 import { countSupervisableTrainees } from "@/lib/superviseeCount";
 import { rotaDate } from "@/lib/weekDates";
 
@@ -14,13 +15,32 @@ import { rotaDate } from "@/lib/weekDates";
  *
  * Reproduces the on-screen RotaGrid: same pivotRota row order, same
  * cellStyle() colour rules (via exportStyles.ts's hex maps), same
- * CellContent text/ordering. One worksheet per generation week.
+ * CellContent text/ordering. One doctor worksheet per generation week,
+ * immediately followed by a room-occupancy worksheet for that same week
+ * (M-export room-sheet plan, user-confirmed ordering: Week 1, Room Week 1,
+ * Week 2, Room Week 2, ...) - reproducing the on-screen RoomRotaGrid, same
+ * pivotRoomRota row order (rooms grouped D/C/W/SR, per
+ * compareRoomDisplayOrder), same occupied/available cell logic. The room
+ * sheets deliberately reuse this file's doctor-sheet layout primitives
+ * (column widths, header row, thick/thin AM+PM block borders) rather than
+ * the on-screen room view's separate Morning/Afternoon tables, for visual
+ * consistency between the two sheet types and because every room already
+ * gets its own thick-bordered box per row pair - a further per-room-type
+ * divider (as the on-screen view has) would be redundant in that scheme.
  *
  * Formatting matches the old GAS-generated spreadsheet for familiarity
  * (ticket: "match old rota spreadsheet formatting"): all text centred,
- * staff names at 14pt, every line bold except a trailing note, and a
- * thick/thin border scheme that boxes each doctor's AM+PM block (thick
- * line above AM, thin between AM and PM, thick line below PM).
+ * staff/room names at 14pt, every doctor-sheet line bold except a
+ * trailing note, and a thick/thin border scheme that boxes each row
+ * pair's AM+PM block (thick line above AM, thin between AM and PM, thick
+ * line below PM).
+ *
+ * Room-sheet cells are deliberately muted rather than mirroring the
+ * on-screen room view's green/red (user-confirmed decision): occupied is
+ * a light grey (ROOM_OCCUPIED_HEX), available is unfilled white. A closed
+ * date still overrides to CLOSED_COLUMN_HEX (one shade darker than
+ * ROOM_OCCUPIED_HEX), so the three states stay visually distinct on one
+ * sheet.
  */
 
 const DOCTOR_COL = 1;
@@ -182,6 +202,36 @@ function buildRichText(
   });
 }
 
+/**
+ * Mirrors RoomRotaGrid.tsx's RoomCell content for an occupied room
+ * exactly (Design Decision, M-export room-sheet plan): occupying
+ * doctor's code first, then LEAVE (suppressing the role label, same as
+ * the on-screen LEAVE-badge branch - a leave holder still occupies the
+ * room, it just isn't doing the role), otherwise the role label, then
+ * "Supervising" if flagged. The on-screen view never shows a supervised
+ * trainee count on the room sheet (unlike the doctor sheet's
+ * cellLines/supervisedCounts), so neither does this.
+ */
+function roomCellLines(session: RotaSession): string[] {
+  const lines = [session.doctor_code];
+
+  if (session.is_on_leave) {
+    lines.push("LEAVE");
+    return lines;
+  }
+
+  const roleLabel = roleLabelText(session.role, session.clinic_type_name);
+  if (roleLabel !== null) {
+    lines.push(roleLabel);
+  }
+
+  if (session.is_supervising) {
+    lines.push("Supervising");
+  }
+
+  return lines;
+}
+
 function dayHeaderText(
   day: Day,
   date: string,
@@ -224,6 +274,114 @@ function buildSupervisedCounts(
     }
   }
   return map;
+}
+
+/**
+ * Builds one room-occupancy worksheet for a single generation week.
+ * Column layout, header row, and thick/thin block borders are shared
+ * with the doctor sheet (see module docstring); only the row source
+ * (rooms, in pivotRoomRota order) and cell content/fill logic differ.
+ *
+ * Closed-date handling mirrors RoomCell's ordering (closed checked
+ * before occupancy lookup): a closed cell gets no text at all, not
+ * "Available" - matching the on-screen room view's blank closed cell,
+ * and avoiding a false claim that a closed-practice room is bookable.
+ */
+function buildRoomWeekSheet(
+  sheet: import("exceljs").Worksheet,
+  week: number,
+  rota: Rota,
+  rooms: Room[],
+  closedDatesSet: Set<string>,
+  closureNameByDate: Map<string, string | null>,
+): void {
+  const grid: PivotedRoomGrid = pivotRoomRota(rota.sessions, rooms);
+
+  sheet.getColumn(DOCTOR_COL).width = DOCTOR_COL_WIDTH;
+  sheet.getColumn(SESSION_COL).width = SESSION_COL_WIDTH;
+  for (const day of DAYS) {
+    sheet.getColumn(dayColumn(day)).width = DAY_COL_WIDTH;
+  }
+
+  // Header row.
+  const headerRow = sheet.getRow(HEADER_ROW);
+  headerRow.getCell(DOCTOR_COL).value = "Room";
+  headerRow.getCell(DOCTOR_COL).alignment = CENTERED;
+  headerRow.getCell(SESSION_COL).value = "Session";
+  headerRow.getCell(SESSION_COL).alignment = CENTERED;
+  for (const day of DAYS) {
+    const date = rotaDate(rota.start_date, week, day);
+    const cell = headerRow.getCell(dayColumn(day));
+    cell.value = dayHeaderText(day, date, closedDatesSet, closureNameByDate);
+    cell.alignment = CENTERED_WRAPPED;
+    if (closedDatesSet.has(date)) {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
+    }
+  }
+  for (let col = DOCTOR_COL; col <= dayColumn("Friday"); col++) {
+    const cell = headerRow.getCell(col);
+    cell.font = { bold: true };
+    cell.border = HEADER_BORDER;
+  }
+
+  // Room blocks: two rows (AM, PM) per grid row, in pivotRoomRota order
+  // (D/C/W/SR, then code within type).
+  grid.rows.forEach((room, index) => {
+    const amRow = FIRST_BODY_ROW + index * 2;
+    const pmRow = amRow + 1;
+
+    const roomCell = sheet.getCell(amRow, DOCTOR_COL);
+    roomCell.value = room.code;
+    roomCell.alignment = CENTERED;
+    roomCell.font = { bold: true, size: STAFF_NAME_FONT_SIZE };
+    roomCell.border = DOCTOR_CELL_BORDER;
+    sheet.mergeCells(amRow, DOCTOR_COL, pmRow, DOCTOR_COL);
+
+    const amSessionCell = sheet.getCell(amRow, SESSION_COL);
+    amSessionCell.value = "AM";
+    amSessionCell.alignment = CENTERED;
+    amSessionCell.font = { bold: true };
+    amSessionCell.border = rowBorder("AM");
+    const pmSessionCell = sheet.getCell(pmRow, SESSION_COL);
+    pmSessionCell.value = "PM";
+    pmSessionCell.alignment = CENTERED;
+    pmSessionCell.font = { bold: true };
+    pmSessionCell.border = rowBorder("PM");
+
+    for (const day of DAYS) {
+      const date = rotaDate(rota.start_date, week, day);
+      const isClosed = closedDatesSet.has(date);
+      const col = dayColumn(day);
+
+      for (const period of PERIODS) {
+        const rowNum = period === "AM" ? amRow : pmRow;
+        const cell = sheet.getCell(rowNum, col);
+        cell.border = rowBorder(period);
+
+        if (!isClosed) {
+          const session = getRoomCell(grid, room.id, week, day, period);
+          cell.alignment = CENTERED_WRAPPED;
+
+          if (session !== undefined) {
+            cell.value = roomCellLines(session).join("\n");
+            cell.font = { bold: true };
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(ROOM_OCCUPIED_HEX) } };
+          } else {
+            cell.value = "Available";
+          }
+        }
+
+        // Full-column-height closed override, same rationale as the
+        // doctor sheet (Design Decision 7): applies regardless of
+        // whatever was set above, though in practice a closed date has
+        // no sessions and gets no "Available" text either, per the
+        // isClosed guard above.
+        if (isClosed) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
+        }
+      }
+    }
+  });
 }
 
 /**
@@ -355,6 +513,9 @@ export async function buildRotaWorkbook(
         }
       }
     });
+
+    const roomSheet = workbook.addWorksheet(`Room Week ${week}`);
+    buildRoomWeekSheet(roomSheet, week, rota, rooms, closedDatesSet, closureNameByDate);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

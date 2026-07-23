@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { makeClinicType, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { formatDate } from "@/lib/date";
-import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, argb } from "@/lib/exportStyles";
+import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 
 import { buildRotaWorkbook } from "./exportRota";
 
@@ -349,6 +349,146 @@ describe("buildRotaWorkbook", () => {
     expect(sheet.getCell(2, FRIDAY_COL).border).toMatchObject({
       top: { style: "thick" },
       bottom: { style: "thin" },
+    });
+  });
+});
+
+describe("buildRotaWorkbook room sheets", () => {
+  const doctor1 = makeDoctor({ id: 1, code: "AB", doctor_type: "Partner" });
+  const roomC1 = makeRoom({ id: 10, code: "C1", room_type: "C" });
+  const roomD1 = makeRoom({ id: 11, code: "D1", room_type: "D" });
+  const clinicType = makeClinicType({ id: 20, name: "Diabetic clinic", category: null });
+
+  const sessions = [
+    // Monday AM: named clinic in C1 -> occupied, clinic name + room code.
+    makeRotaSession({
+      session_id: 1,
+      doctor_id: 1,
+      week: 1,
+      day: "Monday",
+      period: "AM",
+      role: "clinic",
+      clinic_type_id: 20,
+      clinic_type_name: "Diabetic clinic",
+      room_id: 10,
+      room_code: "C1",
+    }),
+    // Monday PM: on leave, still holding D1 -> occupied, LEAVE only.
+    makeRotaSession({
+      session_id: 2,
+      doctor_id: 1,
+      week: 1,
+      day: "Monday",
+      period: "PM",
+      is_on_leave: true,
+      room_id: 11,
+      room_code: "D1",
+    }),
+    // Tuesday AM: supervising in D1 -> occupied, role label + Supervising.
+    makeRotaSession({
+      session_id: 3,
+      doctor_id: 1,
+      week: 1,
+      day: "Tuesday",
+      period: "AM",
+      role: "duty_primary",
+      is_supervising: true,
+      room_id: 11,
+      room_code: "D1",
+    }),
+    // Thursday closed - tests the closed override takes priority over
+    // "Available" text. Wednesday and Friday deliberately have no
+    // sessions in either room, for the plain "Available" case.
+  ];
+
+  const rota = makeRota({
+    rota_id: 1,
+    status: "committed",
+    start_date: START_DATE,
+    num_weeks: 1,
+    sessions,
+    closed_dates: [THURSDAY],
+  });
+
+  const closureNameByDate = new Map<string, string | null>([[THURSDAY, "Practice closure"]]);
+
+  async function build() {
+    const blob = await buildRotaWorkbook(rota, [doctor1], [roomC1, roomD1], [clinicType], closureNameByDate);
+    return reload(blob);
+  }
+
+  it("interleaves a 'Room Week N' sheet immediately after each week's doctor sheet", async () => {
+    const workbook = await build();
+    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1", "Room Week 1"]);
+  });
+
+  it("interleaves per week when num_weeks > 1", async () => {
+    const twoWeekRota = makeRota({ ...rota, num_weeks: 2, sessions: [] });
+    const blob = await buildRotaWorkbook(twoWeekRota, [doctor1], [roomC1, roomD1], [clinicType], closureNameByDate);
+    const workbook = await reload(blob);
+    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1", "Room Week 1", "Week 2", "Room Week 2"]);
+  });
+
+  it("orders room rows D-type before C-type, per compareRoomDisplayOrder", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    // D1 (D-type) sorts before C1 (C-type) - see pivotRoomRota.ts.
+    expect(sheet.getCell(2, DOCTOR_COL).value).toBe("D1");
+    expect(sheet.getCell(4, DOCTOR_COL).value).toBe("C1");
+  });
+
+  it("renders an occupied room with the doctor code, role label, and the muted grey fill", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    // D1 is row 2 (AM)/3 (PM); Tuesday is the 4th day column.
+    const cell = sheet.getCell(2, TUESDAY_COL);
+    expect(cell.value).toBe("AB\nDuty\nSupervising");
+    expect(cell.fill).toMatchObject({ fgColor: { argb: argb(ROOM_OCCUPIED_HEX) } });
+  });
+
+  it("renders LEAVE only (no role label) for an occupant on leave", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    // D1 PM, Monday.
+    const cell = sheet.getCell(3, MONDAY_COL);
+    expect(cell.value).toBe("AB\nLEAVE");
+  });
+
+  it("renders a named clinic with the clinic name in the occupied C-room cell", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    // C1 is row 4 (AM)/5 (PM), Monday.
+    const cell = sheet.getCell(4, MONDAY_COL);
+    expect(cell.value).toBe("AB\nDiabetic clinic");
+  });
+
+  it("renders an unoccupied room slot as 'Available' with no fill", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    // D1 AM, Wednesday - no session in either fixture room that day.
+    const cell = sheet.getCell(2, WEDNESDAY_COL);
+    expect(cell.value).toBe("Available");
+    expect(cell.fill === undefined || (cell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+  });
+
+  it("leaves a closed-date cell with no 'Available' text, just the closed fill", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    const cell = sheet.getCell(2, THURSDAY_COL);
+    expect(cell.value).toBeNull();
+    expect(cell.fill).toMatchObject({ fgColor: { argb: argb(CLOSED_COLUMN_HEX) } });
+  });
+
+  it("carries the thick/thin AM+PM block border scheme onto room rows", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+    expect(sheet.getCell(2, MONDAY_COL).border).toMatchObject({
+      top: { style: "thick" },
+      bottom: { style: "thin" },
+    });
+    expect(sheet.getCell(3, MONDAY_COL).border).toMatchObject({
+      top: { style: "thin" },
+      bottom: { style: "thick" },
     });
   });
 });
