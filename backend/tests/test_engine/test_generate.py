@@ -532,6 +532,8 @@ class TestGenerationLogPersistence:
         partner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
         salaried = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
         trainee = make_doctor(session, code="CC", doctor_type=DoctorType.TRAINEE)
+        for doc in (partner, salaried, trainee):
+            make_system_counter(session, doc, SystemCounterType.ROOM_MOVE, raw_count=0)
         make_room(session, code="D1", room_type=RoomType.D)
         c_room = make_room(session, code="C1", room_type=RoomType.C)
 
