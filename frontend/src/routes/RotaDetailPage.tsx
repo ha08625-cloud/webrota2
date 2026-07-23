@@ -180,9 +180,7 @@ export function RotaDetailPage() {
     ) {
       return;
     }
-    commitRota.mutate(currentRotaId, {
-      onSuccess: () => navigate("/"),
-    });
+    commitRota.mutate(currentRotaId);
   }
 
   function handleRollback() {
@@ -204,9 +202,7 @@ export function RotaDetailPage() {
     ) {
       return;
     }
-    archiveRota.mutate(currentRotaId, {
-      onSuccess: () => navigate("/"),
-    });
+    archiveRota.mutate(currentRotaId);
   }
 
   function handleUnarchive() {

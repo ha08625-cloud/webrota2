@@ -117,7 +117,7 @@ describe("RotaDetailPage", () => {
     expect(committed).toBe(false);
   });
 
-  it("archives after confirmation and navigates to /", async () => {
+  it("archives after confirmation and stays on the rota, now read-only", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))));
     let archived = false;
@@ -140,7 +140,8 @@ describe("RotaDetailPage", () => {
     await user.click(await screen.findByRole("button", { name: "Archive" }));
 
     expect(archived).toBe(true);
-    expect(await screen.findByTestId("home-probe")).toBeInTheDocument();
+    await screen.findByText(/archived and read-only/);
+    expect(screen.queryByTestId("home-probe")).not.toBeInTheDocument();
   });
 
   it("does not archive when the confirmation is declined", async () => {
