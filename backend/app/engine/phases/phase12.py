@@ -104,14 +104,16 @@ def _check_duty_coverage(context: GenerationContext, grid: RotaGrid) -> list[Val
                 if primary_count != expected_primary:
                     issues.append(_warning(
                         "duty_coverage_primary", gen_week, day, period,
-                        f"Expected {expected_primary} primary duty doctor(s) on "
-                        f"{day.value} {period.value}, found {primary_count}.",
+                        f"Primary duty coverage wrong {day.value} {period.value} "
+                        f"(week {gen_week}) -- expected {expected_primary}, "
+                        f"found {primary_count}",
                     ))
                 if secondary_count != expected_secondary:
                     issues.append(_warning(
                         "duty_coverage_secondary", gen_week, day, period,
-                        f"Expected {expected_secondary} secondary duty doctor(s) on "
-                        f"{day.value} {period.value}, found {secondary_count}.",
+                        f"Secondary duty coverage wrong {day.value} {period.value} "
+                        f"(week {gen_week}) -- expected {expected_secondary}, "
+                        f"found {secondary_count}",
                     ))
     return issues
 
@@ -138,8 +140,9 @@ def _check_clinic_coverage(context: GenerationContext, grid: RotaGrid) -> list[V
                 if count != 1:
                     issues.append(_warning(
                         "clinic_coverage", gen_week, schedule.day, schedule.period,
-                        f"Expected exactly 1 assignment for clinic '{clinic.name}' on "
-                        f"{schedule.day.value} {schedule.period.value}, found {count}.",
+                        f"{clinic.name} coverage wrong {schedule.day.value} "
+                        f"{schedule.period.value} (week {gen_week}) -- expected 1, "
+                        f"found {count}",
                     ))
     return issues
 
@@ -162,8 +165,8 @@ def _check_unresolved_rooms(context: GenerationContext, grid: RotaGrid) -> list[
         code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
         issues.append(_warning(
             "unresolved_room", slot.week, slot.day, slot.period,
-            f"{code} has an unresolved REQUIRES_ROOM slot on {slot.day.value} "
-            f"{slot.period.value} (week {slot.week}).",
+            f"{code} needs a room {slot.day.value} {slot.period.value} "
+            f"(week {slot.week})",
         ))
     return issues
 
@@ -189,8 +192,8 @@ def _check_room_on_leave_slot(
         room_code = room.code if room is not None else f"id={slot.assigned_room_id}"
         issues.append(_warning(
             "room_on_leave_slot", slot.week, slot.day, slot.period,
-            f"{doctor_code} is on leave but still holds room {room_code} on "
-            f"{slot.day.value} {slot.period.value} (week {slot.week}).",
+            f"{doctor_code} is on leave but still holds room {room_code} -- "
+            f"{slot.day.value} {slot.period.value} (week {slot.week})",
         ))
     return issues
 
@@ -214,11 +217,11 @@ def _check_role_on_incompatible_slot(
 
         reasons: list[str] = []
         if slot.is_on_leave:
-            reasons.append("the doctor is on leave")
+            reasons.append("on leave")
         if slot.is_wfh:
-            reasons.append("the doctor is WFH")
+            reasons.append("WFH")
         if slot.template_type in (MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME):
-            reasons.append(f"the template slot is {slot.template_type.value}")
+            reasons.append(f"on a {slot.template_type.value} slot")
         if not reasons:
             continue
 
@@ -226,8 +229,8 @@ def _check_role_on_incompatible_slot(
         code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
         issues.append(_warning(
             "role_on_incompatible_slot", slot.week, slot.day, slot.period,
-            f"{code} has role {slot.role.value} on {slot.day.value} "
-            f"{slot.period.value} (week {slot.week}), but {'; '.join(reasons)}.",
+            f"{code} has {slot.role.value} while {'; '.join(reasons)} -- "
+            f"{slot.day.value} {slot.period.value} (week {slot.week})",
         ))
     return issues
 
@@ -259,9 +262,8 @@ def _check_supervision_missing(
                 if not has_valid_supervisor:
                     issues.append(_warning(
                         "supervision_missing", gen_week, day, period,
-                        f"{n} trainee(s) require supervision on {day.value} "
-                        f"{period.value} (week {gen_week}), but no valid supervisor "
-                        f"is assigned.",
+                        f"Supervisor needed {day.value} {period.value} "
+                        f"(week {gen_week})",
                     ))
     return issues
 
@@ -284,9 +286,8 @@ def _check_supervision_on_incompatible_slot(
         code = doctor.code if doctor is not None else f"id={slot.doctor_id}"
         issues.append(_warning(
             "supervision_on_incompatible_slot", slot.week, slot.day, slot.period,
-            f"{code} is flagged as supervising on {slot.day.value} "
-            f"{slot.period.value} (week {slot.week}), but is not an eligible "
-            f"supervisor there.",
+            f"{code} flagged as supervisor but not eligible -- "
+            f"{slot.day.value} {slot.period.value} (week {slot.week})",
         ))
     return issues
 
