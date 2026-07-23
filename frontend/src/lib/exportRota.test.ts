@@ -212,7 +212,9 @@ describe("buildRotaWorkbook", () => {
     expect(cell.note).toBeUndefined();
     const runs = richTextOf(cell.value);
     expect(runs).toHaveLength(1);
-    expect(runs[0].font?.bold).toBe(false);
+    // bold:false is the xlsx default, so ExcelJS omits it from the
+    // serialised file - reloading gives `undefined`, not `false`.
+    expect(runs[0].font?.bold).toBeFalsy();
   });
 
   it("bolds every content line except a trailing note, in the same cell", async () => {
@@ -233,7 +235,9 @@ describe("buildRotaWorkbook", () => {
     const runs = richTextOf(cell.value);
     expect(runs.map((run) => run.text)).toEqual(["Duty\n", "Cover until 1pm"]);
     expect(runs[0].font?.bold).toBe(true);
-    expect(runs[1].font?.bold).toBe(false);
+    // bold:false is the xlsx default, so ExcelJS omits it from the
+    // serialised file - reloading gives `undefined`, not `false`.
+    expect(runs[1].font?.bold).toBeFalsy();
   });
 
   it("renders a WFH cell as WFH with no fill, regardless of any role", async () => {
