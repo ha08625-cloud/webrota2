@@ -40,6 +40,32 @@ async function reload(blob: Blob) {
   return workbook;
 }
 
+interface RichTextRun {
+  text: string;
+  font?: { bold?: boolean; color?: { argb?: string }; size?: number };
+}
+
+/**
+ * Content cells now carry rich text (bold per run, plain string for
+ * everything else) so a trailing note can stay unbold in the same cell
+ * as bold role/room lines. This reassembles the plain string for tests
+ * that only care about displayed text, independent of that run split.
+ */
+function textOf(cellValue: unknown): string {
+  if (typeof cellValue === "string") return cellValue;
+  if (cellValue !== null && typeof cellValue === "object" && "richText" in cellValue) {
+    return (cellValue as { richText: RichTextRun[] }).richText.map((run) => run.text).join("");
+  }
+  return "";
+}
+
+function richTextOf(cellValue: unknown): RichTextRun[] {
+  if (cellValue !== null && typeof cellValue === "object" && "richText" in cellValue) {
+    return (cellValue as { richText: RichTextRun[] }).richText;
+  }
+  throw new Error("Expected a rich text cell value");
+}
+
 const START_DATE = "2026-07-06"; // Monday, matches makeRota's own default.
 const MONDAY = "2026-07-06";
 const THURSDAY = "2026-07-09";
@@ -132,25 +158,25 @@ describe("buildRotaWorkbook", () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(2, MONDAY_COL);
-    expect(cell.value).toBe("Duty");
+    expect(textOf(cell.value)).toBe("Duty");
     expect(cell.fill).toMatchObject({ fgColor: { argb: argb(BACKGROUND_HEX.duty!) } });
-    expect(cell.font).toMatchObject({ color: { argb: argb(FONT_HEX.black) } });
+    expect(richTextOf(cell.value)[0].font).toMatchObject({ color: { argb: argb(FONT_HEX.black) } });
   });
 
   it("renders a named clinic in a C room with the clinic name, room code, clinic fill, and red font", async () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(3, MONDAY_COL);
-    expect(cell.value).toBe("Diabetic clinic\nC1");
+    expect(textOf(cell.value)).toBe("Diabetic clinic\nC1");
     expect(cell.fill).toMatchObject({ fgColor: { argb: argb(BACKGROUND_HEX.clinic!) } });
-    expect(cell.font).toMatchObject({ color: { argb: argb(FONT_HEX.red) } });
+    expect(richTextOf(cell.value)[0].font).toMatchObject({ color: { argb: argb(FONT_HEX.red) } });
   });
 
   it("renders a leave cell as LEAVE only, with leave fill", async () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(2, TUESDAY_COL);
-    expect(cell.value).toBe("LEAVE");
+    expect(textOf(cell.value)).toBe("LEAVE");
     expect(cell.fill).toMatchObject({ fgColor: { argb: argb(BACKGROUND_HEX.leave!) } });
   });
 
@@ -175,22 +201,46 @@ describe("buildRotaWorkbook", () => {
     const workbook = await reload(blob);
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(4, FRIDAY_COL);
-    expect(cell.value).toBe("LEAVE\nBack Monday");
+    expect(textOf(cell.value)).toBe("LEAVE\nBack Monday");
   });
 
-  it("renders the session's notes as a trailing line in the cell text, not a cell comment", async () => {
+  it("renders the session's notes as a trailing line in the cell text, not a cell comment, and leaves it unbold", async () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(3, TUESDAY_COL);
-    expect(cell.value).toBe("Check with reception");
+    expect(textOf(cell.value)).toBe("Check with reception");
     expect(cell.note).toBeUndefined();
+    const runs = richTextOf(cell.value);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].font?.bold).toBe(false);
+  });
+
+  it("bolds every content line except a trailing note, in the same cell", async () => {
+    const dutyWithNote = makeRotaSession({
+      session_id: 9,
+      doctor_id: 2,
+      week: 1,
+      day: "Friday",
+      period: "AM",
+      role: "duty_primary",
+      notes: "Cover until 1pm",
+    });
+    const rotaWithNote = makeRota({ ...rota, sessions: [...sessions, dutyWithNote] });
+    const blob = await buildRotaWorkbook(rotaWithNote, [doctor1, doctor2], [room], [clinicType], closureNameByDate);
+    const workbook = await reload(blob);
+    const sheet = workbook.getWorksheet("Week 1")!;
+    const cell = sheet.getCell(4, FRIDAY_COL); // doctor2's AM row.
+    const runs = richTextOf(cell.value);
+    expect(runs.map((run) => run.text)).toEqual(["Duty\n", "Cover until 1pm"]);
+    expect(runs[0].font?.bold).toBe(true);
+    expect(runs[1].font?.bold).toBe(false);
   });
 
   it("renders a WFH cell as WFH with no fill, regardless of any role", async () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(2, WEDNESDAY_COL);
-    expect(cell.value).toBe("WFH");
+    expect(textOf(cell.value)).toBe("WFH");
     expect(cell.fill === undefined || (cell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
   });
 
@@ -198,7 +248,7 @@ describe("buildRotaWorkbook", () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(3, WEDNESDAY_COL);
-    expect(cell.value).toBe("Supervising x 1");
+    expect(textOf(cell.value)).toBe("Supervising x 1");
   });
 
   it("marks a closed-date column: header carries the closure name and full-column fill", async () => {
@@ -237,5 +287,64 @@ describe("buildRotaWorkbook", () => {
     expect(amCell.value).toBeNull();
     expect(pmCell.value).toBeNull();
     expect(amCell.fill === undefined || (amCell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+  });
+
+  it("renders staff names bold at 14pt", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Week 1")!;
+    expect(sheet.getCell(2, DOCTOR_COL).font).toMatchObject({ bold: true, size: 14 });
+    expect(sheet.getCell(4, DOCTOR_COL).font).toMatchObject({ bold: true, size: 14 });
+  });
+
+  it("centres header, doctor, session, and content cell text", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Week 1")!;
+    expect(sheet.getCell(1, DOCTOR_COL).alignment).toMatchObject({ horizontal: "center" });
+    expect(sheet.getCell(1, SESSION_COL).alignment).toMatchObject({ horizontal: "center" });
+    expect(sheet.getCell(1, MONDAY_COL).alignment).toMatchObject({ horizontal: "center" });
+    expect(sheet.getCell(2, DOCTOR_COL).alignment).toMatchObject({ horizontal: "center" });
+    expect(sheet.getCell(2, SESSION_COL).alignment).toMatchObject({ horizontal: "center" });
+    expect(sheet.getCell(2, MONDAY_COL).alignment).toMatchObject({ horizontal: "center" });
+  });
+
+  it("draws a thick line above AM, thin between AM/PM, and thick below PM for each doctor block", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Week 1")!;
+    // doctor1 block: AM row 2, PM row 3.
+    expect(sheet.getCell(2, MONDAY_COL).border).toMatchObject({
+      top: { style: "thick" },
+      bottom: { style: "thin" },
+    });
+    expect(sheet.getCell(3, MONDAY_COL).border).toMatchObject({
+      top: { style: "thin" },
+      bottom: { style: "thick" },
+    });
+    // doctor2 block: AM row 4, PM row 5.
+    expect(sheet.getCell(4, MONDAY_COL).border).toMatchObject({
+      top: { style: "thick" },
+      bottom: { style: "thin" },
+    });
+    expect(sheet.getCell(5, MONDAY_COL).border).toMatchObject({
+      top: { style: "thin" },
+      bottom: { style: "thick" },
+    });
+  });
+
+  it("applies a thick top and bottom border to the merged doctor-name cell", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Week 1")!;
+    expect(sheet.getCell(2, DOCTOR_COL).border).toMatchObject({
+      top: { style: "thick" },
+      bottom: { style: "thick" },
+    });
+  });
+
+  it("keeps the thick/thin border scheme intact on an absent (no-session) cell", async () => {
+    const workbook = await build();
+    const sheet = workbook.getWorksheet("Week 1")!;
+    expect(sheet.getCell(2, FRIDAY_COL).border).toMatchObject({
+      top: { style: "thick" },
+      bottom: { style: "thin" },
+    });
   });
 });
