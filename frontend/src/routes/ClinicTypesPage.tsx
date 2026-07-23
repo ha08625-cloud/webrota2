@@ -5,7 +5,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useState } from "react";
 
 import { useClinicTypes, useDeleteClinicType, usePatchClinicType, useReorderClinicTypes } from "@/api/clinicTypes";
-import type { ClinicType } from "@/api/types";
+import { useRooms } from "@/api/rooms";
+import type { ClinicType, Room } from "@/api/types";
 import { ClinicTypeFormDialog } from "@/components/ClinicTypeFormDialog";
 
 interface DialogState {
@@ -43,6 +44,27 @@ function formatSchedules(schedules: ClinicType["schedules"]): string {
     .join(", ");
 }
 
+/**
+ * Renders a clinic type's room_eligibilities as "D1, D2, C" - specific
+ * rooms (by code, sorted) before room-type rows (sorted), so the column
+ * reads consistently regardless of the order rows were added in the
+ * form. Unresolvable room ids (a room deleted after the eligibility was
+ * added) fall back to "Room {id}" rather than being silently dropped,
+ * mirroring the same fallback in ClinicTypeFormDialog.
+ */
+function formatRoomEligibilities(roomEligibilities: ClinicType["room_eligibilities"], roomsById: Map<number, Room>): string {
+  if (roomEligibilities.length === 0) return "-";
+  const specificRooms = roomEligibilities
+    .filter((re) => re.room_id !== null)
+    .map((re) => roomsById.get(re.room_id as number)?.code ?? `Room ${re.room_id}`)
+    .sort();
+  const roomTypes = roomEligibilities
+    .filter((re) => re.room_type !== null)
+    .map((re) => re.room_type as string)
+    .sort();
+  return [...specificRooms, ...roomTypes].join(", ");
+}
+
 interface ToggleHandlers {
   onToggleEnabled: (ct: ClinicType, checked: boolean) => void;
   onToggleRoomRequired: (ct: ClinicType, checked: boolean) => void;
@@ -51,6 +73,7 @@ interface ToggleHandlers {
 
 function SortableClinicTypeRow({
   clinicType,
+  roomsById,
   onEdit,
   onDelete,
   onToggleEnabled,
@@ -58,6 +81,7 @@ function SortableClinicTypeRow({
   togglesDisabled,
 }: {
   clinicType: ClinicType;
+  roomsById: Map<number, Room>;
   onEdit: (ct: ClinicType) => void;
   onDelete: (ct: ClinicType) => void;
 } & ToggleHandlers) {
@@ -93,6 +117,7 @@ function SortableClinicTypeRow({
           onChange={(e) => onToggleRoomRequired(clinicType, e.target.checked)}
         />
       </td>
+      <td className="py-1 pr-4">{formatRoomEligibilities(clinicType.room_eligibilities, roomsById)}</td>
       <td className="py-1 pr-4">
         <input
           type="checkbox"
@@ -117,6 +142,8 @@ function SortableClinicTypeRow({
 
 export function ClinicTypesPage() {
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
+  const { data: rooms } = useRooms();
+  const roomsById = new Map((rooms ?? []).map((r) => [r.id, r]));
   const deleteClinicType = useDeleteClinicType();
   const reorderClinicTypes = useReorderClinicTypes();
   const patchClinicType = usePatchClinicType();
@@ -268,6 +295,7 @@ export function ClinicTypesPage() {
                     <col className="w-8" />
                     <col className="w-1/4" />
                     <col className="w-28" />
+                    <col className="w-32" />
                     <col className="w-20" />
                     <col />
                     <col className="w-28" />
@@ -277,6 +305,7 @@ export function ClinicTypesPage() {
                       <th className="py-1" />
                       <th className="py-1 pr-4 font-medium">Name</th>
                       <th className="py-1 pr-4 font-medium">Room required</th>
+                      <th className="py-1 pr-4 font-medium">Eligible rooms</th>
                       <th className="py-1 pr-4 font-medium">Enabled</th>
                       <th className="py-1 pr-4 font-medium">Schedule</th>
                       <th className="py-1" />
@@ -287,6 +316,7 @@ export function ClinicTypesPage() {
                       <SortableClinicTypeRow
                         key={ct.id}
                         clinicType={ct}
+                        roomsById={roomsById}
                         onEdit={openEdit}
                         onDelete={handleDelete}
                         {...toggleHandlers}
@@ -306,6 +336,7 @@ export function ClinicTypesPage() {
                   <col className="w-8" />
                   <col className="w-1/4" />
                   <col className="w-28" />
+                  <col className="w-32" />
                   <col className="w-20" />
                   <col />
                   <col className="w-28" />
@@ -315,6 +346,7 @@ export function ClinicTypesPage() {
                     <th className="py-1" />
                     <th className="py-1 pr-4 font-medium">Name</th>
                     <th className="py-1 pr-4 font-medium">Room required</th>
+                    <th className="py-1 pr-4 font-medium">Eligible rooms</th>
                     <th className="py-1 pr-4 font-medium">Enabled</th>
                     <th className="py-1 pr-4 font-medium">Schedule</th>
                     <th className="py-1" />
@@ -334,6 +366,7 @@ export function ClinicTypesPage() {
                           onChange={(e) => handleToggleRoomRequired(ct, e.target.checked)}
                         />
                       </td>
+                      <td className="py-1 pr-4">{formatRoomEligibilities(ct.room_eligibilities, roomsById)}</td>
                       <td className="py-1 pr-4">
                         <input
                           type="checkbox"
