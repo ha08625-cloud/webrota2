@@ -1,7 +1,7 @@
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
-
+ 
 import { useQueryClient } from "@tanstack/react-query";
-
+ 
 import { triggerUnauthorized } from "@/api/client";
 import { useLogout } from "@/api/auth";
 import { clearToken } from "@/auth/tokenStore";
@@ -17,9 +17,10 @@ import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionPlaceholder } from "@/routes/ReceptionPlaceholder";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
+import { SignaturesPage } from "@/routes/SignaturesPage";
 import { StagingPage } from "@/routes/StagingPage";
 import { UsersPage } from "@/routes/UsersPage";
-
+ 
 // Clinical rota nav, paths relative to the /clinical mount point.
 const CLINICAL_NAV_ITEMS = [
   { to: "/clinical", label: "Generate new rotas", end: true },
@@ -32,9 +33,10 @@ const CLINICAL_NAV_ITEMS = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/closures", label: "Closures", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
+  { to: "/clinical/signatures", label: "Signatures", end: false },
   { to: "/clinical/users", label: "Users", end: false },
 ] as const;
-
+ 
 /**
  * Logout is identical regardless of section, so it is lifted out of the
  * per-section shell rather than duplicated once a reception shell exists.
@@ -42,7 +44,7 @@ const CLINICAL_NAV_ITEMS = [
 function useHandleLogout() {
   const queryClient = useQueryClient();
   const logoutMutation = useLogout();
-
+ 
   async function handleLogout() {
     // Best-effort session deletion server-side; a network failure here
     // must not block the user from getting back to the login form -
@@ -56,13 +58,13 @@ function useHandleLogout() {
     queryClient.clear();
     triggerUnauthorized();
   }
-
+ 
   return { handleLogout, isLoggingOut: logoutMutation.isPending };
 }
-
+ 
 function ClinicalShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
-
+ 
   return (
     <div className="flex min-h-screen bg-background text-ink">
       <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
@@ -119,10 +121,10 @@ function ClinicalShell() {
     </div>
   );
 }
-
+ 
 function ReceptionShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
-
+ 
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
@@ -149,7 +151,7 @@ function ReceptionShell() {
     </div>
   );
 }
-
+ 
 export function App() {
   return (
     <BrowserRouter>
@@ -161,3 +163,4 @@ export function App() {
     </BrowserRouter>
   );
 }
+ 
