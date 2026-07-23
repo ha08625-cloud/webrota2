@@ -154,12 +154,36 @@ describe("buildRotaWorkbook", () => {
     expect(cell.fill).toMatchObject({ fgColor: { argb: argb(BACKGROUND_HEX.leave!) } });
   });
 
-  it("attaches a cell note containing the session's notes text", async () => {
+  it("appends notes after LEAVE when a leave session also has notes", async () => {
+    const leaveWithNotes = makeRotaSession({
+      session_id: 8,
+      doctor_id: 2,
+      week: 1,
+      day: "Friday",
+      period: "AM",
+      is_on_leave: true,
+      notes: "Back Monday",
+    });
+    const rotaWithLeaveNote = makeRota({ ...rota, sessions: [...sessions, leaveWithNotes] });
+    const blob = await buildRotaWorkbook(
+      rotaWithLeaveNote,
+      [doctor1, doctor2],
+      [room],
+      [clinicType],
+      closureNameByDate,
+    );
+    const workbook = await reload(blob);
+    const sheet = workbook.getWorksheet("Week 1")!;
+    const cell = sheet.getCell(4, FRIDAY_COL);
+    expect(cell.value).toBe("LEAVE\nBack Monday");
+  });
+
+  it("renders the session's notes as a trailing line in the cell text, not a cell comment", async () => {
     const workbook = await build();
     const sheet = workbook.getWorksheet("Week 1")!;
     const cell = sheet.getCell(3, TUESDAY_COL);
-    expect(cell.note).toBeDefined();
-    expect(JSON.stringify(cell.note)).toContain("Check with reception");
+    expect(cell.value).toBe("Check with reception");
+    expect(cell.note).toBeUndefined();
   });
 
   it("renders a WFH cell as WFH with no fill, regardless of any role", async () => {

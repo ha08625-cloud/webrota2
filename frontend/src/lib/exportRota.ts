@@ -59,14 +59,20 @@ function roleLabelText(role: RotaSession["role"], clinicName: string | null): st
 
 /**
  * Mirrors RotaGrid.tsx's CellContent line-for-line (Design Decision 4):
- * LEAVE suppresses everything else; otherwise WFH, then Supervising,
- * then No surgery/Admin, then the role label (shown regardless of WFH,
- * same as the UI), then the room code (suppressed by WFH, same as the
- * UI - is_on_leave already returned above by that point).
+ * LEAVE suppresses everything else except notes; otherwise WFH, then
+ * Supervising, then No surgery/Admin, then the role label (shown
+ * regardless of WFH, same as the UI), then the room code (suppressed by
+ * WFH, same as the UI - is_on_leave already returned above by that
+ * point). Notes, when present, are always the trailing line - shown
+ * regardless of leave/WFH state, same as the grid's third-row note.
  */
 function cellLines(session: RotaSession, supervisedCount: number): string[] {
   if (session.is_on_leave) {
-    return ["LEAVE"];
+    const leaveLines = ["LEAVE"];
+    if (session.notes !== null && session.notes.trim().length > 0) {
+      leaveLines.push(session.notes);
+    }
+    return leaveLines;
   }
 
   const lines: string[] = [];
@@ -93,6 +99,10 @@ function cellLines(session: RotaSession, supervisedCount: number): string[] {
 
   if (!session.is_wfh && session.room_code) {
     lines.push(session.room_code);
+  }
+
+  if (session.notes !== null && session.notes.trim().length > 0) {
+    lines.push(session.notes);
   }
 
   return lines;
@@ -239,10 +249,6 @@ export async function buildRotaWorkbook(
             const fillHex = BACKGROUND_HEX[style.background];
             if (fillHex !== null) {
               cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(fillHex) } };
-            }
-
-            if (session.notes !== null && session.notes.trim().length > 0) {
-              cell.note = session.notes;
             }
 
             cell.border = THIN_BORDER;
