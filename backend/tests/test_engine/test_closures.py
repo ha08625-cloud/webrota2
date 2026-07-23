@@ -223,7 +223,7 @@ class TestPhase12ClosureAwareDutyCoverage:
             i for i in issues if i.check == "duty_coverage_secondary"
             and i.day == Day.TUESDAY and i.period == Period.AM
         )
-        assert "Expected 1" in secondary_issue.message
+        assert "expected 1" in secondary_issue.message
 
     def test_open_week_unchanged_secondary_still_monday(self, session, config_1wk, monday):
         t = make_template(session, is_active=True)
@@ -239,7 +239,7 @@ class TestPhase12ClosureAwareDutyCoverage:
             i for i in issues if i.check == "duty_coverage_secondary"
             and i.day == Day.MONDAY and i.period == Period.AM
         )
-        assert "Expected 1" in secondary_issue.message
+        assert "expected 1" in secondary_issue.message
         assert not any(
             i.check == "duty_coverage_secondary" and i.day == Day.TUESDAY
             for i in issues

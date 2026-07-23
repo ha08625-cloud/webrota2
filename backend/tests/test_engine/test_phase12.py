@@ -40,7 +40,7 @@ class TestDutyCoverage:
         matching = [i for i in issues if i.check == "duty_coverage_primary"
                     and i.day == Day.MONDAY and i.period == Period.AM]
         assert len(matching) == 1
-        assert "Expected 1" in matching[0].message
+        assert "expected 1" in matching[0].message
 
     def test_correct_monday_coverage_no_warning(self, session, config_1wk, monday):
         t = make_template(session, is_active=True)
@@ -81,7 +81,7 @@ class TestDutyCoverage:
             i for i in issues if i.check == "duty_coverage_primary"
             and i.day == Day.TUESDAY and i.period == Period.AM
         )
-        assert "Expected 1" in primary_issue.message
+        assert "expected 1" in primary_issue.message
         # no secondary warning on Tuesday since expected=0 and found=0
         assert not any(
             i.check == "duty_coverage_secondary" and i.day == Day.TUESDAY and i.period == Period.AM
