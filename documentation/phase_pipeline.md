@@ -13,6 +13,7 @@
 Phase 0     -> Pre-flight validation (blocking - aborts if hard errors found)
 Phase 2     -> Build the rota grid from the master template; load counters
 Phase 4     -> Apply pre-planned duty doctors (primary + secondary, one phase)
+               and resolve their D-room, including same-day consolidation
 Phase 5     -> Assign clinics (schools, colleges, care homes, duty helpers - uniformly)
 Phase 7-9A  -> Resolve remaining rooms: full-day Trainee/AHP displacement, then
                single-session Trainee/AHP displacement, then Partner/Salaried
@@ -75,14 +76,28 @@ Counters are loaded as a flat working copy: `ClinicCounter` keyed `(doctor_id, c
 
 ## Phase 4 - Duty Doctors
 
-**Purpose:** Apply pre-planned duty doctors (primary and secondary) to their existing slots.
+**Purpose:** Apply pre-planned duty doctors (primary and secondary) to their existing slots, and resolve their room for the duty session.
 
-**Reads:** `GenerationContext.duty_map`, the grid built by Phase 2.  
-**Writes:** `role` on the relevant slots (`DUTY_PRIMARY` or `DUTY_SECONDARY`).  
+**Reads:** `GenerationContext.duty_map`, `GenerationContext.preferred_rooms_by_doctor`, the grid built by Phase 2.  
+**Writes:** `role` (`DUTY_PRIMARY`/`DUTY_SECONDARY`) on the duty slot; `assigned_room_id` on the duty slot and, where an eviction or a consolidation move happens, on the affected other doctor's slot too; increments an evicted occupant's `ROOM_MOVE` system counter (never the duty doctor's own move, and never a consolidation-bumped occupant's).  
 **Depends on:** Phase 2.  
-**Python implementation:** `run_phase4(context, grid)` in `phase4.py`.
+**Python implementation:** `run_phase4(context, grid, counters, log)` in `phase4.py`.
 
-Duty is pre-planned data (a `DutyAssignment` row already names the doctor) - this phase never selects anyone and never touches a counter, it only layers a role onto an existing slot. Room resolution for the duty doctor happens later in Phase 7-9A exactly as it would without duty; duty does not exempt anyone from needing a room. Two data-quality situations are handled as warnings rather than crashes: a duty doctor with no matching session slot (no template row for that doctor/day/period), and two `DutyAssignment` rows landing on the same doctor/slot (the schema doesn't prevent this, since the unique constraint is on `(date, period, duty_type)`, not on doctor).
+Duty is pre-planned data (a `DutyAssignment` row already names the doctor) - this phase never selects who is on duty and never touches a clinic counter. It does, however, own room resolution for the duty doctor: every primary and secondary duty slot must end up in a D room before the phase returns, mirroring the original GAS "D?" manual-marker behaviour. (This corrects this document's earlier claim that duty room resolution happened later, in Phase 7-9A - it has always happened here; `phase4.py`'s own module docstring flagged the discrepancy.)
+
+Two data-quality situations are handled as warnings rather than crashes: a duty doctor with no matching session slot (no template row for that doctor/day/period), and two `DutyAssignment` rows landing on the same doctor/slot (the schema doesn't prevent this, since the unique constraint is on `(date, period, duty_type)`, not on doctor). If the slot was templated WFH, duty overrides it and `is_wfh` is cleared.
+
+**Room resolution, per duty row, first pass:** already in a D room -> done. Otherwise try the doctor's preferred D room: free -> take it; occupied by a protected doctor (Partner/AHP, or anyone already holding a role) -> fall through to the sweep; occupied by anyone else -> evict and relocate them (Salaried via the shared preference-then-C/W/SR search; Trainee/Locum via a D-room-only search, Design Decision 8), then take the room. Eviction is unconditional - the duty doctor takes the room even if the evictee cannot be rehoused (Design Decision 10), and the evictee's `ROOM_MOVE` counter increments either way.
+
+**Fallback sweep** (no preferred D room, or it was protected): prefer a D room free for both AM and PM that day, code descending; if none exists, the first D room free in the current period only, code descending. Failing that, evict the lowest-weighted-`ROOM_MOVE`-score Salaried occupant of any D room - Trainees and Locums are never sweep victims (Design Decision 12c). Total failure leaves the doctor's role applied but roomless, and any existing non-D room they already held is untouched. The all-day-free preference applies only to this sweep, not to the preferred-D-room step above - a doctor's stated preference is tried as-is, and full-day consolidation is handled separately by the second pass below.
+
+**Second pass - same-day room consolidation.** Duty runs a shifted shift pattern (8am-1pm / 1pm-6.30pm) that straddles the normal session boundary, so a duty doctor who lands in a different room for their non-duty session that day faces an awkward mid-shift room change. Once every duty row above has a role and (where possible) a room, a second pass walks the same duty rows and tries to move each duty doctor into their duty room for the day's other session too:
+- No slot, on leave, or already in the same room that session -> nothing to do.
+- Room free -> move the duty doctor in.
+- Room occupied by another doctor already on `DUTY_PRIMARY`/`DUTY_SECONDARY` that session -> protected, leave both doctors where they are. This protection rule is narrower than the preferred-room step's `_is_protected_occupant` above - Partner/AHP and clinic-role holders are *not* protected here, and may be bumped.
+- Otherwise -> look for another D room for the occupant via `find_d_room_only` (their own preference order, any D room as fallback); found -> bump them and move the duty doctor in; not found -> leave both doctors where they are.
+
+Both the duty doctor's own move and a bumped occupant's move are opportunistic, not evictions, so neither touches `ROOM_MOVE`. A doctor who cannot be consolidated is left exactly as the first pass placed them, and this is logged for information rather than raised as a `ValidationIssue` - nothing is wrong, the second pass simply found no improvement available. Phase 7-9A can still move any of these doctors later, so consolidation improves the odds of a duty doctor keeping one room for the whole day without guaranteeing it.
 
 **Duty coverage expectations** (validated later by Phase 12 Check 1, not enforced here): exactly 1 primary duty doctor per session, every weekday. Exactly 1 secondary duty doctor per session on Monday only (0 elsewhere). Note this is a correction from the original GAS-era wording of "2 primary on Monday" - `DutyAssignment`'s unique constraint on `(date, period, duty_type)` structurally forbids more than one primary row per session, on any day. The "2" in the original domain description refers to Monday typically being staffed by two different people across its two sessions (AM and PM), not two simultaneous primary-duty doctors in one session - confirmed with the user after CI caught the contradiction directly (a second primary `DutyAssignment` for the same date/period fails at the database level).
 
