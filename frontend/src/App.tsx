@@ -17,7 +17,6 @@ import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionPlaceholder } from "@/routes/ReceptionPlaceholder";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
-import { SignaturesPage } from "@/routes/SignaturesPage";
 import { StagingPage } from "@/routes/StagingPage";
 import { UsersPage } from "@/routes/UsersPage";
 
@@ -33,7 +32,6 @@ const CLINICAL_NAV_ITEMS = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/closures", label: "Closures", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
-  { to: "/clinical/signatures", label: "Signatures", end: false },
   { to: "/clinical/users", label: "Users", end: false },
 ] as const;
 
