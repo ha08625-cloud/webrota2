@@ -51,7 +51,7 @@ describe("RotaPage", () => {
 
     expect(await screen.findByText(/Draft in progress/)).toBeInTheDocument();
     expect(screen.queryByText("Generate a rota")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/rota/5");
+    expect(screen.getByRole("link", { name: "Open draft" })).toHaveAttribute("href", "/clinical/rota/5");
   });
 
   it("shows the active staging card, not the generate form, when a staging is in progress and there is no draft", async () => {
@@ -67,7 +67,7 @@ describe("RotaPage", () => {
     expect(await screen.findByText(/Staging in progress/)).toBeInTheDocument();
     expect(screen.getByText(/Staging in progress/)).toHaveTextContent("2 weeks");
     expect(screen.queryByText("Generate a rota")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Resume staging" })).toHaveAttribute("href", "/staging");
+    expect(screen.getByRole("link", { name: "Resume staging" })).toHaveAttribute("href", "/clinical/staging");
   });
 
   it("prefers the draft banner over the staging banner when both somehow exist", async () => {
@@ -162,7 +162,9 @@ describe("RotaPage", () => {
       }),
     );
 
-    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/staging", element: <StagingProbe /> }] });
+    renderWithProviders(<RotaPage />, {
+      additionalRoutes: [{ path: "/clinical/staging", element: <StagingProbe /> }],
+    });
     await screen.findByText("Generate a rota");
 
     const weekSelect = (await screen.findByLabelText("Week starting")) as HTMLSelectElement;
@@ -183,13 +185,15 @@ describe("RotaPage", () => {
     });
   });
 
-  it("navigates to /staging on a successful staging create", async () => {
+  it("navigates to /clinical/staging on a successful staging create", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     server.use(
       http.post("/api/v1/staging", () => HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 })),
     );
 
-    renderWithProviders(<RotaPage />, { additionalRoutes: [{ path: "/staging", element: <StagingProbe /> }] });
+    renderWithProviders(<RotaPage />, {
+      additionalRoutes: [{ path: "/clinical/staging", element: <StagingProbe /> }],
+    });
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();

@@ -144,7 +144,7 @@ function StartStagingForm() {
     };
 
     createStaging.mutate(payload, {
-      onSuccess: () => navigate("/staging"),
+      onSuccess: () => navigate("/clinical/staging"),
     });
   }
 
@@ -240,7 +240,7 @@ export function RotaPage() {
             Draft in progress - started {formatDate(activeDraft.start_date)}, {activeDraft.num_weeks} week
             {activeDraft.num_weeks > 1 ? "s" : ""}
           </p>
-          <Link to={`/rota/${activeDraft.rota_id}`} className="mt-2 inline-block text-sm font-medium text-accent underline">
+          <Link to={`/clinical/rota/${activeDraft.rota_id}`} className="mt-2 inline-block text-sm font-medium text-accent underline">
             Open draft
           </Link>
         </div>
@@ -250,7 +250,7 @@ export function RotaPage() {
             Staging in progress - started {formatDate(activeStaging.start_date)}, {activeStaging.num_weeks} week
             {activeStaging.num_weeks > 1 ? "s" : ""}
           </p>
-          <Link to="/staging" className="mt-2 inline-block text-sm font-medium text-accent underline">
+          <Link to="/clinical/staging" className="mt-2 inline-block text-sm font-medium text-accent underline">
             Resume staging
           </Link>
         </div>
@@ -296,7 +296,7 @@ export function RotaPage() {
           <ul className="mt-2 divide-y divide-border rounded border border-border">
             {visibleHistory.map((rota) => (
               <li key={rota.rota_id} className="px-3 py-2 text-sm">
-                <Link to={`/rota/${rota.rota_id}`} className="text-accent underline">
+                <Link to={`/clinical/rota/${rota.rota_id}`} className="text-accent underline">
                   {formatDate(rota.start_date)} - {rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""}
                 </Link>
                 <span className="ml-2 text-ink/50">

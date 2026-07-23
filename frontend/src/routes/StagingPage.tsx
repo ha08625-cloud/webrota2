@@ -41,7 +41,7 @@ export function StagingPage() {
   function handleComplete() {
     if (!staging) return;
     completeStaging.mutate(staging.staging_id, {
-      onSuccess: (data) => navigate(`/rota/${data.rota_id}`),
+      onSuccess: (data) => navigate(`/clinical/rota/${data.rota_id}`),
     });
   }
 
@@ -52,7 +52,7 @@ export function StagingPage() {
     );
     if (!confirmed) return;
     abandonStaging.mutate(staging.staging_id, {
-      onSuccess: () => navigate("/rota"),
+      onSuccess: () => navigate("/clinical"),
       onError: () => showToast("Could not abandon staging"),
     });
   }

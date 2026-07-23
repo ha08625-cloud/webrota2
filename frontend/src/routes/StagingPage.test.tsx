@@ -37,7 +37,7 @@ describe("StagingPage", () => {
     renderWithProviders(<StagingPage />);
 
     expect(await screen.findByText("No staging is in progress.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to Rota" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "Back to Rota" })).toHaveAttribute("href", "/clinical");
   });
 
   it("renders the date range, week count, and grid when a staging is active", async () => {
@@ -59,7 +59,7 @@ describe("StagingPage", () => {
     await screen.findByRole("tab", { name: "Week 1" });
   });
 
-  it("navigates to /rota/{rota_id} on a successful complete", async () => {
+  it("navigates to /clinical/rota/{rota_id} on a successful complete", async () => {
     setUpServer();
     server.use(
       http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 3 }))),
@@ -68,7 +68,9 @@ describe("StagingPage", () => {
       ),
     );
 
-    renderWithProviders(<StagingPage />, { additionalRoutes: [{ path: "/rota/:id", element: <DetailProbe /> }] });
+    renderWithProviders(<StagingPage />, {
+      additionalRoutes: [{ path: "/clinical/rota/:id", element: <DetailProbe /> }],
+    });
     await screen.findByText(/Staging for/);
 
     const user = userEvent.setup();
@@ -135,7 +137,7 @@ describe("StagingPage", () => {
       expect(deleteWasCalled).toBe(false);
     });
 
-    it("deletes the staging and navigates to /rota once confirmed", async () => {
+    it("deletes the staging and navigates to /clinical once confirmed", async () => {
       setUpServer();
       vi.mocked(window.confirm).mockReturnValue(true);
       let capturedUrl = "";
@@ -147,7 +149,9 @@ describe("StagingPage", () => {
         }),
       );
 
-      renderWithProviders(<StagingPage />, { additionalRoutes: [{ path: "/rota", element: <RotaListProbe /> }] });
+      renderWithProviders(<StagingPage />, {
+        additionalRoutes: [{ path: "/clinical", element: <RotaListProbe /> }],
+      });
       await screen.findByText(/Staging for/);
 
       const user = userEvent.setup();
