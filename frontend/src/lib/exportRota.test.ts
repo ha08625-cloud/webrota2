@@ -132,14 +132,14 @@ describe("buildRotaWorkbook", () => {
 
   it("creates one sheet per week, named 'Week N'", async () => {
     const workbook = await build();
-    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1"]);
+    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1", "Room Week 1"]);
   });
 
   it("creates a sheet for each generation week when num_weeks > 1", async () => {
     const twoWeekRota = makeRota({ ...rota, num_weeks: 2, sessions: [] });
     const blob = await buildRotaWorkbook(twoWeekRota, [doctor1, doctor2], [room], [clinicType], closureNameByDate);
     const workbook = await reload(blob);
-    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1", "Week 2"]);
+    expect(workbook.worksheets.map((ws) => ws.name)).toEqual(["Week 1", "Room Week 1", "Week 2", "Room Week 2"]);
   });
 
   it("lands a fixture doctor on the expected AM/PM row pair, in pivotRota order", async () => {
