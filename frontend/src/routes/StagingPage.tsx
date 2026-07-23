@@ -31,7 +31,7 @@ export function StagingPage() {
     return (
       <div className="max-w-2xl">
         <p className="text-sm text-ink/70">No staging is in progress.</p>
-        <Link to="/" className="mt-2 inline-block text-sm font-medium text-accent underline">
+        <Link to="/clinical" className="mt-2 inline-block text-sm font-medium text-accent underline">
           Back to Rota
         </Link>
       </div>
