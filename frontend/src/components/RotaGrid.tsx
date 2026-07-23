@@ -616,6 +616,11 @@ function CellContent({ session, fontColorClass, supervisedCount, draggable = fal
           <div className={`text-xs font-medium ${fontColorClass}`}>{session.room_code}</div>
         )
       ) : null}
+      {session.notes ? (
+        <div className="mx-auto max-w-[110px] whitespace-normal break-words text-[10px] italic text-ink/60">
+          {session.notes}
+        </div>
+      ) : null}
     </>
   );
 }
