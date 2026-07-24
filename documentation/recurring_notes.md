@@ -1,8 +1,12 @@
+
+
 # Plan: Recurring Notes
 
 ## Scope
 
 A new "Recurring Notes" tab, independent of the Master Rota template, where you define a note ("Partners meeting") tied to a day + period, and an explicit list of one or more doctors it applies to. At generation, any matching doctor/day/period combination gets that text stamped into `RotaSession.notes` as a starting value — same as today, you can still edit or clear it afterward on the draft grid.
+
+This confirms your original instinct that a separate tab is the right shape, given multi-doctor notes need to be supported: the Master Rota grid has no unit that represents "several doctors, one note" — each cell belongs to exactly one doctor, so a practice-wide note would otherwise have to be typed onto every partner's cell separately and re-typed by hand whenever the partner list changes.
 
 ## Design Decisions
 
@@ -37,3 +41,4 @@ A new "Recurring Notes" tab, independent of the Master Rota template, where you 
 - `frontend/src/routes/RecurringNotesPage.tsx` — list + create/edit dialog (text, day, period, doctor multi-select, active toggle)
 - Nav entry in `App.tsx`
 - Tests mirroring `ClosuresPage_test.tsx` / `CountersPage_test.tsx`
+
