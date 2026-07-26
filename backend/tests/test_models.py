@@ -14,6 +14,9 @@ from app.models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
+    RecurringNote,
+    RecurringNoteDoctor,
+    RecurringNoteWeek,
     Room,
     RotaClosure,
     RotaConfig,
@@ -452,3 +455,118 @@ def test_staging_config_id_unique(session):
     ))
     with pytest.raises(IntegrityError):
         session.flush()
+
+# --- RecurringNote and children (recurring notes plan, Task 1) ---
+
+def _note(session, text="Partners meeting", day=Day.MONDAY, period=Period.PM):
+    n = RecurringNote(text=text, day=day, period=period)
+    session.add(n)
+    session.flush()
+    return n
+
+
+def test_recurring_note_round_trip_with_doctors_and_weeks(session):
+    d1 = _doctor(session, "AA")
+    d2 = _doctor(session, "BB")
+    note = _note(session)
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d1.id))
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d2.id))
+    note.weeks.append(RecurringNoteWeek(template_week=1))
+    note.weeks.append(RecurringNoteWeek(template_week=3))
+    session.flush()
+    session.refresh(note)
+
+    assert note.text == "Partners meeting"
+    assert note.day == Day.MONDAY
+    assert note.period == Period.PM
+    assert note.is_active is True  # Python-side default
+    assert {rnd.doctor_id for rnd in note.doctors} == {d1.id, d2.id}
+    assert {rnw.template_week for rnw in note.weeks} == {1, 3}
+
+
+def test_recurring_note_cascades_both_child_sets_on_delete(session):
+    d = _doctor(session)
+    note = _note(session)
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d.id))
+    note.weeks.append(RecurringNoteWeek(template_week=2))
+    session.flush()
+    note_id = note.id
+
+    session.delete(note)
+    session.flush()
+
+    assert session.query(RecurringNoteDoctor).filter_by(note_id=note_id).all() == []
+    assert session.query(RecurringNoteWeek).filter_by(note_id=note_id).all() == []
+
+
+@pytest.mark.parametrize("bad_week", [0, 5])
+def test_recurring_note_week_check(session, bad_week):
+    note = _note(session)
+    session.add(RecurringNoteWeek(note_id=note.id, template_week=bad_week))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_recurring_note_week_unique_per_note(session):
+    note = _note(session)
+    session.add(RecurringNoteWeek(note_id=note.id, template_week=1))
+    session.flush()
+    session.add(RecurringNoteWeek(note_id=note.id, template_week=1))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_recurring_note_doctor_unique_per_note(session):
+    d = _doctor(session)
+    note = _note(session)
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=d.id))
+    session.flush()
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=d.id))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_recurring_notes_may_overlap_on_same_day_and_period(session):
+    """Design Decision 9: no uniqueness rule across notes. Two notes for the
+    same doctor, week, day and period are legal at the data layer -- Phase 2
+    concatenates them by note id ascending rather than rejecting either."""
+    d = _doctor(session)
+    for text in ("Partners meeting", "Practice meeting"):
+        note = _note(session, text=text)
+        note.doctors.append(RecurringNoteDoctor(doctor_id=d.id))
+        note.weeks.append(RecurringNoteWeek(template_week=1))
+    session.flush()  # no error
+
+    assert session.query(RecurringNote).count() == 2
+
+
+def test_recurring_note_doctor_fk_enforced(session):
+    """FK enforcement relies on the test engine's PRAGMA foreign_keys=ON;
+    the dev SQLite engine in database.py does not set it."""
+    note = _note(session)
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=9999))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+# --- RotaStaging.source_template_start_week (recurring notes plan, Decision 5) ---
+
+def test_staging_source_template_start_week_defaults_to_one(session):
+    staging = _staging(session)
+    session.refresh(staging)
+    assert staging.source_template_start_week == 1
+
+
+def test_staging_source_template_start_week_round_trip(session):
+    template = _template(session)
+    config = _config(session)
+    staging = RotaStaging(
+        config_id=config.id,
+        source_template_id=template.id,
+        source_template_start_week=3,
+    )
+    session.add(staging)
+    session.flush()
+    session.refresh(staging)
+
+    assert staging.source_template_start_week == 3

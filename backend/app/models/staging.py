@@ -21,6 +21,17 @@ load the template by id (ignoring is_active), so deactivating or adding
 templates after staging create cannot brick an in-progress staging
 (Design Decision 5).
 
+`source_template_start_week` records the template week the copy started
+from. routers/staging.py applies the requested start week at copy time and
+then persists `template_start_week=1` on the staging's RotaConfig, which is
+the invariant that makes week_map.template_week() the identity for a staged
+run and lets Phases 0-12 run unchanged. That normalisation destroys the only
+other record of the real anchor, so this column is it. Recurring-note week
+resolution depends on it: a note scoped to template weeks {1,3} must fire on
+the correct real-world fortnight, not on staging *generation* weeks 1 and 3
+(recurring notes plan, Design Decision 5). Set at staging create; read by
+engine/context.py, which is the only staging-aware code in the engine.
+
 RotaStagingSession mirrors MasterRotaSession's shape exactly, replacing
 template_id with staging_id. Real dates are not stored here - week/day/
 period plus the parent staging's linked RotaConfig.start_date is enough
@@ -50,6 +61,9 @@ class RotaStaging(Base):
     )
     source_template_id: Mapped[int] = mapped_column(
         ForeignKey("master_rota_templates.id"), nullable=False
+    )
+    source_template_start_week: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
