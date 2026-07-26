@@ -55,34 +55,6 @@ Naming note: the codebase already carries three conventions for this flag (`Doct
 
 ---
 
-# Task 1: Data model and migration
-
-**A. State of the world.** Nothing of this feature exists yet. This task creates the three new tables, the one new column on `rota_stagings`, and migration 015. Migration head is confirmed at `014`. The system is not live, so no data preservation is required.
-
-**B. Files and deliverables**
-
-| File | Action |
-|---|---|
-| `backend/app/models/recurring_note.py` | New — `RecurringNote`, `RecurringNoteDoctor`, `RecurringNoteWeek` |
-| `backend/app/models/staging.py` | Edit — add `source_template_start_week` |
-| `backend/app/models/__init__.py` | Edit — import and `__all__` entries for the three new classes |
-| `backend/alembic/versions/015_recurring_notes.py` | New |
-| `backend/tests/test_models.py` | Edit — construction and cascade tests |
-
-**C. Instructions**
-
-1. `recurring_note.py`, following `closure.py` and `clinic_type.py` for style. Module docstring must record Decisions 2, 9 and 10 — that the note has no effect on availability, that overlapping notes concatenate rather than collide, and that a doctor with no template row for the slot silently gets nothing.
-   - `RecurringNote`: `text: Mapped[str] = mapped_column(String(200), nullable=False)`, `day` and `period` via `enum_col(...)`, `is_active: Mapped[bool]` non-null default `True`.
-   - Two relationships with `cascade="all, delete-orphan"`, mirroring `ClinicType.schedules`.
-   - `RecurringNoteWeek` carries `CheckConstraint("template_week BETWEEN 1 AND 4", name="ck_rnw_week")` and `UniqueConstraint("note_id", "template_week", name="uq_rnw_note_week")`. `RecurringNoteDoctor` carries `UniqueConstraint("note_id", "doctor_id", name="uq_rnd_note_doctor")`.
-   - `doctor_id` is a plain FK to `doctors.id` with no `ondelete` — doctors are soft-deleted only, matching every other doctor FK in the schema.
-2. `staging.py`: add `source_template_start_week: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")`. Extend the module docstring to say what it is for: the staged config always persists `template_start_week=1`, so this column is the only surviving record of the real template-week anchor, and recurring-note week resolution depends on it.
-3. `models/__init__.py`: add the import line and three `__all__` entries. This is not optional — Alembic autogenerate and `from ..models import ...` both depend on it.
-4. Migration 015: copy the `_enum_column` helper from 014 verbatim for the `day` and `period` columns (both types already exist on Postgres from 001; `create_type=False`). `revision = "015"`, `down_revision = "014"`. `upgrade()` creates the three tables in parent-then-child order and adds the `rota_stagings` column. `downgrade()` drops the column and the three tables in reverse order; no enum type is dropped, since `day` and `period` are shared with tables that survive.
-5. Tests in `test_models.py`: create a note with two doctors and two weeks; assert deleting the note cascades both child sets; assert the week check constraint rejects 0 and 5. Note that FK and check enforcement only happens under the test engines' `PRAGMA foreign_keys=ON`.
-
----
-
 # Task 2: API layer
 
 **A. State of the world.** Task 1 is complete: the three tables and the `rota_stagings` column exist and are migrated. This task adds the schemas, the CRUD router, its registration, and API tests. It does not touch the engine.
@@ -211,3 +183,32 @@ Naming note: the codebase already carries three conventions for this flag (`Doct
 8. Router surface table: a `/recurring-notes` row.
 
 Separately, and not part of this feature: line 449 still carries an `[UNRESOLVED]` marker about `railway.toml` using bare `alembic`/`uvicorn` while `nixpacks.toml` says the venv is not on the runtime PATH. That should be resolved against the repo on its own ticket before the next deploy.
+
+
+---
+
+# Task 1: Data model and migration
+
+**A. State of the world.** Nothing of this feature exists yet. This task creates the three new tables, the one new column on `rota_stagings`, and migration 015. Migration head is confirmed at `014`. The system is not live, so no data preservation is required.
+
+**B. Files and deliverables**
+
+| File | Action |
+|---|---|
+| `backend/app/models/recurring_note.py` | New — `RecurringNote`, `RecurringNoteDoctor`, `RecurringNoteWeek` |
+| `backend/app/models/staging.py` | Edit — add `source_template_start_week` |
+| `backend/app/models/__init__.py` | Edit — import and `__all__` entries for the three new classes |
+| `backend/alembic/versions/015_recurring_notes.py` | New |
+| `backend/tests/test_models.py` | Edit — construction and cascade tests |
+
+**C. Instructions**
+
+1. `recurring_note.py`, following `closure.py` and `clinic_type.py` for style. Module docstring must record Decisions 2, 9 and 10 — that the note has no effect on availability, that overlapping notes concatenate rather than collide, and that a doctor with no template row for the slot silently gets nothing.
+   - `RecurringNote`: `text: Mapped[str] = mapped_column(String(200), nullable=False)`, `day` and `period` via `enum_col(...)`, `is_active: Mapped[bool]` non-null default `True`.
+   - Two relationships with `cascade="all, delete-orphan"`, mirroring `ClinicType.schedules`.
+   - `RecurringNoteWeek` carries `CheckConstraint("template_week BETWEEN 1 AND 4", name="ck_rnw_week")` and `UniqueConstraint("note_id", "template_week", name="uq_rnw_note_week")`. `RecurringNoteDoctor` carries `UniqueConstraint("note_id", "doctor_id", name="uq_rnd_note_doctor")`.
+   - `doctor_id` is a plain FK to `doctors.id` with no `ondelete` — doctors are soft-deleted only, matching every other doctor FK in the schema.
+2. `staging.py`: add `source_template_start_week: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")`. Extend the module docstring to say what it is for: the staged config always persists `template_start_week=1`, so this column is the only surviving record of the real template-week anchor, and recurring-note week resolution depends on it.
+3. `models/__init__.py`: add the import line and three `__all__` entries. This is not optional — Alembic autogenerate and `from ..models import ...` both depend on it.
+4. Migration 015: copy the `_enum_column` helper from 014 verbatim for the `day` and `period` columns (both types already exist on Postgres from 001; `create_type=False`). `revision = "015"`, `down_revision = "014"`. `upgrade()` creates the three tables in parent-then-child order and adds the `rota_stagings` column. `downgrade()` drops the column and the three tables in reverse order; no enum type is dropped, since `day` and `period` are shared with tables that survive.
+5. Tests in `test_models.py`: create a note with two doctors and two weeks; assert deleting the note cascades both child sets; assert the week check constraint rejects 0 and 5. Note that FK and check enforcement only happens under the test engines' `PRAGMA foreign_keys=ON`.

@@ -67,6 +67,7 @@ from .staging import (
 )
 from .signature import SignatureMetaOut
 from .auth import LoginIn, LoginOut, UserIn, UserOut, UserPatch
+from .recurring_note import RecurringNoteIn, RecurringNoteOut
 
 __all__ = [
     "ValidationIssueOut",
@@ -90,4 +91,5 @@ __all__ = [
     "StagingSessionPatchIn", "StagingSessionCreateIn", "StagingSessionWriteOut",
     "SignatureMetaOut",
     "LoginIn", "LoginOut", "UserOut", "UserIn", "UserPatch",
+    "RecurringNoteIn", "RecurringNoteOut",
 ]
