@@ -1,0 +1,324 @@
+import * as Dialog from "@radix-ui/react-dialog";
+import { useState } from "react";
+import type { FormEvent } from "react";
+
+import {
+  useCreateRecurringNote,
+  useDeleteRecurringNote,
+  useRecurringNotes,
+  useUpdateRecurringNote,
+} from "@/api/recurringNotes";
+import { useDoctors } from "@/api/doctors";
+import type { Day, Doctor, Period, RecurringNote, RecurringNoteIn } from "@/api/types";
+
+const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const PERIODS: Period[] = ["AM", "PM"];
+const WEEKS = [1, 2, 3, 4];
+
+const DAY_ORDER: Record<Day, number> = {
+  Monday: 0,
+  Tuesday: 1,
+  Wednesday: 2,
+  Thursday: 3,
+  Friday: 4,
+};
+
+const PERIOD_ORDER: Record<Period, number> = { AM: 0, PM: 1 };
+
+/** "Weeks 1, 3" for a proper subset, "Every week" when all four are ticked. */
+function formatWeeks(weeks: number[]): string {
+  const sorted = weeks.slice().sort((a, b) => a - b);
+  if (sorted.length === 4) return "Every week";
+  return `Weeks ${sorted.join(", ")}`;
+}
+
+function formatDoctors(doctorIds: number[], doctorsById: Map<number, Doctor>): string {
+  return doctorIds
+    .map((id) => doctorsById.get(id)?.code ?? `Doctor ${id}`)
+    .sort()
+    .join(", ");
+}
+
+interface DialogState {
+  open: boolean;
+  note?: RecurringNote;
+}
+
+interface RecurringNoteFormDialogProps {
+  note?: RecurringNote;
+  activeDoctors: Doctor[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: RecurringNoteFormDialogProps) {
+  const createNote = useCreateRecurringNote();
+  const updateNote = useUpdateRecurringNote();
+
+  const [text, setText] = useState(note?.text ?? "");
+  const [day, setDay] = useState<Day>(note?.day ?? "Monday");
+  const [period, setPeriod] = useState<Period>(note?.period ?? "AM");
+  const [doctorIds, setDoctorIds] = useState<number[]>(note?.doctor_ids ?? []);
+  const [templateWeeks, setTemplateWeeks] = useState<number[]>(note?.template_weeks ?? WEEKS.slice());
+  const [isActive, setIsActive] = useState(note?.is_active ?? true);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const isSaving = createNote.isPending || updateNote.isPending;
+  const canSave = text.trim().length > 0 && templateWeeks.length > 0;
+
+  function toggleDoctor(id: number) {
+    setDoctorIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
+  }
+
+  function toggleWeek(week: number) {
+    setTemplateWeeks((prev) => (prev.includes(week) ? prev.filter((w) => w !== week) : [...prev, week]));
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setFormError(null);
+    if (!canSave) return;
+
+    const payload: RecurringNoteIn = {
+      text: text.trim(),
+      day,
+      period,
+      is_active: isActive,
+      doctor_ids: doctorIds,
+      template_weeks: templateWeeks,
+    };
+    const onError = (err: { status: number; detail: unknown }) => {
+      setFormError(typeof err.detail === "string" ? err.detail : "Could not save this recurring note.");
+    };
+
+    if (note) {
+      updateNote.mutate({ id: note.id, payload }, { onSuccess: () => onOpenChange(false), onError });
+    } else {
+      createNote.mutate(payload, { onSuccess: () => onOpenChange(false), onError });
+    }
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-ink/30" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[90vh] w-[30rem] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded bg-surface p-5 shadow-lg">
+          <Dialog.Title className="text-lg font-semibold">
+            {note ? "Edit Recurring Note" : "New Recurring Note"}
+          </Dialog.Title>
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            {formError ? <p className="rounded bg-red-50 p-2 text-sm text-red-700">{formError}</p> : null}
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="rn-text">
+                Text
+              </label>
+              <input
+                id="rn-text"
+                type="text"
+                maxLength={200}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              />
+            </div>
+
+            <div className="flex gap-4">
+              <div>
+                <label className="block text-sm font-medium" htmlFor="rn-day">
+                  Day
+                </label>
+                <select
+                  id="rn-day"
+                  value={day}
+                  onChange={(e) => setDay(e.target.value as Day)}
+                  className="mt-1 rounded border border-border p-1 text-sm"
+                >
+                  {DAYS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium" htmlFor="rn-period">
+                  Period
+                </label>
+                <select
+                  id="rn-period"
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value as Period)}
+                  className="mt-1 rounded border border-border p-1 text-sm"
+                >
+                  {PERIODS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <fieldset>
+              <legend className="text-sm font-medium">Doctors</legend>
+              <ul className="mt-1 space-y-1" aria-label="Doctors">
+                {activeDoctors.map((d) => (
+                  <li key={d.id}>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={doctorIds.includes(d.id)}
+                        onChange={() => toggleDoctor(d.id)}
+                      />
+                      {d.code}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+
+            <fieldset>
+              <legend className="text-sm font-medium">Template weeks</legend>
+              <div className="mt-1 flex gap-3">
+                {WEEKS.map((w) => (
+                  <label key={w} className="flex items-center gap-1 text-sm">
+                    <input type="checkbox" checked={templateWeeks.includes(w)} onChange={() => toggleWeek(w)} />
+                    {w}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+              Active
+            </label>
+
+            <div className="flex justify-end gap-2 border-t border-border pt-3">
+              <Dialog.Close className="rounded px-3 py-1 text-sm text-ink/70">Cancel</Dialog.Close>
+              <button
+                type="submit"
+                disabled={isSaving || !canSave}
+                className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+export function RecurringNotesPage() {
+  const { data: notes, isLoading, isError } = useRecurringNotes();
+  const { data: doctors } = useDoctors(true);
+  const deleteNote = useDeleteRecurringNote();
+
+  const [dialogState, setDialogState] = useState<DialogState>({ open: false });
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const activeDoctors = doctors ?? [];
+  const doctorsById = new Map(activeDoctors.map((d) => [d.id, d]));
+
+  const sortedNotes = (notes ?? [])
+    .slice()
+    .sort((a, b) => DAY_ORDER[a.day] - DAY_ORDER[b.day] || PERIOD_ORDER[a.period] - PERIOD_ORDER[b.period]);
+
+  function openCreate() {
+    setDeleteError(null);
+    setDialogState({ open: true, note: undefined });
+  }
+
+  function openEdit(note: RecurringNote) {
+    setDeleteError(null);
+    setDialogState({ open: true, note });
+  }
+
+  function handleDelete(note: RecurringNote) {
+    if (!window.confirm(`Delete recurring note "${note.text}"? This cannot be undone.`)) {
+      return;
+    }
+    setDeleteError(null);
+    deleteNote.mutate(note.id, {
+      onError: (err) => {
+        setDeleteError(typeof err.detail === "string" ? err.detail : "Could not delete this recurring note.");
+      },
+    });
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold">Recurring Notes</h1>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+        >
+          New Recurring Note
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-ink/70">
+        Text stamped into a session's notes at generation time, for the listed doctors on the given day,
+        period and template weeks. Annotation only - it has no effect on availability, eligibility or duty.
+      </p>
+
+      {deleteError ? <p className="mt-3 text-sm text-red-700">{deleteError}</p> : null}
+
+      {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
+      {isError ? <p className="mt-4 text-sm text-red-700">Could not load recurring notes.</p> : null}
+
+      {notes && notes.length === 0 ? <p className="mt-4 text-sm text-ink/50">No recurring notes.</p> : null}
+
+      {notes && notes.length > 0 ? (
+        <table className="mt-4 min-w-full text-sm">
+          <thead>
+            <tr className="text-left text-ink/70">
+              <th className="py-1 pr-4 font-medium">Day</th>
+              <th className="py-1 pr-4 font-medium">Period</th>
+              <th className="py-1 pr-4 font-medium">Text</th>
+              <th className="py-1 pr-4 font-medium">Doctors</th>
+              <th className="py-1 pr-4 font-medium">Weeks</th>
+              <th className="py-1 pr-4 font-medium">Active</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {sortedNotes.map((n) => (
+              <tr key={n.id} className="border-t border-border">
+                <td className="py-1 pr-4">{n.day}</td>
+                <td className="py-1 pr-4">{n.period}</td>
+                <td className="py-1 pr-4">{n.text}</td>
+                <td className="py-1 pr-4">{formatDoctors(n.doctor_ids, doctorsById)}</td>
+                <td className="py-1 pr-4">{formatWeeks(n.template_weeks)}</td>
+                <td className="py-1 pr-4">{n.is_active ? "Yes" : "No"}</td>
+                <td className="py-1">
+                  <button type="button" onClick={() => openEdit(n)} className="mr-3 text-xs text-accent">
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => handleDelete(n)} className="text-xs text-red-700">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+
+      {dialogState.open ? (
+        <RecurringNoteFormDialog
+          key={dialogState.note?.id ?? "new"}
+          note={dialogState.note}
+          activeDoctors={activeDoctors}
+          open={dialogState.open}
+          onOpenChange={(open) => setDialogState((s) => ({ ...s, open }))}
+        />
+      ) : null}
+    </div>
+  );
+}
