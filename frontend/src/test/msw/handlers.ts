@@ -36,6 +36,7 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/duty", () => HttpResponse.json([])),
   http.get("/api/v1/duty/counts", () => HttpResponse.json([])),
   http.get("/api/v1/closures", () => HttpResponse.json([])),
+  http.get("/api/v1/recurring-notes", () => HttpResponse.json([])),
   http.get("/api/v1/counters/clinic", () => HttpResponse.json([])),
   http.get("/api/v1/counters/system", () => HttpResponse.json([])),
   http.post("/api/v1/counters/clinic/:id/reset", () => HttpResponse.json(makeClinicCounter())),

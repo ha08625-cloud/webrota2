@@ -8,6 +8,7 @@ import type {
   DutyAssignment,
   ExtraSessionEntry,
   LeaveEntry,
+  RecurringNote,
   Room,
   SystemCounter,
 } from "@/api/types";
@@ -134,6 +135,21 @@ export function makeSystemCounter(overrides: Partial<SystemCounter> = {}): Syste
     doctor_code: "AB",
     counter_type: "room_move",
     raw_count: 2,
+    ...overrides,
+  };
+}
+
+let recurringNoteIdCounter = 1;
+
+export function makeRecurringNote(overrides: Partial<RecurringNote> = {}): RecurringNote {
+  return {
+    id: recurringNoteIdCounter++,
+    text: "Partners meeting",
+    day: "Monday",
+    period: "PM",
+    is_active: true,
+    doctor_ids: [1],
+    template_weeks: [1, 2, 3, 4],
     ...overrides,
   };
 }

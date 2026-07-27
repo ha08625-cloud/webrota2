@@ -409,6 +409,31 @@ export interface ClosureIn {
   name?: string | null;
 }
 
+// --- Recurring notes (schemas/recurring_note.py, recurring notes plan Task 4) ---
+// Annotation-only: applying at generation time stamps `text` into
+// RotaSession.notes for every matching doctor/week/day/period slot - see
+// recurring_notes.md. doctor_ids and template_weeks are plain int lists,
+// not nested child schemas, matching RecurringNoteIn/Out on the backend.
+
+export interface RecurringNote {
+  id: number;
+  text: string;
+  day: Day;
+  period: Period;
+  is_active: boolean;
+  doctor_ids: number[];
+  template_weeks: number[];
+}
+
+export interface RecurringNoteIn {
+  text: string;
+  day: Day;
+  period: Period;
+  is_active: boolean;
+  doctor_ids: number[];
+  template_weeks: number[];
+}
+
 // --- Counters (schemas_counter.py) ---
 // Read-only: "mutation happens only through generation and swap-roles"
 // (routers_counters.py docstring) - no write hooks in api/counters.ts.
