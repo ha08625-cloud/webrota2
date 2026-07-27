@@ -8,6 +8,11 @@ PRE_ASSIGNED/ADMIN_TIME slot claims its template_room_id immediately -- unless
 the slot is on leave, in which case the slot is still created (with
 template_type/template_room_id intact) but the room claim is skipped, freeing
 the room for later phases to assign elsewhere.
+
+Also stamps `SessionSlot.notes` from `context.recurring_notes_by_slot`, if
+any recurring note matches -- a default value only, annotation-only, with no
+effect on eligibility or room resolution (recurring notes plan, Design
+Decision 2).
 """
 from __future__ import annotations
 
@@ -67,6 +72,9 @@ def _build_grid(context: GenerationContext, config: RotaConfig) -> RotaGrid:
                         doctor_id=doctor.id, week=gen_week, day=day, period=period,
                         template_type=template_type, template_room_id=template_room_id,
                         is_on_leave=is_on_leave, is_wfh=is_wfh,
+                        notes=context.recurring_notes_by_slot.get(
+                            (doctor.id, gen_week, day, period)
+                        ),
                     )
                     grid.add_slot(slot)
 

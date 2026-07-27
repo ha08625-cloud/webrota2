@@ -334,6 +334,12 @@ class GenerationContext:
     leave_set: frozenset[tuple[int, date, Period]]
     duty_map: dict[tuple[date, Period, DutyType], int]
 
+    # Pre-resolved recurring-note text per grid slot, keyed by *generation*
+    # week -- the template-week mapping and the multi-note concatenation are
+    # both done in load_context(), so Phase 2 is a single dict lookup.
+    # Absent key means no note; the value is never an empty string.
+    recurring_notes_by_slot: dict[tuple[int, int, Day, Period], str]
+
     # M5 bank-holiday weeks: dates the practice is closed within this run's
     # range, and, per generation week, the first weekday not in that set
     # (None if the whole week is closed). Phase 2 builds no slots on a

@@ -23,6 +23,9 @@ from app.models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
+    RecurringNote,
+    RecurringNoteDoctor,
+    RecurringNoteWeek,
     Room,
     RotaStaging,
     RotaStagingSession,
@@ -174,9 +177,33 @@ def make_closure(session, date_: datetime.date, name=None) -> PracticeClosure:
     return c
 
 
-def make_staging(session, config, template, completed_at=None) -> RotaStaging:
+def make_recurring_note(
+    session,
+    text="Partners meeting",
+    day=Day.TUESDAY,
+    period=Period.PM,
+    doctor_ids=(),        # iterable of doctor_id
+    template_weeks=(1, 2, 3, 4),  # iterable of int, 1-4
+    is_active=True,
+) -> RecurringNote:
+    n = RecurringNote(text=text, day=day, period=period, is_active=is_active)
+    session.add(n)
+    session.flush()
+
+    for doctor_id in doctor_ids:
+        session.add(RecurringNoteDoctor(note_id=n.id, doctor_id=doctor_id))
+    for week in template_weeks:
+        session.add(RecurringNoteWeek(note_id=n.id, template_week=week))
+    session.flush()
+    return n
+
+
+def make_staging(
+    session, config, template, completed_at=None, source_template_start_week=1,
+) -> RotaStaging:
     s = RotaStaging(
         config_id=config.id, source_template_id=template.id, completed_at=completed_at,
+        source_template_start_week=source_template_start_week,
     )
     session.add(s)
     session.flush()

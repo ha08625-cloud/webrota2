@@ -22,12 +22,13 @@ from ..models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
+    RecurringNote,
     Room,
     RotaConfig,
     RotaStaging,
     RotaStagingSession,
 )
-from ..models.enums import Period, RoomType
+from ..models.enums import Day, Period, RoomType
 from .datatypes import (
     ClinicDoctorEligibility,
     ClinicSchedule,
@@ -39,6 +40,7 @@ from .week_map import (
     build_date_to_genslot,
     build_first_open_weekday,
     build_week_dates,
+    template_week,
 )
 
 _PERIOD_ORDER = {Period.AM: 0, Period.PM: 1}
@@ -97,6 +99,9 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
 
     active_template, template_sessions = _load_staging_or_template(db, config)
 
+    effective_start_week = _effective_template_start_week(db, config)
+    recurring_notes_by_slot = _load_recurring_notes(db, config, effective_start_week)
+
     return GenerationContext(
         doctors=doctors,
         doctor_by_id=doctor_by_id,
@@ -114,6 +119,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
         date_to_genslot=date_to_genslot,
         template_sessions=template_sessions,
         active_template=active_template,
+        recurring_notes_by_slot=recurring_notes_by_slot,
     )
 
 
@@ -241,6 +247,74 @@ def _load_staging_or_template(
         for s in session_rows
     }
     return template, template_sessions
+
+
+def _effective_template_start_week(db: Session, config: RotaConfig) -> int:
+    """The template week a generation run should treat as its anchor.
+
+    For a normal (non-staged) run this is simply `config.template_start_week`.
+    For a staged run, `config.template_start_week` is always persisted as 1
+    by `routers/staging.py` (Design Decision 4 in the staging plan) -- that
+    normalisation is what lets `week_map.template_week()` be the identity
+    for a staged run, so Phases 0-12 need no staging-specific code. But it
+    also destroys the record of which template week the staging copy
+    actually started from, which recurring-note week resolution needs to
+    get right (recurring notes plan, Design Decision 5): a note scoped to
+    template weeks {1,3} must fire on the correct real-world fortnight, not
+    on staging *generation* weeks 1 and 3.
+    `RotaStaging.source_template_start_week` is where that original anchor
+    survives, so it is used here instead when a staging exists for this
+    config.
+
+    This re-queries `rota_stagings` rather than threading a third value out
+    of `_load_staging_or_template()` -- one extra query against a
+    single-row-per-config table, in exchange for leaving that function's
+    signature and docstring untouched.
+    """
+    staging = db.execute(
+        select(RotaStaging).where(RotaStaging.config_id == config.id)
+    ).scalars().first()
+    if staging is None:
+        return config.template_start_week
+    return staging.source_template_start_week
+
+
+def _load_recurring_notes(
+    db: Session, config: RotaConfig, start_week: int
+) -> dict[tuple[int, int, Day, Period], str]:
+    """Pre-resolve recurring-note text for every (doctor, gen_week, day,
+    period) slot it could apply to, so Phase 2 is a single dict lookup.
+
+    Notes are iterated in ascending `id` order so that multiple notes
+    landing on the same slot concatenate deterministically (recurring notes
+    plan, Design Decision 9 -- overlapping notes concatenate rather than
+    collide). Inactive notes are excluded outright. Doctor-active status is
+    deliberately not checked here: Phase 2 only ever builds slots for active
+    doctors, so an entry keyed to an inactive doctor is simply a dead key
+    that costs nothing (Design Decision 12).
+    """
+    notes = db.execute(
+        select(RecurringNote)
+        .where(RecurringNote.is_active.is_(True))
+        .options(
+            selectinload(RecurringNote.doctors),
+            selectinload(RecurringNote.weeks),
+        )
+        .order_by(RecurringNote.id.asc())
+    ).scalars().all()
+
+    by_slot: dict[tuple[int, int, Day, Period], list[str]] = defaultdict(list)
+    for note in notes:
+        template_weeks = {w.template_week for w in note.weeks}
+        for gen_week in range(1, config.num_weeks + 1):
+            tw = template_week(gen_week, start_week)
+            if tw not in template_weeks:
+                continue
+            for assoc in note.doctors:
+                key = (assoc.doctor_id, gen_week, note.day, note.period)
+                by_slot[key].append(note.text)
+
+    return {key: "\n".join(texts) for key, texts in by_slot.items()}
 
 
 def _load_preferred_rooms(
