@@ -196,34 +196,49 @@ def _rota(session, start=datetime.date(2026, 1, 5)):
     return rota
 
 
-def test_practice_closure_date_unique(session):
-    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), name="Easter Monday"))
+def test_practice_closure_date_and_period_unique(session):
+    session.add(PracticeClosure(
+        date=datetime.date(2026, 4, 6), period=Period.AM, name="Easter Monday"
+    ))
     session.flush()
-    session.add(PracticeClosure(date=datetime.date(2026, 4, 6)))
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.AM))
     with pytest.raises(IntegrityError):
         session.flush()
 
 
-def test_rota_closure_unique_per_rota_and_date(session):
+def test_practice_closure_other_period_same_date_allowed(session):
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.AM))
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.PM))
+    session.flush()  # no error: uniqueness is per (date, period)
+
+
+def test_rota_closure_unique_per_rota_date_and_period(session):
     rota = _rota(session)
-    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
     session.flush()
-    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
     with pytest.raises(IntegrityError):
         session.flush()
+
+
+def test_rota_closure_other_period_same_date_allowed(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.PM))
+    session.flush()  # no error: uniqueness is per (rota_id, date, period)
 
 
 def test_rota_closure_same_date_different_rota_allowed(session):
     rota_a = _rota(session)
     rota_b = _rota(session)
-    session.add(RotaClosure(rota_id=rota_a.id, date=datetime.date(2026, 1, 5)))
-    session.add(RotaClosure(rota_id=rota_b.id, date=datetime.date(2026, 1, 5)))
-    session.flush()  # no error: uniqueness is per (rota_id, date)
+    session.add(RotaClosure(rota_id=rota_a.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.add(RotaClosure(rota_id=rota_b.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.flush()  # no error: uniqueness is per (rota_id, date, period)
 
 
 def test_rota_closure_cascades_on_rota_delete(session):
     rota = _rota(session)
-    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
     session.flush()
 
     session.delete(rota)
@@ -238,12 +253,12 @@ def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session
     independent tables at the model layer -- there is no FK between them, so
     deleting a PracticeClosure can never cascade into or orphan a
     RotaClosure snapshot row."""
-    pc = PracticeClosure(date=datetime.date(2026, 1, 5), name="Test closure")
+    pc = PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.AM, name="Test closure")
     session.add(pc)
     session.flush()
 
     rota = _rota(session)
-    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5)))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
     session.flush()
 
     session.delete(pc)
@@ -251,6 +266,7 @@ def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session
 
     snapshot = session.query(RotaClosure).filter_by(rota_id=rota.id).one()
     assert snapshot.date == datetime.date(2026, 1, 5)
+    assert snapshot.period == Period.AM
 
 
 # --- RotaGenerationLogEntry (decision log, Task 1) ---
