@@ -23,6 +23,10 @@ export function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
     sessions_per_week: "10.0",
     active: true,
     supervision_preference: "normal",
+    // Unbounded employment window - the state every doctor is in until
+    // one is set (annual leave planning, Task 1).
+    start_date: null,
+    end_date: null,
     ...overrides,
   };
 }

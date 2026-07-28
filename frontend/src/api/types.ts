@@ -247,6 +247,19 @@ export interface Doctor {
   sessions_per_week: string;
   active: boolean;
   supervision_preference: SupervisionPreference;
+  /**
+   * Optional employment window (annual leave planning, Task 1). Null at
+   * either end means unbounded, which is every doctor that predates the
+   * feature. This is an *additional*, independent gate alongside
+   * `active`, not a replacement for it: `active` is the soft-delete flag,
+   * the window is a real employment fact, and a doctor only counts as
+   * working on a date when both hold (Design Decision 6). Enforced
+   * server-side at Phase 2, the POST /staging copy loop, and Phase 0 -
+   * the frontend reads these fields to avoid *offering* an out-of-window
+   * cell, never as the enforcement itself.
+   */
+  start_date: string | null;
+  end_date: string | null;
 }
 
 /** POST /doctors body. `active` is not settable here - always true server-side. */
@@ -365,6 +378,73 @@ export interface ExtraSessionIn {
   doctor_id: number;
   date: string;
   period: Period;
+}
+
+// --- Leave planning (schemas/leave_planning.py, annual leave planning) ---
+// Backs the month-at-a-time planning grid. Deliberately a separate set of
+// shapes from the range-based leave ones above: /leave stays the ad-hoc,
+// one-off path during the year (Design Decision 11), and these are
+// cell-shaped, not range-shaped.
+
+/**
+ * One (date, period)'s clinical headcount. Counts Partner and Salaried
+ * doctors only (Design Decision 2) whose effective session type is
+ * requires_room or pre_assigned (Design Decision 3).
+ *
+ * A closed slot always reports `headcount: 0` alongside `is_closed: true`
+ * (Design Decision 5) - Phase 2 creates no slot on a closed
+ * (date, period), so the grid renders that as "-", never as "uncovered".
+ */
+export interface CoverageSlot {
+  date: string;
+  period: Period;
+  headcount: number;
+  is_closed: boolean;
+}
+
+/**
+ * What POST /leave-planning/bulk does to one cell. "clear" removes both
+ * the LeaveEntry and the ExtraSessionEntry for the slot - they share the
+ * same (doctor_id, date, period) key, so there is nothing to
+ * disambiguate.
+ */
+export type PlanningAction = "leave" | "extra_session" | "clear";
+
+/**
+ * Why the batch declined one action. Skipping rather than failing is the
+ * point (Design Decision 8): one stale cell must not fail a 200-cell
+ * save, so none of these are errors - the save succeeded.
+ */
+export type PlanningSkipReason =
+  | "duplicate"
+  | "outside_doctor_dates"
+  | "leave_exists"
+  | "nothing_to_clear";
+
+export interface PlanningActionIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
+  action: PlanningAction;
+}
+
+export interface PlanningBulkIn {
+  actions: PlanningActionIn[];
+}
+
+export interface PlanningSkipped extends PlanningActionIn {
+  reason: PlanningSkipReason;
+}
+
+/**
+ * `superseded_extra_sessions` are pre-existing extra sessions this
+ * batch's leave now covers. They are *reported*, never deleted and never
+ * a 409, exactly as /leave/bulk does - see LeaveBulkOut above.
+ */
+export interface PlanningBulkOut {
+  applied: number;
+  skipped: PlanningSkipped[];
+  superseded_extra_sessions: ExtraSessionEntry[];
 }
 
 // --- Duty (schemas_duty.py) ---

@@ -33,6 +33,15 @@ export const handlers: HttpHandler[] = [
     ),
   ),
   http.delete("/api/v1/extra-sessions/:id", () => new HttpResponse(null, { status: 204 })),
+  // Leave planning (annual leave planning, Task 4). Empty coverage means
+  // every total renders "-"; tests that assert on the cover row stub this
+  // with real slots. The bulk default is the all-clean response, so a
+  // test only interested in *what was posted* can override with a
+  // body-capturing handler without also having to invent a payload.
+  http.get("/api/v1/leave-planning/coverage", () => HttpResponse.json([])),
+  http.post("/api/v1/leave-planning/bulk", () =>
+    HttpResponse.json({ applied: 0, skipped: [], superseded_extra_sessions: [] }),
+  ),
   http.get("/api/v1/duty", () => HttpResponse.json([])),
   http.get("/api/v1/duty/counts", () => HttpResponse.json([])),
   http.get("/api/v1/closures", () => HttpResponse.json([])),
@@ -49,6 +58,13 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/rota", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/issues", () => HttpResponse.json([])),
   http.get("/api/v1/rota/:id/log", () => HttpResponse.json([])),
+  // No active template by default, mirroring the auth/me and
+  // staging/active convention above: pages that need one stub it
+  // per-test, and both MasterRotaPage and LeavePlanningPage already
+  // handle its absence (the latter simply reads zero cover).
+  http.get("/api/v1/master-rota/active", () =>
+    HttpResponse.json({ detail: "No active template" }, { status: 404 }),
+  ),
   http.patch("/api/v1/master-rota/templates/:templateId/sessions/:sessionId", () =>
     HttpResponse.json({
       session: {
