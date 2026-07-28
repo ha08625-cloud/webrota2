@@ -13,6 +13,7 @@ import { DutyPage } from "@/routes/DutyPage";
 import { ExtraSessionsPage } from "@/routes/ExtraSessionsPage";
 import { LandingPage } from "@/routes/LandingPage";
 import { LeavePage } from "@/routes/LeavePage";
+import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionPlaceholder } from "@/routes/ReceptionPlaceholder";
 import { RecurringNotesPage } from "@/routes/RecurringNotesPage";
@@ -30,6 +31,7 @@ const CLINICAL_NAV_ITEMS = [
   { to: "/clinical/clinic-types", label: "Clinic Types", end: false },
   { to: "/clinical/doctors", label: "Staff", end: false },
   { to: "/clinical/leave", label: "Assign Leave", end: false },
+  { to: "/clinical/leave-planning", label: "Leave Planning", end: false },
   { to: "/clinical/extra-sessions", label: "Extra Sessions", end: false },
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/closures", label: "Closures", end: false },
@@ -112,6 +114,7 @@ function ClinicalShell() {
           <Route path="clinic-types" element={<ClinicTypesPage />} />
           <Route path="doctors" element={<DoctorsPage />} />
           <Route path="leave" element={<LeavePage />} />
+          <Route path="leave-planning" element={<LeavePlanningPage />} />
           <Route path="extra-sessions" element={<ExtraSessionsPage />} />
           <Route path="duty" element={<DutyPage />} />
           <Route path="closures" element={<ClosuresPage />} />

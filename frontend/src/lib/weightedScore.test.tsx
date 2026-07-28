@@ -7,7 +7,7 @@ import { computeWeightedScore, formatWeightedScore } from "./weightedScore";
 function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
   return {
     id: 1, code: "AB", doctor_type: "Partner", sessions_per_week: "10.0", active: true,
-    supervision_preference: "normal", ...overrides,
+    supervision_preference: "normal", start_date: null, end_date: null, ...overrides,
   };
 }
 

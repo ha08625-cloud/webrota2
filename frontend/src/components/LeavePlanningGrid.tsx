@@ -1,0 +1,265 @@
+import type { Doctor, Period, PlanningAction } from "@/api/types";
+import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
+import { parseLocalDate } from "@/lib/date";
+import {
+  PLANNING_PERIODS,
+  type PlanningCellState,
+  isWithinWindow,
+  mergeCellState,
+  nextCellState,
+  planningCellKey,
+  serverRows,
+  toCellState,
+} from "@/lib/planningMonth";
+
+/**
+ * The month-at-a-time planning matrix: sticky doctor column, one column
+ * per weekday date, AM and PM as split halves within each cell (the same
+ * shape LeaveRangePreview uses for its mini-calendar).
+ *
+ * Every cell's appearance is the *merge* of server state and any pending
+ * edit for that key, computed at render - the component holds no state of
+ * its own. Clicking cycles normal -> leave -> extra planned -> normal
+ * through `onToggle`; nothing here fires an API call.
+ *
+ * Two kinds of inert cell, deliberately given different treatments
+ * because confusing them would mislead:
+ *  - closed: the practice is shut, so Phase 2 creates no slot at all.
+ *    Reuses RotaGrid's solid `bg-gray-200`, and the total shows "-"
+ *    rather than 0 (Design Decision 5).
+ *  - out of window: the doctor is not employed on that date. Plain absent
+ *    grey - there is nothing to plan, but the practice is open.
+ */
+
+const CELL_CLASSES: Record<PlanningCellState, string> = {
+  normal: "bg-surface text-ink/30 hover:bg-accent/10",
+  leave: "bg-accent text-white",
+  extra_session: "bg-sky-100 text-sky-900",
+};
+
+const CELL_TITLES: Record<PlanningCellState, string> = {
+  normal: "Working as normal",
+  leave: "On leave",
+  extra_session: "Extra session planned",
+};
+
+const LEGEND: { state: PlanningCellState; label: string }[] = [
+  { state: "leave", label: "Leave" },
+  { state: "extra_session", label: "Extra planned" },
+];
+
+/** "Mon" / "3" for a date column header. */
+function columnLabel(date: string): { weekday: string; dayOfMonth: string } {
+  return {
+    weekday: parseLocalDate(date).toLocaleDateString("en-GB", { weekday: "short" }),
+    dayOfMonth: String(Number(date.slice(8))),
+  };
+}
+
+export interface LeavePlanningGridProps {
+  /** Mon-Fri dates of the displayed month, ascending. */
+  dates: string[];
+  /** Rows, already filtered to Partner/Salaried and ordered canonically. */
+  doctors: Doctor[];
+  /** Unsaved edits, keyed by `planningCellKey`. */
+  pending: Map<string, PlanningAction>;
+  /** Existing LeaveEntry / ExtraSessionEntry keys, same key shape. */
+  leaveKeys: Set<string>;
+  extraKeys: Set<string>;
+  /** Closed (date, period) slots, keyed by `closedSlotKey`. */
+  closedSlots: Set<string>;
+  /** Total row: `closedSlotKey` -> headcount, null when closed. */
+  totals: Map<string, number | null>;
+  /** Receives the state the clicked cell should move to - the cycle
+   * itself is this component's business, the page only records it. */
+  onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
+}
+
+export function LeavePlanningGrid({
+  dates,
+  doctors,
+  pending,
+  leaveKeys,
+  extraKeys,
+  closedSlots,
+  totals,
+  onToggle,
+}: LeavePlanningGridProps) {
+  if (doctors.length === 0) {
+    return <p className="mt-4 text-sm text-ink/50">No partners or salaried doctors work this month.</p>;
+  }
+
+  return (
+    <div>
+      <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
+        <table className="min-w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+                Doctor
+              </th>
+              {dates.map((date) => {
+                const { weekday, dayOfMonth } = columnLabel(date);
+                const fullyClosed = isDayFullyClosed(closedSlots, date);
+                return (
+                  <th
+                    key={date}
+                    data-testid={`planning-header-${date}`}
+                    className={`border-b-2 border-r border-ink/40 px-1 py-1 text-center font-medium ${
+                      fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                    }`}
+                  >
+                    <div className="text-[10px] font-normal">{weekday}</div>
+                    <div>{dayOfMonth}</div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {doctors.map((doctor) => (
+              <tr key={doctor.id}>
+                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 font-medium">
+                  {doctor.code}
+                </td>
+                {dates.map((date) => (
+                  <td key={date} className="border-b border-r border-ink/40 p-0.5 align-top">
+                    {PLANNING_PERIODS.map((period) => (
+                      <PlanningCellHalf
+                        key={period}
+                        doctor={doctor}
+                        date={date}
+                        period={period}
+                        pending={pending}
+                        leaveKeys={leaveKeys}
+                        extraKeys={extraKeys}
+                        closedSlots={closedSlots}
+                        onToggle={onToggle}
+                      />
+                    ))}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="sticky left-0 z-10 whitespace-nowrap border-r-2 border-t-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                Clinical cover
+              </td>
+              {dates.map((date) => (
+                <td
+                  key={date}
+                  className="border-r border-t-2 border-ink/40 bg-background p-0.5 align-top"
+                >
+                  {PLANNING_PERIODS.map((period) => {
+                    const total = totals.get(closedSlotKey(date, period));
+                    return (
+                      <div
+                        key={period}
+                        data-testid={`planning-total-${date}-${period}`}
+                        title={`${date} ${period}`}
+                        className="mt-0.5 rounded-sm bg-surface text-center text-[11px] leading-tight tabular-nums text-ink/70 first:mt-0"
+                      >
+                        {total === undefined || total === null ? "—" : total}
+                      </div>
+                    );
+                  })}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-3">
+        {LEGEND.map((item) => (
+          <span key={item.state} className="flex items-center gap-1 text-xs text-ink/60">
+            <span className={`inline-block h-3 w-3 rounded-sm ${CELL_CLASSES[item.state]}`} />
+            {item.label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1 text-xs text-ink/60">
+          <span className="inline-block h-3 w-3 rounded-sm bg-gray-200" />
+          Practice closed
+        </span>
+        <span className="flex items-center gap-1 text-xs text-ink/60">
+          <span className="inline-block h-3 w-3 rounded-sm bg-ink/5" />
+          Not employed
+        </span>
+      </div>
+    </div>
+  );
+}
+
+interface PlanningCellHalfProps {
+  doctor: Doctor;
+  date: string;
+  period: Period;
+  pending: Map<string, PlanningAction>;
+  leaveKeys: Set<string>;
+  extraKeys: Set<string>;
+  closedSlots: Set<string>;
+  onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
+}
+
+function PlanningCellHalf({
+  doctor,
+  date,
+  period,
+  pending,
+  leaveKeys,
+  extraKeys,
+  closedSlots,
+  onToggle,
+}: PlanningCellHalfProps) {
+  const testId = `planning-cell-${doctor.id}-${date}-${period}`;
+  const shared = "mt-0.5 block w-full rounded-sm text-center text-[10px] leading-tight first:mt-0";
+
+  if (isSlotClosed(closedSlots, date, period)) {
+    return (
+      <div
+        data-testid={testId}
+        data-state="closed"
+        title={`${date} ${period} - practice closed`}
+        className={`${shared} bg-gray-200 text-ink/40`}
+      >
+        {period}
+      </div>
+    );
+  }
+
+  if (!isWithinWindow(doctor, date)) {
+    return (
+      <div
+        data-testid={testId}
+        data-state="out_of_window"
+        title={`${date} ${period} - ${doctor.code} is not employed on this date`}
+        className={`${shared} bg-ink/5 text-ink/20`}
+      >
+        {period}
+      </div>
+    );
+  }
+
+  const key = planningCellKey(doctor.id, date, period);
+  const pendingAction = pending.get(key);
+  const state = mergeCellState(toCellState(serverRows(leaveKeys, extraKeys, key)), pendingAction);
+
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      data-state={state}
+      data-pending={pendingAction !== undefined ? "true" : "false"}
+      title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}`}
+      aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}`}
+      onClick={() => onToggle(doctor.id, date, period, nextCellState(state))}
+      className={`${shared} ${CELL_CLASSES[state]} ${
+        pendingAction !== undefined ? "ring-2 ring-inset ring-ink/60" : ""
+      }`}
+    >
+      {period}
+    </button>
+  );
+}
