@@ -68,6 +68,56 @@ class TestExtraSessions:
         assert resp.status_code == 409
         assert "on leave" in resp.json()["detail"]
 
+    def test_create_before_doctor_start_date_422(self, client, seeded):
+        client.patch(f"/api/v1/doctors/{seeded['doctor_aa']}", json={
+            "start_date": (MONDAY + datetime.timedelta(days=7)).isoformat(),
+        })
+        resp = client.post("/api/v1/extra-sessions", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": MONDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 422
+        assert "does not work" in resp.json()["detail"]
+
+    def test_create_after_doctor_end_date_422(self, client, seeded):
+        client.patch(f"/api/v1/doctors/{seeded['doctor_aa']}", json={
+            "end_date": (MONDAY - datetime.timedelta(days=1)).isoformat(),
+        })
+        resp = client.post("/api/v1/extra-sessions", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": MONDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 422
+        assert "does not work" in resp.json()["detail"]
+
+    def test_create_inside_window_201(self, client, seeded):
+        client.patch(f"/api/v1/doctors/{seeded['doctor_aa']}", json={
+            "start_date": MONDAY.isoformat(),
+            "end_date": (MONDAY + datetime.timedelta(days=30)).isoformat(),
+        })
+        resp = client.post("/api/v1/extra-sessions", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": MONDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_weekend_check_precedes_window_check(self, client, seeded):
+        """A Saturday that is also outside the window reports the weekend,
+        the more specific fact -- same ordering as /leave/bulk."""
+        client.patch(f"/api/v1/doctors/{seeded['doctor_aa']}", json={
+            "start_date": (SATURDAY + datetime.timedelta(days=7)).isoformat(),
+        })
+        resp = client.post("/api/v1/extra-sessions", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": SATURDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 422
+        assert "weekend" in resp.json()["detail"]
+
     def test_delete_then_404(self, client, seeded):
         created = client.post("/api/v1/extra-sessions", json={
             "doctor_id": seeded["doctor_aa"],

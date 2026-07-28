@@ -18,6 +18,8 @@ the invariant -- see seed/backfill_system_counters.py for the repair).
 """
 from __future__ import annotations
 
+import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +43,21 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
+
+
+def _validate_window(
+    start: datetime.date | None, end: datetime.date | None
+) -> None:
+    """Enforce start <= end on the employment window.
+
+    Lives here rather than in a schema validator because a PATCH may supply
+    only one end of the pair -- the check needs the merged post-update
+    values, which only the router has.
+    """
+    if start is not None and end is not None and start > end:
+        raise HTTPException(
+            status_code=422, detail="start_date must not be after end_date"
+        )
 
 
 def _get_or_404(db: Session, doctor_id: int) -> Doctor:
@@ -68,11 +85,14 @@ def create_doctor(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> Doctor:
+    _validate_window(payload.start_date, payload.end_date)
     doctor = Doctor(
         code=payload.code,
         doctor_type=payload.doctor_type,
         sessions_per_week=payload.sessions_per_week,
         active=True,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
     )
     db.add(doctor)
     try:
@@ -114,6 +134,13 @@ def patch_doctor(
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
     updates = payload.model_dump(exclude_unset=True)
+    # Validate the window against the *merged* values: a PATCH setting only
+    # start_date still has to sit before whatever end_date the row already
+    # holds.
+    _validate_window(
+        updates.get("start_date", doctor.start_date),
+        updates.get("end_date", doctor.end_date),
+    )
     for field, value in updates.items():
         setattr(doctor, field, value)
     try:

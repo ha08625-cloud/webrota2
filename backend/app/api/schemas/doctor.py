@@ -1,4 +1,12 @@
-"""Doctor schemas."""
+"""Doctor schemas.
+
+`start_date` / `end_date` are the optional employment window (annual leave
+planning, Task 1); null at either end means unbounded. The `start <= end`
+check is deliberately NOT a `model_validator` here: a `DoctorPatch` may
+supply only one of the pair, so the check needs the merged post-update
+values and therefore belongs in the router.
+"""
+import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
@@ -11,6 +19,8 @@ class DoctorIn(BaseModel):
     doctor_type: DoctorType
     sessions_per_week: Decimal = Decimal("10.0")
     supervision_preference: SupervisionPreference = SupervisionPreference.NORMAL
+    start_date: datetime.date | None = None
+    end_date: datetime.date | None = None
 
 
 class DoctorPatch(BaseModel):
@@ -20,6 +30,8 @@ class DoctorPatch(BaseModel):
     sessions_per_week: Decimal | None = None
     active: bool | None = None
     supervision_preference: SupervisionPreference | None = None
+    start_date: datetime.date | None = None
+    end_date: datetime.date | None = None
 
 
 class PreferredRoomIn(BaseModel):
@@ -50,6 +62,8 @@ class DoctorOut(BaseModel):
     sessions_per_week: Decimal
     active: bool
     supervision_preference: SupervisionPreference
+    start_date: datetime.date | None = None
+    end_date: datetime.date | None = None
     model_config = {"from_attributes": True}
 
 
