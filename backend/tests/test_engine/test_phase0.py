@@ -1,6 +1,7 @@
 import datetime
 
 from app.engine.context import load_context
+from app.engine.generate import generate
 from app.engine.phases.phase0 import run_phase0
 from app.models import RotaConfig
 from app.models.enums import Day, DutyType, Period
@@ -120,6 +121,101 @@ class TestDutyOnLeave:
         issues = run_phase0(ctx, config_1wk)
 
         assert len([i for i in issues if i.check == "duty_on_leave"]) == 2
+
+
+class TestDutyOutsideDoctorDates:
+    """Annual leave planning, Task 2, Design Decision 7. Phase 2 builds no
+    slot for an out-of-window (doctor, date), so a duty there has nothing to
+    attach to -- same tier as duty-on-leave and duty-on-closed-date, not
+    Phase 4's duty_no_session_slot warning."""
+
+    def test_duty_before_start_date_is_error(self, session, config_1wk, monday):
+        make_template(session, is_active=True)
+        d = make_doctor(
+            session, code="AA", start_date=monday + datetime.timedelta(days=1)
+        )
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        issue = next(
+            i for i in _errors(issues) if i.check == "duty_outside_doctor_dates"
+        )
+        assert issue.week == 1
+        assert issue.day == Day.MONDAY
+        assert issue.period == Period.AM
+        assert "AA" in issue.message
+
+    def test_duty_after_end_date_is_error(self, session, config_1wk, monday):
+        make_template(session, is_active=True)
+        wednesday = monday + datetime.timedelta(days=2)
+        d = make_doctor(session, code="AA", end_date=monday)
+        make_duty(session, wednesday, Period.PM, d, DutyType.PRIMARY)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert any(
+            i.check == "duty_outside_doctor_dates" for i in _errors(issues)
+        )
+
+    def test_duty_inside_window_no_error(self, session, config_1wk, monday):
+        make_template(session, is_active=True)
+        d = make_doctor(
+            session, code="AA", start_date=monday,
+            end_date=monday + datetime.timedelta(days=30),
+        )
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "duty_outside_doctor_dates" for i in issues)
+
+    def test_null_window_no_error(self, session, config_1wk, monday):
+        make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "duty_outside_doctor_dates" for i in issues)
+
+    def test_inactive_doctor_still_reachable(self, session, config_1wk, monday):
+        """context.doctor_by_id, not context.doctors -- an inactive doctor
+        with a stale duty assignment must still be flagged."""
+        make_template(session, is_active=True)
+        d = make_doctor(
+            session, code="AA", active=False,
+            start_date=monday + datetime.timedelta(days=1),
+        )
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert any(
+            i.check == "duty_outside_doctor_dates" for i in _errors(issues)
+        )
+
+    def test_error_aborts_generation(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(
+            session, code="AA", start_date=monday + datetime.timedelta(days=1)
+        )
+        make_master_session(session, t, d, week=1, day=Day.MONDAY, period=Period.AM)
+        make_duty(session, monday, Period.AM, d, DutyType.PRIMARY)
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.status == "failed"
+        assert result.rota_id is None
+        assert any(i.check == "duty_outside_doctor_dates" for i in result.issues)
 
 
 class TestTemplateDoctorActive:

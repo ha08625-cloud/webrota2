@@ -14,15 +14,24 @@ Complete (POST /staging/{staging_id}/complete) runs the existing Phase
 routers/rota.py's generate_rota does against a directly-submitted config
 (staging plan, Task 4, Design Decision 8).
 
-`create_staging`'s copy loop is no longer a pure copy (extra sessions
-plan, Task 2): a template row that lands on a planned `ExtraSessionEntry`
-is written to the staged copy per the override table (extra sessions
-plan's Design Decisions 3-6, 12), and a planned extra session with no
-template row at all creates a new staged row (Design Decision 5). The
-override is skipped wherever leave already exists for the slot (Decision
-6). `is_extra_session` on `StagingSessionOut` is derived the same way as
-`is_on_leave` -- it means "a planned extra session exists for this slot",
-not "the override fired here" (Decision 8); see `_extra_session_lookup`.
+`create_staging`'s copy loop is no longer a pure copy, for two reasons.
+
+First (extra sessions plan, Task 2): a template row that lands on a
+planned `ExtraSessionEntry` is written to the staged copy per the override
+table (extra sessions plan's Design Decisions 3-6, 12), and a planned
+extra session with no template row at all creates a new staged row (Design
+Decision 5). The override is skipped wherever leave already exists for the
+slot (Decision 6). `is_extra_session` on `StagingSessionOut` is derived the
+same way as `is_on_leave` -- it means "a planned extra session exists for
+this slot", not "the override fired here" (Decision 8); see
+`_extra_session_lookup`.
+
+Second (annual leave planning, Task 2, Design Decision 7): a row is not
+copied at all when its doctor is outside their employment window on that
+date, and the extra-session new-row branch skips the same cases. Phase 2
+enforces the window too and is the authority, but without the skip here
+the admin would see and edit cells in `StagingGrid` that then silently
+vanish at Complete, with nothing on screen explaining why.
 """
 from __future__ import annotations
 
@@ -32,6 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...doctor_window import is_within_window
 from ...engine.generate import (
     find_overlapping_committed_rota,
     generate,
@@ -328,12 +338,27 @@ def create_staging(
     leave = _leave_lookup(db, config)
     week_dates = build_week_dates(payload.start_date, payload.num_weeks)
     covered_slots: set[tuple[int, int, object, object]] = set()
+    # Built once rather than a db.get per template row -- the copy loop
+    # touches every row in the template, several times over for a 4-week run.
+    doctors_by_id = {d.id: d for d in db.execute(select(Doctor)).scalars()}
 
     for gen_week in range(1, payload.num_weeks + 1):
         tw = template_week(gen_week, payload.template_start_week)
         for row in rows_by_week.get(tw, []):
             session_date = week_dates[(gen_week, row.day)]
+            # Recorded before the window skip below: covered_slots means "a
+            # template row exists for this slot", which stays true whether or
+            # not the row is copied, and keeps the new-row branch from
+            # reinstating a slot this loop deliberately dropped.
             covered_slots.add((row.doctor_id, gen_week, row.day, row.period))
+
+            # Annual leave planning, Design Decision 7: no staged row for a
+            # doctor outside their employment window on this date. Phase 2
+            # would drop it at Complete anyway; skipping here keeps the grid
+            # the admin edits and the rota they get in agreement.
+            doctor = doctors_by_id.get(row.doctor_id)
+            if doctor is not None and not is_within_window(doctor, session_date):
+                continue
 
             session_type = row.session_type
             room_id = row.room_id
@@ -382,6 +407,11 @@ def create_staging(
             continue  # a template row already exists for this slot
         if (entry.doctor_id, entry.date, entry.period) in leave:
             continue  # leave wins (Design Decision 6)
+        entry_doctor = doctors_by_id.get(entry.doctor_id)
+        if entry_doctor is not None and not is_within_window(entry_doctor, entry.date):
+            # An extra session planned outside the doctor's window must not
+            # conjure a staged row (annual leave planning, Design Decision 7).
+            continue
         db.add(RotaStagingSession(
             staging_id=staging.id,
             doctor_id=entry.doctor_id,

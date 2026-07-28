@@ -9,13 +9,16 @@ PATCH/POST/DELETE, session POST's week-range 422 and duplicate-slot 409,
 abandon's cascade plus the fresh-create-after-abandon path, and (Task 4)
 complete's happy path, its Phase 0 failure-and-retry path, its lock
 interactions with the draft/generate lifecycle, and the completed-staging
-non-resurrection regression.
+non-resurrection regression. Annual leave planning (Task 2) adds create's
+doctor-employment-window skip, over both the template copy loop and the
+extra-session new-row branch.
 """
 import datetime
 
 from sqlalchemy import select
 
 from app.models import (
+    Doctor,
     DutyAssignment,
     GeneratedRota,
     LeaveEntry,
@@ -366,6 +369,70 @@ def test_extra_session_outside_staging_range_does_not_appear(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert all(s["is_extra_session"] is False for s in body["sessions"])
+
+
+# ---------------------------------------------------------------------------
+# create: doctor employment window (annual leave planning, Task 2, DD 7)
+# ---------------------------------------------------------------------------
+
+def _set_window(db_session, doctor_id, start_date=None, end_date=None):
+    doctor = db_session.get(Doctor, doctor_id)
+    doctor.start_date = start_date
+    doctor.end_date = end_date
+    db_session.commit()
+
+
+def test_out_of_window_doctor_rows_are_not_copied(client, db_session, seeded):
+    _set_window(db_session, seeded["doctor_aa"], start_date=TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    by_key = _sessions_by_key(resp.json())
+    # AA's only template rows are Monday AM/PM, before their start date.
+    assert ("AA", 1, "Monday", "AM") not in by_key
+    assert ("AA", 1, "Monday", "PM") not in by_key
+    # BB has no window and is untouched.
+    assert ("BB", 1, "Monday", "AM") in by_key
+
+
+def test_window_is_applied_per_date_not_per_doctor(client, db_session, seeded):
+    db_session.add(MasterRotaSession(
+        template_id=seeded["template"], doctor_id=seeded["doctor_aa"], week=1,
+        day=Day.TUESDAY, period=Period.AM,
+        session_type=MasterSessionType.REQUIRES_ROOM,
+    ))
+    db_session.commit()
+    _set_window(db_session, seeded["doctor_aa"], start_date=TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    by_key = _sessions_by_key(resp.json())
+    assert ("AA", 1, "Monday", "AM") not in by_key  # before start_date
+    assert ("AA", 1, "Tuesday", "AM") in by_key     # on start_date (inclusive)
+
+
+def test_out_of_window_extra_session_creates_no_row(client, db_session, seeded):
+    # Planned while the window still allowed it, then the window narrowed --
+    # the ordering the /extra-sessions POST's own 422 cannot catch.
+    _plan_extra_session(client, seeded["doctor_aa"], WEDNESDAY)
+    _set_window(db_session, seeded["doctor_aa"], end_date=TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    assert ("AA", 1, "Wednesday", "AM") not in _sessions_by_key(resp.json())
+
+
+def test_out_of_window_extra_session_does_not_resurrect_a_skipped_template_row(
+    client, db_session, seeded
+):
+    # An extra session on a slot whose template row the window skip dropped
+    # must not fall through to the no-template-row branch and reinstate it.
+    _plan_extra_session(client, seeded["doctor_aa"], MONDAY)
+    _set_window(db_session, seeded["doctor_aa"], start_date=TUESDAY)
+
+    resp = _create_staging(client)
+    assert resp.status_code == 201, resp.text
+    assert ("AA", 1, "Monday", "AM") not in _sessions_by_key(resp.json())
 
 
 def test_is_extra_session_survives_patch_editing_cell_back(client, db_session, seeded):

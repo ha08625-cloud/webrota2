@@ -290,6 +290,59 @@ class TestDuty:
         assert resp.status_code == 201
         assert resp.json()["duty_type"] == "secondary"
 
+
+class TestDutyDoctorWindow:
+    """Employment window enforcement on POST /duty (annual leave planning,
+    Task 2, Design Decision 7): a DB-backed 422 in the router, mirroring
+    Phase 0's duty_outside_doctor_dates hard error."""
+
+    def _set_window(self, client, doctor_id, **dates):
+        resp = client.patch(f"/api/v1/doctors/{doctor_id}", json={
+            k: v.isoformat() for k, v in dates.items()
+        })
+        assert resp.status_code == 200, resp.text
+
+    def _post_duty(self, client, doctor_id, date_, duty_type="primary"):
+        return client.post("/api/v1/duty", json={
+            "date": date_.isoformat(),
+            "period": "AM",
+            "doctor_id": doctor_id,
+            "duty_type": duty_type,
+        })
+
+    def test_create_before_start_date_422(self, client, seeded):
+        self._set_window(client, seeded["doctor_aa"], start_date=WEDNESDAY)
+
+        resp = self._post_duty(client, seeded["doctor_aa"], MONDAY)
+
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "AA" in detail and "does not work" in detail
+        assert "duty cannot be assigned there" in detail
+
+    def test_create_after_end_date_422(self, client, seeded):
+        self._set_window(client, seeded["doctor_aa"], end_date=MONDAY)
+
+        resp = self._post_duty(client, seeded["doctor_aa"], WEDNESDAY)
+
+        assert resp.status_code == 422
+        assert "does not work" in resp.json()["detail"]
+
+    def test_create_inside_window_201(self, client, seeded):
+        self._set_window(
+            client, seeded["doctor_aa"], start_date=MONDAY, end_date=WEDNESDAY,
+        )
+
+        resp = self._post_duty(client, seeded["doctor_aa"], WEDNESDAY)
+
+        assert resp.status_code == 201, resp.text
+
+    def test_create_unbounded_window_unaffected(self, client, seeded):
+        resp = self._post_duty(client, seeded["doctor_aa"], WEDNESDAY)
+
+        assert resp.status_code == 201, resp.text
+
+
 class TestDutyCounts:
     def test_empty_counts(self, client, seeded, db_session):
         """Active doctors should be returned with a count of 0, ordered by code."""

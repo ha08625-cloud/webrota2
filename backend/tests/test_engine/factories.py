@@ -61,11 +61,13 @@ def make_room(session, code="D1", room_type=RoomType.D, site=Site.SHC) -> Room:
 def make_doctor(
     session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0", active=True,
     supervision_preference=SupervisionPreference.NORMAL,
+    start_date=None, end_date=None,
 ) -> Doctor:
     d = Doctor(
         code=code, doctor_type=doctor_type,
         sessions_per_week=Decimal(spw), active=active,
         supervision_preference=supervision_preference,
+        start_date=start_date, end_date=end_date,
     )
     session.add(d)
     session.flush()

@@ -26,7 +26,13 @@ pydantic validator cannot see:
   no fully open weekday even though an open AM/PM slot exists on several
   of those days.
 
-Both checks return a plain string `detail` (an HTTPException, not a
+Annual leave planning (Task 2, Design Decision 7) adds a third check in the
+same place and for the same reason - it needs the `Doctor` row, which a
+stateless validator cannot see: a duty on a date outside the doctor's
+employment window is rejected (422), mirroring Phase 0's new
+duty_outside_doctor_dates hard error.
+
+All three checks return a plain string `detail` (an HTTPException, not a
 pydantic validation error), consistent with this router's existing 404/409
 responses - not the FastAPI validation-error list shape a model_validator
 would have produced.
@@ -40,6 +46,7 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...doctor_window import is_within_window, window_error_detail
 from ...models import Doctor, DutyAssignment, PracticeClosure
 from ...models.enums import DutyType, Period
 from ..deps import get_current_user, get_db
@@ -124,9 +131,19 @@ def create_duty(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> DutyAssignment:
-    if db.get(Doctor, payload.doctor_id) is None:
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
         raise HTTPException(
             status_code=404, detail=f"Doctor {payload.doctor_id} not found"
+        )
+
+    if not is_within_window(doctor, payload.date):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{window_error_detail(doctor, payload.date)}; "
+                f"duty cannot be assigned there."
+            ),
         )
 
     monday = _week_monday(payload.date)
