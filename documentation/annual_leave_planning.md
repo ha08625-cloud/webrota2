@@ -1,4 +1,4 @@
-# Implementation Plan: Annual Leave Planning
+# provisional Plan: Annual Leave Planning
 
 ## Plan
 
@@ -7,9 +7,6 @@ leave and planned extra sessions together, with a live clinical-headcount total 
 `(date, period)`. Alongside it, give `Doctor` an optional employment window
 (`start_date` / `end_date`) so joiners and leavers can be entered ahead of time, and make
 the generation path honour that window.
-
-This replaces the provisional plan after review against the codebase. Three corrections
-were made to it; they are recorded as Design Decisions 1, 4 and 5 below.
 
 ## Scope
 
@@ -31,8 +28,7 @@ were made to it; they are recorded as Design Decisions 1, 4 and 5 below.
 - **Flattening the master template from 4 weeks to 1.** See Design Decision 1 — the
   coverage calculation assumes template week 1, but the schema keeps its four weeks.
   Record the flatten as a separate ticket.
-- Changing how extra sessions are applied. They remain a staging-creation-time override
-  (`documentation/completed/extra_sessions.md`, Decisions 2 and 9); this plan only adds a
+- Changing how extra sessions are applied. They remain a staging time creation; this plan only adds a
   second place to enter them.
 - Retroactively touching an already-generated draft or committed rota, beyond the existing
   `_release_draft_rooms` behaviour which is preserved as-is.
@@ -56,17 +52,7 @@ staging create ("intentionally not a form field").
 So the coverage endpoint reads `MasterRotaSession` rows where `week == 1` and treats that
 as the working pattern for every date.
 
-This is exact rather than approximate: because every run starts at template week 1, a
-coverage figure derived from week 1 is precisely what generation will produce. It is not a
-model of some other truth.
-
-**The known cost.** The seeded template does vary across weeks for three doctors —
-`CL`'s Thursday alternates D1/W1, `Frances` works Thursday in weeks 1 and 3 only, `AN`
-works Thursday in week 4 only. Those variations read as their week-1 value in the planning
-grid. Generation already behaves this way for any run shorter than four weeks, so the grid
-and the generated rota agree; the divergence is between both of them and the intended
-4-week pattern, and predates this ticket. Fixing it properly is the separate flatten (or
-anchor) ticket, not this one.
+**The rationale.** Partner and salaried doctors work the same sessions every week. Rooms may change but this is irrelevant for leave planning
 
 ### 2. Planning grid rows are Partner and Salaried only
 
