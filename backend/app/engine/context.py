@@ -217,18 +217,18 @@ def _load_staging_or_template(
     db: Session, config: RotaConfig
 ) -> tuple[MasterRotaTemplate | None, dict]:
     """Prefer a staging copy over the live template, if one exists for this
-    config (staging plan, Task 2).
+    config. See architecture.md "Staging branch" section.
 
     Staging rows are keyed by *generation* week, not template week, and a
-    staging config always persists `template_start_week = 1` (enforced by
-    the staging router, Task 3) -- so `template_week()` is the identity for
-    a staging run and Phases 0/2's week mapping is a no-op. This is the
-    invariant that lets the phases run unchanged against a staged copy.
+    staging config always persists `template_start_week = 1` -- so
+    `template_week()` is the identity for a staging run and Phases 0/2's
+    week mapping is a no-op. This is the invariant that lets the phases run
+    unchanged against a staged copy.
 
     Does not check `completed_at`: this branch also fires for
     `rebuild_rota_grid()` calls made against a staging-born rota after the
     staging is completed, where the staged sessions remain the correct
-    `template_sessions` source (Design Decision 6 in the plan).
+    `template_sessions` source regardless of when the staging was completed.
     """
     staging = db.execute(
         select(RotaStaging).where(RotaStaging.config_id == config.id)
@@ -253,18 +253,17 @@ def _effective_template_start_week(db: Session, config: RotaConfig) -> int:
     """The template week a generation run should treat as its anchor.
 
     For a normal (non-staged) run this is simply `config.template_start_week`.
-    For a staged run, `config.template_start_week` is always persisted as 1
-    by `routers/staging.py` (Design Decision 4 in the staging plan) -- that
-    normalisation is what lets `week_map.template_week()` be the identity
-    for a staged run, so Phases 0-12 need no staging-specific code. But it
-    also destroys the record of which template week the staging copy
-    actually started from, which recurring-note week resolution needs to
-    get right (recurring notes plan, Design Decision 5): a note scoped to
-    template weeks {1,3} must fire on the correct real-world fortnight, not
-    on staging *generation* weeks 1 and 3.
-    `RotaStaging.source_template_start_week` is where that original anchor
-    survives, so it is used here instead when a staging exists for this
-    config.
+    For a staged run, `config.template_start_week` is always persisted as 1,
+    making `week_map.template_week()` the identity for a staged run so Phases
+    0-12 need no staging-specific code. However, this normalization destroys
+    the record of which template week the staging copy actually started from.
+    Recurring-note week resolution needs this to fire on the correct
+    real-world fortnight: a note scoped to template weeks {1,3} must fire on
+    the correct fortnights when copying from a template with a different
+    start_week, not on staging *generation* weeks 1 and 3.
+
+    `RotaStaging.source_template_start_week` preserves that original anchor,
+    so it is used here when a staging exists for this config.
 
     This re-queries `rota_stagings` rather than threading a third value out
     of `_load_staging_or_template()` -- one extra query against a
@@ -286,12 +285,12 @@ def _load_recurring_notes(
     period) slot it could apply to, so Phase 2 is a single dict lookup.
 
     Notes are iterated in ascending `id` order so that multiple notes
-    landing on the same slot concatenate deterministically (recurring notes
-    plan, Design Decision 9 -- overlapping notes concatenate rather than
-    collide). Inactive notes are excluded outright. Doctor-active status is
-    deliberately not checked here: Phase 2 only ever builds slots for active
-    doctors, so an entry keyed to an inactive doctor is simply a dead key
-    that costs nothing (Design Decision 12).
+    landing on the same slot concatenate deterministically. Overlapping
+    notes concatenate (newline-joined) rather than colliding. Inactive
+    notes are excluded outright. Doctor-active status is deliberately not
+    checked here: Phase 2 only ever builds slots for active doctors, so an
+    entry keyed to an inactive doctor is simply a dead key that costs nothing
+    in terms of space or performance.
     """
     notes = db.execute(
         select(RecurringNote)

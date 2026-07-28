@@ -11,8 +11,8 @@ the room for later phases to assign elsewhere.
 
 Also stamps `SessionSlot.notes` from `context.recurring_notes_by_slot`, if
 any recurring note matches -- a default value only, annotation-only, with no
-effect on eligibility or room resolution (recurring notes plan, Design
-Decision 2).
+effect on eligibility or room resolution. See architecture.md "Recurring
+notes" section for implementation details.
 """
 from __future__ import annotations
 

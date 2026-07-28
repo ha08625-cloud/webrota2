@@ -8,11 +8,11 @@ relocation is a separate, deliberately different search
 preference list) and stays there -- it has no call site here and none is
 added.
 
-`find_d_room_only` was added for Phase 4 (Design Decision 8): when a duty
-doctor evicts a Trainee from a D room, the Trainee is relocated within D
-rooms only, never into C/W/SR. Renamed from `find_trainee_d_room` when
-Locum was added (Locum ticket, Design Decision 1: Locum behaves as
-Trainee-minus-supervision and shares this same relocation path).
+`find_d_room_only` is used when a duty doctor evicts a Trainee or Locum
+from a D room: the evicted doctor is relocated within D rooms only, never
+into C/W/SR. This preserves the single D-room-eligible pool for trainee
+supervision assignment and keeps duty doctors from claiming the
+therapeutically-isolated D rooms.
 
 This module has no knowledge of Phase 4 or duty -- it is the generic
 "where does a displaced doctor go" search, usable by any phase that
