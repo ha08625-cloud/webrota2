@@ -218,8 +218,8 @@ def get_active_draft(db: Session) -> GeneratedRota | None:
 
 def get_active_staging(db: Session) -> RotaStaging | None:
     """The single active staging, or None. At most one active staging
-    exists globally (staging plan, Design Decision 7); ordered by id for
-    deterministic behaviour, matching get_active_draft()'s style.
+    exists globally; ordered by id for deterministic behavior, matching
+    get_active_draft()'s style. See architecture.md "Staging" section.
     """
     return db.execute(
         select(RotaStaging).where(RotaStaging.completed_at.is_(None))
@@ -316,12 +316,11 @@ def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
     that is scrap_rota()'s job, called separately if the user wants the
     rota gone after rolling it back.
 
-    archived_at is cleared here, not just committed_at, because
-    "archived" only has meaning for a committed rota (Design Decision 5,
-    archive-committed-rotas plan): commit_rota() refreshes committed_at
-    on re-commit regardless of any prior state, so a surviving
-    archived_at would silently re-archive a freshly re-committed rota
-    with no UI action explaining it.
+    archived_at is cleared here, not just committed_at, because "archived"
+    only has meaning for a committed rota. commit_rota() refreshes
+    committed_at on re-commit regardless of any prior state, so a surviving
+    archived_at would silently re-archive a freshly re-committed rota with no
+    UI action explaining it. See architecture.md "Archive / unarchive" section.
 
     Strict reverse-chronological order is enforced two ways, deliberately
     without a separate locking mechanism:

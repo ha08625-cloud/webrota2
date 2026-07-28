@@ -117,8 +117,8 @@ def _selection_reason(
     eligible: list[ClinicDoctorEligibility],
 ) -> str:
     """Describe why `eligible[0]` was picked over the field, for the
-    decision log. Mirrors the sort key used to order `eligible` -- see
-    Design Decision 4 in the generation-log plan."""
+    decision log. Mirrors the sort key used to order `eligible`: priority
+    tier, then weighted counter score, then alphabetical."""
     if len(eligible) == 1:
         return "only eligible doctor"
 

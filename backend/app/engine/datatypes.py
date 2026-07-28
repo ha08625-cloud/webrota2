@@ -8,8 +8,9 @@ phases, and `GenerationContext` is a read-only snapshot assembled once by
 `context.load_context()`.
 
 Clinic counters are shared per (doctor, clinic_type) — there is no
-day/period dimension. See python_roadmap_updated.md Design Decisions for
-why an earlier per_slot design was reversed before M2.
+day/period dimension. This clinic-scoped-only design (not per-slot) was
+confirmed before M2 as the correct approach for fair allocation across
+multiple schedule slots per clinic type.
 """
 from __future__ import annotations
 

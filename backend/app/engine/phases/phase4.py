@@ -36,11 +36,10 @@ Every eviction increments the evictee's ROOM_MOVE system counter, even
 when the subsequent relocation search fails and they are left roomless --
 the counter records the disruption, not the destination.
 
-Second pass -- same-day room consolidation (Design Decision: duty
-consolidation ticket). Duty runs 8am-1pm or 1pm-6.30pm, straddling the
-usual 8.30-11am / 2-6pm session boundary, so a duty doctor who ends up in
-a different room for their non-duty session that day faces an awkward
-mid-shift room change. Once every duty row has a role and (where
+Second pass -- same-day room consolidation. Duty runs 8am-1pm or 1pm-6.30pm,
+straddling the usual 8.30-11am / 2-6pm session boundary, so a duty doctor who
+ends up in a different room for their non-duty session that day faces an
+awkward mid-shift room change. Once every duty row has a role and (where
 possible) a D room from the pass above, a second pass walks the same duty
 rows and, for each, looks at the doctor's slot in the *other* period of
 the same day:
@@ -340,7 +339,7 @@ def _evict_and_place(
 ) -> list[ValidationIssue]:
     """Evict `evictee_id` from `d_room_id`, relocate them, and seat the duty
     doctor. Eviction is unconditional: the duty doctor takes the room
-    regardless of whether the evictee can be rehoused (Design Decision 10).
+    regardless of whether the evictee can be rehoused.
     """
     issues: list[ValidationIssue] = []
     evictee = context.doctor_by_id.get(evictee_id)
@@ -444,8 +443,7 @@ def _consolidate_duty_rooms(
     have to change rooms mid-day. Runs after every duty row in the run has
     already been given a role and (where possible) a room by the first
     pass, so a doctor's own duty status is always final by the time they
-    might be considered for a bump here (Design Decision: duty
-    consolidation ticket).
+    might be considered for a bump here.
 
     Never touches ROOM_MOVE: neither the duty doctor's own move nor a
     bumped occupant's move is an eviction in the Phase 4 sense -- both are

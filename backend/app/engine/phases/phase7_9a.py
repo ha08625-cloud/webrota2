@@ -73,9 +73,9 @@ _DAYS = (Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY)
 _PERIODS = (Period.AM, Period.PM)
 _DISPLACEABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 # Doctor types that need a D room (Passes 1 and 2). Locum behaves as
-# Trainee-minus-supervision (Locum ticket, Design Decision 1) -- it is
-# added here alongside Trainee/AHP so the two candidate functions below
-# cannot drift.
+# Trainee-minus-supervision (same D-room priority, eligible for supervision
+# assignment) -- it is added here alongside Trainee/AHP so the two candidate
+# functions below cannot drift.
 _D_ROOM_TYPES = (DoctorType.TRAINEE, DoctorType.AHP, DoctorType.LOCUM)
 _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 
@@ -340,11 +340,11 @@ def _pass1_receiving_room(
     """Find a room to receive a doctor displaced by Pass 1.
 
     Pass 1 displacement never consults the displaced doctor's preference
-    list (Design Decision 3) -- the receiving room is the first eligible
-    C/W/SR room, by id, that is free in both AM and PM of `day`. This
-    search is victim-independent (no `doctor_id` parameter): the same room
-    would be returned regardless of who is being displaced, since victim
-    selection and receiving-room search are decoupled (Design Decision 4).
+    list -- the receiving room is the first eligible C/W/SR room, by id, that
+    is free in both AM and PM of `day`. This search is victim-independent
+    (no `doctor_id` parameter): the same room would be returned regardless of
+    who is being displaced, since victim selection and receiving-room search
+    are decoupled.
 
     Returns `None` if no pool room is free in both sessions.
     """
