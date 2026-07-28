@@ -16,7 +16,7 @@ const DAY_OFFSETS: Record<Day, number> = {
  * rota's start_date (a Monday) - the frontend mirror of the backend's
  * week_map.build_week_dates. RotaGrid needs this
  * to know which calendar date a given day column represents, so it can
- * check that date against rota.closed_dates.
+ * check that date against rota.closed_slots.
  *
  * genWeek is 1-indexed, matching RotaSession.week.
  */

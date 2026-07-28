@@ -5,6 +5,7 @@ import { useRooms } from "@/api/rooms";
 import type { Day, Period, Rota } from "@/api/types";
 import { RoleLabel } from "@/components/RotaGrid";
 import { WeekTabs } from "@/components/WeekTabs";
+import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { DAYS, weekNumbers } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota } from "@/lib/pivotRoomRota";
 import { rotaDate } from "@/lib/weekDates";
@@ -32,15 +33,18 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
   const grid = useMemo(() => pivotRoomRota(rota.sessions, rooms ?? []), [rota.sessions, rooms]);
 
   /**
-   * Which calendar dates are closed for this rota - authoritative from
-   * rota.closed_dates, the RotaClosure snapshot taken at generation time.
-   * Copied verbatim from RotaGrid (Design Decision 6): a closure added or
-   * removed afterwards must not change how an already-generated rota
-   * renders, and this check must run before the occupancy lookup below -
-   * otherwise a closed day, which has no sessions at all, renders as a
-   * full column of false "Available" cells.
+   * Which calendar dates are *fully* closed for this rota - authoritative
+   * from rota.closed_slots, the RotaClosure snapshot taken at generation
+   * time. Copied verbatim from RotaGrid (Design Decision 6): a closure
+   * added or removed afterwards must not change how an already-generated
+   * rota renders, and this check must run before the occupancy lookup
+   * below - otherwise a closed day, which has no sessions at all, renders
+   * as a full column of false "Available" cells.
    */
-  const closedDatesSet = useMemo(() => new Set(rota.closed_dates), [rota.closed_dates]);
+  const closedDatesSet = useMemo(() => {
+    const slotSet = toClosedSlotSet(rota.closed_slots);
+    return new Set(rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(slotSet, date)));
+  }, [rota.closed_slots]);
 
   /**
    * Closure name lookup, purely cosmetic - copied verbatim from RotaGrid.

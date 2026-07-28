@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeClosure, makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeClosure, makeDoctor, makeDutyAssignment, makeFullDayClosure } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -283,8 +283,8 @@ describe("DutyGrid", () => {
 });
 
 describe("DutyGrid closures (M5)", () => {
-  it("greys out a closed weekday's column and renders it as one inert column, not split by duty type", async () => {
-    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] }); // week 1's Monday
+  it("greys out a fully closed weekday's column and renders it as one inert column, not split by duty type", async () => {
+    setUpServer({ closures: makeFullDayClosure({ date: "2026-07-13" }) }); // week 1's Monday
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
@@ -299,8 +299,8 @@ describe("DutyGrid closures (M5)", () => {
     expect(within(weekBlock).queryByText("Mon (2nd)")).not.toBeInTheDocument();
   });
 
-  it("a closed day's cells have no drop target and no delete control", async () => {
-    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] });
+  it("a fully closed day's cells have no drop target and no delete control", async () => {
+    setUpServer({ closures: makeFullDayClosure({ date: "2026-07-13" }) });
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
@@ -311,7 +311,7 @@ describe("DutyGrid closures (M5)", () => {
   });
 
   it("only the affected week's Monday column is closed, other weeks are unaffected", async () => {
-    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })] }); // week 1 only
+    setUpServer({ closures: makeFullDayClosure({ date: "2026-07-13" }) }); // week 1 only
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
@@ -333,10 +333,27 @@ describe("DutyGrid closures (M5)", () => {
       makeDutyAssignment({ id: 9, doctor_id: 1, date: "2026-07-17", period: "AM", duty_type: "primary" }),
       makeDutyAssignment({ id: 10, doctor_id: 1, date: "2026-07-17", period: "PM", duty_type: "primary" }),
     ];
-    setUpServer({ closures: [makeClosure({ date: "2026-07-13" })], duty: assignments });
+    setUpServer({ closures: makeFullDayClosure({ date: "2026-07-13" }), duty: assignments });
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
     expect(await screen.findByTestId("duty-week-complete-2026-07-13")).toBeInTheDocument();
+  });
+
+  it("a partly closed weekday (PM only) greys just that cell, leaving the AM primary slot fillable", async () => {
+    setUpServer({ closures: [makeClosure({ date: "2026-07-13", period: "PM" })] }); // week 1's Monday, PM only
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    const weekBlock = await screen.findByTestId("duty-week-2026-07-13");
+    // Monday stays an ordinary primary column - no (1st)/(2nd) split, since
+    // it can never be the first fully-open weekday.
+    expect(within(weekBlock).getByText("Mon")).toBeInTheDocument();
+    expect(within(weekBlock).queryByText("Mon (1st)")).not.toBeInTheDocument();
+    expect(within(weekBlock).getByText("Tue (1st)")).toBeInTheDocument();
+
+    expect(screen.getByTestId("duty-cell-2026-07-13-AM-primary")).toBeInTheDocument();
+    expect(screen.getByTestId("duty-cell-closed-2026-07-13-PM")).toBeInTheDocument();
+    expect(screen.queryByTestId("duty-cell-2026-07-13-PM-primary")).not.toBeInTheDocument();
   });
 });

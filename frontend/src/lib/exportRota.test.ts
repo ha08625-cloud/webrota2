@@ -7,6 +7,14 @@ import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } 
 
 import { buildRotaWorkbook } from "./exportRota";
 
+/** Full-day closed slots (both AM and PM) for the given dates. */
+function fullDaySlots(dates: string[]) {
+  return dates.flatMap((date) => [
+    { date, period: "AM" as const },
+    { date, period: "PM" as const },
+  ]);
+}
+
 /**
  * Builder tests reload the produced Blob through a fresh ExcelJS workbook
  * rather than inspecting buildRotaWorkbook's in-memory sheet objects -
@@ -120,7 +128,7 @@ describe("buildRotaWorkbook", () => {
     start_date: START_DATE,
     num_weeks: 1,
     sessions,
-    closed_dates: [THURSDAY],
+    closed_slots: fullDaySlots([THURSDAY]),
   });
 
   const closureNameByDate = new Map<string, string | null>([[THURSDAY, "Practice closure"]]);
@@ -407,7 +415,7 @@ describe("buildRotaWorkbook room sheets", () => {
     start_date: START_DATE,
     num_weeks: 1,
     sessions,
-    closed_dates: [THURSDAY],
+    closed_slots: fullDaySlots([THURSDAY]),
   });
 
   const closureNameByDate = new Map<string, string | null>([[THURSDAY, "Practice closure"]]);

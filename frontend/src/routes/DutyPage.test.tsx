@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeClosure, makeDoctor, makeDutyAssignment } from "@/test/fixtures/reference";
+import { makeDoctor, makeDutyAssignment, makeFullDayClosure } from "@/test/fixtures/reference";
 import { getDutyPeriodStarts } from "@/lib/date";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -43,7 +43,7 @@ describe("DutyPage", () => {
     const [currentPeriodStart] = getDutyPeriodStarts(0, 0);
     setUpServer();
     server.use(
-      http.get("/api/v1/closures", () => HttpResponse.json([makeClosure({ date: currentPeriodStart })])),
+      http.get("/api/v1/closures", () => HttpResponse.json(makeFullDayClosure({ date: currentPeriodStart }))),
     );
     renderWithProviders(<DutyPage />);
 

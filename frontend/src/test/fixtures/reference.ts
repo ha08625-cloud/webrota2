@@ -107,9 +107,19 @@ export function makeClosure(overrides: Partial<Closure> = {}): Closure {
   return {
     id: closureIdCounter++,
     date: "2026-04-06",
+    period: "AM",
     name: "Easter Monday",
     ...overrides,
   };
+}
+
+/** A full-day closure: two rows sharing a date, per the half-day closures
+ * plan's Decision 1 (no "full day" special case in the data model). */
+export function makeFullDayClosure(overrides: Partial<Omit<Closure, "id" | "period">> = {}): Closure[] {
+  return [
+    makeClosure({ ...overrides, period: "AM" }),
+    makeClosure({ ...overrides, period: "PM" }),
+  ];
 }
 
 let clinicCounterIdCounter = 1;

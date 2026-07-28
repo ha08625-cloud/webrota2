@@ -9,6 +9,14 @@ import { server } from "@/test/msw/server";
 
 import { RoomRotaGrid } from "./RoomRotaGrid";
 
+/** Full-day closed slots (both AM and PM) for the given dates. */
+function fullDaySlots(dates: string[]) {
+  return dates.flatMap((date) => [
+    { date, period: "AM" as const },
+    { date, period: "PM" as const },
+  ]);
+}
+
 function setUpServer({
   rooms = [
     makeRoom({ id: 1, code: "D1", room_type: "D" }),
@@ -92,7 +100,7 @@ describe("RoomRotaGrid", () => {
 
   it("greys out a closed day and shows no Available text, regardless of occupancy data absence", async () => {
     setUpServer();
-    const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
+    const rota = makeRota({ sessions: [], closed_slots: fullDaySlots(["2026-07-06"]), start_date: "2026-07-06" });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
     const tables = await screen.findAllByRole("table");
@@ -110,7 +118,7 @@ describe("RoomRotaGrid", () => {
 
   it("shows a closure's name on the header when one is present for the closed date", async () => {
     setUpServer({ closures: [{ id: 1, date: "2026-07-06", name: "Bank Holiday" }] });
-    const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
+    const rota = makeRota({ sessions: [], closed_slots: fullDaySlots(["2026-07-06"]), start_date: "2026-07-06" });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
     const tables = await screen.findAllByRole("table");
@@ -139,7 +147,7 @@ describe("RoomRotaGrid", () => {
 
   it("carries data-week-day-period on every cell, including closed ones", async () => {
     setUpServer();
-    const rota = makeRota({ sessions: [], closed_dates: ["2026-07-06"], start_date: "2026-07-06" });
+    const rota = makeRota({ sessions: [], closed_slots: fullDaySlots(["2026-07-06"]), start_date: "2026-07-06" });
     renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
 
     await screen.findAllByTestId("room-day-header-Monday");

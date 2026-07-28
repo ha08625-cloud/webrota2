@@ -21,6 +21,7 @@ import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { WeekTabs } from "@/components/WeekTabs";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
+import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { type ChipType, canDrop } from "@/lib/dragRules";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
 import { resolveDragOutcome } from "@/lib/resolveDrag";
@@ -101,13 +102,18 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
   );
 
   /**
-   * Which calendar dates are closed for this rota (M5) - authoritative
-   * from rota.closed_dates, the RotaClosure snapshot taken at generation
-   * time, never the live PracticeClosure table (see RotaOut docstring):
-   * a closure added or removed afterwards must not change how an
-   * already-generated rota renders.
+   * Which calendar dates are *fully* closed for this rota (M5) -
+   * authoritative from rota.closed_slots, the RotaClosure snapshot taken
+   * at generation time, never the live PracticeClosure table (see RotaOut
+   * docstring): a closure added or removed afterwards must not change how
+   * an already-generated rota renders. A partly closed day (one period
+   * only) does not grey the header here - per-cell closed styling for
+   * that case is not yet implemented in this grid.
    */
-  const closedDatesSet = useMemo(() => new Set(rota.closed_dates), [rota.closed_dates]);
+  const closedDatesSet = useMemo(() => {
+    const slotSet = toClosedSlotSet(rota.closed_slots);
+    return new Set(rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(slotSet, date)));
+  }, [rota.closed_slots]);
 
   /**
    * Closure name lookup, purely cosmetic (M5 plan: "column header may

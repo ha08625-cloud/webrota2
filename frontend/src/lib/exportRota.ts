@@ -1,6 +1,7 @@
 import type { ClinicType, Day, Doctor, Period, Room, Rota, RotaSession } from "@/api/types";
 import { formatDate } from "@/lib/date";
 import { cellStyle } from "@/lib/cellStyle";
+import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
@@ -389,7 +390,7 @@ function buildRoomWeekSheet(
  *
  * `closureNameByDate` is the *live* closures list (cosmetic-name lookup
  * only, same as RotaGrid) - closed-ness itself always comes from
- * `rota.closed_dates`, the RotaClosure snapshot, never this map.
+ * `rota.closed_slots`, the RotaClosure snapshot, never this map.
  */
 export async function buildRotaWorkbook(
   rota: Rota,
@@ -405,7 +406,10 @@ export async function buildRotaWorkbook(
 
   const roomsById = toIdMap(rooms);
   const clinicTypesById = toIdMap(clinicTypes);
-  const closedDatesSet = new Set(rota.closed_dates);
+  const closedSlotSet = toClosedSlotSet(rota.closed_slots);
+  const closedDatesSet = new Set(
+    rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(closedSlotSet, date)),
+  );
 
   const weeks = weekNumbers(rota.num_weeks);
   const grid: PivotedGrid = pivotRota(rota.sessions, doctors);

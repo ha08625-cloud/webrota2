@@ -40,21 +40,21 @@ describe("useCreateClosure", () => {
     );
 
     const { result } = renderHook(() => useCreateClosure(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ date: "2026-08-03", name: "Bank Holiday" });
+    result.current.mutate({ date: "2026-08-03", period: "AM", name: "Bank Holiday" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody).toEqual({ date: "2026-08-03", name: "Bank Holiday" });
+    expect(capturedBody).toEqual({ date: "2026-08-03", period: "AM", name: "Bank Holiday" });
   });
 
-  it("surfaces a 409 duplicate-date conflict", async () => {
+  it("surfaces a 409 duplicate-slot conflict", async () => {
     server.use(
       http.post("/api/v1/closures", () =>
-        HttpResponse.json({ detail: "A closure already exists for 2026-08-03" }, { status: 409 }),
+        HttpResponse.json({ detail: "A closure already exists for 2026-08-03 AM" }, { status: 409 }),
       ),
     );
 
     const { result } = renderHook(() => useCreateClosure(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ date: "2026-08-03" });
+    result.current.mutate({ date: "2026-08-03", period: "AM" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.status).toBe(409);
@@ -71,7 +71,7 @@ describe("useCreateClosure", () => {
     );
 
     const { result } = renderHook(() => useCreateClosure(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ date: "2026-08-08" });
+    result.current.mutate({ date: "2026-08-08", period: "AM" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.status).toBe(422);
