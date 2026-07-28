@@ -72,6 +72,7 @@ def create_doctor(
         code=payload.code,
         doctor_type=payload.doctor_type,
         sessions_per_week=payload.sessions_per_week,
+        supervision_preference=payload.supervision_preference,
         active=True,
     )
     db.add(doctor)
