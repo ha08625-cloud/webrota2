@@ -46,6 +46,13 @@ from .leave import (
     LeaveIn,
     LeaveOut,
 )
+from .leave_planning import (
+    CoverageSlotOut,
+    PlanningActionIn,
+    PlanningBulkIn,
+    PlanningBulkOut,
+    PlanningSkippedOut,
+)
 from .duty import DutyIn, DutyOut, DutyCountOut
 from .closure import ClosedSlotOut, ClosureIn, ClosureOut
 from .room import RoomOut
@@ -82,6 +89,8 @@ __all__ = [
     "LeaveIn", "LeaveOut",
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
+    "CoverageSlotOut", "PlanningActionIn", "PlanningBulkIn", "PlanningBulkOut",
+    "PlanningSkippedOut",
     "DutyIn", "DutyOut", "DutyCountOut",
     "ClosureIn", "ClosureOut", "ClosedSlotOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
