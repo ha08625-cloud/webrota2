@@ -5,6 +5,10 @@ page needs to know about a closure weeks before a RotaConfig exists, and the
 generation engine (context.load_context()) reads the same table. This router
 is the only write path for it.
 
+Closures are per (date, period) slots (half-day practice closures): a
+closure on one period of a date does not block the other period, and the
+duplicate-slot rule (409) is keyed on (date, period), not date alone.
+
 Deleting a closure here never touches RotaClosure: that table is a
 per-rota snapshot taken at generation time (M5 Decision 4), independent by
 design, so removing a PracticeClosure has no effect on any rota already
@@ -33,7 +37,9 @@ def list_closures(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> list[PracticeClosure]:
-    stmt = select(PracticeClosure).order_by(PracticeClosure.date)
+    stmt = select(PracticeClosure).order_by(
+        PracticeClosure.date, PracticeClosure.period
+    )
     if from_date is not None:
         stmt = stmt.where(PracticeClosure.date >= from_date)
     if to_date is not None:
@@ -49,8 +55,10 @@ def create_closure(
 ) -> PracticeClosure:
     """Weekend dates are rejected by ClosureIn's validator (422) before this
     ever runs -- weekends are never in the grid, so a closure on one would
-    be meaningless. Duplicate dates 409 via the unique constraint."""
-    closure = PracticeClosure(date=payload.date, name=payload.name)
+    be meaningless. A duplicate (date, period) 409s via the unique
+    constraint; a closure on one period of a date does not block the
+    other."""
+    closure = PracticeClosure(date=payload.date, period=payload.period, name=payload.name)
     db.add(closure)
     try:
         db.commit()
@@ -58,7 +66,10 @@ def create_closure(
         db.rollback()
         raise HTTPException(
             status_code=409,
-            detail=f"A closure already exists for {payload.date.isoformat()}",
+            detail=(
+                f"A closure already exists for {payload.date.isoformat()} "
+                f"{payload.period.value}"
+            ),
         ) from exc
     db.refresh(closure)
     return closure

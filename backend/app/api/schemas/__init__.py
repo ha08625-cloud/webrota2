@@ -47,7 +47,7 @@ from .leave import (
     LeaveOut,
 )
 from .duty import DutyIn, DutyOut, DutyCountOut
-from .closure import ClosureIn, ClosureOut
+from .closure import ClosedSlotOut, ClosureIn, ClosureOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
 from .master_rota import (
@@ -83,7 +83,7 @@ __all__ = [
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
     "DutyIn", "DutyOut", "DutyCountOut",
-    "ClosureIn", "ClosureOut",
+    "ClosureIn", "ClosureOut", "ClosedSlotOut",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",

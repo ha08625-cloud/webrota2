@@ -1,11 +1,14 @@
-"""Practice closure schemas (M5 bank-holiday weeks)."""
+"""Practice closure schemas (M5 bank-holiday weeks, half-day granularity)."""
 import datetime
 
 from pydantic import BaseModel, model_validator
 
+from ...models.enums import Period
+
 
 class ClosureIn(BaseModel):
     date: datetime.date
+    period: Period
     name: str | None = None
 
     @model_validator(mode="after")
@@ -18,3 +21,8 @@ class ClosureIn(BaseModel):
 class ClosureOut(ClosureIn):
     id: int
     model_config = {"from_attributes": True}
+
+
+class ClosedSlotOut(BaseModel):
+    date: datetime.date
+    period: Period
