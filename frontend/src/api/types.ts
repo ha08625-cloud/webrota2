@@ -268,6 +268,9 @@ export interface DoctorIn {
   doctor_type: DoctorType;
   sessions_per_week: string;
   supervision_preference: SupervisionPreference;
+  /** Employment window; null means unbounded at that end. */
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 /**
@@ -278,6 +281,11 @@ export interface DoctorIn {
  * sessions/week stepper sends `sessions_per_week` alone. The DoctorsPage
  * supervision-preference dropdown sends `supervision_preference` alone,
  * the same pattern as the sessions/week stepper.
+ *
+ * The server applies `exclude_unset`, so an omitted `start_date`/`end_date`
+ * leaves the stored window untouched while an explicit `null` clears that
+ * end of it. DoctorFormDialog always sends both, which is what makes
+ * blanking a date in the form actually remove it.
  */
 export interface DoctorPatch {
   code?: string;
@@ -285,6 +293,8 @@ export interface DoctorPatch {
   sessions_per_week?: string;
   active?: boolean;
   supervision_preference?: SupervisionPreference;
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 /**

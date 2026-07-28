@@ -277,6 +277,46 @@ export function DoctorFormDialog({ doctor, open, onOpenChange }: DoctorFormDialo
               </select>
             </div>
 
+            <fieldset>
+              <legend className="text-sm font-medium">Employment dates</legend>
+              <p className="mt-1 text-xs text-ink/50">
+                Leave blank for no limit. Outside these dates the doctor gets no sessions when a rota is
+                generated.
+              </p>
+              <div className="mt-2 flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-ink/70" htmlFor="doc-start-date">
+                    Start date
+                  </label>
+                  <input
+                    id="doc-start-date"
+                    type="date"
+                    value={values.startDate}
+                    onChange={(e) => setValues((v) => ({ ...v, startDate: e.target.value }))}
+                    className="mt-1 w-full rounded border border-border p-1 text-sm"
+                  />
+                  {fieldErrors.startDate ? (
+                    <p className="mt-1 text-xs text-red-700">{fieldErrors.startDate}</p>
+                  ) : null}
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-ink/70" htmlFor="doc-end-date">
+                    End date
+                  </label>
+                  <input
+                    id="doc-end-date"
+                    type="date"
+                    value={values.endDate}
+                    onChange={(e) => setValues((v) => ({ ...v, endDate: e.target.value }))}
+                    className="mt-1 w-full rounded border border-border p-1 text-sm"
+                  />
+                  {fieldErrors.endDate ? (
+                    <p className="mt-1 text-xs text-red-700">{fieldErrors.endDate}</p>
+                  ) : null}
+                </div>
+              </div>
+            </fieldset>
+
             {doctor ? (
               <fieldset>
                 <legend className="text-sm font-medium">Preferred rooms</legend>
