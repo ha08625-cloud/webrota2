@@ -15,12 +15,13 @@ class DutyBase(BaseModel):
 
 class DutyIn(DutyBase):
     """M5: the day-of-week rule for secondary duty (must land on the
-    week's first open weekday, not always Monday) needs PracticeClosure
-    data to evaluate, so it can no longer live in a stateless pydantic
-    validator here. Pre-M5 this class carried a model_validator enforcing
-    "secondary only on a Monday"; that check has moved to
-    routers/duty.py's create_duty, which has DB access. See that module's
-    docstring for the full rule.
+    week's first *fully open* weekday -- neither AM nor PM closed, per the
+    closures plan's fully-open rule -- not always Monday) needs
+    PracticeClosure data to evaluate, so it can no longer live in a
+    stateless pydantic validator here. Pre-M5 this class carried a
+    model_validator enforcing "secondary only on a Monday"; that check has
+    moved to routers/duty.py's create_duty, which has DB access. See that
+    module's docstring for the full rule.
     """
 
 

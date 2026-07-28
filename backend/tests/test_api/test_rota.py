@@ -12,7 +12,7 @@ from app.models import (
     RotaSession,
     RotaSystemCounterSnapshot,
 )
-from app.models.enums import RotaStatus
+from app.models.enums import Period, RotaStatus
 
 from .conftest import MONDAY, generate_rota, make_clinic_type_via_api
 
@@ -630,21 +630,26 @@ class TestRoleOnIncompatibleSlotApi:
 
 
 class TestClosuresApi:
-    """M5 Task 4: RotaOut.closed_dates, end to end through the API. The
-    `seeded` fixture only templates Monday, so closing Monday empties the
-    rota entirely -- a deliberately simple fixture that still exercises the
-    full path (closed_dates populated, no sessions, no coverage warnings
-    for the closed day).
+    """RotaOut.closed_slots, end to end through the API (M5 Task 4,
+    extended for half-day closures). The `seeded` fixture only templates
+    Monday, so closing both periods of Monday empties the rota entirely --
+    a deliberately simple fixture that still exercises the full path
+    (closed_slots populated, no sessions, no coverage warnings for the
+    closed day).
     """
 
     def test_generate_over_closed_monday(self, client, db_session, seeded):
-        db_session.add(PracticeClosure(date=MONDAY, name="Bank Holiday"))
+        db_session.add(PracticeClosure(date=MONDAY, period=Period.AM, name="Bank Holiday"))
+        db_session.add(PracticeClosure(date=MONDAY, period=Period.PM, name="Bank Holiday"))
         db_session.commit()
 
         out = generate_rota(client)
 
         rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
-        assert rota["closed_dates"] == [MONDAY.isoformat()]
+        assert rota["closed_slots"] == [
+            {"date": MONDAY.isoformat(), "period": "AM"},
+            {"date": MONDAY.isoformat(), "period": "PM"},
+        ]
         assert rota["sessions"] == []
 
         checks = {
@@ -657,27 +662,55 @@ class TestClosuresApi:
         out = generate_rota(client)
 
         rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
-        assert rota["closed_dates"] == []
+        assert rota["closed_slots"] == []
 
-    def test_closed_dates_survive_commit(self, client, db_session, seeded):
-        db_session.add(PracticeClosure(date=MONDAY))
+    def test_half_day_closure_leaves_other_period_in_rota(
+        self, client, db_session, seeded
+    ):
+        db_session.add(PracticeClosure(date=MONDAY, period=Period.PM))
+        db_session.commit()
+
+        out = generate_rota(client)
+
+        rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
+        assert rota["closed_slots"] == [{"date": MONDAY.isoformat(), "period": "PM"}]
+        am_sessions = [
+            s for s in rota["sessions"] if s["day"] == "Monday" and s["period"] == "AM"
+        ]
+        assert am_sessions != []
+        pm_sessions = [
+            s for s in rota["sessions"] if s["day"] == "Monday" and s["period"] == "PM"
+        ]
+        assert pm_sessions == []
+
+    def test_closed_slots_survive_commit(self, client, db_session, seeded):
+        db_session.add(PracticeClosure(date=MONDAY, period=Period.AM))
+        db_session.add(PracticeClosure(date=MONDAY, period=Period.PM))
         db_session.commit()
         out = generate_rota(client)
 
         resp = client.post(f"/api/v1/rota/{out['rota_id']}/commit")
         assert resp.status_code == 200
-        assert resp.json()["closed_dates"] == [MONDAY.isoformat()]
+        assert resp.json()["closed_slots"] == [
+            {"date": MONDAY.isoformat(), "period": "AM"},
+            {"date": MONDAY.isoformat(), "period": "PM"},
+        ]
 
     def test_deleting_closure_after_generation_does_not_change_rota(
         self, client, db_session, seeded
     ):
-        closure = PracticeClosure(date=MONDAY)
-        db_session.add(closure)
+        closure_am = PracticeClosure(date=MONDAY, period=Period.AM)
+        closure_pm = PracticeClosure(date=MONDAY, period=Period.PM)
+        db_session.add(closure_am)
+        db_session.add(closure_pm)
         db_session.commit()
         out = generate_rota(client)
 
-        db_session.delete(db_session.get(PracticeClosure, closure.id))
+        db_session.delete(db_session.get(PracticeClosure, closure_am.id))
         db_session.commit()
 
         rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
-        assert rota["closed_dates"] == [MONDAY.isoformat()]
+        assert rota["closed_slots"] == [
+            {"date": MONDAY.isoformat(), "period": "AM"},
+            {"date": MONDAY.isoformat(), "period": "PM"},
+        ]

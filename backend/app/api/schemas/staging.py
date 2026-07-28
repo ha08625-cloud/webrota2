@@ -30,6 +30,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
+from .closure import ClosedSlotOut
 from .master_rota import MasterSessionPairIn
 
 
@@ -59,16 +60,17 @@ class StagingSessionOut(BaseModel):
 
 class StagingOut(BaseModel):
     """GET /staging/active and the response of every staging write
-    endpoint's underlying staging. closed_dates is live PracticeClosure
-    data in the create-to-complete range -- not a snapshot, since none
-    exists yet for a staging (staging plan, Design Decision 10)."""
+    endpoint's underlying staging. closed_slots is live PracticeClosure
+    data (half-day granularity) in the create-to-complete range -- not a
+    snapshot, since none exists yet for a staging (staging plan, Design
+    Decision 10)."""
     staging_id: int
     config_id: int
     start_date: datetime.date
     num_weeks: int
     created_at: datetime.datetime
     completed_at: datetime.datetime | None = None
-    closed_dates: list[datetime.date] = Field(default_factory=list)
+    closed_slots: list[ClosedSlotOut] = Field(default_factory=list)
     sessions: list[StagingSessionOut]
 
 

@@ -77,6 +77,7 @@ from ...engine.grid_utils import run_phase12_for_rota
 from ...engine.week_map import build_week_dates
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    ClosedSlotOut,
     GenerateRotaIn,
     GenerateRotaOut,
     GenerationLogEntryOut,
@@ -184,14 +185,18 @@ def _issues_out(db: Session, rota_id: int) -> list[ValidationIssueOut]:
     ]
 
 
-def _closed_dates_out(db: Session, rota_id: int) -> list[datetime.date]:
-    """A rota's closed dates, from its own RotaClosure snapshot -- not the
+def _closed_slots_out(db: Session, rota_id: int) -> list[ClosedSlotOut]:
+    """A rota's closed slots, from its own RotaClosure snapshot -- not the
     live PracticeClosure table, so a closure added or removed after
     generation cannot change what this endpoint reports (M5)."""
     rows = db.execute(
-        select(RotaClosure.date).where(RotaClosure.rota_id == rota_id)
-    ).scalars().all()
-    return sorted(rows)
+        select(RotaClosure.date, RotaClosure.period)
+        .where(RotaClosure.rota_id == rota_id)
+    ).all()
+    return [
+        ClosedSlotOut(date=d, period=p)
+        for d, p in sorted(rows, key=lambda row: (row[0], row[1].value))
+    ]
 
 
 def _adjust_clinic_counter(
@@ -404,7 +409,7 @@ def get_rota(
         num_weeks=config.num_weeks,
         template_start_week=config.template_start_week,
         sessions=_session_outs(db, config, sessions),
-        closed_dates=_closed_dates_out(db, rota_id),
+        closed_slots=_closed_slots_out(db, rota_id),
         committed_at=rota.committed_at,
         archived_at=rota.archived_at,
     )

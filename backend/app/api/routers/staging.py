@@ -54,6 +54,7 @@ from ...models import (
 from ...models.enums import MasterSessionType, RotaStatus
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    ClosedSlotOut,
     GenerateRotaOut,
     StagingCreateIn,
     StagingOut,
@@ -168,20 +169,23 @@ def _session_outs(
     return out
 
 
-def _closed_dates_out(
+def _closed_slots_out(
     db: Session, config: RotaConfig
-) -> list[datetime.date]:
+) -> list[ClosedSlotOut]:
     """Live PracticeClosure data in the config's range -- no snapshot exists
     for a staging (Design Decision 10), so this is the current table, not a
     frozen copy."""
     range_start = config.start_date
     range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
     rows = db.execute(
-        select(PracticeClosure.date).where(
+        select(PracticeClosure.date, PracticeClosure.period).where(
             PracticeClosure.date >= range_start, PracticeClosure.date < range_end
         )
-    ).scalars().all()
-    return sorted(rows)
+    ).all()
+    return [
+        ClosedSlotOut(date=d, period=p)
+        for d, p in sorted(rows, key=lambda row: (row[0], row[1].value))
+    ]
 
 
 def _staging_out(db: Session, staging: RotaStaging) -> StagingOut:
@@ -196,7 +200,7 @@ def _staging_out(db: Session, staging: RotaStaging) -> StagingOut:
         num_weeks=config.num_weeks,
         created_at=staging.created_at,
         completed_at=staging.completed_at,
-        closed_dates=_closed_dates_out(db, config),
+        closed_slots=_closed_slots_out(db, config),
         sessions=_session_outs(db, config, sessions),
     )
 

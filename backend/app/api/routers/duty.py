@@ -8,17 +8,23 @@ M5 (bank-holiday weeks): two closure-aware checks live here rather than in
 schemas_duty.py, since both need PracticeClosure data that a stateless
 pydantic validator cannot see:
 
-- Any duty (primary or secondary) on a closed date is rejected (422),
-  mirroring Phase 0's duty_on_closed_date hard error. The Duty page is
-  expected to prevent this at entry, but the API must not rely on that -
-  a closure can be added after a duty assignment already exists, and
-  Phase 0 is the last line of defence for that case at generation time;
-  this is the API-level line of defence for it before that.
-- Secondary duty must land on the week's first open weekday. With no
-  closures in effect that is always Monday - the pre-M5 rule this
-  generalises - and degrades to "no secondary duty assignable" for a
-  fully closed week (caught by the closed-date check above, since every
-  candidate date in that week is itself closed).
+- A duty (primary or secondary) on its own closed period is rejected
+  (422), mirroring Phase 0's duty_on_closed_date hard error, keyed on
+  (payload.date, payload.period) since closures are half-day granularity
+  (closures plan). The Duty page is expected to prevent this at entry, but
+  the API must not rely on that - a closure can be added after a duty
+  assignment already exists, and Phase 0 is the last line of defence for
+  that case at generation time; this is the API-level line of defence for
+  it before that.
+- Secondary duty must land on the week's first *fully open* weekday --
+  neither AM nor PM closed (closures plan, Design Decision 4; mirrors
+  engine.week_map.build_first_open_weekday). With no closures in effect
+  that is always Monday - the pre-M5 rule this generalises - and degrades
+  to "no secondary duty assignable" for a week with no fully open weekday.
+  That is no longer always the same week as one where payload.date itself
+  is closed: a fully closed Monday plus half closures Tuesday-Friday gives
+  no fully open weekday even though an open AM/PM slot exists on several
+  of those days.
 
 Both checks return a plain string `detail` (an HTTPException, not a
 pydantic validation error), consistent with this router's existing 404/409
@@ -35,7 +41,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...models import Doctor, DutyAssignment, PracticeClosure
-from ...models.enums import DutyType
+from ...models.enums import DutyType, Period
 from ..deps import get_current_user, get_db
 from ..schemas import DutyIn, DutyOut, DutyCountOut
 
@@ -46,24 +52,27 @@ def _week_monday(date_: datetime.date) -> datetime.date:
     return date_ - datetime.timedelta(days=date_.weekday())
 
 
-def _closed_dates_in_week(db: Session, monday: datetime.date) -> set[datetime.date]:
+def _closed_slots_in_week(
+    db: Session, monday: datetime.date
+) -> set[tuple[datetime.date, Period]]:
     rows = db.execute(
-        select(PracticeClosure.date).where(
+        select(PracticeClosure.date, PracticeClosure.period).where(
             PracticeClosure.date >= monday,
             PracticeClosure.date < monday + datetime.timedelta(days=5),
         )
-    ).scalars().all()
-    return set(rows)
+    ).all()
+    return {(d, p) for d, p in rows}
 
 
 def _first_open_weekday(
-    closed: set[datetime.date], monday: datetime.date
+    closed: set[tuple[datetime.date, Period]], monday: datetime.date
 ) -> datetime.date | None:
-    """Mirrors the engine's week_map.build_first_open_weekday. None if
-    every weekday (Mon-Fri) of this week is closed."""
+    """Mirrors the engine's week_map.build_first_open_weekday: the first
+    weekday (Mon-Fri) with neither period closed. None if every weekday
+    this week has at least one period closed."""
     for offset in range(5):
         candidate = monday + datetime.timedelta(days=offset)
-        if candidate not in closed:
+        if (candidate, Period.AM) not in closed and (candidate, Period.PM) not in closed:
             return candidate
     return None
 
@@ -121,25 +130,30 @@ def create_duty(
         )
 
     monday = _week_monday(payload.date)
-    closed = _closed_dates_in_week(db, monday)
+    closed = _closed_slots_in_week(db, monday)
 
-    if payload.date in closed:
+    if (payload.date, payload.period) in closed:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"{payload.date.isoformat()} is a closed date; duty cannot be "
-                f"assigned there."
+                f"{payload.date.isoformat()} {payload.period.value} is closed; "
+                f"duty cannot be assigned there."
             ),
         )
 
     if payload.duty_type == DutyType.SECONDARY:
         first_open = _first_open_weekday(closed, monday)
-        # first_open is only None if every weekday this week is closed, in
-        # which case payload.date was already caught by the closed-date
-        # check above - this branch is defensive, not reachable in
-        # practice, but keeps the type honest without an assertion.
+        # Under the fully-open rule, first_open can be None even though
+        # payload.date itself is open: e.g. a fully closed Monday plus half
+        # closures Tuesday-Friday leaves no weekday with both periods open,
+        # even though several days have an open AM or PM slot (and would
+        # have passed the closed-slot check above). This branch is
+        # reachable in that case, not merely defensive.
         if first_open is None or payload.date != first_open:
-            expected = first_open.isoformat() if first_open is not None else "no day"
+            expected = (
+                first_open.isoformat() if first_open is not None
+                else "no day (no weekday this week is fully open)"
+            )
             raise HTTPException(
                 status_code=422,
                 detail=(

@@ -116,4 +116,4 @@ class TestClosures:
         assert resp.status_code == 204
 
         rota = client.get(f"/api/v1/rota/{out['rota_id']}").json()
-        assert rota["closed_dates"] == [MONDAY.isoformat()]
+        assert rota["closed_slots"] == [{"date": MONDAY.isoformat(), "period": "AM"}]

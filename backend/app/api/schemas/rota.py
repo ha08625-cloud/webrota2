@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, MasterSessionType, Period, RotaStatus, SessionRole
+from .closure import ClosedSlotOut
 from .common import ValidationIssueOut
 
 
@@ -72,11 +73,12 @@ class RotaSummaryOut(BaseModel):
 class RotaOut(BaseModel):
     """GET /rota/{id}: metadata plus the flat session list.
 
-    closed_dates (M5) is read from RotaClosure -- the snapshot taken at
-    generation time, not the live PracticeClosure table -- so a closure
-    added or removed afterwards cannot change what an existing rota
-    reports here. Sorted ascending; empty for a rota generated with no
-    closures in range.
+    closed_slots (M5, half-day granularity since the closures plan) is read
+    from RotaClosure -- the snapshot taken at generation time, not the live
+    PracticeClosure table -- so a closure added or removed afterwards cannot
+    change what an existing rota reports here. A full-day closure appears as
+    two entries, one per period. Sorted ascending by (date, period); empty
+    for a rota generated with no closures in range.
 
     committed_at (M3.7) is null for a draft, including one produced by
     rolling back a commit, and also null for a committed rota that
@@ -92,7 +94,7 @@ class RotaOut(BaseModel):
     num_weeks: int
     template_start_week: int
     sessions: list[RotaSessionOut]
-    closed_dates: list[datetime.date] = Field(default_factory=list)
+    closed_slots: list[ClosedSlotOut] = Field(default_factory=list)
     committed_at: datetime.datetime | None = None
     archived_at: datetime.datetime | None = None
 

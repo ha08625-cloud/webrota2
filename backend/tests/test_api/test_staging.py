@@ -3,7 +3,7 @@
 Covers: create's week-copy math for template_start_week=1 and a
 mid-cycle start_week, create's four 409 locks (draft, active staging,
 committed overlap, active-template count), GET /staging/active's 404 and
-its is_on_leave/closed_dates derivation, PATCH displacement (including
+its is_on_leave/closed_slots derivation, PATCH displacement (including
 the PRE_ASSIGNED -> REQUIRES_ROOM demotion), the completed-staging 409 on
 PATCH/POST/DELETE, session POST's week-range 422 and duplicate-slot 409,
 abandon's cascade plus the fresh-create-after-abandon path, and (Task 4)
@@ -164,12 +164,12 @@ def test_get_active_404s_when_none(client, seeded):
     assert resp.status_code == 404, resp.text
 
 
-def test_get_active_reports_leave_and_closed_dates(client, db_session, seeded):
+def test_get_active_reports_leave_and_closed_slots(client, db_session, seeded):
     monday = MONDAY
     db_session.add(LeaveEntry(
         doctor_id=seeded["doctor_aa"], date=monday, period=Period.AM,
     ))
-    db_session.add(PracticeClosure(date=monday, name="Bank holiday"))
+    db_session.add(PracticeClosure(date=monday, period=Period.PM, name="Bank holiday"))
     db_session.commit()
 
     resp = _create_staging(client)
@@ -182,7 +182,7 @@ def test_get_active_reports_leave_and_closed_dates(client, db_session, seeded):
     bb_pm = by_key[("BB", 1, "Monday", "PM")]
     assert bb_pm["is_on_leave"] is False
 
-    assert body["closed_dates"] == [monday.isoformat()]
+    assert body["closed_slots"] == [{"date": monday.isoformat(), "period": "PM"}]
 
 
 # ---------------------------------------------------------------------------
