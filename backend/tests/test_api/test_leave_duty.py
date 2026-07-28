@@ -58,9 +58,11 @@ class TestDuty:
         assert resp.json()["duty_type"] == "secondary"
 
     def test_create_secondary_duty_moves_with_closure_201(self, client, db_session, seeded):
-        """M5: when Monday is closed, secondary duty moves to Tuesday."""
+        """M5: when Monday is fully closed (both periods), secondary duty
+        moves to Tuesday -- the closures plan's fully-open rule."""
         from app.models import PracticeClosure
-        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.AM))
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
         db_session.commit()
 
         resp = client.post("/api/v1/duty", json={
@@ -73,11 +75,11 @@ class TestDuty:
         assert resp.json()["duty_type"] == "secondary"
 
     def test_create_secondary_duty_monday_422_when_monday_closed(self, client, db_session, seeded):
-        """Once Monday is closed, secondary duty on Monday itself hits the
-        closed-date check (not the day-mismatch message - that check runs
-        first)."""
+        """Once Monday AM is closed, secondary duty on Monday AM itself hits
+        the closed-slot check (not the day-mismatch message - that check
+        runs first)."""
         from app.models import PracticeClosure
-        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.AM))
         db_session.commit()
 
         resp = client.post("/api/v1/duty", json={
@@ -87,14 +89,14 @@ class TestDuty:
             "duty_type": "secondary",
         })
         assert resp.status_code == 422
-        assert "closed date" in resp.json()["detail"]
+        assert "is closed" in resp.json()["detail"]
 
     def test_create_duty_on_closed_date_422(self, client, db_session, seeded):
-        """M5 plan review note 4: any duty (not just secondary) on a
-        closed date is rejected at the API, mirroring Phase 0's
+        """M5 plan review note 4: any duty (not just secondary) on its own
+        closed period is rejected at the API, mirroring Phase 0's
         duty_on_closed_date hard error."""
         from app.models import PracticeClosure
-        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5)))
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.AM))
         db_session.commit()
 
         resp = client.post("/api/v1/duty", json={
@@ -104,7 +106,70 @@ class TestDuty:
             "duty_type": "primary",
         })
         assert resp.status_code == 422
-        assert "closed date" in resp.json()["detail"]
+        assert "is closed" in resp.json()["detail"]
+
+    def test_create_primary_duty_on_open_half_of_partly_closed_day_201(
+        self, client, db_session, seeded
+    ):
+        """A primary duty on the open half of a half-closed day is accepted
+        -- only the assignment's own (date, period) is checked, not the
+        whole date (closures plan, Design Decision 5)."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
+        db_session.commit()
+
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "primary",
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_create_primary_duty_on_closed_half_of_partly_closed_day_422(
+        self, client, db_session, seeded
+    ):
+        """The other half of the same day, however, is rejected."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
+        db_session.commit()
+
+        resp = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",
+            "period": "PM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "primary",
+        })
+        assert resp.status_code == 422
+        assert "is closed" in resp.json()["detail"]
+
+    def test_secondary_duty_requires_fully_open_weekday_not_just_open_slot(
+        self, client, db_session, seeded
+    ):
+        """Monday is half-closed (PM only) -- Monday AM is itself an open
+        slot, but Monday is not a *fully* open weekday, so secondary duty
+        must move to Tuesday (the first day with neither period closed),
+        not stay on Monday (closures plan, Design Decision 4)."""
+        from app.models import PracticeClosure
+        db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
+        db_session.commit()
+
+        rejected = client.post("/api/v1/duty", json={
+            "date": "2026-01-05",  # Monday AM: open, but not a fully open weekday
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "secondary",
+        })
+        assert rejected.status_code == 422
+        assert "must be assigned on 2026-01-06" in rejected.json()["detail"]
+
+        accepted = client.post("/api/v1/duty", json={
+            "date": "2026-01-06",  # Tuesday: the first fully open weekday
+            "period": "AM",
+            "doctor_id": seeded["doctor_aa"],
+            "duty_type": "secondary",
+        })
+        assert accepted.status_code == 201, accepted.text
 
     def test_create_secondary_duty_monday_201(self, client, seeded):
         """Secondary duty assignment on a Monday succeeds."""
