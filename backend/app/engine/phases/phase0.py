@@ -176,19 +176,20 @@ def _check_template_doctors_active(context: GenerationContext) -> list[Validatio
 
 
 def _check_duty_on_closed_date(context: GenerationContext) -> list[ValidationIssue]:
-    """Error if a pre-planned duty assignment falls on a closed date (M5).
+    """Error if a pre-planned duty assignment falls on a closed slot (M5).
 
-    Same tier as duty-on-leave and duty-on-incompatible-slot: a closed date
-    has no sessions and nothing for a duty role to attach to, so this is a
+    Same tier as duty-on-leave and duty-on-incompatible-slot: a closed slot
+    has no session and nothing for a duty role to attach to, so this is a
     pre-flight data error, not a generation-time tradeoff. The Duty page is
     expected to prevent this at entry, but the engine cannot rely on that --
-    a closure can be added after a duty assignment already exists.
+    a closure can be added after a duty assignment already exists. Checked
+    per period: a Thursday-AM duty is fine even when Thursday PM is closed.
     """
     issues: list[ValidationIssue] = []
     for (date_, period, duty_type), doctor_id in sorted(
         context.duty_map.items(), key=lambda kv: (kv[0][0], kv[0][1].value, kv[0][2].value)
     ):
-        if date_ not in context.closed_dates:
+        if (date_, period) not in context.closed_slots:
             continue
         genslot = context.date_to_genslot.get(date_)
         gen_week, day = genslot if genslot is not None else (None, None)
@@ -199,7 +200,7 @@ def _check_duty_on_closed_date(context: GenerationContext) -> list[ValidationIss
             week=gen_week, day=day, period=period,
             message=(
                 f"Duty doctor {code} ({duty_type.value}) is assigned on "
-                f"{date_.isoformat()} {period.value}, which is a closed date."
+                f"{date_.isoformat()} {period.value}, which is a closed slot."
             ),
         ))
     return issues

@@ -28,14 +28,15 @@ only reads assigned_room_id, and the pre-occupying-room logic that does
 read template_room_id lives in phase2.py's fresh-generation path, never
 called from here.
 
-Closed dates (M5): `load_context()` populates `closed_dates` from the
-*current* `PracticeClosure` table, which is correct for a fresh generation
-run but wrong here -- a closure added or removed after this rota was
-generated must not change how it renders or validates (mirrors the
-template_type snapshot principle above). This module therefore overrides
-`closed_dates`/`first_open_weekday_by_week` on the loaded context with the
-rota's own `RotaClosure` snapshot via `dataclasses.replace()`, immediately
-after `load_context()` returns and before anything reads either field.
+Closed slots (M5/half-day closures): `load_context()` populates
+`closed_slots` from the *current* `PracticeClosure` table, which is correct
+for a fresh generation run but wrong here -- a closure added or removed
+after this rota was generated must not change how it renders or validates
+(mirrors the template_type snapshot principle above). This module therefore
+overrides `closed_slots`/`first_open_weekday_by_week` on the loaded context
+with the rota's own `RotaClosure` snapshot via `dataclasses.replace()`,
+immediately after `load_context()` returns and before anything reads
+either field.
 """
 from __future__ import annotations
 
@@ -66,21 +67,21 @@ def rebuild_rota_grid(
 
     context = load_context(db, config)
 
-    # M5: override the freshly-loaded (current-PracticeClosure) closed_dates
+    # M5: override the freshly-loaded (current-PracticeClosure) closed_slots
     # with this rota's own RotaClosure snapshot, so a closure added or
     # removed after generation cannot change this reconstruction. Recompute
     # first_open_weekday_by_week from the overridden set -- it is derived
-    # from closed_dates and would otherwise silently go stale.
-    snapshot_closed_dates = frozenset(
-        row.date for row in db.execute(
+    # from closed_slots and would otherwise silently go stale.
+    snapshot_closed_slots = frozenset(
+        (row.date, row.period) for row in db.execute(
             select(RotaClosure).where(RotaClosure.rota_id == rota_id)
         ).scalars().all()
     )
     context = dataclasses.replace(
         context,
-        closed_dates=snapshot_closed_dates,
+        closed_slots=snapshot_closed_slots,
         first_open_weekday_by_week=build_first_open_weekday(
-            context.week_dates, snapshot_closed_dates
+            context.week_dates, snapshot_closed_slots
         ),
     )
 

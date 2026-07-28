@@ -70,7 +70,7 @@ def generate(db: Session, config_id: int) -> GenerationResult:
     issues.extend(run_phase9c(context, grid, counters, log))
     issues.extend(run_phase12(context, grid))
 
-    rota_id = _write_to_db(db, config_id, grid, counters, context.closed_dates, log)
+    rota_id = _write_to_db(db, config_id, grid, counters, context.closed_slots, log)
 
     status = "partial" if any(i.severity == "warning" for i in issues) else "success"
     return GenerationResult(rota_id=rota_id, issues=tuple(issues), status=status)
@@ -81,11 +81,11 @@ def _write_to_db(
     config_id: int,
     grid: RotaGrid,
     counters: CounterState,
-    closed_dates: frozenset,
+    closed_slots: frozenset,
     log: DecisionLog,
 ) -> int:
     """Persist one generation run: the rota header, a snapshot of every
-    pre-existing counter row, every session, the closed-date snapshot, the
+    pre-existing counter row, every session, the closed-slot snapshot, the
     decision log, and the updated counters. Called once, at the end of a
     successful pipeline.
 
@@ -122,13 +122,16 @@ def _write_to_db(
             is_supervising=slot.is_supervising,
         ))
 
-    # M5: snapshot every closed date that fell inside this run's range, so
-    # grid_utils.rebuild_rota_grid() can later reconstruct this rota's
-    # closures from RotaClosure rather than the (possibly since-edited)
-    # PracticeClosure table -- deleting or adding a closure after this rota
-    # exists must not change how it renders or validates.
-    for closed_date in sorted(closed_dates):
-        db.add(RotaClosure(rota_id=rota.id, date=closed_date))
+    # M5: snapshot every closed (date, period) that fell inside this run's
+    # range, one row per pair, so grid_utils.rebuild_rota_grid() can later
+    # reconstruct this rota's closures from RotaClosure rather than the
+    # (possibly since-edited) PracticeClosure table -- deleting or adding a
+    # closure after this rota exists must not change how it renders or
+    # validates.
+    for closed_date, closed_period in sorted(
+        closed_slots, key=lambda s: (s[0], s[1].value)
+    ):
+        db.add(RotaClosure(rota_id=rota.id, date=closed_date, period=closed_period))
 
     for entry in log.entries:
         db.add(RotaGenerationLogEntry(

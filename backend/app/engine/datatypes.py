@@ -340,17 +340,22 @@ class GenerationContext:
     # Absent key means no note; the value is never an empty string.
     recurring_notes_by_slot: dict[tuple[int, int, Day, Period], str]
 
-    # M5 bank-holiday weeks: dates the practice is closed within this run's
-    # range, and, per generation week, the first weekday not in that set
-    # (None if the whole week is closed). Phase 2 builds no slots on a
-    # closed date; Phase 12 uses first_open_weekday_by_week to relocate the
-    # secondary-duty expectation off a closed Monday. Populated from
-    # PracticeClosure by context.load_context() for a fresh generation run,
-    # and overridden from the RotaClosure snapshot by
-    # grid_utils.rebuild_rota_grid() when reconstructing a persisted rota,
-    # so a closure added or removed after generation cannot change how an
-    # existing draft/committed rota renders or validates.
-    closed_dates: frozenset[date]
+    # M5/half-day closures: (date, period) pairs the practice is closed
+    # within this run's range, and, per generation week, the first weekday
+    # with *neither* period closed (None if every weekday in the week has
+    # at least one period closed). Note "slot" here means (date, period),
+    # not the (week, day, period) triple `SessionSlot`/`sessions_for_slot`
+    # use elsewhere in the engine -- the collision is tolerated for
+    # consistency with the `/closures` API's field name. Phase 2 builds no
+    # slot for a closed (date, period); Phase 12 uses
+    # first_open_weekday_by_week to relocate the secondary-duty expectation
+    # off a fully or partly closed Monday. Populated from PracticeClosure by
+    # context.load_context() for a fresh generation run, and overridden from
+    # the RotaClosure snapshot by grid_utils.rebuild_rota_grid() when
+    # reconstructing a persisted rota, so a closure added or removed after
+    # generation cannot change how an existing draft/committed rota renders
+    # or validates.
+    closed_slots: frozenset[tuple[date, Period]]
     first_open_weekday_by_week: dict[int, Day | None]
 
     week_dates: dict[tuple[int, Day], date]

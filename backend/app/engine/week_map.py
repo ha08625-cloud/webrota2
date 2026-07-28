@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from ..models.enums import Day
+from ..models.enums import Day, Period
 
 # Monday..Friday offsets in days from the week's Monday.
 DAY_ORDER: dict[Day, int] = {
@@ -54,16 +54,22 @@ def build_date_to_genslot(
 
 def build_first_open_weekday(
     week_dates: dict[tuple[int, Day], date],
-    closed_dates: frozenset[date],
+    closed_slots: frozenset[tuple[date, Period]],
 ) -> dict[int, Day | None]:
     """For each generation week present in `week_dates`, the first weekday
-    (Monday..Friday, in that order) whose calendar date is not closed.
+    (Monday..Friday, in that order) that is *fully* open -- neither its AM
+    nor its PM slot is closed.
 
-    `None` if every weekday in that generation week is closed. This is the
-    M5 generalisation of "secondary duty is Monday only": secondary duty now
-    expects coverage on the first *open* weekday of each generation week,
-    which degrades to the plain Monday rule when nothing is closed, and to
-    "no secondary expected" for a fully closed week.
+    A day is required to be fully open, not merely partly, because secondary
+    duty needs both periods of its day (Phase 12's `_expected_duty_counts`
+    is period-independent for `expected_secondary`, and the duty board's
+    `(1st)`/`(2nd)` column split assumes both AM and PM exist). A day with
+    only one period closed cannot host it, so it is skipped in favour of the
+    next candidate.
+
+    `None` if every weekday in that generation week has at least one period
+    closed. This degrades to the plain Monday rule when nothing is closed,
+    and to "no secondary expected" for a week with no fully open weekday.
     """
     weeks = sorted({gen_week for gen_week, _day in week_dates.keys()})
     result: dict[int, Day | None] = {}
@@ -71,7 +77,11 @@ def build_first_open_weekday(
         first_open: Day | None = None
         for day in DAY_ORDER:  # dict preserves Monday..Friday insertion order
             d = week_dates.get((gen_week, day))
-            if d is not None and d not in closed_dates:
+            if (
+                d is not None
+                and (d, Period.AM) not in closed_slots
+                and (d, Period.PM) not in closed_slots
+            ):
                 first_open = day
                 break
         result[gen_week] = first_open
