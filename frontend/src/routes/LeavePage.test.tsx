@@ -59,13 +59,40 @@ describe("LeavePage", () => {
     expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
   });
 
-  it("renders a row per leave entry", async () => {
-    setUpServer({ leave: [makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-08-03", period: "AM" })] });
+  it("collapses a doctor's consecutive weekday entries into a single block row", async () => {
+    const dates = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"];
+    const leave = dates.flatMap((date, i) => [
+      makeLeaveEntry({ id: i * 2 + 1, doctor_id: 1, date, period: "AM" }),
+      makeLeaveEntry({ id: i * 2 + 2, doctor_id: 1, date, period: "PM" }),
+    ]);
+    setUpServer({ leave });
     renderWithProviders(<LeavePage />);
 
     const table = await screen.findByRole("table");
-    expect(screen.getByText("Mon, 2026-08-03")).toBeInTheDocument();
+    const rows = within(table).getAllByRole("row");
+    // header + one block row
+    expect(rows).toHaveLength(2);
+    expect(
+      within(table).getByText("Mon, 2026-08-03 to Fri, 2026-08-07"),
+    ).toBeInTheDocument();
     expect(within(table).getByText("AB")).toBeInTheDocument();
+    expect(within(table).getByText("Full day")).toBeInTheDocument();
+  });
+
+  it("annotates a block with a PM-only leading edge", async () => {
+    setUpServer({
+      leave: [
+        makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-08-03", period: "PM" }),
+        makeLeaveEntry({ id: 2, doctor_id: 1, date: "2026-08-04", period: "AM" }),
+        makeLeaveEntry({ id: 3, doctor_id: 1, date: "2026-08-04", period: "PM" }),
+      ],
+    });
+    renderWithProviders(<LeavePage />);
+
+    const table = await screen.findByRole("table");
+    expect(
+      within(table).getByText("Mon, 2026-08-03 (PM only) to Tue, 2026-08-04"),
+    ).toBeInTheDocument();
   });
 
   it("the doctor filter select includes inactive doctors", async () => {
@@ -506,27 +533,94 @@ describe("LeavePage", () => {
     });
   });
 
-  it("delete removes an entry from the table", async () => {
-    setUpServer({ leave: [makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-08-03" })] });
-    let deleted = false;
-    server.use(
-      http.delete("/api/v1/leave/1", () => {
-        deleted = true;
-        return new HttpResponse(null, { status: 204 });
-      }),
-      http.get("/api/v1/leave", () =>
-        HttpResponse.json(deleted ? [] : [makeLeaveEntry({ id: 1, doctor_id: 1, date: "2026-08-03" })]),
-      ),
-    );
+  describe("block delete", () => {
+    const dates = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"];
+    function fullDayLeave() {
+      return dates.flatMap((date, i) => [
+        makeLeaveEntry({ id: i * 2 + 1, doctor_id: 1, date, period: "AM" as const }),
+        makeLeaveEntry({ id: i * 2 + 2, doctor_id: 1, date, period: "PM" as const }),
+      ]);
+    }
 
-    const user = userEvent.setup();
+    it("deleting a block fires one bulk-delete request spanning the block and empties the table", async () => {
+      let deleted = false;
+      setUpServer({ leave: fullDayLeave() });
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const bodies: { doctor_id: number; start_date: string; end_date: string; period: string }[] = [];
+      server.use(
+        http.post("/api/v1/leave/bulk-delete", async ({ request }) => {
+          bodies.push((await request.json()) as (typeof bodies)[number]);
+          deleted = true;
+          return HttpResponse.json({ deleted_count: 10 });
+        }),
+        http.get("/api/v1/leave", () => HttpResponse.json(deleted ? [] : fullDayLeave())),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      const table = await screen.findByRole("table");
+      within(table).getByText("Mon, 2026-08-03 to Fri, 2026-08-07");
+
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        "Remove all leave for AB from 2026-08-03 to 2026-08-07? This cannot be undone from here.",
+      );
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0]).toEqual({
+        doctor_id: 1,
+        start_date: "2026-08-03",
+        end_date: "2026-08-07",
+        period: "BOTH",
+      });
+      expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+
+      vi.restoreAllMocks();
+    });
+
+    it("declining the confirm fires no request", async () => {
+      setUpServer({ leave: fullDayLeave() });
+      vi.spyOn(window, "confirm").mockReturnValue(false);
+      let called = false;
+      server.use(
+        http.post("/api/v1/leave/bulk-delete", async () => {
+          called = true;
+          return HttpResponse.json({ deleted_count: 10 });
+        }),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<LeavePage />);
+      await screen.findByRole("table");
+
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      expect(window.confirm).toHaveBeenCalled();
+      expect(called).toBe(false);
+
+      vi.restoreAllMocks();
+    });
+  });
+
+  it("the unfiltered view groups each doctor's blocks together in display order", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "ZZ", doctor_type: "Partner", active: true }),
+        makeDoctor({ id: 2, code: "AA", doctor_type: "Salaried", active: true }),
+      ],
+      leave: [
+        makeLeaveEntry({ id: 1, doctor_id: 2, date: "2026-08-03", period: "AM" }),
+        makeLeaveEntry({ id: 2, doctor_id: 1, date: "2026-08-04", period: "AM" }),
+        makeLeaveEntry({ id: 3, doctor_id: 2, date: "2026-08-05", period: "AM" }),
+        makeLeaveEntry({ id: 4, doctor_id: 1, date: "2026-08-06", period: "AM" }),
+      ],
+    });
     renderWithProviders(<LeavePage />);
+
     const table = await screen.findByRole("table");
-    within(table).getByText("Mon, 2026-08-03");
+    const rows = within(table).getAllByRole("row").slice(1);
+    const doctorCodes = rows.map((row) => within(row).getAllByRole("cell")[1].textContent);
 
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    expect(deleted).toBe(true);
-    expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+    expect(doctorCodes).toEqual(["ZZ", "ZZ", "AA", "AA"]);
   });
 });
