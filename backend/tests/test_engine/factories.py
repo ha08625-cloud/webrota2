@@ -170,11 +170,18 @@ def make_preferred_room(
     return p
 
 
-def make_closure(session, date_: datetime.date, name=None) -> PracticeClosure:
-    c = PracticeClosure(date=date_, name=name)
-    session.add(c)
+def make_closure(
+    session, date_: datetime.date, name=None, period: Period | None = None
+) -> list[PracticeClosure]:
+    """One PracticeClosure row for `period`, or two (AM + PM) for a
+    full-day closure when `period` is omitted -- mirrors the "full day is
+    UI sugar" decision (two rows, same date), so tests default to full-day
+    closures unless a half-day scenario passes an explicit period."""
+    periods = (period,) if period is not None else (Period.AM, Period.PM)
+    rows = [PracticeClosure(date=date_, period=p, name=name) for p in periods]
+    session.add_all(rows)
     session.flush()
-    return c
+    return rows
 
 
 def make_recurring_note(

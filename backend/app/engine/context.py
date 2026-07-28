@@ -91,11 +91,11 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
             PracticeClosure.date >= range_start, PracticeClosure.date < range_end
         )
     ).scalars().all()
-    closed_dates = frozenset(c.date for c in closure_rows)
+    closed_slots = frozenset((c.date, c.period) for c in closure_rows)
 
     week_dates = build_week_dates(config.start_date, config.num_weeks)
     date_to_genslot = build_date_to_genslot(week_dates)
-    first_open_weekday_by_week = build_first_open_weekday(week_dates, closed_dates)
+    first_open_weekday_by_week = build_first_open_weekday(week_dates, closed_slots)
 
     active_template, template_sessions = _load_staging_or_template(db, config)
 
@@ -113,7 +113,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
         clinic_types=clinic_types,
         leave_set=leave_set,
         duty_map=duty_map,
-        closed_dates=closed_dates,
+        closed_slots=closed_slots,
         first_open_weekday_by_week=first_open_weekday_by_week,
         week_dates=week_dates,
         date_to_genslot=date_to_genslot,

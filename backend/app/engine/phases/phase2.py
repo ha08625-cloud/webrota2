@@ -59,11 +59,13 @@ def _build_grid(context: GenerationContext, config: RotaConfig) -> RotaGrid:
 
                     template_type, template_room_id = entry
                     date_ = context.week_dates[(gen_week, day)]
-                    if date_ in context.closed_dates:
-                        # M5: no sessions on a closed date. Skip the slot
-                        # entirely -- cell absence is data (as with a
+                    if (date_, period) in context.closed_slots:
+                        # M5: no session on a closed (date, period). Skip the
+                        # slot entirely -- cell absence is data (as with a
                         # part-time doctor's missing template row), so
                         # downstream phases need no per-slot closed checks.
+                        # Checked per period: an open AM still gets a slot
+                        # when only the day's PM is closed.
                         continue
                     is_on_leave = (doctor.id, date_, period) in context.leave_set
                     is_wfh = template_type == MasterSessionType.WFH

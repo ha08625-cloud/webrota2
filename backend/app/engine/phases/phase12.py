@@ -61,7 +61,7 @@ def run_phase12(context: GenerationContext, grid: RotaGrid) -> list[ValidationIs
 
 
 def _expected_duty_counts(
-    context: GenerationContext, gen_week: int, day: Day
+    context: GenerationContext, gen_week: int, day: Day, period: Period
 ) -> tuple[int, int]:
     """(expected primary count, expected secondary count) for one session.
 
@@ -72,18 +72,21 @@ def _expected_duty_counts(
     never be satisfied and was a bug, caught by CI hitting the constraint
     directly.
 
-    M5: both counts are closure-aware. Primary is not expected at all on a
-    closed day (0, not 1) -- primary duty simply does not relocate the way
-    secondary does. Secondary is expected on the first *open* weekday of
-    each generation week (0 elsewhere), per
-    `context.first_open_weekday_by_week` -- this generalises the original
-    "Monday only" rule (user: "it moves to Tuesday" when Monday is closed)
-    and degrades to "no secondary expected" for a fully closed week, where
-    `first_open_weekday_by_week[gen_week]` is None and can never equal a
-    real `day`.
+    M5/half-day closures: primary is closure-aware *per period* -- not
+    expected at all on a closed (date, period) (0, not 1), since primary
+    duty simply does not relocate the way secondary does. Secondary stays
+    day-level, not per-period: it is expected on both AM and PM of the first
+    *fully open* weekday of each generation week (0 elsewhere), per
+    `context.first_open_weekday_by_week`. That function only ever returns a
+    day with neither period closed, so secondary duty's day never has a
+    closed half to worry about -- this generalises the original "Monday
+    only" rule (user: "it moves to Tuesday" when Monday is closed) and
+    degrades to "no secondary expected" for a week with no fully open
+    weekday, where `first_open_weekday_by_week[gen_week]` is None and can
+    never equal a real `day`.
     """
     date_ = context.week_dates.get((gen_week, day))
-    is_closed = date_ is not None and date_ in context.closed_dates
+    is_closed = date_ is not None and (date_, period) in context.closed_slots
     expected_primary = 0 if is_closed else 1
     expected_secondary = 1 if day == context.first_open_weekday_by_week.get(gen_week) else 0
     return expected_primary, expected_secondary
@@ -95,8 +98,10 @@ def _check_duty_coverage(context: GenerationContext, grid: RotaGrid) -> list[Val
 
     for gen_week in range(1, num_weeks + 1):
         for day in _DAYS:
-            expected_primary, expected_secondary = _expected_duty_counts(context, gen_week, day)
             for period in _PERIODS:
+                expected_primary, expected_secondary = _expected_duty_counts(
+                    context, gen_week, day, period
+                )
                 sessions = grid.sessions_for_slot(gen_week, day, period)
                 primary_count = sum(1 for s in sessions if s.role == SessionRole.DUTY_PRIMARY)
                 secondary_count = sum(1 for s in sessions if s.role == SessionRole.DUTY_SECONDARY)
@@ -131,7 +136,7 @@ def _check_clinic_coverage(context: GenerationContext, grid: RotaGrid) -> list[V
         for schedule in clinic.schedules:
             for gen_week in range(1, num_weeks + 1):
                 date_ = context.week_dates.get((gen_week, schedule.day))
-                if date_ is not None and date_ in context.closed_dates:
+                if date_ is not None and (date_, schedule.period) in context.closed_slots:
                     # M5: mirrors Phase 5 -- no slots exist here, nothing
                     # was or could be assigned, so no coverage warning.
                     continue

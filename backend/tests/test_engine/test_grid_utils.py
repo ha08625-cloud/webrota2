@@ -91,7 +91,7 @@ class TestClosureSnapshotIsolation:
             session, t, d, week=1, day=Day.TUESDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        closure = make_closure(session, monday)
+        closures = make_closure(session, monday)
 
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
         session.add(config)
@@ -103,7 +103,8 @@ class TestClosureSnapshotIsolation:
         issues_before = run_phase12_for_rota(session, result.rota_id)
 
         # Delete the global closure entirely -- the snapshot must be immune.
-        session.delete(session.get(PracticeClosure, closure.id))
+        for closure in closures:
+            session.delete(session.get(PracticeClosure, closure.id))
         session.flush()
 
         issues_after = run_phase12_for_rota(session, result.rota_id)
@@ -121,7 +122,7 @@ class TestClosureSnapshotIsolation:
             session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
             session_type=MasterSessionType.REQUIRES_ROOM,
         )
-        closure = make_closure(session, monday)
+        make_closure(session, monday)
 
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
         session.add(config)
@@ -136,8 +137,9 @@ class TestClosureSnapshotIsolation:
 
         ctx, _grid = rebuild_rota_grid(session, result.rota_id)
 
-        assert ctx.closed_dates == {monday}  # the original snapshot only
-        assert new_closure_date not in ctx.closed_dates
+        assert ctx.closed_slots == {(monday, Period.AM), (monday, Period.PM)}
+        assert (new_closure_date, Period.AM) not in ctx.closed_slots
+        assert (new_closure_date, Period.PM) not in ctx.closed_slots
 
     def test_duty_on_closed_date_still_blocks_a_later_generation(self, session, monday):
         """Sanity check that the snapshot isolation above does not weaken
@@ -160,3 +162,36 @@ class TestClosureSnapshotIsolation:
 
         assert result.status == "failed"
         assert any(i.check == "duty_on_closed_date" for i in result.issues)
+
+    def test_half_day_closure_snapshots_one_row_and_reproduces_on_rebuild(
+        self, session, monday
+    ):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.PM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday, period=Period.PM)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert result.rota_id is not None
+
+        rows = session.execute(
+            select(PracticeClosure)
+        ).scalars().all()
+        assert len(rows) == 1  # sanity: the fixture wrote a single PM row
+
+        ctx, grid = rebuild_rota_grid(session, result.rota_id)
+
+        assert ctx.closed_slots == {(monday, Period.PM)}
+        assert grid.get(d.id, 1, Day.MONDAY, Period.AM) is not None
+        assert grid.get(d.id, 1, Day.MONDAY, Period.PM) is None

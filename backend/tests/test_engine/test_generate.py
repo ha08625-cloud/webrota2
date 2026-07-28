@@ -364,9 +364,9 @@ class TestPhase0DutyIncompatibleSlot:
 
 
 class TestGenerateClosures:
-    """M5: _write_to_db snapshots every closed date inside the run's range
-    onto RotaClosure, independent of the RotaSession rows themselves (which
-    simply omit closed-date slots per Phase 2)."""
+    """M5: _write_to_db snapshots every closed (date, period) inside the
+    run's range onto RotaClosure, independent of the RotaSession rows
+    themselves (which simply omit closed-slot slots per Phase 2)."""
 
     def test_closure_in_range_written_as_rota_closure(self, session, monday):
         t = make_template(session, is_active=True)
@@ -387,7 +387,29 @@ class TestGenerateClosures:
         closures = session.execute(
             select(RotaClosure).where(RotaClosure.rota_id == result.rota_id)
         ).scalars().all()
-        assert [c.date for c in closures] == [monday]
+        assert sorted((c.date, c.period) for c in closures) == [
+            (monday, Period.AM), (monday, Period.PM),
+        ]
+
+    def test_half_day_closure_written_as_single_rota_closure_row(self, session, monday):
+        t = make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_master_session(
+            session, t, doctor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        make_closure(session, monday, name="Training", period=Period.PM)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        closures = session.execute(
+            select(RotaClosure).where(RotaClosure.rota_id == result.rota_id)
+        ).scalars().all()
+        assert [(c.date, c.period) for c in closures] == [(monday, Period.PM)]
 
     def test_closure_outside_range_not_written(self, session, monday):
         t = make_template(session, is_active=True)
