@@ -5,7 +5,7 @@ import { useRooms } from "@/api/rooms";
 import type { Day, Period, Rota } from "@/api/types";
 import { RoleLabel } from "@/components/RotaGrid";
 import { WeekTabs } from "@/components/WeekTabs";
-import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
+import { isDayFullyClosed, isDayPartlyClosed, isSlotClosed, partlyClosedPeriod, toClosedSlotSet } from "@/lib/closedSlots";
 import { DAYS, weekNumbers } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota } from "@/lib/pivotRoomRota";
 import { rotaDate } from "@/lib/weekDates";
@@ -33,23 +33,20 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
   const grid = useMemo(() => pivotRoomRota(rota.sessions, rooms ?? []), [rota.sessions, rooms]);
 
   /**
-   * Which calendar dates are *fully* closed for this rota - authoritative
-   * from rota.closed_slots, the RotaClosure snapshot taken at generation
-   * time. Copied verbatim from RotaGrid (Design Decision 6): a closure
-   * added or removed afterwards must not change how an already-generated
-   * rota renders, and this check must run before the occupancy lookup
+   * (date, period) closed-slot lookup for this rota - authoritative from
+   * rota.closed_slots, the RotaClosure snapshot taken at generation time.
+   * Copied verbatim from RotaGrid (Design Decision 6): a closure added or
+   * removed afterwards must not change how an already-generated rota
+   * renders, and a closed-slot check must run before the occupancy lookup
    * below - otherwise a closed day, which has no sessions at all, renders
    * as a full column of false "Available" cells.
    */
-  const closedDatesSet = useMemo(() => {
-    const slotSet = toClosedSlotSet(rota.closed_slots);
-    return new Set(rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(slotSet, date)));
-  }, [rota.closed_slots]);
+  const closedSlotSet = useMemo(() => toClosedSlotSet(rota.closed_slots), [rota.closed_slots]);
 
   /**
    * Closure name lookup, purely cosmetic - copied verbatim from RotaGrid.
    * Deliberately sourced from the *live* closures list, unlike
-   * closedDatesSet above: a closure's name is display-only trivia, not
+   * closedSlotSet above: a closure's name is display-only trivia, not
    * part of what makes a date "closed" for this rota, so falling back to
    * no name if the closure is later renamed or deleted is an acceptable,
    * low-risk cosmetic gap.
@@ -84,19 +81,24 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
         </th>
         {DAYS.map((day, dayIndex) => {
           const date = rotaDate(rota.start_date, activeWeek, day);
-          const closed = closedDatesSet.has(date);
+          const fullyClosed = isDayFullyClosed(closedSlotSet, date);
+          const partlyClosed = isDayPartlyClosed(closedSlotSet, date);
           const closureName = closureNameByDate.get(date);
+          const closedPeriod = partlyClosedPeriod(closedSlotSet, date);
           return (
             <th
               key={day}
               data-testid={`room-day-header-${day}`}
               className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium ${
-                closed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
               } ${dayIndex === DAYS.length - 1 ? "" : "border-r-2"}`}
             >
               {day}
-              {closed ? (
+              {fullyClosed ? (
                 <div className="text-[10px] font-normal">{closureName ? closureName : "closed"}</div>
+              ) : null}
+              {partlyClosed ? (
+                <div className="text-[10px] font-normal">{`${closureName ? closureName : "closed"} (${closedPeriod})`}</div>
               ) : null}
             </th>
           );
@@ -130,7 +132,7 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
                         week={activeWeek}
                         day={day}
                         period={period}
-                        closed={closedDatesSet.has(rotaDate(rota.start_date, activeWeek, day))}
+                        closed={isSlotClosed(closedSlotSet, rotaDate(rota.start_date, activeWeek, day), period)}
                         grid={grid}
                         dividerClassName={dividerClassName}
                       />
@@ -166,7 +168,7 @@ interface RoomCellProps {
 
 /**
  * Cell logic, in order (M4.x room-view plan, Task 3): closed date first
- * (must precede the occupancy lookup - see closedDatesSet above),
+ * (must precede the occupancy lookup - see closedSlotSet above),
  * then occupied (a session holds this room this slot), then available.
  * Every branch carries data-week-day-period so IssuesPanel navigation
  * (which queries for the first DOM match of that attribute) keeps

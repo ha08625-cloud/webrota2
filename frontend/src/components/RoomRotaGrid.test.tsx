@@ -145,6 +145,45 @@ describe("RoomRotaGrid", () => {
     expect(within(pmCell).getByText("Available")).toBeInTheDocument();
   });
 
+  it("a PM-only closure leaves the header ungreyed with a qualified label, and greys only the PM cell", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      room_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      role: "duty_primary",
+    });
+    const rota = makeRota({
+      sessions: [session],
+      closed_slots: [{ date: "2026-07-06", period: "PM" }],
+      start_date: "2026-07-06",
+    });
+    renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
+
+    const tables = await screen.findAllByRole("table");
+    const header = within(tables[0]).getByTestId("room-day-header-Monday");
+    expect(header.className).not.toContain("bg-gray-200");
+    expect(header.textContent).toContain("closed (PM)");
+
+    const amCell = await screen.findByTestId("room-cell-1-1-Monday-AM");
+    expect(within(amCell).getByText("AB")).toBeInTheDocument();
+
+    expect(screen.queryByTestId("room-cell-1-1-Monday-PM")).not.toBeInTheDocument();
+    const pmCell = document.querySelector('[data-week-day-period="1-Monday-PM"]');
+    expect(pmCell?.className).toContain("bg-gray-200");
+  });
+
+  it("a full-day closure still renders exactly as before (regression guard)", async () => {
+    setUpServer();
+    const rota = makeRota({ sessions: [], closed_slots: fullDaySlots(["2026-07-06"]), start_date: "2026-07-06" });
+    renderWithProviders(<RoomRotaGrid rota={rota} activeWeek={1} onWeekChange={noop} />);
+
+    const tables = await screen.findAllByRole("table");
+    const header = within(tables[0]).getByTestId("room-day-header-Monday");
+    expect(header.className).toContain("bg-gray-200");
+    expect(header.textContent).toContain("closed");
+    expect(header.textContent).not.toContain("(AM)");
+    expect(header.textContent).not.toContain("(PM)");
+  });
+
   it("carries data-week-day-period on every cell, including closed ones", async () => {
     setUpServer();
     const rota = makeRota({ sessions: [], closed_slots: fullDaySlots(["2026-07-06"]), start_date: "2026-07-06" });

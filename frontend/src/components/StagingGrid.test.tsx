@@ -32,7 +32,7 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={2}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -50,7 +50,7 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -59,7 +59,7 @@ describe("StagingGrid", () => {
     expect(header).toHaveTextContent("2026-08-03");
   });
 
-  it("greys a day header whose calendar date is closed", async () => {
+  it("greys a day header whose calendar date is fully closed", async () => {
     setUpServer();
     renderWithProviders(
       <StagingGrid
@@ -67,7 +67,10 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={["2026-08-03"]}
+        closedSlots={[
+          { date: "2026-08-03", period: "AM" },
+          { date: "2026-08-03", period: "PM" },
+        ]}
         onToast={noop}
       />,
     );
@@ -85,13 +88,45 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={["2026-08-04"]}
+        closedSlots={[
+          { date: "2026-08-04", period: "AM" },
+          { date: "2026-08-04", period: "PM" },
+        ]}
         onToast={noop}
       />,
     );
 
     const header = await screen.findByTestId("staging-day-header-Monday");
     expect(header).not.toHaveTextContent("closed");
+  });
+
+  it("shows a qualified label and greys only the PM cell for a PM-only closure, leaving AM populated", async () => {
+    setUpServer();
+    const session = makeStagingSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "no_surgery", room_id: null, room_code: null,
+    });
+    renderWithProviders(
+      <StagingGrid
+        sessions={[session]}
+        stagingId={1}
+        startDate="2026-08-03"
+        numWeeks={1}
+        closedSlots={[{ date: "2026-08-03", period: "PM" }]}
+        onToast={noop}
+      />,
+    );
+
+    const header = await screen.findByTestId("staging-day-header-Monday");
+    expect(header.className).not.toContain("bg-gray-200");
+    expect(header).toHaveTextContent("closed (PM)");
+
+    const amCell = await screen.findByTestId("staging-cell-1-1-Monday-AM");
+    expect(amCell.className).not.toContain("bg-gray-200");
+    expect(within(amCell).getByText("No surgery")).toBeInTheDocument();
+
+    const pmCell = screen.getByTestId("staging-cell-1-1-Monday-PM");
+    expect(pmCell.className).toContain("bg-gray-200");
   });
 
   it("shows a Leave badge on a session flagged is_on_leave, without suppressing the popover", async () => {
@@ -106,7 +141,7 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -131,7 +166,7 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -153,7 +188,7 @@ describe("StagingGrid", () => {
         stagingId={1}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -188,7 +223,7 @@ describe("StagingGrid", () => {
         stagingId={7}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={noop}
       />,
     );
@@ -234,7 +269,7 @@ describe("StagingGrid", () => {
           stagingId={data.staging_id}
           startDate={data.start_date}
           numWeeks={data.num_weeks}
-          closedDates={data.closed_slots.map((s) => s.date)}
+          closedSlots={data.closed_slots}
           onToast={noop}
         />
       );
@@ -273,7 +308,7 @@ describe("StagingGrid", () => {
         stagingId={7}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={(m) => { toasted = m; }}
       />,
     );
@@ -305,7 +340,7 @@ describe("StagingGrid", () => {
         stagingId={7}
         startDate="2026-08-03"
         numWeeks={1}
-        closedDates={[]}
+        closedSlots={[]}
         onToast={(m) => { toasted = m; }}
       />,
     );

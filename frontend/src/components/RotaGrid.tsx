@@ -21,7 +21,7 @@ import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { WeekTabs } from "@/components/WeekTabs";
 import { type CellBackground, type FontColor, cellStyle } from "@/lib/cellStyle";
-import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
+import { isDayFullyClosed, isDayPartlyClosed, isSlotClosed, partlyClosedPeriod, toClosedSlotSet } from "@/lib/closedSlots";
 import { type ChipType, canDrop } from "@/lib/dragRules";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers } from "@/lib/pivot";
 import { resolveDragOutcome } from "@/lib/resolveDrag";
@@ -102,23 +102,20 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
   );
 
   /**
-   * Which calendar dates are *fully* closed for this rota (M5) -
-   * authoritative from rota.closed_slots, the RotaClosure snapshot taken
-   * at generation time, never the live PracticeClosure table (see RotaOut
-   * docstring): a closure added or removed afterwards must not change how
-   * an already-generated rota renders. A partly closed day (one period
-   * only) does not grey the header here - per-cell closed styling for
-   * that case is not yet implemented in this grid.
+   * (date, period) closed-slot lookup for this rota (M5) - authoritative
+   * from rota.closed_slots, the RotaClosure snapshot taken at generation
+   * time, never the live PracticeClosure table (see RotaOut docstring): a
+   * closure added or removed afterwards must not change how an
+   * already-generated rota renders. A fully closed day greys the header;
+   * a partly closed day keeps it ungreyed with a qualified label, and
+   * greys only the closed period's cells (Design Decision 7).
    */
-  const closedDatesSet = useMemo(() => {
-    const slotSet = toClosedSlotSet(rota.closed_slots);
-    return new Set(rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(slotSet, date)));
-  }, [rota.closed_slots]);
+  const closedSlotSet = useMemo(() => toClosedSlotSet(rota.closed_slots), [rota.closed_slots]);
 
   /**
    * Closure name lookup, purely cosmetic (M5 plan: "column header may
    * show the closure name if present"). Deliberately sourced from the
-   * *live* closures list, unlike closedDatesSet above - a closure's name
+   * *live* closures list, unlike closedSlotSet above - a closure's name
    * is display-only trivia, not part of what makes a date "closed" for
    * this rota, so falling back to no name (rather than snapshotting it)
    * if the closure is later renamed or deleted is an acceptable, low-risk
@@ -277,19 +274,24 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
           </th>
           {DAYS.map((day, dayIndex) => {
             const date = rotaDate(rota.start_date, activeWeek, day);
-            const closed = closedDatesSet.has(date);
+            const fullyClosed = isDayFullyClosed(closedSlotSet, date);
+            const partlyClosed = isDayPartlyClosed(closedSlotSet, date);
             const closureName = closureNameByDate.get(date);
+            const closedPeriod = partlyClosedPeriod(closedSlotSet, date);
             return (
               <th
                 key={day}
                 data-testid={`day-header-${day}`}
                 className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium ${
-                  closed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                  fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
                 } ${dayIndex === DAYS.length - 1 ? "" : "border-r-2"}`}
               >
                 {day}
-                {closed ? (
+                {fullyClosed ? (
                   <div className="text-[10px] font-normal">{closureName ? closureName : "closed"}</div>
+                ) : null}
+                {partlyClosed ? (
+                  <div className="text-[10px] font-normal">{`${closureName ? closureName : "closed"} (${closedPeriod})`}</div>
                 ) : null}
               </th>
             );
@@ -332,6 +334,8 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
                 </td>
                 {DAYS.map((day, dayIndex) => {
                   const session = getCell(grid, doctor.id, activeWeek, day, period);
+                  const date = rotaDate(rota.start_date, activeWeek, day);
+                  const closed = isSlotClosed(closedSlotSet, date, period);
                   // Right divider between every day column, except the
                   // last (Friday), where the outer frame takes over.
                   const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
@@ -356,6 +360,7 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
                       onSetRole={handleSetRole}
                       saving={patchSession.isPending || setRoom.isPending || setRole.isPending}
                       dividerClassName={dividerClassName}
+                      closed={closed}
                     />
                   ) : (
                     <ReadOnlyGridCell
@@ -369,6 +374,7 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
                       roomsById={roomsById}
                       clinicTypesById={clinicTypesById}
                       dividerClassName={dividerClassName}
+                      closed={closed}
                     />
                   );
                 })}
@@ -423,6 +429,9 @@ interface ReadOnlyGridCellProps {
    * knows the day index and doctor-group boundaries) rather than
    * re-derived here. */
   dividerClassName: string;
+  /** True when this exact (date, period) slot is closed - greys the cell
+   * distinctly from an ordinary absent cell (Task 5). */
+  closed?: boolean;
 }
 
 function ReadOnlyGridCell({
@@ -435,8 +444,18 @@ function ReadOnlyGridCell({
   roomsById,
   clinicTypesById,
   dividerClassName,
+  closed = false,
 }: ReadOnlyGridCellProps) {
   const style = cellStyle(session, roomsById, clinicTypesById);
+
+  if (closed) {
+    return (
+      <td
+        className={`border border-border bg-gray-200 ${dividerClassName}`}
+        data-week-day-period={`${week}-${day}-${period}`}
+      />
+    );
+  }
 
   if (session === undefined) {
     return (
@@ -482,6 +501,8 @@ interface EditableGridCellProps {
   saving: boolean;
   /** See ReadOnlyGridCellProps.dividerClassName. */
   dividerClassName: string;
+  /** See ReadOnlyGridCellProps.closed. */
+  closed?: boolean;
 }
 
 function EditableGridCell({
@@ -502,6 +523,7 @@ function EditableGridCell({
   onSetRole,
   saving,
   dividerClassName,
+  closed = false,
 }: EditableGridCellProps) {
   const style = cellStyle(session, roomsById, clinicTypesById);
   const dropDisabled = session === undefined || session.is_on_leave || session.is_wfh;
@@ -511,6 +533,15 @@ function EditableGridCell({
     data: session ? { session } : undefined,
     disabled: dropDisabled,
   });
+
+  if (closed) {
+    return (
+      <td
+        className={`border border-border bg-gray-200 ${dividerClassName}`}
+        data-week-day-period={`${week}-${day}-${period}`}
+      />
+    );
+  }
 
   if (session === undefined) {
     return (

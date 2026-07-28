@@ -276,6 +276,27 @@ describe("buildRotaWorkbook", () => {
     }
   });
 
+  it("a PM-only closure leaves the AM cell populated and greys only the PM cell (regression guard for the closed-check hoist bug)", async () => {
+    const pmClosedRota = makeRota({
+      ...rota,
+      closed_slots: [{ date: THURSDAY, period: "PM" }],
+    });
+    const blob = await buildRotaWorkbook(pmClosedRota, [doctor1, doctor2], [room], [clinicType], closureNameByDate);
+    const workbook = await reload(blob);
+    const sheet = workbook.getWorksheet("Week 1")!;
+
+    const header = sheet.getCell(1, THURSDAY_COL);
+    expect(header.value).toBe(`Thursday ${formatDate(THURSDAY)}\nPractice closure (PM)`);
+    expect(header.fill === undefined || (header.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+
+    // doctor1's Thursday AM/PM are both otherwise-absent (no fixture
+    // session), so the meaningful assertion is the fill split, not text.
+    const amCell = sheet.getCell(2, THURSDAY_COL);
+    const pmCell = sheet.getCell(3, THURSDAY_COL);
+    expect(amCell.fill === undefined || (amCell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+    expect(pmCell.fill).toMatchObject({ fgColor: { argb: argb(CLOSED_COLUMN_HEX) } });
+  });
+
   it("falls back to 'closed' in the header when no closure name is on record for the date", async () => {
     const blob = await buildRotaWorkbook(rota, [doctor1, doctor2], [room], [clinicType], new Map());
     const workbook = await reload(blob);
@@ -477,6 +498,24 @@ describe("buildRotaWorkbook room sheets", () => {
     const cell = sheet.getCell(2, WEDNESDAY_COL);
     expect(cell.value).toBe("Available");
     expect(cell.fill === undefined || (cell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+  });
+
+  it("a PM-only closure leaves the AM room cell as Available and greys only the PM cell (regression guard for the closed-check hoist bug)", async () => {
+    const pmClosedRota = makeRota({
+      ...rota,
+      closed_slots: [{ date: THURSDAY, period: "PM" }],
+    });
+    const blob = await buildRotaWorkbook(pmClosedRota, [doctor1], [roomC1, roomD1], [clinicType], closureNameByDate);
+    const workbook = await reload(blob);
+    const sheet = workbook.getWorksheet("Room Week 1")!;
+
+    // D1 is row 2 (AM)/3 (PM), Thursday column.
+    const amCell = sheet.getCell(2, THURSDAY_COL);
+    const pmCell = sheet.getCell(3, THURSDAY_COL);
+    expect(amCell.value).toBe("Available");
+    expect(amCell.fill === undefined || (amCell.fill as { pattern?: string }).pattern !== "solid").toBe(true);
+    expect(pmCell.value).toBeNull();
+    expect(pmCell.fill).toMatchObject({ fgColor: { argb: argb(CLOSED_COLUMN_HEX) } });
   });
 
   it("leaves a closed-date cell with no 'Available' text, just the closed fill", async () => {
