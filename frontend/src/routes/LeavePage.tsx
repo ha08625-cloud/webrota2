@@ -2,10 +2,12 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { useDoctors } from "@/api/doctors";
-import { useBulkCreateLeave, useBulkDeleteLeave, useDeleteLeave, useLeave } from "@/api/leave";
-import type { ApiError } from "@/api/types";
+import { useBulkCreateLeave, useBulkDeleteLeave, useLeave } from "@/api/leave";
+import type { ApiError, PeriodOrBoth } from "@/api/types";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { parseLocalDate } from "@/lib/date";
+import { collapseLeaveEntries } from "@/lib/collapseLeaveEntries";
+import type { LeaveBlock } from "@/lib/collapseLeaveEntries";
 import {
   expandLeaveRange,
   singleDayToEdges,
@@ -16,7 +18,7 @@ import type {
   LeaveSegment,
   SingleDayOption,
 } from "@/lib/expandLeaveRange";
-import { groupDoctorsByType } from "@/lib/groupDoctors";
+import { compareDoctorDisplayOrder, groupDoctorsByType } from "@/lib/groupDoctors";
 
 import { formatDateWithDay } from "@/lib/date";
 
@@ -44,6 +46,23 @@ function segmentLabel(segment: LeaveSegment): string {
   return `${segment.start_date} to ${segment.end_date}`;
 }
 
+/** Bare-date wording shared by the range form's confirm dialog and a block's delete confirm. */
+function describeSpan(span: {
+  start_date: string;
+  end_date: string;
+  period: PeriodOrBoth;
+  half_start: boolean;
+  half_end: boolean;
+}): string {
+  if (span.start_date === span.end_date) {
+    const suffix = span.period === "AM" ? " (AM only)" : span.period === "PM" ? " (PM only)" : "";
+    return `on ${span.start_date}${suffix}`;
+  }
+  const startSuffix = span.half_start ? " (PM only)" : "";
+  const endSuffix = span.half_end ? " (AM only)" : "";
+  return `from ${span.start_date}${startSuffix} to ${span.end_date}${endSuffix}`;
+}
+
 export function LeavePage() {
   // The filter reads against *all* doctors (including inactive) - a
   // deactivated doctor's historical leave entries are still real rows
@@ -62,7 +81,6 @@ export function LeavePage() {
 
   const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
   const { data: entries, isLoading, isError } = useLeave(filterDoctorId);
-  const deleteLeave = useDeleteLeave();
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
@@ -75,6 +93,7 @@ export function LeavePage() {
   const [singleDay, setSingleDay] = useState<SingleDayOption>("FULL");
   const [formError, setFormError] = useState<string | null>(null);
   const [formSummary, setFormSummary] = useState<string | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
 
   // The preview needs the *form* doctor's existing leave, which may
   // differ from the table's filter doctor - the hook's cache key is
@@ -134,13 +153,23 @@ export function LeavePage() {
 
   function describeRangeForConfirm(): string {
     if (isSingleDay) {
-      const suffix =
-        singleDay === "AM_ONLY" ? " (AM only)" : singleDay === "PM_ONLY" ? " (PM only)" : "";
-      return `on ${startDate}${suffix}`;
+      const period: PeriodOrBoth =
+        singleDay === "AM_ONLY" ? "AM" : singleDay === "PM_ONLY" ? "PM" : "BOTH";
+      return describeSpan({
+        start_date: startDate,
+        end_date: startDate,
+        period,
+        half_start: false,
+        half_end: false,
+      });
     }
-    const startSuffix = firstDay === "PM_ONLY" ? " (PM only)" : "";
-    const endSuffix = lastDay === "AM_ONLY" ? " (AM only)" : "";
-    return `from ${startDate}${startSuffix} to ${endDate}${endSuffix}`;
+    return describeSpan({
+      start_date: startDate,
+      end_date: endDate,
+      period: "BOTH",
+      half_start: firstDay === "PM_ONLY",
+      half_end: lastDay === "AM_ONLY",
+    });
   }
 
   async function submitAdd(doctorId: number, plan: LeaveSegment[]) {
@@ -261,11 +290,42 @@ export function LeavePage() {
     }
   }
 
-  function handleDeleteRow(id: number) {
-    deleteLeave.mutate(id);
+  async function handleDeleteBlock(block: LeaveBlock) {
+    setTableError(null);
+    const doctorCode = doctorsById.get(block.doctor_id)?.code ?? block.doctor_id;
+    const confirmed = window.confirm(
+      `Remove all leave for ${doctorCode} ${describeSpan(block)}? This cannot be undone from here.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      await bulkDeleteLeave.mutateAsync({
+        doctor_id: block.doctor_id,
+        start_date: block.start_date,
+        end_date: block.end_date,
+        period: block.period,
+      });
+    } catch (err) {
+      setTableError(errorDetail(err, "Could not remove leave."));
+    }
   }
 
   const pending = bulkCreateLeave.isPending || bulkDeleteLeave.isPending;
+
+  const blocks = collapseLeaveEntries(entries ?? []).sort((a, b) => {
+    const doctorA = doctorsById.get(a.doctor_id);
+    const doctorB = doctorsById.get(b.doctor_id);
+    if (doctorA && doctorB) {
+      const typeDiff = compareDoctorDisplayOrder(
+        { type: doctorA.doctor_type, code: doctorA.code },
+        { type: doctorB.doctor_type, code: doctorB.code },
+      );
+      if (typeDiff !== 0) return typeDiff;
+    } else if (a.doctor_id !== b.doctor_id) {
+      return a.doctor_id - b.doctor_id;
+    }
+    return a.start_date.localeCompare(b.start_date);
+  });
 
   return (
     <div>
@@ -462,6 +522,7 @@ export function LeavePage() {
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load leave entries.</p> : null}
+      {tableError ? <p className="mt-4 text-sm text-red-700">{tableError}</p> : null}
 
       {entries && entries.length === 0 ? <p className="mt-4 text-sm text-ink/50">No leave entries.</p> : null}
 
@@ -476,13 +537,24 @@ export function LeavePage() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id} className="border-t border-border">
-                <td className="py-1 pr-4">{formatDateWithDay(entry.date)}</td>
-                <td className="py-1 pr-4">{doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}</td>
-                <td className="py-1 pr-4">{entry.period}</td>
+            {blocks.map((block) => (
+              <tr
+                key={`${block.doctor_id}-${block.start_date}-${block.end_date}-${block.period}`}
+                className="border-t border-border"
+              >
+                <td className="py-1 pr-4">
+                  {block.start_date === block.end_date
+                    ? formatDateWithDay(block.start_date)
+                    : `${formatDateWithDay(block.start_date)}${block.half_start ? " (PM only)" : ""} to ${formatDateWithDay(block.end_date)}${block.half_end ? " (AM only)" : ""}`}
+                </td>
+                <td className="py-1 pr-4">{doctorsById.get(block.doctor_id)?.code ?? block.doctor_id}</td>
+                <td className="py-1 pr-4">{block.period === "BOTH" ? "Full day" : block.period}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => handleDeleteRow(entry.id)} className="text-xs text-red-700">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBlock(block)}
+                    className="text-xs text-red-700"
+                  >
                     Delete
                   </button>
                 </td>
