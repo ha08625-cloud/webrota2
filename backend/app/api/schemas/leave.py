@@ -39,7 +39,11 @@ class LeaveBulkIn(BaseModel):
 class LeaveBulkSkippedOut(BaseModel):
     date: datetime.date
     period: Period
-    reason: Literal["weekend", "duplicate"]
+    # "outside_doctor_dates" is the employment-window skip (annual leave
+    # planning, Task 1). Bulk reports it rather than 422ing the whole call,
+    # unlike the single-entry POST -- one stale date must not fail a
+    # many-date save.
+    reason: Literal["weekend", "duplicate", "outside_doctor_dates"]
 
 
 class LeaveBulkOut(BaseModel):

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...doctor_window import is_within_window, window_error_detail
 from ...models import Doctor, ExtraSessionEntry, LeaveEntry
 from ..deps import get_current_user, get_db
 from ..schemas import ExtraSessionIn, ExtraSessionOut
@@ -70,6 +71,15 @@ def create_extra_session(
                 f"{payload.date.isoformat()} is a weekend; extra sessions "
                 "can only be planned on weekdays"
             ),
+        )
+
+    # Outside the doctor's employment window (annual leave planning, Design
+    # Decision 8): 422 here, since a single-entry POST has nothing to
+    # partially succeed at. Ordered after the weekend check so a date that
+    # is both reports the more specific fact, matching /leave/bulk.
+    if not is_within_window(doctor, payload.date):
+        raise HTTPException(
+            status_code=422, detail=window_error_detail(doctor, payload.date)
         )
 
     on_leave = db.execute(

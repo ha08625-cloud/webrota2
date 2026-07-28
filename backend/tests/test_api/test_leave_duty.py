@@ -6,6 +6,114 @@ from app.models.enums import DutyType, Period
 
 # ... (existing TestLeave and TestLeaveBulk classes)
 
+MONDAY = datetime.date(2026, 1, 5)
+WEDNESDAY = datetime.date(2026, 1, 7)
+SUNDAY = datetime.date(2026, 1, 11)
+
+
+class TestLeaveDoctorWindow:
+    """Employment window enforcement on the leave entry endpoints (annual
+    leave planning, Task 1, Design Decision 8): the single-entry POST 422s,
+    the bulk POST reports a skip and still inserts the rest."""
+
+    def _set_window(self, client, doctor_id, **dates):
+        resp = client.patch(f"/api/v1/doctors/{doctor_id}", json={
+            k: v.isoformat() for k, v in dates.items()
+        })
+        assert resp.status_code == 200, resp.text
+
+    def test_create_before_start_date_422(self, client, seeded):
+        self._set_window(client, seeded["doctor_aa"], start_date=WEDNESDAY)
+        resp = client.post("/api/v1/leave", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": MONDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "AA" in detail and "does not work" in detail
+
+    def test_create_after_end_date_422(self, client, seeded):
+        self._set_window(client, seeded["doctor_aa"], end_date=MONDAY)
+        resp = client.post("/api/v1/leave", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": WEDNESDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 422
+        assert "does not work" in resp.json()["detail"]
+
+    def test_create_inside_window_201(self, client, seeded):
+        self._set_window(
+            client, seeded["doctor_aa"], start_date=MONDAY, end_date=SUNDAY
+        )
+        resp = client.post("/api/v1/leave", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": WEDNESDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_create_unbounded_window_unaffected(self, client, seeded):
+        """Both nulls -- every existing row -- must behave exactly as
+        before the window existed."""
+        resp = client.post("/api/v1/leave", json={
+            "doctor_id": seeded["doctor_aa"],
+            "date": MONDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 201, resp.text
+
+    def test_bulk_skips_out_of_window_and_inserts_the_rest(self, client, seeded):
+        """A range straddling the start date: the in-window portion is
+        inserted, the out-of-window portion is reported rather than
+        failing the call."""
+        self._set_window(client, seeded["doctor_aa"], start_date=WEDNESDAY)
+        resp = client.post("/api/v1/leave/bulk", json={
+            "doctor_id": seeded["doctor_aa"],
+            "start_date": MONDAY.isoformat(),
+            "end_date": SUNDAY.isoformat(),
+            "period": "BOTH",
+        })
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+        created_dates = {c["date"] for c in body["created"]}
+        assert created_dates == {"2026-01-07", "2026-01-08", "2026-01-09"}
+        assert len(body["created"]) == 6  # AM + PM for each
+
+        by_reason: dict[str, set[str]] = {}
+        for s in body["skipped"]:
+            by_reason.setdefault(s["reason"], set()).add(s["date"])
+        assert by_reason["outside_doctor_dates"] == {"2026-01-05", "2026-01-06"}
+        assert by_reason["weekend"] == {"2026-01-10", "2026-01-11"}
+
+    def test_bulk_weekend_reason_wins_over_window(self, client, seeded):
+        """A weekend date that is also out of window reports "weekend" --
+        the existing check runs first and is the more specific fact."""
+        self._set_window(client, seeded["doctor_aa"], end_date=MONDAY)
+        resp = client.post("/api/v1/leave/bulk", json={
+            "doctor_id": seeded["doctor_aa"],
+            "start_date": SUNDAY.isoformat(),
+            "end_date": SUNDAY.isoformat(),
+            "period": "AM",
+        })
+        assert resp.status_code == 200, resp.text
+        assert [s["reason"] for s in resp.json()["skipped"]] == ["weekend"]
+
+    def test_bulk_entirely_out_of_window_creates_nothing(self, client, seeded):
+        self._set_window(client, seeded["doctor_aa"], start_date=SUNDAY)
+        body = client.post("/api/v1/leave/bulk", json={
+            "doctor_id": seeded["doctor_aa"],
+            "start_date": MONDAY.isoformat(),
+            "end_date": WEDNESDAY.isoformat(),
+            "period": "AM",
+        }).json()
+        assert body["created"] == []
+        assert {s["reason"] for s in body["skipped"]} == {"outside_doctor_dates"}
+        assert client.get("/api/v1/leave").json() == []
+
+
 class TestDuty:
     # ... (existing test_create_list_delete and test_duplicate_slot_409)
 

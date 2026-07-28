@@ -10,6 +10,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ...doctor_window import is_within_window, window_error_detail
 from ...engine.generate import get_active_draft
 from ...engine.week_map import build_date_to_genslot, build_week_dates
 from ...models import Doctor, ExtraSessionEntry, LeaveEntry, RotaSession
@@ -103,9 +104,14 @@ def create_leave(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> LeaveEntry:
-    if db.get(Doctor, payload.doctor_id) is None:
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
         raise HTTPException(
             status_code=404, detail=f"Doctor {payload.doctor_id} not found"
+        )
+    if not is_within_window(doctor, payload.date):
+        raise HTTPException(
+            status_code=422, detail=window_error_detail(doctor, payload.date)
         )
     entry = LeaveEntry(
         doctor_id=payload.doctor_id, date=payload.date, period=payload.period
@@ -146,8 +152,16 @@ def create_leave_bulk(
     Any planned extra session covered by this range is reported in
     `superseded_extra_sessions` - never deleted, never blocked (extra
     sessions plan, Design Decision 7).
+
+    Dates outside the doctor's employment window are reported as
+    "outside_doctor_dates" skips rather than 422ing the call (annual leave
+    planning, Design Decision 8) - one out-of-window date at the end of a
+    long range must not fail the whole request. The weekend check runs
+    first, so a date that is both reports "weekend", the more specific
+    fact.
     """
-    if db.get(Doctor, payload.doctor_id) is None:
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
         raise HTTPException(
             status_code=404, detail=f"Doctor {payload.doctor_id} not found"
         )
@@ -158,13 +172,18 @@ def create_leave_bulk(
 
     for day in _date_range(payload.start_date, payload.end_date):
         if day.weekday() > _WEEKDAY_MAX:
-            for period in periods:
-                skipped.append(
-                    LeaveBulkSkippedOut(date=day, period=period, reason="weekend")
-                )
+            reason = "weekend"
+        elif not is_within_window(doctor, day):
+            reason = "outside_doctor_dates"
         else:
-            for period in periods:
+            reason = None
+        for period in periods:
+            if reason is None:
                 candidates.append((day, period))
+            else:
+                skipped.append(
+                    LeaveBulkSkippedOut(date=day, period=period, reason=reason)
+                )
 
     existing: set[tuple[datetime.date, Period]] = set()
     if candidates:
@@ -202,11 +221,13 @@ def create_leave_bulk(
     # should see what it superseded (extra sessions plan, Design
     # Decision 7). Queried by date range over the whole candidate set,
     # duplicates included, same shape as the `existing` duplicate check
-    # above - an extra session can never fall on a weekend (create-time
-    # 422s that), so this is equivalent to filtering by the exact
-    # candidate pairs.
+    # above, then intersected with the candidate pairs in Python: the
+    # range alone is no longer equivalent now that out-of-window dates are
+    # dropped from the candidate list, and no leave was written on those,
+    # so nothing there was superseded.
     superseded: list[ExtraSessionEntry] = []
     if candidates:
+        candidate_set = set(candidates)
         superseded_stmt = (
             select(ExtraSessionEntry)
             .where(ExtraSessionEntry.doctor_id == payload.doctor_id)
@@ -214,7 +235,11 @@ def create_leave_bulk(
             .where(ExtraSessionEntry.date <= payload.end_date)
             .where(ExtraSessionEntry.period.in_(periods))
         )
-        superseded = db.execute(superseded_stmt).scalars().all()
+        superseded = [
+            e
+            for e in db.execute(superseded_stmt).scalars().all()
+            if (e.date, e.period) in candidate_set
+        ]
 
     try:
         db.commit()

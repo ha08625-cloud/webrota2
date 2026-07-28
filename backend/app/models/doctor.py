@@ -1,9 +1,11 @@
 """Doctor and DoctorPreferredRoom models."""
+import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     ForeignKey,
     Integer,
     Numeric,
@@ -31,6 +33,14 @@ class Doctor(Base):
         nullable=False,
         default=SupervisionPreference.NORMAL,
     )
+    # Employment window: the doctor works only on dates within it. Null at
+    # either end means unbounded, which is every pre-existing row and the
+    # default for a new one. Deliberately NOT a check constraint on the
+    # ordering -- the pair is validated at the API boundary (same place the
+    # room XOR is also enforced), so a PATCH that sets one end before the
+    # other stays workable.
+    start_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
 
     preferred_rooms: Mapped[list["DoctorPreferredRoom"]] = relationship(
         back_populates="doctor",
