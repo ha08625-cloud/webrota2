@@ -4,6 +4,7 @@ import { useAbandonStaging, useActiveStaging, useCompleteStaging } from "@/api/s
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { StagingGrid } from "@/components/StagingGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
+import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { formatDate } from "@/lib/date";
 
 /**
@@ -37,6 +38,11 @@ export function StagingPage() {
       </div>
     );
   }
+
+  const closedSlotSet = toClosedSlotSet(staging.closed_slots);
+  const fullyClosedDates = [...new Set(staging.closed_slots.map((s) => s.date))].filter((date) =>
+    isDayFullyClosed(closedSlotSet, date),
+  );
 
   function handleComplete() {
     if (!staging) return;
@@ -95,7 +101,7 @@ export function StagingPage() {
           stagingId={staging.staging_id}
           startDate={staging.start_date}
           numWeeks={staging.num_weeks}
-          closedDates={staging.closed_dates}
+          closedDates={fullyClosedDates}
           onToast={showToast}
         />
       </div>

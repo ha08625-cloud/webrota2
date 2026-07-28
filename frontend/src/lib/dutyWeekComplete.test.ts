@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isDutyWeekComplete } from './dutyWeekComplete';
-import { makeClosure, makeDutyAssignment } from '../test/fixtures/reference';
+import { makeDutyAssignment, makeFullDayClosure } from '../test/fixtures/reference';
 
 describe('isDutyWeekComplete', () => {
   const MONDAY = '2026-01-05';
@@ -74,14 +74,14 @@ describe('isDutyWeekComplete', () => {
       makeDutyAssignment({ date: '2026-01-09', period: 'AM', duty_type: 'primary' }),
       makeDutyAssignment({ date: '2026-01-09', period: 'PM', duty_type: 'primary' }),
     ];
-    const closures = [makeClosure({ date: MONDAY })];
+    const closures = makeFullDayClosure({ date: MONDAY });
 
     expect(isDutyWeekComplete(MONDAY, assignments, closures)).toBe(true);
   });
 
   it('a fully closed week is complete with zero assignments', () => {
-    const closures = ['2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08', '2026-01-09'].map((date) =>
-      makeClosure({ date }),
+    const closures = ['2026-01-05', '2026-01-06', '2026-01-07', '2026-01-08', '2026-01-09'].flatMap((date) =>
+      makeFullDayClosure({ date }),
     );
     expect(isDutyWeekComplete(MONDAY, [], closures)).toBe(true);
   });

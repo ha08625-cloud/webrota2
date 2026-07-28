@@ -18,6 +18,7 @@ import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/ty
 import { addDays, DUTY_PERIOD_WEEKS, formatWeekLabel, getYearRange } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
+import { isSlotClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
 import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
@@ -257,6 +258,7 @@ interface DutyWeekTableProps {
 
 function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRemove }: DutyWeekTableProps) {
   const columns = useMemo(() => buildColumns(weekStartDate, closures), [weekStartDate, closures]);
+  const closedSet = useMemo(() => toClosedSlotSet(closures), [closures]);
   const complete = useMemo(
     () => isDutyWeekComplete(weekStartDate, assignments, closures),
     [weekStartDate, assignments, closures],
@@ -285,18 +287,18 @@ function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRe
             key={col.key}
             data-testid={`duty-column-header-${col.date}`}
             className={`px-2 py-1 text-center font-medium ${
-              col.closed ? "bg-gray-200 text-ink/40" : "bg-background text-ink/70"
+              col.fullyClosed ? "bg-gray-200 text-ink/40" : "bg-background text-ink/70"
             }`}
           >
             {col.label}
-            {col.closed ? <div className="text-[10px] font-normal">closed</div> : null}
+            {col.fullyClosed ? <div className="text-[10px] font-normal">closed</div> : null}
           </div>
         ))}
         {PERIODS.map((period) => (
           <Fragment key={period}>
             <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
             {columns.map((col) => {
-              if (col.closed) {
+              if (col.fullyClosed || isSlotClosed(closedSet, col.date, period)) {
                 return (
                   <div
                     key={col.key}

@@ -392,21 +392,32 @@ export interface DutyCount {
   raw_count: number;
 }
 
-// --- Practice closures (schemas/closure.py, M5 bank-holiday weeks) ---
+// --- Practice closures (schemas/closure.py, half-day practice closures plan) ---
 // Global planning data, independent of any generated rota - see
-// backend_app_models_closure.py. A rota's own closed_dates (Rota.closed_dates,
-// added in M5 Task 5) is a separate, per-rota snapshot taken at generation
-// time, not derived from this list at read time.
+// backend_app_models_closure.py. A rota's own closed_slots (Rota.closed_slots,
+// added in M5 Task 5, made period-granular by the half-day closures plan) is
+// a separate, per-rota snapshot taken at generation time, not derived from
+// this list at read time. Closures are per (date, period) slots - a "full
+// day" closure is two rows sharing a date, not a distinct value on `period`.
 
 export interface Closure {
   id: number;
   date: string;
+  period: Period;
   name: string | null;
 }
 
 export interface ClosureIn {
   date: string;
+  period: Period;
   name?: string | null;
+}
+
+/** A single closed (date, period) slot, as reported on `Rota`/`Staging` -
+ * the wire shape of ClosedSlotOut (schemas/closure.py). */
+export interface ClosedSlot {
+  date: string;
+  period: Period;
 }
 
 // --- Recurring notes (schemas/recurring_note.py, recurring notes plan Task 4) ---
@@ -528,12 +539,13 @@ export interface Rota {
   template_start_week: number;
   sessions: RotaSession[];
   /**
-   * M5: closed dates snapshotted at generation time (RotaClosure, not the
+   * M5: closed slots snapshotted at generation time (RotaClosure, not the
    * live PracticeClosure table) - deleting or adding a closure afterwards
    * does not change what this rota reports. Empty for a rota generated
-   * with no closures in range.
+   * with no closures in range. Period-granular since the half-day closures
+   * plan - a full-day closure appears as two entries sharing a date.
    */
-  closed_dates: string[];
+  closed_slots: ClosedSlot[];
   /**
    * M3.7 addition. Null for a draft, including one produced by rolling
    * back a commit, and also null for a committed rota that predates
@@ -676,9 +688,9 @@ export interface StagingSession {
 /**
  * GET /staging/active and the response of every staging write endpoint's
  * underlying staging. completed_at null means active; set means
- * completed (staging plan, Design Decision 2). closed_dates is live
+ * completed (staging plan, Design Decision 2). closed_slots is live
  * PracticeClosure data in the create-to-complete range, not a snapshot
- * (Design Decision 10).
+ * (Design Decision 10), period-granular since the half-day closures plan.
  */
 export interface Staging {
   staging_id: number;
@@ -687,7 +699,7 @@ export interface Staging {
   num_weeks: number;
   created_at: string;
   completed_at: string | null;
-  closed_dates: string[];
+  closed_slots: ClosedSlot[];
   sessions: StagingSession[];
 }
 

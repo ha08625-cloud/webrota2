@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import { useRota } from "@/api/rota";
-import type { Rota } from "@/api/types";
+import type { ClosedSlot, Rota } from "@/api/types";
 import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -14,6 +14,16 @@ import { server } from "@/test/msw/server";
 import type { UndoEntry } from "@/lib/undoStack";
 
 import { RotaGrid } from "./RotaGrid";
+
+/** Full-day closed slots (both AM and PM) for the given dates - RotaGrid's
+ * header-greying only reacts to a fully closed day (see closedDatesSet in
+ * RotaGrid.tsx). */
+function fullDaySlots(dates: string[]): ClosedSlot[] {
+  return dates.flatMap((date) => [
+    { date, period: "AM" as const },
+    { date, period: "PM" as const },
+  ]);
+}
 
 /**
  * RotaGrid takes activeWeek/onWeekChange as controlled props (Task 2) -
@@ -511,9 +521,9 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
 describe("RotaGrid closures (M5)", () => {
   it("greys out and labels a closed day's header", async () => {
     setUpServer();
-    // rota.start_date "2026-07-06" is a Monday; closed_dates is the
+    // rota.start_date "2026-07-06" is a Monday; closed_slots is the
     // RotaClosure snapshot, independent of the live closures API.
-    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
 
     renderRotaGrid({ rota });
 
@@ -525,7 +535,7 @@ describe("RotaGrid closures (M5)", () => {
 
   it("shows the closure's name in the header when the live closures list has a match", async () => {
     setUpServer({ closures: [makeClosure({ date: "2026-07-06", name: "Bank Holiday" })] });
-    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
 
     renderRotaGrid({ rota });
 
@@ -535,7 +545,7 @@ describe("RotaGrid closures (M5)", () => {
 
   it("falls back to a generic label when no matching closure name is available", async () => {
     setUpServer({ closures: [] });
-    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
 
     renderRotaGrid({ rota });
 
@@ -545,7 +555,7 @@ describe("RotaGrid closures (M5)", () => {
 
   it("a closed day's cells render as inert (no session), same as any other absent cell", async () => {
     setUpServer();
-    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: ["2026-07-06"] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
 
     renderRotaGrid({ rota });
     await screen.findByTestId("day-header-Monday");
@@ -556,7 +566,7 @@ describe("RotaGrid closures (M5)", () => {
   it("only the week actually containing the closed date is affected", async () => {
     setUpServer();
     // Week 1 Monday is 2026-07-06; week 2 Monday is 2026-07-13.
-    const rota = makeRota({ num_weeks: 2, sessions: [], closed_dates: ["2026-07-06"] });
+    const rota = makeRota({ num_weeks: 2, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
 
     renderRotaGrid({ rota });
     await screen.findByTestId("day-header-Monday");
@@ -568,9 +578,9 @@ describe("RotaGrid closures (M5)", () => {
     expect(mondayHeader.textContent).not.toContain("closed");
   });
 
-  it("with no closed_dates, no header is greyed", async () => {
+  it("with no closed_slots, no header is greyed", async () => {
     setUpServer();
-    const rota = makeRota({ num_weeks: 1, sessions: [], closed_dates: [] });
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: [] });
 
     renderRotaGrid({ rota });
 

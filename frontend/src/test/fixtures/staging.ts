@@ -28,7 +28,7 @@ export function makeStaging(overrides: Partial<Staging> = {}): Staging {
     num_weeks: 1,
     created_at: "2026-07-20T00:00:00Z",
     completed_at: null,
-    closed_dates: [],
+    closed_slots: [],
     sessions: [],
     ...overrides,
   };

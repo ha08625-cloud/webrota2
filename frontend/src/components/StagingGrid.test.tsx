@@ -234,7 +234,7 @@ describe("StagingGrid", () => {
           stagingId={data.staging_id}
           startDate={data.start_date}
           numWeeks={data.num_weeks}
-          closedDates={data.closed_dates}
+          closedDates={data.closed_slots.map((s) => s.date)}
           onToast={noop}
         />
       );
