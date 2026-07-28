@@ -19,6 +19,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...doctor_window import is_within_window
 from ...models import ClinicCounter, RotaConfig, SystemCounter
 from ...models.enums import Day, MasterSessionType, Period
 from ..datatypes import CounterState, GenerationContext, RotaGrid, SessionSlot
@@ -59,6 +60,15 @@ def _build_grid(context: GenerationContext, config: RotaConfig) -> RotaGrid:
 
                     template_type, template_room_id = entry
                     date_ = context.week_dates[(gen_week, day)]
+                    if not is_within_window(doctor, date_):
+                        # Annual leave planning, Design Decision 7: a doctor
+                        # outside their employment window gets no slot on
+                        # this date. Same "cell absence is data" mechanism
+                        # as the two skips around it, so no downstream phase
+                        # needs a per-slot window check. Independent of
+                        # `active` (see doctor_window's docstring) --
+                        # context.doctors already applies that filter.
+                        continue
                     if (date_, period) in context.closed_slots:
                         # M5: no session on a closed (date, period). Skip the
                         # slot entirely -- cell absence is data (as with a

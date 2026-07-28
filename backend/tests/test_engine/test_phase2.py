@@ -8,6 +8,7 @@ from app.models.enums import Day, MasterSessionType, Period, SystemCounterType
 from .factories import (
     make_clinic_counter,
     make_clinic_type,
+    make_closure,
     make_doctor,
     make_leave,
     make_master_session,
@@ -58,6 +59,108 @@ class TestGridCoverage:
         assert len(grid.slots) == 1
         assert grid.get(d.id, 1, Day.MONDAY, Period.AM) is not None
         assert grid.get(d.id, 1, Day.MONDAY, Period.PM) is None
+
+
+class TestDoctorDateWindow:
+    """Employment window enforcement in _build_grid (annual leave planning,
+    Task 2, Design Decision 7): an out-of-window (doctor, date) gets no slot
+    at all, the same "cell absence is data" mechanism as a missing template
+    row or a closed slot."""
+
+    def _one_week_grid(self, session, monday, doctor):
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        ctx = load_context(session, config)
+        grid, _counters = run_phase2(ctx, config, session)
+        return grid
+
+    def test_null_window_is_unchanged(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert len(grid.slots) == 5 * 2
+
+    def test_start_date_after_range_produces_no_slots(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(
+            session, code="AA", start_date=monday + datetime.timedelta(days=7)
+        )
+        _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert grid.slots == {}
+
+    def test_start_date_mid_range_produces_slots_from_that_date_on(
+        self, session, monday
+    ):
+        t = make_template(session, is_active=True)
+        wednesday = monday + datetime.timedelta(days=2)
+        d = make_doctor(session, code="AA", start_date=wednesday)
+        _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert grid.get(d.id, 1, Day.TUESDAY, Period.PM) is None
+        assert grid.get(d.id, 1, Day.WEDNESDAY, Period.AM) is not None
+        assert grid.get(d.id, 1, Day.FRIDAY, Period.PM) is not None
+        assert len(grid.slots) == 3 * 2  # Wed, Thu, Fri
+
+    def test_end_date_mid_range_produces_slots_up_to_that_date(self, session, monday):
+        t = make_template(session, is_active=True)
+        tuesday = monday + datetime.timedelta(days=1)
+        d = make_doctor(session, code="AA", end_date=tuesday)
+        _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert grid.get(d.id, 1, Day.TUESDAY, Period.PM) is not None
+        assert grid.get(d.id, 1, Day.WEDNESDAY, Period.AM) is None
+        assert len(grid.slots) == 2 * 2  # Mon, Tue
+
+    def test_window_boundaries_are_inclusive(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA", start_date=monday, end_date=monday)
+        _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert grid.get(d.id, 1, Day.MONDAY, Period.AM) is not None
+        assert grid.get(d.id, 1, Day.MONDAY, Period.PM) is not None
+        assert grid.get(d.id, 1, Day.TUESDAY, Period.AM) is None
+
+    def test_window_applies_per_doctor(self, session, monday):
+        t = make_template(session, is_active=True)
+        leaver = make_doctor(session, code="AA", end_date=monday)
+        stayer = make_doctor(session, code="BB")
+        for d in (leaver, stayer):
+            _fill_template_week(session, t, d, week=1)
+
+        grid = self._one_week_grid(session, monday, leaver)
+
+        assert grid.get(leaver.id, 1, Day.FRIDAY, Period.AM) is None
+        assert grid.get(stayer.id, 1, Day.FRIDAY, Period.AM) is not None
+
+    def test_window_composes_with_closure_rather_than_overriding_it(
+        self, session, monday
+    ):
+        t = make_template(session, is_active=True)
+        wednesday = monday + datetime.timedelta(days=2)
+        d = make_doctor(session, code="AA", start_date=wednesday)
+        _fill_template_week(session, t, d, week=1)
+        # Thursday AM closed: in window, but still no slot.
+        make_closure(
+            session, monday + datetime.timedelta(days=3), period=Period.AM
+        )
+
+        grid = self._one_week_grid(session, monday, d)
+
+        assert grid.get(d.id, 1, Day.THURSDAY, Period.AM) is None  # closed
+        assert grid.get(d.id, 1, Day.THURSDAY, Period.PM) is not None  # open, in window
+        assert grid.get(d.id, 1, Day.TUESDAY, Period.AM) is None  # out of window
+        assert len(grid.slots) == 3 * 2 - 1  # Wed/Thu/Fri, less the closed Thu AM
 
 
 class TestIsOnLeave:

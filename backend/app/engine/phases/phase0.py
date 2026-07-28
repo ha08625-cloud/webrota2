@@ -6,6 +6,7 @@ returns any `severity="error"` issue, `generate()` stops immediately: no
 """
 from __future__ import annotations
 
+from ...doctor_window import is_within_window
 from ...models import RotaConfig
 from ...models.enums import MasterSessionType
 from ..datatypes import GenerationContext, ValidationIssue
@@ -25,6 +26,7 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_duty_on_incompatible_template_slot(context, config))
     issues.extend(_check_template_doctors_active(context))
     issues.extend(_check_duty_on_closed_date(context))
+    issues.extend(_check_duty_within_doctor_dates(context))
 
     return issues
 
@@ -201,6 +203,42 @@ def _check_duty_on_closed_date(context: GenerationContext) -> list[ValidationIss
             message=(
                 f"Duty doctor {code} ({duty_type.value}) is assigned on "
                 f"{date_.isoformat()} {period.value}, which is a closed slot."
+            ),
+        ))
+    return issues
+
+
+def _check_duty_within_doctor_dates(context: GenerationContext) -> list[ValidationIssue]:
+    """Error if a pre-planned duty falls outside the doctor's employment
+    window (annual leave planning, Design Decision 7).
+
+    Same tier as duty-on-leave and duty-on-closed-date: Phase 2 builds no
+    slot for an out-of-window (doctor, date), so the duty has nothing to
+    attach to. Without this it would degrade to Phase 4's
+    duty_no_session_slot warning and the rota would generate with the duty
+    silently dropped. `POST /duty` rejects this at entry, but a window can
+    be narrowed after a duty assignment already exists.
+
+    Uses `context.doctor_by_id` rather than `context.doctors` for the same
+    reason as _check_template_doctors_active: an inactive doctor must still
+    be reachable here.
+    """
+    issues: list[ValidationIssue] = []
+    for (date_, period, duty_type), doctor_id in sorted(
+        context.duty_map.items(), key=lambda kv: (kv[0][0], kv[0][1].value, kv[0][2].value)
+    ):
+        doctor = context.doctor_by_id.get(doctor_id)
+        if doctor is None or is_within_window(doctor, date_):
+            continue
+        genslot = context.date_to_genslot.get(date_)
+        gen_week, day = genslot if genslot is not None else (None, None)
+        issues.append(ValidationIssue(
+            severity="error", phase=PHASE, check="duty_outside_doctor_dates",
+            week=gen_week, day=day, period=period,
+            message=(
+                f"Duty doctor {doctor.code} ({duty_type.value}) is assigned on "
+                f"{date_.isoformat()} {period.value}, which is outside their "
+                f"employment dates."
             ),
         ))
     return issues
