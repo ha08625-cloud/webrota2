@@ -1,7 +1,7 @@
 import type { ClinicType, Day, Doctor, Period, Room, Rota, RotaSession } from "@/api/types";
 import { formatDate } from "@/lib/date";
 import { cellStyle } from "@/lib/cellStyle";
-import { isDayFullyClosed, toClosedSlotSet } from "@/lib/closedSlots";
+import { isDayFullyClosed, isDayPartlyClosed, isSlotClosed, partlyClosedPeriod, toClosedSlotSet } from "@/lib/closedSlots";
 import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
@@ -236,14 +236,18 @@ function roomCellLines(session: RotaSession): string[] {
 function dayHeaderText(
   day: Day,
   date: string,
-  closedDatesSet: Set<string>,
+  closedSlotSet: Set<string>,
   closureNameByDate: Map<string, string | null>,
 ): string {
   const base = `${day} ${formatDate(date)}`;
-  if (!closedDatesSet.has(date)) {
-    return base;
+  if (isDayFullyClosed(closedSlotSet, date)) {
+    return `${base}\n${closureNameByDate.get(date) ?? "closed"}`;
   }
-  return `${base}\n${closureNameByDate.get(date) ?? "closed"}`;
+  if (isDayPartlyClosed(closedSlotSet, date)) {
+    const period = partlyClosedPeriod(closedSlotSet, date);
+    return `${base}\n${closureNameByDate.get(date) ?? "closed"} (${period})`;
+  }
+  return base;
 }
 
 function toIdMap<T extends { id: number }>(items: T[]): Map<number, T> {
@@ -293,7 +297,7 @@ function buildRoomWeekSheet(
   week: number,
   rota: Rota,
   rooms: Room[],
-  closedDatesSet: Set<string>,
+  closedSlotSet: Set<string>,
   closureNameByDate: Map<string, string | null>,
 ): void {
   const grid: PivotedRoomGrid = pivotRoomRota(rota.sessions, rooms);
@@ -313,9 +317,9 @@ function buildRoomWeekSheet(
   for (const day of DAYS) {
     const date = rotaDate(rota.start_date, week, day);
     const cell = headerRow.getCell(dayColumn(day));
-    cell.value = dayHeaderText(day, date, closedDatesSet, closureNameByDate);
+    cell.value = dayHeaderText(day, date, closedSlotSet, closureNameByDate);
     cell.alignment = CENTERED_WRAPPED;
-    if (closedDatesSet.has(date)) {
+    if (isDayFullyClosed(closedSlotSet, date)) {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
     }
   }
@@ -351,10 +355,10 @@ function buildRoomWeekSheet(
 
     for (const day of DAYS) {
       const date = rotaDate(rota.start_date, week, day);
-      const isClosed = closedDatesSet.has(date);
       const col = dayColumn(day);
 
       for (const period of PERIODS) {
+        const isClosed = isSlotClosed(closedSlotSet, date, period);
         const rowNum = period === "AM" ? amRow : pmRow;
         const cell = sheet.getCell(rowNum, col);
         cell.border = rowBorder(period);
@@ -407,9 +411,6 @@ export async function buildRotaWorkbook(
   const roomsById = toIdMap(rooms);
   const clinicTypesById = toIdMap(clinicTypes);
   const closedSlotSet = toClosedSlotSet(rota.closed_slots);
-  const closedDatesSet = new Set(
-    rota.closed_slots.map((s) => s.date).filter((date) => isDayFullyClosed(closedSlotSet, date)),
-  );
 
   const weeks = weekNumbers(rota.num_weeks);
   const grid: PivotedGrid = pivotRota(rota.sessions, doctors);
@@ -435,9 +436,9 @@ export async function buildRotaWorkbook(
     for (const day of DAYS) {
       const date = rotaDate(rota.start_date, week, day);
       const cell = headerRow.getCell(dayColumn(day));
-      cell.value = dayHeaderText(day, date, closedDatesSet, closureNameByDate);
+      cell.value = dayHeaderText(day, date, closedSlotSet, closureNameByDate);
       cell.alignment = CENTERED_WRAPPED;
-      if (closedDatesSet.has(date)) {
+      if (isDayFullyClosed(closedSlotSet, date)) {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
       }
     }
@@ -473,10 +474,10 @@ export async function buildRotaWorkbook(
 
       for (const day of DAYS) {
         const date = rotaDate(rota.start_date, week, day);
-        const isClosed = closedDatesSet.has(date);
         const col = dayColumn(day);
 
         for (const period of PERIODS) {
+          const isClosed = isSlotClosed(closedSlotSet, date, period);
           const rowNum = period === "AM" ? amRow : pmRow;
           const cell = sheet.getCell(rowNum, col);
           const session = getCell(grid, row.doctor.id, week, day, period);
@@ -519,7 +520,7 @@ export async function buildRotaWorkbook(
     });
 
     const roomSheet = workbook.addWorksheet(`Room Week ${week}`);
-    buildRoomWeekSheet(roomSheet, week, rota, rooms, closedDatesSet, closureNameByDate);
+    buildRoomWeekSheet(roomSheet, week, rota, rooms, closedSlotSet, closureNameByDate);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();

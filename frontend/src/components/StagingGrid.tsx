@@ -3,8 +3,9 @@ import { useMemo, useState } from "react";
 import { useCreateStagingSession, useDeleteStagingSession, useUpdateStagingSession } from "@/api/staging";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
-import type { Day, MasterSessionType, Period, StagingSession } from "@/api/types";
+import type { ClosedSlot, Day, MasterSessionType, Period, StagingSession } from "@/api/types";
 import { MasterCellEditPopover } from "@/components/MasterCellEditPopover";
+import { isDayFullyClosed, isDayPartlyClosed, isSlotClosed, partlyClosedPeriod, toClosedSlotSet } from "@/lib/closedSlots";
 import { DAYS, PERIODS } from "@/lib/pivot";
 import { getStagingCell, pivotStaging } from "@/lib/pivotStaging";
 import { rotaDate } from "@/lib/weekDates";
@@ -14,12 +15,12 @@ interface StagingGridProps {
   stagingId: number;
   startDate: string;
   numWeeks: number;
-  /** Live PracticeClosure dates in the staging's range (staging plan,
-   * Design Decision 10 - not a snapshot). Greys the day header only;
-   * rows on a closed date are still copied and editable, matching the
-   * master template's own "closure is a generation-time concern, not an
-   * edit-time one" stance. */
-  closedDates: string[];
+  /** Live PracticeClosure (date, period) slots in the staging's range
+   * (staging plan, Design Decision 10 - not a snapshot). Greys the day
+   * header and, per Task 5, the closed period's own cells - the staging
+   * grid is the pre-generation preview of RotaGrid, so it gets the same
+   * per-cell closed treatment rather than staying editable underneath. */
+  closedSlots: ClosedSlot[];
   onToast: (message: string) => void;
 }
 
@@ -53,7 +54,7 @@ interface StagingGridProps {
  * props/callbacks) and StagingSession is a structural superset of
  * MasterRotaSession, so it is accepted here with no adaptation.
  */
-export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedDates, onToast }: StagingGridProps) {
+export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedSlots, onToast }: StagingGridProps) {
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const updateSession = useUpdateStagingSession();
@@ -64,7 +65,7 @@ export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedDa
   const grid = useMemo(() => pivotStaging(sessions, doctors ?? [], numWeeks), [sessions, doctors, numWeeks]);
   const [activeWeek, setActiveWeek] = useState(grid.weeks[0] ?? 1);
 
-  const closedDatesSet = useMemo(() => new Set(closedDates), [closedDates]);
+  const closedSlotSet = useMemo(() => toClosedSlotSet(closedSlots), [closedSlots]);
 
   if (doctorsLoading || roomsLoading) {
     return <p className="text-sm text-ink/70">Loading grid...</p>;
@@ -131,18 +132,21 @@ export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedDa
               </th>
               {DAYS.map((day, dayIndex) => {
                 const date = rotaDate(startDate, activeWeek, day);
-                const closed = closedDatesSet.has(date);
+                const fullyClosed = isDayFullyClosed(closedSlotSet, date);
+                const partlyClosed = isDayPartlyClosed(closedSlotSet, date);
+                const closedPeriod = partlyClosedPeriod(closedSlotSet, date);
                 return (
                   <th
                     key={day}
                     data-testid={`staging-day-header-${day}`}
                     className={`border-b-2 border-ink/40 px-2 py-1 text-center font-medium ${
-                      closed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                      fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
                     } ${dayIndex === DAYS.length - 1 ? "" : "border-r-2"}`}
                   >
                     {day}
                     <div className="text-[10px] font-normal">{date}</div>
-                    {closed ? <div className="text-[10px] font-normal">closed</div> : null}
+                    {fullyClosed ? <div className="text-[10px] font-normal">closed</div> : null}
+                    {partlyClosed ? <div className="text-[10px] font-normal">{`closed (${closedPeriod})`}</div> : null}
                   </th>
                 );
               })}
@@ -173,7 +177,18 @@ export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedDa
                     </td>
                     {DAYS.map((day, dayIndex) => {
                       const session = getStagingCell(grid, doctor.id, activeWeek, day, period);
+                      const date = rotaDate(startDate, activeWeek, day);
+                      const closed = isSlotClosed(closedSlotSet, date, period);
                       const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
+                      if (closed) {
+                        return (
+                          <td
+                            key={day}
+                            className={`border border-border bg-gray-200 px-2 py-1 text-center ${dividerClassName}`}
+                            data-testid={`staging-cell-${doctor.id}-${activeWeek}-${day}-${period}`}
+                          />
+                        );
+                      }
                       return (
                         <td
                           key={day}

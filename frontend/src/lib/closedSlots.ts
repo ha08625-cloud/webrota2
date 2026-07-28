@@ -33,3 +33,14 @@ export function isDayFullyClosed(set: Set<string>, date: string): boolean {
 export function isDayPartlyClosed(set: Set<string>, date: string): boolean {
   return isSlotClosed(set, date, "AM") !== isSlotClosed(set, date, "PM");
 }
+
+/**
+ * The single closed period for a partly-closed date, for the qualified
+ * header label ("Training (PM)"). Only meaningful when
+ * isDayPartlyClosed(set, date) is true - returns null otherwise (nothing
+ * closed, or fully closed, where the header uses the unqualified label).
+ */
+export function partlyClosedPeriod(set: Set<string>, date: string): Period | null {
+  if (!isDayPartlyClosed(set, date)) return null;
+  return isSlotClosed(set, date, "AM") ? "AM" : "PM";
+}

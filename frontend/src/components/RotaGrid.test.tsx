@@ -587,4 +587,48 @@ describe("RotaGrid closures (M5)", () => {
     const mondayHeader = await screen.findByTestId("day-header-Monday");
     expect(mondayHeader.textContent).not.toContain("closed");
   });
+
+  it("a PM-only closure leaves the header ungreyed with a qualified label, and greys only the PM cell", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({
+      num_weeks: 1,
+      sessions: [session],
+      closed_slots: [{ date: "2026-07-06", period: "PM" }],
+    });
+
+    renderRotaGrid({ rota });
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.className).not.toContain("bg-gray-200");
+    expect(mondayHeader.textContent).toContain("closed (PM)");
+
+    const amCell = await screen.findByTestId("cell-1-1-Monday-AM");
+    expect(amCell.className).not.toContain("bg-gray-200");
+    expect(within(amCell).getByText("Duty")).toBeInTheDocument();
+
+    expect(screen.queryByTestId("cell-1-1-Monday-PM")).not.toBeInTheDocument();
+    const pmCell = document.querySelector('[data-week-day-period="1-Monday-PM"]');
+    expect(pmCell?.className).toContain("bg-gray-200");
+  });
+
+  it("a full-day closure still renders exactly as before (regression guard)", async () => {
+    setUpServer();
+    const rota = makeRota({ num_weeks: 1, sessions: [], closed_slots: fullDaySlots(["2026-07-06"]) });
+
+    renderRotaGrid({ rota });
+
+    const mondayHeader = await screen.findByTestId("day-header-Monday");
+    expect(mondayHeader.className).toContain("bg-gray-200");
+    expect(mondayHeader.textContent).toContain("closed");
+    expect(mondayHeader.textContent).not.toContain("(AM)");
+    expect(mondayHeader.textContent).not.toContain("(PM)");
+  });
 });
