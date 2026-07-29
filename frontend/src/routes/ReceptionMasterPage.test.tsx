@@ -1,0 +1,124 @@
+import { HttpResponse, http } from "msw";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
+
+import { makeReceptionMasterSession, makeReceptionStaff } from "@/test/fixtures/reception";
+import { renderWithProviders } from "@/test/renderWithProviders";
+import { server } from "@/test/msw/server";
+
+import { ReceptionMasterPage } from "./ReceptionMasterPage";
+
+function setUpServer({
+  staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })],
+  sessions = [] as ReturnType<typeof makeReceptionMasterSession>[],
+} = {}) {
+  server.use(
+    http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
+    http.get("/api/v1/reception/master", () => HttpResponse.json(sessions)),
+  );
+}
+
+describe("ReceptionMasterPage", () => {
+  it("defaults to Monday and shows only that day's sessions", async () => {
+    setUpServer({
+      sessions: [
+        makeReceptionMasterSession({ session_id: 1, staff_id: 1, day: "Monday", hour: 9, role: "phones" }),
+        makeReceptionMasterSession({ session_id: 2, staff_id: 1, day: "Tuesday", hour: 9, role: "other" }),
+      ],
+    });
+    renderWithProviders(<ReceptionMasterPage />);
+
+    expect(await screen.findByRole("tab", { name: "Monday", selected: true })).toBeInTheDocument();
+    const cell = await screen.findByTestId("reception-cell-1-9");
+    expect(within(cell).getByText("Phones")).toBeInTheDocument();
+  });
+
+  it("switching the day tab swaps the sessions shown", async () => {
+    setUpServer({
+      sessions: [
+        makeReceptionMasterSession({ session_id: 1, staff_id: 1, day: "Monday", hour: 9, role: "phones" }),
+        makeReceptionMasterSession({ session_id: 2, staff_id: 1, day: "Tuesday", hour: 10, role: "other" }),
+      ],
+    });
+    renderWithProviders(<ReceptionMasterPage />);
+    await screen.findByTestId("reception-cell-1-9");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Tuesday" }));
+
+    expect(
+      within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"),
+    ).toBeInTheDocument();
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Other")).toBeInTheDocument();
+  });
+
+  it("the add affordance POSTs to the master endpoint with the active day", async () => {
+    setUpServer();
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/reception/master/sessions", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(
+          makeReceptionMasterSession({ session_id: 9, staff_id: 1, day: "Monday", hour: 8, role: "phones" }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderWithProviders(<ReceptionMasterPage />);
+    const cell = await screen.findByTestId("reception-cell-1-8");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toEqual({ staff_id: 1, day: "Monday", hour: 8, role: "phones", note: null });
+  });
+
+  it("editing a cell PATCHes the session and the grid reflects the response", async () => {
+    const session = makeReceptionMasterSession({
+      session_id: 5, staff_id: 1, day: "Monday", hour: 9, role: "phones", note: null,
+    });
+    setUpServer({ sessions: [session] });
+    server.use(
+      http.patch("/api/v1/reception/master/sessions/5", () =>
+        HttpResponse.json({ ...session, role: "other", note: "Filing" }),
+      ),
+    );
+
+    renderWithProviders(<ReceptionMasterPage />);
+    const cell = await screen.findByTestId("reception-cell-1-9");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Phones"));
+    await user.click(await screen.findByRole("radio", { name: "Other" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await within(cell).findByText("Filing")).toBeInTheDocument();
+  });
+
+  it("Remove DELETEs the session and the cell reverts to the add affordance", async () => {
+    const session = makeReceptionMasterSession({ session_id: 5, staff_id: 1, day: "Monday", hour: 9 });
+    setUpServer({ sessions: [session] });
+    server.use(
+      http.delete("/api/v1/reception/master/sessions/5", () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderWithProviders(<ReceptionMasterPage />);
+    const cell = await screen.findByTestId("reception-cell-1-9");
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Phones"));
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+    expect(await within(cell).findByLabelText("Add session for AB 09:00-10:00")).toBeInTheDocument();
+  });
+
+  it("shows a load error when the sessions request fails", async () => {
+    server.use(
+      http.get("/api/v1/reception/staff", () => HttpResponse.json([])),
+      http.get("/api/v1/reception/master", () => HttpResponse.json({ detail: "boom" }, { status: 500 })),
+    );
+    renderWithProviders(<ReceptionMasterPage />);
+
+    expect(await screen.findByText("Could not load the master template.")).toBeInTheDocument();
+  });
+});
