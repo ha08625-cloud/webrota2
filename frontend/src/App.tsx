@@ -16,8 +16,8 @@ import { LeavePage } from "@/routes/LeavePage";
 import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionCoverageRulesPage } from "@/routes/ReceptionCoverageRulesPage";
+import { ReceptionDayPage } from "@/routes/ReceptionDayPage";
 import { ReceptionMasterPage } from "@/routes/ReceptionMasterPage";
-import { ReceptionRotaPage } from "@/routes/ReceptionRotaPage";
 import { ReceptionStaffPage } from "@/routes/ReceptionStaffPage";
 import { RecurringNotesPage } from "@/routes/RecurringNotesPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
@@ -183,7 +183,7 @@ function ReceptionShell() {
         </nav>
         <main className="flex-1 p-6">
           <Routes>
-            <Route index element={<ReceptionRotaPage />} />
+            <Route index element={<ReceptionDayPage />} />
             <Route path="master" element={<ReceptionMasterPage />} />
             <Route path="staff" element={<ReceptionStaffPage />} />
             <Route path="coverage-rules" element={<ReceptionCoverageRulesPage />} />
