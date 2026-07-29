@@ -14,6 +14,11 @@ from app.models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
+    ReceptionCoverageRule,
+    ReceptionMasterSession,
+    ReceptionRota,
+    ReceptionRotaSession,
+    ReceptionStaff,
     RecurringNote,
     RecurringNoteDoctor,
     RecurringNoteWeek,
@@ -29,6 +34,7 @@ from app.models.enums import (
     DoctorType,
     MasterSessionType,
     Period,
+    ReceptionRole,
     RoomType,
     RotaStatus,
     Site,
@@ -586,3 +592,116 @@ def test_staging_source_template_start_week_round_trip(session):
     session.refresh(staging)
 
     assert staging.source_template_start_week == 3
+
+
+# --- Reception rota (reception rota plan, Task 1) ---
+
+def _reception_staff(session, code="RA", name="Rita Admin"):
+    s = ReceptionStaff(code=code, name=name, active=True)
+    session.add(s)
+    session.flush()
+    return s
+
+
+def _reception_rota(session, date=datetime.date(2026, 8, 3)):
+    rota = ReceptionRota(date=date)
+    session.add(rota)
+    session.flush()
+    return rota
+
+
+def test_reception_role_round_trips_by_value():
+    assert ReceptionRole.PHONES.value == "phones"
+    assert ReceptionRole.OTHER.value == "other"
+
+
+@pytest.mark.parametrize("bad_hour", [7, 18])
+def test_reception_master_session_hour_check(session, bad_hour):
+    staff = _reception_staff(session)
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=bad_hour, role=ReceptionRole.PHONES,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+@pytest.mark.parametrize("bad_hour", [7, 18])
+def test_reception_rota_session_hour_check(session, bad_hour):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=bad_hour, role=ReceptionRole.PHONES,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+@pytest.mark.parametrize("bad_hour", [7, 18])
+def test_reception_coverage_rule_hour_check(session, bad_hour):
+    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=bad_hour, min_phones_staff=2))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_master_session_slot_unique(session):
+    staff = _reception_staff(session)
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=9, role=ReceptionRole.OTHER,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_rota_session_slot_unique(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.OTHER,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_coverage_rule_slot_unique(session):
+    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=9, min_phones_staff=3))
+    session.flush()
+    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=9, min_phones_staff=2))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_rota_cascades_sessions_on_delete(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(ReceptionRotaSession).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_reception_rota_date_unique(session):
+    _reception_rota(session, date=datetime.date(2026, 8, 3))
+    session.add(ReceptionRota(date=datetime.date(2026, 8, 3)))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_staff_code_unique(session):
+    _reception_staff(session, code="RA")
+    session.add(ReceptionStaff(code="RA", name="Someone Else"))
+    with pytest.raises(IntegrityError):
+        session.flush()

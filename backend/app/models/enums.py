@@ -80,6 +80,11 @@ class SessionRole(str, enum.Enum):
     CLINIC = "clinic"
 
 
+class ReceptionRole(str, enum.Enum):
+    PHONES = "phones"
+    OTHER = "other"
+
+
 def _snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
