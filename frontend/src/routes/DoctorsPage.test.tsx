@@ -3,6 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { formatDate } from "@/lib/date";
 import { makeDoctor } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -57,6 +58,55 @@ describe("DoctorsPage", () => {
 
     await waitFor(() => expect(patchBody).toBeDefined());
     expect(patchBody).toEqual({ supervision_preference: "less" });
+  });
+
+  it("shows a dash in the Works column for a doctor with no employment window", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", start_date: null, end_date: null })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    expect(screen.getByLabelText("Employment window for AB")).toHaveTextContent("—");
+  });
+
+  it("shows an open-ended 'from' for a joiner with only a start date", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", start_date: "2026-09-01", end_date: null })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    const cell = screen.getByLabelText("Employment window for AB");
+    expect(cell).toHaveTextContent(/^from /);
+    expect(cell).toHaveTextContent(formatDate("2026-09-01"));
+  });
+
+  it("shows an open-ended 'until' for a leaver with only an end date", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", start_date: null, end_date: "2027-03-31" })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    const cell = screen.getByLabelText("Employment window for AB");
+    expect(cell).toHaveTextContent(/^until /);
+    expect(cell).toHaveTextContent(formatDate("2027-03-31"));
+  });
+
+  it("shows both bounds for a doctor with a closed employment window", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", start_date: "2026-09-01", end_date: "2027-03-31" })],
+    });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    const cell = screen.getByLabelText("Employment window for AB");
+    expect(cell).toHaveTextContent(formatDate("2026-09-01"));
+    expect(cell).toHaveTextContent(formatDate("2027-03-31"));
+  });
+
+  it("still lists a doctor whose end date has passed - the window is not the soft-delete flag", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", start_date: null, end_date: "2020-01-31", active: true })],
+    });
+    renderWithProviders(<DoctorsPage />);
+
+    expect(await screen.findByText("AB")).toBeInTheDocument();
   });
 
   it("New Doctor opens the dialog in create mode", async () => {

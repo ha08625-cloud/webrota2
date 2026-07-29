@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
 import type { Doctor, DoctorType, SupervisionPreference } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
+import { formatDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 interface DialogState {
@@ -28,6 +29,26 @@ const SESSIONS_AND_SUPERVISION_TYPES: DoctorType[] = ["Partner", "Salaried"];
 
 function showSessionsAndSupervision(doctorType: DoctorType): boolean {
   return SESSIONS_AND_SUPERVISION_TYPES.includes(doctorType);
+}
+
+/**
+ * The employment window rendered compactly for the table's "Works"
+ * column. Null at either end is unbounded, so all four shapes are
+ * legitimate and each reads differently - "—" for a doctor with no
+ * window at all (the state every doctor is in until one is set), and an
+ * open-ended "from"/"until" where only one bound exists.
+ *
+ * Note this is independent of `active`: a doctor whose end_date has
+ * passed is still active and still listed here (Design Decision 6). The
+ * page has no show-inactive toggle, so a leaver stays visible until
+ * separately deactivated - deliberate, not an oversight.
+ */
+function formatWindow(doctor: Doctor): string {
+  const { start_date: start, end_date: end } = doctor;
+  if (start && end) return `${formatDate(start)} – ${formatDate(end)}`;
+  if (start) return `from ${formatDate(start)}`;
+  if (end) return `until ${formatDate(end)}`;
+  return "—";
 }
 
 interface DeleteErrorState {
@@ -157,13 +178,14 @@ export function DoctorsPage() {
               <th className="py-1 pr-4 font-medium">Type</th>
               <th className="py-1 pr-4 font-medium">Sessions/week</th>
               <th className="py-1 pr-4 font-medium">Supervision</th>
+              <th className="py-1 pr-4 font-medium">Works</th>
               <th className="py-1" />
             </tr>
           </thead>
           {groupDoctorsByType(doctors).map((group) => (
             <tbody key={group.type}>
               <tr className="border-t border-border bg-ink/5">
-                <th colSpan={5} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
+                <th colSpan={6} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
                   {group.label}
                 </th>
               </tr>
@@ -222,6 +244,14 @@ export function DoctorsPage() {
                       ) : (
                         <span className="text-ink/40">—</span>
                       )}
+                    </td>
+                    <td className="py-1 pr-4 whitespace-nowrap">
+                      <span
+                        aria-label={`Employment window for ${d.code}`}
+                        className={d.start_date || d.end_date ? undefined : "text-ink/40"}
+                      >
+                        {formatWindow(d)}
+                      </span>
                     </td>
                     <td className="py-1">
                       <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">

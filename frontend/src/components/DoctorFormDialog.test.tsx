@@ -52,7 +52,95 @@ describe("DoctorFormDialog - create mode", () => {
       doctor_type: "Partner",
       sessions_per_week: "10.0",
       supervision_preference: "normal",
+      // Blank date inputs go out as null, not "" - the server would
+      // reject an empty string as an invalid date.
+      start_date: null,
+      end_date: null,
     });
+  });
+
+  it("submits both employment dates when they are filled in", async () => {
+    setUpServer();
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/doctors", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 9, code: "XY" }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.type(screen.getByLabelText("Code"), "XY");
+    await user.type(screen.getByLabelText("Start date"), "2026-09-01");
+    await user.type(screen.getByLabelText("End date"), "2027-03-31");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({ start_date: "2026-09-01", end_date: "2027-03-31" });
+  });
+
+  it("submits a start date on its own, with a null end date", async () => {
+    setUpServer();
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/doctors", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 9, code: "XY" }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.type(screen.getByLabelText("Code"), "XY");
+    await user.type(screen.getByLabelText("Start date"), "2026-09-01");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({ start_date: "2026-09-01", end_date: null });
+  });
+
+  it("does not submit when the end date precedes the start date", async () => {
+    setUpServer();
+    let posted = false;
+    server.use(
+      http.post("/api/v1/doctors", () => {
+        posted = true;
+        return HttpResponse.json(makeDoctor({ id: 1 }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.type(screen.getByLabelText("Code"), "XY");
+    await user.type(screen.getByLabelText("Start date"), "2027-03-31");
+    await user.type(screen.getByLabelText("End date"), "2026-09-01");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("End date must not be before the start date")).toBeInTheDocument();
+    expect(posted).toBe(false);
+  });
+
+  it("allows a start date equal to the end date - a single-day window", async () => {
+    setUpServer();
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/doctors", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 9, code: "XY" }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.type(screen.getByLabelText("Code"), "XY");
+    await user.type(screen.getByLabelText("Start date"), "2026-09-01");
+    await user.type(screen.getByLabelText("End date"), "2026-09-01");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({ start_date: "2026-09-01", end_date: "2026-09-01" });
   });
 
   it("submits the selected supervision preference in the create payload", async () => {
@@ -222,6 +310,76 @@ describe("DoctorFormDialog - edit mode", () => {
 
     await waitFor(() => expect(patchBody).toBeDefined());
     expect(patchBody).toMatchObject({ supervision_preference: "none" });
+  });
+
+  it("pre-fills the employment dates and sends them back unchanged in the PATCH", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB", start_date: "2026-09-01", end_date: "2027-03-31" });
+    const detail = makeDoctorDetail({ ...doctor, preferred_rooms: [] });
+    setUpServer({ doctorDetail: detail });
+
+    let patchBody: unknown;
+    server.use(
+      http.patch("/api/v1/doctors/5", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json(doctor);
+      }),
+      http.put("/api/v1/doctors/5/preferred-rooms", () => HttpResponse.json(detail)),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+
+    expect(await screen.findByLabelText("Start date")).toHaveValue("2026-09-01");
+    expect(screen.getByLabelText("End date")).toHaveValue("2027-03-31");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).toMatchObject({ start_date: "2026-09-01", end_date: "2027-03-31" });
+  });
+
+  it("clearing an end date PATCHes it as null, reopening the window", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB", start_date: "2026-09-01", end_date: "2027-03-31" });
+    const detail = makeDoctorDetail({ ...doctor, preferred_rooms: [] });
+    setUpServer({ doctorDetail: detail });
+
+    let patchBody: unknown;
+    server.use(
+      http.patch("/api/v1/doctors/5", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json(doctor);
+      }),
+      http.put("/api/v1/doctors/5/preferred-rooms", () => HttpResponse.json(detail)),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+    await screen.findByLabelText("End date");
+
+    await user.clear(screen.getByLabelText("End date"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).toMatchObject({ start_date: "2026-09-01", end_date: null });
+  });
+
+  it("the server's own window 422 is shown as a top-of-form banner", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB" });
+    const detail = makeDoctorDetail({ ...doctor, preferred_rooms: [] });
+    setUpServer({ doctorDetail: detail });
+
+    server.use(
+      http.patch("/api/v1/doctors/5", () =>
+        HttpResponse.json({ detail: "start_date must not be after end_date" }, { status: 422 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("start_date must not be after end_date")).toBeInTheDocument();
   });
 
   it("a PUT failure after a successful PATCH is reported as a partial save, not rolled back", async () => {
