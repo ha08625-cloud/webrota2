@@ -2,8 +2,6 @@ This is a project to port a google apps script for a rota generator into a web b
 
 Prioritise realistic expectations over agreement. Be honest if the user is making a mistake
 
-The project file system in Claude is a little buggy: if I upload a file as frontend/src/routes/Example.test.tsx, I believe you can only see it as frontend_src_routes_App_test.tsx - that's just for information.  When creating or editing any project file, always output the final version as a downloadable artifact with full path e.g. backend_app_api_schemas___init__.py. The only exception is if there is a single line fix - just advise the user exactly where and what to change rather than outputting the entire artifact
-
 Architecture documentation: User maintains their own architecture documentation.  What exists in the project files is for Claude to use to navigate the system.  Architecture documents should be updated regularly following these guidelines:
 1. Include design decisions, high level architecture and data flows
 2. You will most likely look directly at the code when working on relevant files, so there is no need to duplicate information that can be found by looking at code
