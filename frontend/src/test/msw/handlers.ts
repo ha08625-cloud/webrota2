@@ -151,4 +151,14 @@ export const handlers: HttpHandler[] = [
       },
     }),
   ),
+  // Reception rota (Task 5). Empty-list defaults for the three reference
+  // endpoints, mirroring /doctors and /closures above. GET .../rota 404s
+  // by default (no rota generated for the queried date), the same
+  // no-active-record convention as auth/me and staging/active.
+  http.get("/api/v1/reception/staff", () => HttpResponse.json([])),
+  http.get("/api/v1/reception/master", () => HttpResponse.json([])),
+  http.get("/api/v1/reception/coverage-rules", () => HttpResponse.json([])),
+  http.get("/api/v1/reception/rota", () =>
+    HttpResponse.json({ detail: "No rota for this date" }, { status: 404 }),
+  ),
 ];
