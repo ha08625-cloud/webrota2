@@ -1,4 +1,5 @@
-"""Reception staff, coverage-rule, and weekday master template schemas.
+"""Reception staff, coverage-rule, weekday master template, and day rota
+schemas.
 
 Reception has no cross-entity write logic -- these are plain CRUD shapes,
 unlike the nested ClinicType schemas or the displacement-aware master-rota
@@ -7,10 +8,13 @@ pair validator: a reception hour has no exclusive resource, so role and
 note carry no interdependency to enforce (see ReceptionMasterSession's
 docstring) -- any role/note combination is legal.
 """
-from pydantic import BaseModel, Field
+import datetime
+
+from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, ReceptionRole
 from ...models.reception import RECEPTION_FIRST_HOUR, RECEPTION_LAST_HOUR
+from .common import ValidationIssueOut
 
 
 class ReceptionStaffIn(BaseModel):
@@ -82,3 +86,65 @@ class ReceptionMasterSessionPatchIn(BaseModel):
     pair."""
     role: ReceptionRole
     note: str | None = Field(max_length=200)
+
+
+class ReceptionRotaGenerateIn(BaseModel):
+    """POST /reception/rota. Weekend dates are rejected here (422) before
+    the router does anything, mirroring ClosureIn's validator -- generation
+    only ever targets a weekday, since the template itself has no
+    Saturday/Sunday rows."""
+    date: datetime.date
+
+    @model_validator(mode="after")
+    def _check_weekday(self) -> "ReceptionRotaGenerateIn":
+        if self.date.weekday() > 4:  # Mon=0 ... Fri=4
+            raise ValueError("date must be a weekday (Monday-Friday)")
+        return self
+
+
+class ReceptionRotaSessionIn(BaseModel):
+    """POST /reception/rota/{id}/sessions: add one staff member to one hour
+    of an existing day. Unlike the template's create schema this has no
+    `day` -- the day is fixed by the rota it is posted against."""
+    staff_id: int
+    hour: int = Field(ge=RECEPTION_FIRST_HOUR, le=RECEPTION_LAST_HOUR)
+    role: ReceptionRole = ReceptionRole.PHONES
+    note: str | None = Field(default=None, max_length=200)
+
+
+class ReceptionRotaSessionPatchIn(BaseModel):
+    """PATCH /reception/rota/{id}/sessions/{sid}. Same verbatim (role, note)
+    pair-setter contract as ReceptionMasterSessionPatchIn."""
+    role: ReceptionRole
+    note: str | None = Field(max_length=200)
+
+
+class ReceptionRotaSessionOut(BaseModel):
+    """One day-rota slot. staff_code / staff_name are joined in the router,
+    matching ReceptionMasterSessionOut's pattern."""
+    session_id: int
+    staff_id: int
+    staff_code: str
+    staff_name: str
+    hour: int
+    role: ReceptionRole
+    note: str | None = None
+
+
+class ReceptionRotaOut(BaseModel):
+    """GET /reception/rota?date=... and GET /reception/rota/{id}: the day
+    header plus its flat session list and freshly computed coverage
+    warnings. Also the response of POST /reception/rota (generate)."""
+    rota_id: int
+    date: datetime.date
+    created_at: datetime.datetime
+    sessions: list[ReceptionRotaSessionOut]
+    issues: list[ValidationIssueOut]
+
+
+class ReceptionSessionWriteOut(BaseModel):
+    """Every mutating session endpoint (POST/PATCH) returns the written row
+    plus freshly recomputed coverage issues, mirroring SessionPatchOut's
+    mutate-then-revalidate contract on the clinical rota."""
+    session: ReceptionRotaSessionOut
+    issues: list[ValidationIssueOut]
