@@ -10,6 +10,7 @@ import {
   planningCellKey,
   serverRows,
   toCellState,
+  weekdayName,
 } from "@/lib/planningMonth";
 
 /**
@@ -54,6 +55,14 @@ function columnLabel(date: string): { weekday: string; dayOfMonth: string } {
     weekday: parseLocalDate(date).toLocaleDateString("en-GB", { weekday: "short" }),
     dayOfMonth: String(Number(date.slice(8))),
   };
+}
+
+/** Heavier right-hand divider after Friday's column - the grid only ever
+ * shows weekdays, so the next column after a Friday one is always the
+ * following Monday, and this is the one boundary worth calling out as a
+ * new working week rather than just the next day. */
+function weekDividerClass(date: string): string {
+  return weekdayName(date) === "Friday" ? "border-r-2" : "border-r";
 }
 
 export interface LeavePlanningGridProps {
@@ -105,7 +114,7 @@ export function LeavePlanningGrid({
                   <th
                     key={date}
                     data-testid={`planning-header-${date}`}
-                    className={`border-b-2 border-r border-ink/40 px-1 py-1 text-center font-medium ${
+                    className={`border-b-2 ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
                       fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
                     }`}
                   >
@@ -123,7 +132,10 @@ export function LeavePlanningGrid({
                   {doctor.code}
                 </td>
                 {dates.map((date) => (
-                  <td key={date} className="border-b border-r border-ink/40 p-0.5 align-top">
+                  <td
+                    key={date}
+                    className={`border-b ${weekDividerClass(date)} border-ink/40 p-0.5 align-top`}
+                  >
                     {PLANNING_PERIODS.map((period) => (
                       <PlanningCellHalf
                         key={period}
@@ -150,7 +162,7 @@ export function LeavePlanningGrid({
               {dates.map((date) => (
                 <td
                   key={date}
-                  className="border-r border-t-2 border-ink/40 bg-background p-0.5 align-top"
+                  className={`${weekDividerClass(date)} border-t-2 border-ink/40 bg-background p-0.5 align-top`}
                 >
                   {PLANNING_PERIODS.map((period) => {
                     const total = totals.get(closedSlotKey(date, period));
