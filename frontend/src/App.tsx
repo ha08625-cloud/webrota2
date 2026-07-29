@@ -15,7 +15,10 @@ import { LandingPage } from "@/routes/LandingPage";
 import { LeavePage } from "@/routes/LeavePage";
 import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
-import { ReceptionPlaceholder } from "@/routes/ReceptionPlaceholder";
+import { ReceptionCoverageRulesPage } from "@/routes/ReceptionCoverageRulesPage";
+import { ReceptionMasterPage } from "@/routes/ReceptionMasterPage";
+import { ReceptionRotaPage } from "@/routes/ReceptionRotaPage";
+import { ReceptionStaffPage } from "@/routes/ReceptionStaffPage";
 import { RecurringNotesPage } from "@/routes/RecurringNotesPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
@@ -40,7 +43,16 @@ const CLINICAL_NAV_ITEMS = [
   { to: "/clinical/signatures", label: "Signatures", end: false },
   { to: "/clinical/users", label: "Users", end: false },
 ] as const;
- 
+
+// Reception nav, paths relative to the /reception mount point. Built the
+// same way as CLINICAL_NAV_ITEMS above - see App.tsx's Task 5 plan.
+const RECEPTION_NAV_ITEMS = [
+  { to: "/reception", label: "Day Rota", end: true },
+  { to: "/reception/master", label: "Master Template", end: false },
+  { to: "/reception/staff", label: "Reception Staff", end: false },
+  { to: "/reception/coverage-rules", label: "Coverage Rules", end: false },
+] as const;
+
 /**
  * Logout is identical regardless of section, so it is lifted out of the
  * per-section shell rather than duplicated once a reception shell exists.
@@ -149,11 +161,35 @@ function ReceptionShell() {
           </button>
         </div>
       </div>
-      <main className="flex-1 p-6">
-        <Routes>
-          <Route index element={<ReceptionPlaceholder />} />
-        </Routes>
-      </main>
+      <div className="flex flex-1">
+        <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
+          <ul className="flex-1">
+            {RECEPTION_NAV_ITEMS.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `block px-4 py-2 text-sm ${
+                      isActive ? "bg-accent/10 font-medium text-accent" : "text-ink/80 hover:bg-accent/5"
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <main className="flex-1 p-6">
+          <Routes>
+            <Route index element={<ReceptionRotaPage />} />
+            <Route path="master" element={<ReceptionMasterPage />} />
+            <Route path="staff" element={<ReceptionStaffPage />} />
+            <Route path="coverage-rules" element={<ReceptionCoverageRulesPage />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }

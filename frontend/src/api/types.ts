@@ -815,3 +815,142 @@ export interface SignatureMeta {
   content_type: string;
   uploaded_at: string;
 }
+
+// --- Reception rota (reception rota plan) ---
+// Independent of the clinical rota end to end - see models/reception.py's
+// docstring. Wire shapes mirror backend/app/api/schemas/reception.py
+// exactly, no client-side renaming, matching the convention documented at
+// the top of this file. ValidationIssue (defined above) is reused as-is
+// for coverage warnings - reception/schemas/common.py's ValidationIssueOut
+// is the same schema the clinical rota uses, just with `week`/`period`
+// always null.
+
+export type ReceptionRole = "phones" | "other";
+
+export interface ReceptionStaff {
+  id: number;
+  code: string;
+  name: string;
+  active: boolean;
+}
+
+/** POST /reception/staff body. `active` is not settable here - always true server-side. */
+export interface ReceptionStaffIn {
+  code: string;
+  name: string;
+}
+
+/** PATCH /reception/staff/{id} body - every field optional, only supplied fields are applied (model_fields_set). */
+export interface ReceptionStaffPatch {
+  code?: string;
+  name?: string;
+  active?: boolean;
+}
+
+/**
+ * Minimum phones headcount for one (day, hour) slot. The row set is fixed
+ * by the seed (50 rows, one per weekday/hour combination) - there is no
+ * POST or DELETE, only PATCH on `min_phones_staff` (CoverageRulePatch on
+ * the backend; named with the `Reception` prefix here to avoid colliding
+ * with the unrelated `CoverageSlot` leave-planning type above).
+ */
+export interface ReceptionCoverageRule {
+  id: number;
+  day: Day;
+  hour: number;
+  min_phones_staff: number;
+}
+
+export interface ReceptionCoverageRulePatch {
+  min_phones_staff: number;
+}
+
+/**
+ * One weekday master template slot (reception_master_sessions). Row
+ * existence is the data - a staff member with no row for a (day, hour)
+ * is not expected then. `session_id`, not `id`, since this sits in a list
+ * alongside `staff_id`, matching MasterRotaSession's naming rule.
+ */
+export interface ReceptionMasterSession {
+  session_id: number;
+  staff_id: number;
+  staff_code: string;
+  staff_name: string;
+  day: Day;
+  hour: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/** POST /reception/master/sessions body - the full slot coordinates plus (role, note). */
+export interface ReceptionMasterSessionCreateIn {
+  staff_id: number;
+  day: Day;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+/**
+ * PATCH /reception/master/sessions/{id} body - a verbatim (role, note)
+ * pair setter, not a partial update; both fields are always required
+ * (note may be null).
+ */
+export interface ReceptionMasterSessionPatchIn {
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/** One generated day's slot (reception_rota_sessions). Same shape as ReceptionMasterSession, minus `day` - the day is fixed by the rota it belongs to. */
+export interface ReceptionRotaSession {
+  session_id: number;
+  staff_id: number;
+  staff_code: string;
+  staff_name: string;
+  hour: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/**
+ * GET /reception/rota?date=..., GET /reception/rota/{id}, and the response
+ * of POST /reception/rota (generate): the day header plus its flat session
+ * list and freshly computed coverage warnings.
+ */
+export interface ReceptionRota {
+  rota_id: number;
+  date: string;
+  created_at: string;
+  sessions: ReceptionRotaSession[];
+  issues: ValidationIssue[];
+}
+
+/** POST /reception/rota body. Weekend dates are rejected (422) by the backend validator before generation runs. */
+export interface ReceptionRotaGenerateIn {
+  date: string;
+}
+
+/** POST /reception/rota/{id}/sessions body - add one staff member to one hour of an existing day. */
+export interface ReceptionRotaSessionIn {
+  staff_id: number;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+/** PATCH /reception/rota/{id}/sessions/{sid} body - same verbatim pair-setter contract as ReceptionMasterSessionPatchIn. */
+export interface ReceptionRotaSessionPatchIn {
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/**
+ * Every mutating day-rota session endpoint (POST/PATCH) returns the
+ * written row plus freshly recomputed coverage issues, mirroring the
+ * clinical rota's mutate-then-revalidate contract - see api/reception.ts
+ * for how this gets spliced into the cache.
+ */
+export interface ReceptionSessionWriteOut {
+  session: ReceptionRotaSession;
+  issues: ValidationIssue[];
+}

@@ -1,0 +1,339 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { apiClient } from "./client";
+import type {
+  Day,
+  ReceptionCoverageRule,
+  ReceptionMasterSession,
+  ReceptionRole,
+  ReceptionRota,
+  ReceptionRotaSession,
+  ReceptionSessionWriteOut,
+  ReceptionStaff,
+  ReceptionStaffIn,
+  ReceptionStaffPatch,
+  ValidationIssue,
+} from "./types";
+
+/**
+ * Flat, per-resource keys (one file, four routers) - deliberately not
+ * nested per-resource objects, since a query key referencing a sibling
+ * key from inside the same object literal is a footgun the rest of this
+ * codebase's api/*.ts files avoid (rotaKeys, doctorKeys, masterRotaKeys
+ * are all flat for the same reason).
+ */
+export const receptionKeys = {
+  staffAll: ["reception", "staff"] as const,
+  staffList: (includeInactive: boolean) => ["reception", "staff", "list", includeInactive] as const,
+
+  masterAll: ["reception", "master"] as const,
+  masterList: () => ["reception", "master", "list"] as const,
+
+  coverageRulesAll: ["reception", "coverage-rules"] as const,
+  coverageRulesList: () => ["reception", "coverage-rules", "list"] as const,
+
+  rotaAll: ["reception", "rota"] as const,
+  rotaByDate: (date: string) => ["reception", "rota", "date", date] as const,
+  rotaDetail: (rotaId: number) => ["reception", "rota", "detail", rotaId] as const,
+};
+
+// --- Reception staff ---
+// Reference data - invalidate and refetch on write, same as api/doctors.ts:
+// this list is small and nobody is mid-gesture when these mutations fire.
+
+export function useReceptionStaff(includeInactive = false) {
+  return useQuery({
+    queryKey: receptionKeys.staffList(includeInactive),
+    queryFn: () => apiClient.get<ReceptionStaff[]>(`/reception/staff?include_inactive=${includeInactive}`),
+  });
+}
+
+export function useCreateReceptionStaff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReceptionStaffIn) => apiClient.post<ReceptionStaff>("/reception/staff", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: receptionKeys.staffAll });
+    },
+  });
+}
+
+export interface UpdateReceptionStaffPayload {
+  id: number;
+  payload: ReceptionStaffPatch;
+}
+
+export function useUpdateReceptionStaff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: UpdateReceptionStaffPayload) =>
+      apiClient.patch<ReceptionStaff>(`/reception/staff/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: receptionKeys.staffAll });
+    },
+  });
+}
+
+/** DELETE /reception/staff/{id} - unconditional soft delete (active: false), 204 body. */
+export function useDeactivateReceptionStaff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiClient.delete<void>(`/reception/staff/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: receptionKeys.staffAll });
+    },
+  });
+}
+
+// --- Reception coverage rules ---
+// Also reference data - invalidate and refetch. No POST/DELETE: the
+// (day, hour) row set is fixed by the seed, only min_phones_staff is
+// editable (see CoverageRulePatch's backend docstring).
+
+export function useReceptionCoverageRules() {
+  return useQuery({
+    queryKey: receptionKeys.coverageRulesList(),
+    queryFn: () => apiClient.get<ReceptionCoverageRule[]>("/reception/coverage-rules"),
+  });
+}
+
+export interface UpdateReceptionCoverageRulePayload {
+  id: number;
+  minPhonesStaff: number;
+}
+
+export function useUpdateReceptionCoverageRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, minPhonesStaff }: UpdateReceptionCoverageRulePayload) =>
+      apiClient.patch<ReceptionCoverageRule>(`/reception/coverage-rules/${id}`, {
+        min_phones_staff: minPhonesStaff,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: receptionKeys.coverageRulesAll });
+    },
+  });
+}
+
+// --- Weekday master template ---
+// A grid, like the clinical master rota - splice the mutation response
+// into the cached list rather than refetch, mirroring api/masterRota.ts.
+// Unlike the clinical template there is no displacement (several staff can
+// share a (day, hour) slot) and no {session, displaced_session} shape -
+// every write returns a bare ReceptionMasterSession.
+
+export function useReceptionMasterSessions() {
+  return useQuery({
+    queryKey: receptionKeys.masterList(),
+    queryFn: () => apiClient.get<ReceptionMasterSession[]>("/reception/master"),
+  });
+}
+
+function spliceReceptionMasterSession(
+  sessions: ReceptionMasterSession[],
+  updated: ReceptionMasterSession,
+): ReceptionMasterSession[] {
+  return sessions.map((s) => (s.session_id === updated.session_id ? updated : s));
+}
+
+export interface CreateReceptionMasterSessionPayload {
+  staffId: number;
+  day: Day;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+export function useCreateReceptionMasterSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ staffId, day, hour, role, note }: CreateReceptionMasterSessionPayload) =>
+      apiClient.post<ReceptionMasterSession>("/reception/master/sessions", {
+        staff_id: staffId,
+        day,
+        hour,
+        role: role ?? "phones",
+        note: note ?? null,
+      }),
+    onSuccess: (created) => {
+      queryClient.setQueryData<ReceptionMasterSession[] | undefined>(receptionKeys.masterList(), (prev) =>
+        prev === undefined ? prev : [...prev, created],
+      );
+    },
+  });
+}
+
+export interface UpdateReceptionMasterSessionPayload {
+  sessionId: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/** Verbatim (role, note) pair setter, matching ReceptionMasterSessionPatchIn's not-a-partial-update contract. */
+export function useUpdateReceptionMasterSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, role, note }: UpdateReceptionMasterSessionPayload) =>
+      apiClient.patch<ReceptionMasterSession>(`/reception/master/sessions/${sessionId}`, { role, note }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<ReceptionMasterSession[] | undefined>(receptionKeys.masterList(), (prev) =>
+        prev === undefined ? prev : spliceReceptionMasterSession(prev, updated),
+      );
+    },
+  });
+}
+
+export function useDeleteReceptionMasterSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: number) => apiClient.delete<void>(`/reception/master/sessions/${sessionId}`),
+    onSuccess: (_data, sessionId) => {
+      queryClient.setQueryData<ReceptionMasterSession[] | undefined>(receptionKeys.masterList(), (prev) =>
+        prev === undefined ? prev : prev.filter((s) => s.session_id !== sessionId),
+      );
+    },
+  });
+}
+
+// --- Day rota ---
+// The day page is date-scoped (one day at a time), so GET-by-date is the
+// primary read and the cache session mutations splice into. GET-by-id is
+// a secondary lookup the backend also exposes; nothing here writes into
+// its cache.
+
+export function useReceptionRotaByDate(date: string | undefined) {
+  return useQuery({
+    queryKey: receptionKeys.rotaByDate(date ?? ""),
+    queryFn: () => apiClient.get<ReceptionRota>(`/reception/rota?date=${date}`),
+    enabled: date !== undefined,
+    // A 404 (no rota generated yet for this date) is an expected steady
+    // state, not a transient failure - the day page reads it to decide
+    // between offering "Generate" and rendering the grid.
+    retry: false,
+  });
+}
+
+export function useReceptionRota(rotaId: number | undefined) {
+  return useQuery({
+    queryKey: receptionKeys.rotaDetail(rotaId ?? -1),
+    queryFn: () => apiClient.get<ReceptionRota>(`/reception/rota/${rotaId}`),
+    enabled: rotaId !== undefined,
+  });
+}
+
+export function useGenerateReceptionRota() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (date: string) => apiClient.post<ReceptionRota>("/reception/rota", { date }),
+    onSuccess: (data, date) => {
+      queryClient.setQueryData(receptionKeys.rotaByDate(date), data);
+      queryClient.setQueryData(receptionKeys.rotaDetail(data.rota_id), data);
+    },
+  });
+}
+
+export interface DeleteReceptionRotaPayload {
+  rotaId: number;
+  date: string;
+}
+
+/** Backs the delete-then-generate "Regenerate" flow (Decision 6) - the date becomes generatable again. */
+export function useDeleteReceptionRota() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId }: DeleteReceptionRotaPayload) => apiClient.delete<void>(`/reception/rota/${rotaId}`),
+    onSuccess: (_data, { rotaId, date }) => {
+      queryClient.removeQueries({ queryKey: receptionKeys.rotaDetail(rotaId) });
+      queryClient.removeQueries({ queryKey: receptionKeys.rotaByDate(date) });
+    },
+  });
+}
+
+/**
+ * Splices a freshly written session plus recomputed issues into the
+ * by-date cache - covers both create (append, no matching session_id yet)
+ * and patch (replace in place) with one helper, since the response always
+ * carries the full current issues list, not a delta.
+ */
+function applyReceptionSessionWrite(
+  queryClient: ReturnType<typeof useQueryClient>,
+  date: string,
+  session: ReceptionRotaSession,
+  issues: ValidationIssue[],
+) {
+  queryClient.setQueryData<ReceptionRota | undefined>(receptionKeys.rotaByDate(date), (prev) => {
+    if (prev === undefined) return prev;
+    const exists = prev.sessions.some((s) => s.session_id === session.session_id);
+    const sessions = exists
+      ? prev.sessions.map((s) => (s.session_id === session.session_id ? session : s))
+      : [...prev.sessions, session];
+    return { ...prev, sessions, issues };
+  });
+}
+
+export interface CreateReceptionRotaSessionPayload {
+  rotaId: number;
+  date: string;
+  staffId: number;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+export function useCreateReceptionRotaSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId, staffId, hour, role, note }: CreateReceptionRotaSessionPayload) =>
+      apiClient.post<ReceptionSessionWriteOut>(`/reception/rota/${rotaId}/sessions`, {
+        staff_id: staffId,
+        hour,
+        role: role ?? "phones",
+        note: note ?? null,
+      }),
+    onSuccess: (data, { date }) => {
+      applyReceptionSessionWrite(queryClient, date, data.session, data.issues);
+    },
+  });
+}
+
+export interface PatchReceptionRotaSessionPayload {
+  rotaId: number;
+  date: string;
+  sessionId: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+export function usePatchReceptionRotaSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId, sessionId, role, note }: PatchReceptionRotaSessionPayload) =>
+      apiClient.patch<ReceptionSessionWriteOut>(`/reception/rota/${rotaId}/sessions/${sessionId}`, { role, note }),
+    onSuccess: (data, { date }) => {
+      applyReceptionSessionWrite(queryClient, date, data.session, data.issues);
+    },
+  });
+}
+
+export interface DeleteReceptionRotaSessionPayload {
+  rotaId: number;
+  date: string;
+  sessionId: number;
+}
+
+/**
+ * 204 with no body (see routers/reception_rota.py's delete_session
+ * docstring) - issues need recomputing too and this is an infrequent
+ * action, so this invalidates and refetches the day rather than splicing,
+ * unlike create/patch above.
+ */
+export function useDeleteReceptionRotaSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId, sessionId }: DeleteReceptionRotaSessionPayload) =>
+      apiClient.delete<void>(`/reception/rota/${rotaId}/sessions/${sessionId}`),
+    onSuccess: (_data, { date }) => {
+      queryClient.invalidateQueries({ queryKey: receptionKeys.rotaByDate(date) });
+    },
+  });
+}
