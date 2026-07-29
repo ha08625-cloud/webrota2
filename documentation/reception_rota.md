@@ -20,9 +20,9 @@ The provisional plan is sound in its essentials — a separate staff table, hour
 
 2. **The provisional plan does not say what a generated day *is*.** With no draft/commit lifecycle there is still a question the schema has to answer: how do you tell "this date has never been generated" from "this date was generated and then every row was deleted"? A thin header table answers it. Added as Decision 5.
 
-3. **Regenerating over an edited day is undefined.** Pressing Generate twice must have a stated outcome. Added as Decision 6 (409 + explicit clear), matching how the rest of the codebase refuses to clobber.
+3. **Regenerating over an edited day was undefined.** Pressing Generate twice must have a stated outcome. **Settled: 409, with an explicit clear required first** — Decision 6, matching how the rest of the codebase refuses to clobber.
 
-4. **Coverage rules should be keyed `(day, hour)`, not `hour` alone.** ⚠️ **This is the one change that needs your confirmation** — see Decision 8. Monday 9am and Friday 3pm are not the same staffing problem in general practice, and adding the day dimension later costs a migration plus a UI rework. Adding it now costs one extra column and 50 seed rows instead of 10, with no change to any query or component shape.
+4. **Coverage rules are keyed `(day, hour)`, not `hour` alone.** Changed from the provisional plan and **settled**. Monday 9am and Friday 3pm are not the same staffing problem in general practice, and adding the day dimension later costs a migration plus a UI rework. Adding it now costs one extra column and 50 seed rows instead of 10, with no change to any query or component shape. See Decision 8.
 
 5. **`other` carries no information.** As specified, a slot marked `other` cannot tell the admin what the person is actually doing, and the first request after go-live will be "we need to distinguish admin from meeting from training" — which under a two-value enum is a migration. A nullable free-text `note` on the slot absorbs that at near-zero cost and keeps the enum at two values, which is all the coverage rule ever needs. Added as Decision 4.
 
@@ -64,13 +64,11 @@ One further note, not a correction: the hour range is fixed by a check constrain
 
 7. **No engine, no phases, no `RotaConfig`.** There is no eligibility to resolve, no room to allocate, no counter to balance, and no fairness to enforce — nothing that would justify a pipeline. The copy loop is a dozen lines in the router. Nothing under `backend/app/engine/` is imported, extended, or read by any of this.
 
-8. **Coverage rules are keyed `(day, hour)`.** ⚠️ **Changed from the provisional plan — confirm before Task 1 starts.**
+8. **Coverage rules are keyed `(day, hour)`.** Changed from the provisional plan and confirmed.
 
    `reception_coverage_rules`: `id`, `day` (`Day` enum, reused from `models/enums.py`), `hour`, `min_phones_staff` (Integer, non-null), unique `(day, hour)`. Seeded with the provisional plan's numbers applied to every weekday: `3` for hours 9 and 10, `2` for the other eight hours — 50 rows.
 
    Rationale: Monday morning and Friday afternoon are not the same staffing problem, and a rule table that cannot express the difference will need a `day` column within the first month of real use. Adding it now is one column and 40 more seed rows; adding it later is a migration, a seed backfill, a UI rework of the rules page, and a re-key of every lookup. The code shape is identical either way — the lookup is a dict keyed on a tuple instead of an int.
-
-   **If you prefer the simpler v1**, drop the `day` column and the unique becomes `(hour)`, 10 seed rows; everything else in this plan is unchanged except that the rules page renders one column instead of five. Say so and Task 1 changes accordingly.
 
    Editable in full via the API and a small settings page. A missing rule row for a `(day, hour)` reads as **no minimum** (no warning), not as zero-required-and-therefore-fine — same outcome, but stated so the empty-table case is defined.
 
@@ -312,9 +310,7 @@ Staff page: a table (code, name, status, actions) plus the form dialog, followin
 
 Zod validates form state, and `mapValidationErrors` maps a server 422 back onto fields — both already exist, reuse them. The duplicate-code 409 surfaces as a form-level error on the code field, since that is the field it names.
 
-Coverage page: a 5 × 10 table, weekdays as columns, hours as rows, each cell a small number input firing `PATCH /reception/coverage-rules/{id}` on blur (not on keystroke). No add, no delete — the row set is fixed. A short paragraph above the table explaining what the number means: the minimum staff on `phones` for that hour before the day rota warns.
-
-*(If Decision 8 is settled the other way and rules are keyed on `hour` alone, this becomes a single-column table of 10 rows and nothing else changes.)*
+Coverage page: a 5 × 10 table, weekdays as columns, hours as rows, each cell a small number input firing `PATCH /reception/coverage-rules/{id}` on blur (not on keystroke). No add, no delete — the row set is fixed at one row per `(day, hour)` by the seed. A short paragraph above the table explaining what the number means: the minimum staff on `phones` for that weekday and hour before the day rota warns.
 
 Tests use the MSW handlers from Task 5. Cover: the list renders, create succeeds, a duplicate-code 409 shows on the field, deactivate then reactivate, and a coverage edit fires exactly one PATCH on blur.
 
