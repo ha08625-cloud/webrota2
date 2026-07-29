@@ -206,6 +206,34 @@ describe("LeavePlanningGrid", () => {
     expect(screen.getByTestId(`planning-total-${TUESDAY}-AM`)).toHaveTextContent("—");
   });
 
+  it("flags thin cover by threshold: 0-2 red, 3 orange, 4 yellow, 5+ neutral", () => {
+    renderGrid({
+      totals: new Map<string, number | null>([
+        [closedSlotKey(MONDAY, "AM"), 2],
+        [closedSlotKey(MONDAY, "PM"), 3],
+        [closedSlotKey(TUESDAY, "AM"), 4],
+        [closedSlotKey(TUESDAY, "PM"), 5],
+      ]),
+    });
+
+    expect(screen.getByTestId(`planning-total-${MONDAY}-AM`).className).toContain("bg-red-100");
+    expect(screen.getByTestId(`planning-total-${MONDAY}-PM`).className).toContain("bg-orange-100");
+    expect(screen.getByTestId(`planning-total-${TUESDAY}-AM`).className).toContain("bg-yellow-100");
+    expect(screen.getByTestId(`planning-total-${TUESDAY}-PM`).className).not.toMatch(
+      /bg-(red|orange|yellow)-100/,
+    );
+  });
+
+  it("keeps a closed slot's total neutral rather than flagging it", () => {
+    renderGrid({
+      totals: new Map<string, number | null>([[closedSlotKey(MONDAY, "AM"), null]]),
+    });
+
+    expect(screen.getByTestId(`planning-total-${MONDAY}-AM`).className).not.toMatch(
+      /bg-(red|orange|yellow)-100/,
+    );
+  });
+
   it("shows an empty-state message when no doctors work the month", () => {
     renderGrid({ doctors: [] });
     expect(

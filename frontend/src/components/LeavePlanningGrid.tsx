@@ -10,6 +10,7 @@ import {
   planningCellKey,
   serverRows,
   toCellState,
+  weekdayName,
 } from "@/lib/planningMonth";
 
 /**
@@ -48,12 +49,41 @@ const LEGEND: { state: PlanningCellState; label: string }[] = [
   { state: "extra_session", label: "Extra planned" },
 ];
 
+/**
+ * Visual weight for the Clinical cover total, flagging thin cover before it
+ * becomes a problem rather than leaving every number the same plain grey.
+ * Thresholds are user-specified, not derived from any per-slot minimum
+ * stored in the data model - there isn't one. Null (closed) and undefined
+ * (outside the fetched range) stay neutral: there is nothing to flag.
+ */
+function coverageClass(total: number | null | undefined): string {
+  if (total === null || total === undefined) return "bg-surface text-ink/70";
+  if (total <= 2) return "bg-red-100 text-red-900";
+  if (total === 3) return "bg-orange-100 text-orange-900";
+  if (total === 4) return "bg-yellow-100 text-yellow-900";
+  return "bg-surface text-ink/70";
+}
+
+const COVERAGE_LEGEND = [
+  { className: "bg-red-100", label: "0–2 covering" },
+  { className: "bg-orange-100", label: "3 covering" },
+  { className: "bg-yellow-100", label: "4 covering" },
+];
+
 /** "Mon" / "3" for a date column header. */
 function columnLabel(date: string): { weekday: string; dayOfMonth: string } {
   return {
     weekday: parseLocalDate(date).toLocaleDateString("en-GB", { weekday: "short" }),
     dayOfMonth: String(Number(date.slice(8))),
   };
+}
+
+/** Heavier right-hand divider after Friday's column - the grid only ever
+ * shows weekdays, so the next column after a Friday one is always the
+ * following Monday, and this is the one boundary worth calling out as a
+ * new working week rather than just the next day. */
+function weekDividerClass(date: string): string {
+  return weekdayName(date) === "Friday" ? "border-r-2" : "border-r";
 }
 
 export interface LeavePlanningGridProps {
@@ -105,7 +135,7 @@ export function LeavePlanningGrid({
                   <th
                     key={date}
                     data-testid={`planning-header-${date}`}
-                    className={`border-b-2 border-r border-ink/40 px-1 py-1 text-center font-medium ${
+                    className={`border-b-2 ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
                       fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
                     }`}
                   >
@@ -123,7 +153,10 @@ export function LeavePlanningGrid({
                   {doctor.code}
                 </td>
                 {dates.map((date) => (
-                  <td key={date} className="border-b border-r border-ink/40 p-0.5 align-top">
+                  <td
+                    key={date}
+                    className={`border-b ${weekDividerClass(date)} border-ink/40 p-0.5 align-top`}
+                  >
                     {PLANNING_PERIODS.map((period) => (
                       <PlanningCellHalf
                         key={period}
@@ -150,7 +183,7 @@ export function LeavePlanningGrid({
               {dates.map((date) => (
                 <td
                   key={date}
-                  className="border-r border-t-2 border-ink/40 bg-background p-0.5 align-top"
+                  className={`${weekDividerClass(date)} border-t-2 border-ink/40 bg-background p-0.5 align-top`}
                 >
                   {PLANNING_PERIODS.map((period) => {
                     const total = totals.get(closedSlotKey(date, period));
@@ -159,7 +192,7 @@ export function LeavePlanningGrid({
                         key={period}
                         data-testid={`planning-total-${date}-${period}`}
                         title={`${date} ${period}`}
-                        className="mt-0.5 rounded-sm bg-surface text-center text-[11px] leading-tight tabular-nums text-ink/70 first:mt-0"
+                        className={`mt-0.5 rounded-sm text-center text-[11px] leading-tight tabular-nums first:mt-0 ${coverageClass(total)}`}
                       >
                         {total === undefined || total === null ? "—" : total}
                       </div>
@@ -187,6 +220,16 @@ export function LeavePlanningGrid({
           <span className="inline-block h-3 w-3 rounded-sm bg-ink/5" />
           Not employed
         </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <span className="text-xs text-ink/60">Clinical cover:</span>
+        {COVERAGE_LEGEND.map((item) => (
+          <span key={item.label} className="flex items-center gap-1 text-xs text-ink/60">
+            <span className={`inline-block h-3 w-3 rounded-sm ${item.className}`} />
+            {item.label}
+          </span>
+        ))}
       </div>
     </div>
   );
