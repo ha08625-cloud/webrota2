@@ -78,6 +78,9 @@ from .recurring_note import RecurringNoteIn, RecurringNoteOut
 from .reception import (
     CoverageRuleOut,
     CoverageRulePatch,
+    ReceptionMasterSessionCreateIn,
+    ReceptionMasterSessionOut,
+    ReceptionMasterSessionPatchIn,
     ReceptionStaffIn,
     ReceptionStaffOut,
     ReceptionStaffPatch,
@@ -110,4 +113,6 @@ __all__ = [
     "RecurringNoteIn", "RecurringNoteOut",
     "ReceptionStaffIn", "ReceptionStaffOut", "ReceptionStaffPatch",
     "CoverageRuleOut", "CoverageRulePatch",
+    "ReceptionMasterSessionOut", "ReceptionMasterSessionCreateIn",
+    "ReceptionMasterSessionPatchIn",
 ]
