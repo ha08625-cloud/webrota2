@@ -25,7 +25,7 @@ describe("ClosuresPage", () => {
     setUpServer({ closures: makeFullDayClosure({ date: "2026-04-06", name: "Easter Monday" }) });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closures" });
     const row = within(table).getByText("Full day").closest("tr")!;
     expect(within(row).getByText("2026-04-06")).toBeInTheDocument();
     expect(within(row).getByText("Easter Monday")).toBeInTheDocument();
@@ -41,7 +41,7 @@ describe("ClosuresPage", () => {
     });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closures" });
     expect(within(table).getByText("Training")).toBeInTheDocument();
     expect(within(table).getByText("Different event")).toBeInTheDocument();
     expect(within(table).queryByText("Full day")).not.toBeInTheDocument();
@@ -51,7 +51,7 @@ describe("ClosuresPage", () => {
     setUpServer({ closures: [makeClosure({ id: 1, date: "2026-07-16", period: "PM", name: "Training" })] });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closures" });
     const row = within(table).getByText("2026-07-16").closest("tr")!;
     expect(within(row).getByText("PM")).toBeInTheDocument();
     expect(within(row).getByText("Training")).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("ClosuresPage", () => {
     setUpServer({ closures: makeFullDayClosure({ date: "2026-04-06", name: null }) });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closures" });
     expect(within(table).getByText("2026-04-06")).toBeInTheDocument();
   });
 
@@ -173,6 +173,94 @@ describe("ClosuresPage", () => {
     expect(calls).toBe(2);
   });
 
+  it("renders all eight fixed bank holidays with empty dates by default", async () => {
+    setUpServer();
+    renderWithProviders(<ClosuresPage />);
+
+    expect(await screen.findByText("Christmas Day bank holiday")).toBeInTheDocument();
+    expect(screen.getByText("Boxing Day bank holiday")).toBeInTheDocument();
+    expect(screen.getByText("New Year's Day")).toBeInTheDocument();
+  });
+
+  it("setting a bank holiday date PUTs it under that key and year", async () => {
+    setUpServer();
+    const currentYear = new Date().getFullYear();
+    let capturedBody: unknown;
+    let capturedUrl = "";
+    server.use(
+      http.put("/api/v1/closures/bank-holidays/:key", async ({ request, params }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({
+          key: params.key,
+          name: "Christmas Day bank holiday",
+          date: (capturedBody as { date: string }).date,
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClosuresPage />);
+    await screen.findByText("Christmas Day bank holiday");
+    const row = screen.getByText("Christmas Day bank holiday").closest("tr")!;
+    const input = within(row).getByDisplayValue("");
+
+    await user.type(input, "2026-12-25");
+
+    await waitFor(() => expect(capturedBody).toEqual({ date: "2026-12-25" }));
+    expect(capturedUrl).toContain(`/closures/bank-holidays/christmas_day?year=${currentYear}`);
+  });
+
+  it("clearing a bank holiday date PUTs null", async () => {
+    server.use(
+      http.get("/api/v1/closures/bank-holidays", () =>
+        HttpResponse.json([
+          { key: "christmas_day", name: "Christmas Day bank holiday", date: "2026-12-25" },
+        ]),
+      ),
+    );
+    let capturedBody: unknown;
+    server.use(
+      http.put("/api/v1/closures/bank-holidays/:key", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ key: "christmas_day", name: "Christmas Day bank holiday", date: null });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClosuresPage />);
+    const row = await screen.findByText("Christmas Day bank holiday");
+    const input = within(row.closest("tr")!).getByDisplayValue("2026-12-25");
+
+    await user.clear(input);
+
+    await waitFor(() => expect(capturedBody).toEqual({ date: null }));
+  });
+
+  it("navigating to the next year refetches bank holidays for that year", async () => {
+    setUpServer();
+    const currentYear = new Date().getFullYear();
+    const requestedYears: string[] = [];
+    server.use(
+      http.get("/api/v1/closures/bank-holidays", ({ request }) => {
+        requestedYears.push(new URL(request.url).searchParams.get("year")!);
+        return HttpResponse.json([
+          { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
+        ]);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClosuresPage />);
+    await screen.findByText("Christmas Day bank holiday");
+    await user.click(screen.getByRole("button", { name: "Next year" }));
+
+    await waitFor(() =>
+      expect(requestedYears).toContain(String(currentYear + 1)),
+    );
+    expect(await screen.findByText(String(currentYear + 1))).toBeInTheDocument();
+  });
+
   it("delete on a full-day row removes both ids", async () => {
     const closures = makeFullDayClosure({ date: "2026-04-06" });
     const expectedIds = closures.map((c) => String(c.id)).sort();
@@ -188,7 +276,7 @@ describe("ClosuresPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ClosuresPage />);
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closures" });
     within(table).getByText("2026-04-06");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));

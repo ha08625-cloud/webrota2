@@ -12,6 +12,12 @@ deleting or adding a PracticeClosure after a draft/committed rota exists must
 not change how that rota renders or validates. generate.py writes these rows
 in the same transaction as the rota; grid_utils.rebuild_rota_grid() reads
 from this table, not PracticeClosure, when reconstructing a persisted rota.
+
+`bank_holiday_key` tags a row as the annual instance of one of the fixed
+named bank holidays in `BANK_HOLIDAYS` (bank_holidays.py), so the Bank
+Holidays UI can find "this year's Christmas Day" without matching on the
+free-text `name`, which an admin could edit. It is left nullable/unset for
+ad-hoc closures, which have no such fixed identity.
 """
 import datetime
 
@@ -32,6 +38,7 @@ class PracticeClosure(Base):
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     period: Mapped[Period] = mapped_column(enum_col(Period), nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
+    bank_holiday_key: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class RotaClosure(Base):

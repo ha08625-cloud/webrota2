@@ -23,9 +23,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import PracticeClosure
+from ...models import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, PracticeClosure
+from ...models.enums import Period
 from ..deps import get_current_user, get_db
-from ..schemas import ClosureIn, ClosureOut
+from ..schemas import BankHolidayOut, BankHolidaySetIn, ClosureIn, ClosureOut
 
 router = APIRouter(prefix="/closures", tags=["closures"])
 
@@ -86,3 +87,78 @@ def delete_closure(
         raise HTTPException(status_code=404, detail=f"Closure {closure_id} not found")
     db.delete(closure)
     db.commit()
+
+
+@router.get("/bank-holidays", response_model=list[BankHolidayOut])
+def list_bank_holidays(
+    year: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[BankHolidayOut]:
+    """The fixed named list merged with whichever have a date set for
+    `year`. A holiday with no PracticeClosure yet comes back with date=None
+    rather than being omitted, so the UI always shows all eight rows."""
+    rows = db.execute(
+        select(PracticeClosure).where(
+            PracticeClosure.bank_holiday_key.in_(BANK_HOLIDAYS_BY_KEY.keys()),
+            PracticeClosure.date >= datetime.date(year, 1, 1),
+            PracticeClosure.date <= datetime.date(year, 12, 31),
+        )
+    ).scalars().all()
+    date_by_key = {row.bank_holiday_key: row.date for row in rows}
+    return [
+        BankHolidayOut(key=h.key, name=h.name, date=date_by_key.get(h.key))
+        for h in BANK_HOLIDAYS
+    ]
+
+
+@router.put("/bank-holidays/{key}", response_model=BankHolidayOut)
+def set_bank_holiday(
+    key: str,
+    year: int,
+    payload: BankHolidaySetIn,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> BankHolidayOut:
+    """Setting `date` replaces whichever full-day closure (AM+PM pair) was
+    previously tagged with this key for `year`, if any; `date=None` clears
+    it. Weekend dates are rejected by BankHolidaySetIn's validator (422)."""
+    holiday = BANK_HOLIDAYS_BY_KEY.get(key)
+    if holiday is None:
+        raise HTTPException(status_code=404, detail=f"Unknown bank holiday key: {key}")
+
+    existing = db.execute(
+        select(PracticeClosure).where(
+            PracticeClosure.bank_holiday_key == key,
+            PracticeClosure.date >= datetime.date(year, 1, 1),
+            PracticeClosure.date <= datetime.date(year, 12, 31),
+        )
+    ).scalars().all()
+    for row in existing:
+        db.delete(row)
+
+    if payload.date is not None:
+        for period in (Period.AM, Period.PM):
+            db.add(
+                PracticeClosure(
+                    date=payload.date,
+                    period=period,
+                    name=holiday.name,
+                    bank_holiday_key=key,
+                )
+            )
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A closure already exists for {payload.date.isoformat()}"
+                if payload.date is not None
+                else "Could not update this bank holiday."
+            ),
+        ) from exc
+
+    return BankHolidayOut(key=key, name=holiday.name, date=payload.date)

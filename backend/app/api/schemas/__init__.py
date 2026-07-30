@@ -54,7 +54,7 @@ from .leave_planning import (
     PlanningSkippedOut,
 )
 from .duty import DutyIn, DutyOut, DutyCountOut
-from .closure import ClosedSlotOut, ClosureIn, ClosureOut
+from .closure import BankHolidayOut, BankHolidaySetIn, ClosedSlotOut, ClosureIn, ClosureOut
 from .room import RoomOut
 from .counter import ClinicCounterOut, SystemCounterOut
 from .master_rota import (
@@ -108,7 +108,7 @@ __all__ = [
     "CoverageSlotOut", "PlanningActionIn", "PlanningBulkIn", "PlanningBulkOut",
     "PlanningSkippedOut",
     "DutyIn", "DutyOut", "DutyCountOut",
-    "ClosureIn", "ClosureOut", "ClosedSlotOut",
+    "ClosureIn", "ClosureOut", "ClosedSlotOut", "BankHolidayOut", "BankHolidaySetIn",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
