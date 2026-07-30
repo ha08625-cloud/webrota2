@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
-import { useClosures } from "@/api/closures";
+import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useExtraSessions } from "@/api/extraSessions";
 import { useApplyPlanningBulk, useCoverage } from "@/api/leavePlanning";
@@ -119,6 +120,7 @@ export function LeavePlanningPage() {
   const { data: leave } = useLeave(null);
   const { data: extraSessions } = useExtraSessions(null);
   const { data: closures } = useClosures();
+  const { data: bankHolidays } = useBankHolidays(year);
   const { data: schools } = useSchools();
   // 404s when no template is active; the grid still draws its leave cells,
   // the cover row simply reads zero throughout (matching the endpoint's
@@ -234,8 +236,26 @@ export function LeavePlanningPage() {
 
   const unsavedCount = pending.size;
 
+  // None set at all, not "some missing" - a partly-filled year (e.g. this
+  // year's already done, next year's not started) is normal mid-year and
+  // shouldn't nag; a wholly blank year is the case worth a warning.
+  const bankHolidaysMissing = (bankHolidays ?? []).length > 0 && (bankHolidays ?? []).every((h) => h.date === null);
+
   return (
     <div>
+      {bankHolidaysMissing ? (
+        <p
+          data-testid="bank-holidays-missing-warning"
+          className="mb-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+        >
+          Bank holidays for {year} have not been added yet. Clinical cover totals here won't account
+          for them until they're set on the{" "}
+          <Link to="/clinical/closures" className="font-medium underline">
+            Closures
+          </Link>{" "}
+          page.
+        </p>
+      ) : null}
       <p className="text-sm text-ink/70">
         Click a cell to cycle it: leave, then extra session, then back to normal. Nothing is saved
         until you press Save. The Clinical cover row counts partners and salaried doctors working

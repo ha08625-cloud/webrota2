@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  BankHoliday,
   CoverageSlot,
   Doctor,
   ExtraSessionEntry,
@@ -60,6 +61,7 @@ function setUpServer({
   coverage = coverageFor([MONDAY, TUESDAY], 2),
   template = TEMPLATE,
   schools = [] as School[],
+  bankHolidays,
 }: {
   doctors?: Doctor[];
   leave?: LeaveEntry[];
@@ -68,6 +70,7 @@ function setUpServer({
   coverage?: CoverageSlot[];
   template?: typeof TEMPLATE;
   schools?: School[];
+  bankHolidays?: BankHoliday[];
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
@@ -77,6 +80,9 @@ function setUpServer({
     http.get("/api/v1/leave-planning/coverage", () => HttpResponse.json(coverage)),
     http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
     http.get("/api/v1/schools", () => HttpResponse.json(schools)),
+    ...(bankHolidays
+      ? [http.get("/api/v1/closures/bank-holidays", () => HttpResponse.json(bankHolidays))]
+      : []),
   );
 }
 
@@ -406,6 +412,33 @@ describe("LeavePlanningPage", () => {
     expect(screen.getByTestId(`planning-total-${MONDAY}-AM`)).toHaveTextContent("—");
     expect(screen.getByTestId(`planning-total-${MONDAY}-PM`)).toHaveTextContent("2");
     expect(cell(1, MONDAY, "AM")).toHaveAttribute("data-state", "closed");
+  });
+
+  it("warns when no bank holiday has a date set for the viewed year", async () => {
+    setUpServer({
+      bankHolidays: [
+        { key: "new_year", name: "New Year's Day", date: null },
+        { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
+      ],
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    expect(
+      await screen.findByTestId("bank-holidays-missing-warning"),
+    ).toHaveTextContent("Bank holidays for 2026 have not been added yet");
+  });
+
+  it("does not warn once at least one bank holiday is set for the year", async () => {
+    setUpServer({
+      bankHolidays: [
+        { key: "new_year", name: "New Year's Day", date: "2026-01-01" },
+        { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
+      ],
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    await findCell(1, MONDAY, "AM");
+    expect(screen.queryByTestId("bank-holidays-missing-warning")).not.toBeInTheDocument();
   });
 
   it("says extra sessions apply at the next staging creation", async () => {
