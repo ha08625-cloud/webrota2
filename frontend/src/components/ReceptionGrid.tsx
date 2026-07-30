@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types";
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
@@ -88,9 +88,25 @@ export function ReceptionGrid<T extends ReceptionCellData>({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [selection]);
 
-  function handleCellClick(staffId: number, hour: number, shiftKey: boolean) {
+  /**
+   * The cell click handler lives on the `<td>` so that it covers both the
+   * filled-cell content and the empty-cell `+` button by bubbling. That
+   * makes it sensitive to where React bubbles events *from*: the open
+   * popover renders through a portal into document.body, but React's
+   * synthetic events bubble along the component tree, not the DOM tree, so
+   * every click inside the popover - the role dropdown especially - arrives
+   * here as if it were a click on the cell, collapsing the shift-click
+   * range back to the focus cell before Save ever fires.
+   *
+   * Hence the containment check: a cell click is a click that physically
+   * happened inside the cell. Guarding here rather than stopping
+   * propagation inside the popover keeps the rule in the one place that
+   * knows it, and covers any portalled surface a cell might grow later.
+   */
+  function handleCellClick(e: MouseEvent<HTMLTableCellElement>, staffId: number, hour: number) {
+    if (!e.currentTarget.contains(e.target as Node)) return;
     setSelection((prev) =>
-      shiftKey && prev !== null && prev.staffId === staffId
+      e.shiftKey && prev !== null && prev.staffId === staffId
         ? { ...prev, focusHour: hour }
         : { staffId, anchorHour: hour, focusHour: hour },
     );
@@ -184,7 +200,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                       className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName}`}
                       data-testid={`reception-cell-${member.id}-${hour}`}
                       data-selected={isSelected ? "true" : undefined}
-                      onClick={interactive ? (e) => handleCellClick(member.id, hour, e.shiftKey) : undefined}
+                      onClick={interactive ? (e) => handleCellClick(e, member.id, hour) : undefined}
                     >
                       {interactive ? (
                         <ReceptionCellPopover

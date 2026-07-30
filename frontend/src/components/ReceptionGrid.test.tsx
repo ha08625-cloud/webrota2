@@ -376,6 +376,32 @@ describe("ReceptionGrid: shift-click range select", () => {
     ]);
   });
 
+  it("typing in the popover's note field does not collapse the selection back to one cell", async () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+
+    // The popover portals out to document.body but stays inside the cell's
+    // React tree, so without the containment guard in handleCellClick every
+    // click in here reads as a plain click on the focus cell.
+    await user.click(await screen.findByLabelText("Note"));
+    await user.type(screen.getByLabelText("Note"), "cover");
+
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-10")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-11")).toHaveAttribute("data-selected", "true");
+    expect(await screen.findByText("Editing 3 hours")).toBeInTheDocument();
+  });
+
   it("changing the role dropdown mid-range does not collapse the selection back to one cell", async () => {
     const onSave = resolvedOnSave();
     renderWithProviders(
