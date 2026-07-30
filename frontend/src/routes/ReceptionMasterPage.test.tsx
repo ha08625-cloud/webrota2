@@ -90,7 +90,7 @@ describe("ReceptionMasterPage", () => {
     const cell = await screen.findByTestId("reception-cell-1-9");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Phones"));
-    await user.click(await screen.findByRole("radio", { name: "Other" }));
+    await user.selectOptions(await screen.findByLabelText("Role"), "other");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await within(cell).findByText("Filing")).toBeInTheDocument();

@@ -45,7 +45,7 @@ describe("ReceptionCellPopover: edit mode", () => {
     });
     await open();
 
-    expect(screen.getByRole("radio", { name: "Other" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("Role")).toHaveValue("other");
     expect(screen.getByLabelText("Note")).toHaveValue("Filing");
   });
 
@@ -55,7 +55,7 @@ describe("ReceptionCellPopover: edit mode", () => {
     });
     const user = await open();
 
-    await user.click(screen.getByRole("radio", { name: "Other" }));
+    await user.selectOptions(screen.getByLabelText("Role"), "other");
     await user.type(screen.getByLabelText("Note"), "Post run");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -123,7 +123,7 @@ describe("ReceptionCellPopover: create mode", () => {
     renderPopover({ session: null });
     await open();
 
-    expect(screen.getByRole("radio", { name: "Phones" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("Role")).toHaveValue("phones");
     expect(screen.getByLabelText("Note")).toHaveValue("");
     expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
   });
@@ -132,7 +132,7 @@ describe("ReceptionCellPopover: create mode", () => {
     const { onSave } = renderPopover({ session: null });
     const user = await open();
 
-    await user.click(screen.getByRole("radio", { name: "Other" }));
+    await user.selectOptions(screen.getByLabelText("Role"), "other");
     await user.type(screen.getByLabelText("Note"), "Training");
     await user.click(screen.getByRole("button", { name: "Save" }));
 

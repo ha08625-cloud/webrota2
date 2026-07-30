@@ -82,6 +82,13 @@ class SessionRole(str, enum.Enum):
 
 class ReceptionRole(str, enum.Enum):
     PHONES = "phones"
+    PRESCRIPTIONS = "prescriptions"
+    REGISTRATIONS = "registrations"
+    FRONT_DESK = "front_desk"
+    ADMIN = "admin"
+    ONLINE_TRIAGE = "online_triage"
+    ROTAS = "rotas"
+    TASKS = "tasks"
     OTHER = "other"
 
 
