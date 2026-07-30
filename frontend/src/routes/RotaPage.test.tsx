@@ -152,7 +152,7 @@ describe("RotaPage", () => {
     expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
   });
 
-  it("sends the correct payload, including the hidden template_start_week, to POST /staging", async () => {
+  it("sends the correct payload to POST /staging, defaulting template_start_week to 1", async () => {
     server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
     let capturedBody: unknown = null;
     server.use(
@@ -182,6 +182,30 @@ describe("RotaPage", () => {
         num_weeks: 2,
         template_start_week: 1,
       });
+    });
+  });
+
+  it("sends the chosen template_start_week to POST /staging", async () => {
+    server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+    let capturedBody: unknown = null;
+    server.use(
+      http.post("/api/v1/staging", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 });
+      }),
+    );
+
+    renderWithProviders(<RotaPage />, {
+      additionalRoutes: [{ path: "/clinical/staging", element: <StagingProbe /> }],
+    });
+    await screen.findByText("Generate a rota");
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Template starting week"), "3");
+    await user.click(screen.getByRole("button", { name: "Start staging" }));
+
+    await waitFor(() => {
+      expect(capturedBody).toMatchObject({ template_start_week: 3 });
     });
   });
 
