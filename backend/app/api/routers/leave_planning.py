@@ -23,6 +23,21 @@ Two asymmetries this module inherits and must not paper over:
 * Adding leave releases draft rooms; clearing it does not restore them
   (Design Decision 10), matching both `/leave/bulk-delete` and the WFH
   behaviour.
+
+Blocked (clinical rota, "Blocked" annual planner option) is a third,
+independent cell state for things like a whole-day training session: the
+doctor is unavailable for clinical cover, but this is deliberately **not**
+leave -- it must not touch `leave_entries` or anything that reads it (the
+generation engine, leave balances, `/leave`). It is stored in its own
+`BlockedEntry` table and only ever written from this router. For the
+coverage total it is treated exactly like leave (excluded from headcount,
+checked before leave/extra precedence); for draft-room release it is also
+treated like leave, since a blocked doctor is equally not going to be
+there. Precedence across the three non-clear actions is leave > blocked >
+extra_session -- a cell holds at most one of them in normal use (the grid
+enforces this by emitting a `clear` before switching state), and this
+router's skip reasons (`leave_exists` / `blocked_exists`) exist to keep a
+stale-grid batch from silently producing two rows on one cell.
 """
 from __future__ import annotations
 
@@ -36,6 +51,7 @@ from sqlalchemy.orm import Session
 from ...doctor_window import is_within_window
 from ...engine.week_map import DAY_ORDER
 from ...models import (
+    BlockedEntry,
     Doctor,
     ExtraSessionEntry,
     LeaveEntry,
@@ -46,6 +62,7 @@ from ...models import (
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    BlockedOut,
     CoverageSlotOut,
     ExtraSessionOut,
     PlanningBulkIn,
@@ -181,6 +198,7 @@ def get_coverage(
     template = _week_one_template(db)
     leave = _slot_keys(db, LeaveEntry, from_date, to_date)
     extra = _slot_keys(db, ExtraSessionEntry, from_date, to_date)
+    blocked = _slot_keys(db, BlockedEntry, from_date, to_date)
     closed = {
         (c.date, c.period)
         for c in db.execute(
@@ -207,9 +225,12 @@ def get_coverage(
             headcount = 0
             for doctor in doctors:
                 slot = (doctor.id, day, period)
-                if slot in leave:
-                    # Leave wins, and skips the extra-session override
-                    # entirely (extra sessions plan, Design Decision 6).
+                if slot in leave or slot in blocked:
+                    # Leave and blocked both mean "not covering" and skip
+                    # the extra-session override entirely (extra sessions
+                    # plan, Design Decision 6; blocked is treated the same
+                    # way for coverage purposes only -- see module
+                    # docstring).
                     continue
                 if not is_within_window(doctor, day):
                     continue
@@ -232,6 +253,29 @@ def get_coverage(
     return out
 
 
+@router.get("/blocked", response_model=list[BlockedOut])
+def list_blocked(
+    doctor_id: int | None = None,
+    from_date: datetime.date | None = None,
+    to_date: datetime.date | None = None,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> list[BlockedEntry]:
+    """All `BlockedEntry` rows, optionally filtered -- the read side the
+    Annual Planner grid needs to render blocked cells and their notes,
+    mirroring `GET /extra-sessions`'s shape. There is no ad-hoc write
+    endpoint here; the only way to create or delete a `BlockedEntry` is
+    `POST /leave-planning/bulk` below."""
+    stmt = select(BlockedEntry).order_by(BlockedEntry.date, BlockedEntry.doctor_id)
+    if doctor_id is not None:
+        stmt = stmt.where(BlockedEntry.doctor_id == doctor_id)
+    if from_date is not None:
+        stmt = stmt.where(BlockedEntry.date >= from_date)
+    if to_date is not None:
+        stmt = stmt.where(BlockedEntry.date <= to_date)
+    return db.execute(stmt).scalars().all()
+
+
 @router.post("/bulk", response_model=PlanningBulkOut, status_code=200)
 def apply_planning_bulk(
     payload: PlanningBulkIn,
@@ -241,15 +285,17 @@ def apply_planning_bulk(
     """Apply a batch of planning-grid edits in one transaction.
 
     Actions are applied in a fixed order -- **clears, then leave, then
-    extra sessions** (Design Decision 9) -- so a batch touching both sides
-    of a slot resolves deterministically in leave's favour, matching
-    `extra_sessions.md` Decision 6.
+    blocked, then extra sessions** (Design Decision 9) -- so a batch
+    touching more than one side of a slot resolves deterministically along
+    the leave > blocked > extra_session precedence (see module docstring).
 
     Nothing here 409s on a state that already matches: the grid sends the
     state it wants, so setting leave where leave already exists is a
-    "duplicate" skip, not a failure. A pre-existing `ExtraSessionEntry` the
-    batch's leave covers is *reported* in `superseded_extra_sessions` --
-    never deleted, never blocked -- exactly as `create_leave_bulk` does.
+    "duplicate" skip, not a failure -- unless the requested notes differ
+    from what's stored, in which case the row's notes are updated in place
+    and the action counts as applied. A pre-existing `ExtraSessionEntry`
+    the batch's leave covers is *reported* in `superseded_extra_sessions`
+    -- never deleted, never blocked -- exactly as `create_leave_bulk` does.
 
     Unlike the single-entry endpoints, an out-of-window action is a skip
     rather than a 422 (Design Decision 8): one stale cell must not fail a
@@ -309,6 +355,16 @@ def apply_planning_bulk(
             )
         ).scalars()
     }
+    blocked_rows = {
+        (r.doctor_id, r.date, r.period): r
+        for r in db.execute(
+            select(BlockedEntry).where(
+                BlockedEntry.doctor_id.in_(doctor_ids),
+                BlockedEntry.date >= span_start,
+                BlockedEntry.date <= span_end,
+            )
+        ).scalars()
+    }
 
     applied = 0
     skipped: list[PlanningSkippedOut] = []
@@ -323,14 +379,14 @@ def apply_planning_bulk(
         ))
 
     # --- 1. Clears -----------------------------------------------------
-    # Both rows are keyed on the same (doctor_id, date, period) triple, so
-    # a clear removes whichever of them exists with nothing to
+    # All three row types are keyed on the same (doctor_id, date, period)
+    # triple, so a clear removes whichever of them exists with nothing to
     # disambiguate. Draft rooms are deliberately not restored (Design
     # Decision 10).
     for action in (a for a in payload.actions if a.action == "clear"):
         key = (action.doctor_id, action.date, action.period)
         removed = False
-        for rows in (leave_rows, extra_rows):
+        for rows in (leave_rows, extra_rows, blocked_rows):
             row = rows.pop(key, None)
             if row is not None:
                 db.delete(row)
@@ -364,11 +420,19 @@ def apply_planning_bulk(
             (action.date, action.period)
         )
         leave_slots.add(key)
-        if key in leave_rows:
-            _skip(action, "duplicate")
+        existing = leave_rows.get(key)
+        if existing is not None:
+            if existing.notes == action.notes:
+                _skip(action, "duplicate")
+                continue
+            existing.notes = action.notes
+            applied += 1
             continue
         entry = LeaveEntry(
-            doctor_id=action.doctor_id, date=action.date, period=action.period
+            doctor_id=action.doctor_id,
+            date=action.date,
+            period=action.period,
+            notes=action.notes,
         )
         db.add(entry)
         leave_rows[key] = entry
@@ -377,10 +441,52 @@ def apply_planning_bulk(
     for doctor_id, pairs in candidates.items():
         _release_draft_rooms(db, doctor_id, pairs)
 
-    # --- 3. Extra sessions ---------------------------------------------
-    # Runs after leave has been applied, so a batch adding both to one cell
-    # resolves in leave's favour with the extra session reported as
-    # "leave_exists" rather than silently winning.
+    # --- 3. Blocked ------------------------------------------------------
+    # Runs after leave (leave wins, same as extra sessions below) and
+    # before extra sessions (blocked wins over an extra session on the same
+    # cell) -- the leave > blocked > extra_session precedence described in
+    # the module docstring. Draft rooms are released the same way leave's
+    # are: a blocked doctor is equally not available to hold a room.
+    blocked_candidates: dict[int, list[tuple[datetime.date, Period]]] = {}
+    blocked_slots: set[tuple[int, datetime.date, Period]] = set()
+    for action in (a for a in payload.actions if a.action == "blocked"):
+        key = (action.doctor_id, action.date, action.period)
+        if not is_within_window(doctors[action.doctor_id], action.date):
+            _skip(action, "outside_doctor_dates")
+            continue
+        if key in leave_rows:
+            _skip(action, "leave_exists")
+            continue
+        blocked_candidates.setdefault(action.doctor_id, []).append(
+            (action.date, action.period)
+        )
+        blocked_slots.add(key)
+        existing = blocked_rows.get(key)
+        if existing is not None:
+            if existing.notes == action.notes:
+                _skip(action, "duplicate")
+                continue
+            existing.notes = action.notes
+            applied += 1
+            continue
+        entry = BlockedEntry(
+            doctor_id=action.doctor_id,
+            date=action.date,
+            period=action.period,
+            notes=action.notes,
+        )
+        db.add(entry)
+        blocked_rows[key] = entry
+        applied += 1
+
+    for doctor_id, pairs in blocked_candidates.items():
+        _release_draft_rooms(db, doctor_id, pairs)
+
+    # --- 4. Extra sessions ---------------------------------------------
+    # Runs after leave and blocked have been applied, so a batch adding
+    # more than one of them to a cell resolves along the leave > blocked >
+    # extra_session precedence, with the loser reported rather than
+    # silently winning.
     for action in (a for a in payload.actions if a.action == "extra_session"):
         key = (action.doctor_id, action.date, action.period)
         if not is_within_window(doctors[action.doctor_id], action.date):
@@ -389,17 +495,28 @@ def apply_planning_bulk(
         if key in leave_rows:
             _skip(action, "leave_exists")
             continue
-        if key in extra_rows:
-            _skip(action, "duplicate")
+        if key in blocked_rows:
+            _skip(action, "blocked_exists")
+            continue
+        existing = extra_rows.get(key)
+        if existing is not None:
+            if existing.notes == action.notes:
+                _skip(action, "duplicate")
+                continue
+            existing.notes = action.notes
+            applied += 1
             continue
         entry = ExtraSessionEntry(
-            doctor_id=action.doctor_id, date=action.date, period=action.period
+            doctor_id=action.doctor_id,
+            date=action.date,
+            period=action.period,
+            notes=action.notes,
         )
         db.add(entry)
         extra_rows[key] = entry
         applied += 1
 
-    # --- 4. Report supersedes ------------------------------------------
+    # --- 5. Report supersedes ------------------------------------------
     # Every surviving ExtraSessionEntry on a slot this batch's leave
     # covers. Reported, never deleted and never a 409 -- the admin should
     # see what the leave superseded, and the row itself stays as the record
@@ -418,8 +535,8 @@ def apply_planning_bulk(
         raise HTTPException(
             status_code=409,
             detail=(
-                "A leave or extra session entry in this batch was created "
-                "concurrently; please retry."
+                "A leave, blocked, or extra session entry in this batch was "
+                "created concurrently; please retry."
             ),
         ) from exc
 

@@ -1,4 +1,5 @@
 import type {
+  BlockedEntry,
   CoverageSlot,
   Day,
   Doctor,
@@ -34,6 +35,10 @@ import { parseLocalDate } from "@/lib/date";
 
 export const PLANNING_PERIODS: Period[] = ["AM", "PM"];
 
+/** Matches `NOTES_MAX_LENGTH` in app/models/blocked.py -- there is very
+ * little room to render free text in a cell that also shows AM/PM. */
+export const NOTES_MAX_LENGTH = 12;
+
 /** Mon-Fri, indexed by `Date.getDay() - 1`. The grid has no weekend columns. */
 const WEEKDAY_NAMES: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -60,22 +65,28 @@ const COUNTED_TYPES = new Set<MasterSessionType>(["requires_room", "pre_assigned
  * wire calls the transition into that state - "normal" has no action of
  * its own, it is the result of a "clear".
  */
-export type PlanningCellState = "normal" | "leave" | "extra_session";
+export type PlanningCellState = "normal" | "leave" | "extra_session" | "blocked";
 
-/** Click order: normal -> leave -> extra planned -> normal. */
-const NEXT_STATE: Record<PlanningCellState, PlanningCellState> = {
-  normal: "leave",
-  leave: "extra_session",
-  extra_session: "normal",
-};
+/**
+ * A cell's unsaved edit: the state the admin picked from the dropdown,
+ * plus whatever they typed in the notes field (always a string, never
+ * undefined - "" means no note). Notes are meaningless for "normal", but
+ * kept in the same record rather than a parallel map so a pending edit
+ * and its note can never point at different cells.
+ */
+export interface PendingEdit {
+  action: PlanningAction;
+  notes: string;
+}
 
-/** Which server rows exist for one (doctor, date, period). Both can be
- * present at once - leave never deletes an extra session, it supersedes
- * it - so this is deliberately not collapsed to a single state until
- * `toCellState` below. */
+/** Which server rows exist for one (doctor, date, period). More than one
+ * can be present at once - leave never deletes an extra session, it
+ * supersedes it, and the same is true of blocked - so this is
+ * deliberately not collapsed to a single state until `toCellState` below. */
 export interface ServerSlotRows {
   hasLeave: boolean;
   hasExtra: boolean;
+  hasBlocked: boolean;
 }
 
 interface DoctorWindow {
@@ -171,15 +182,25 @@ export function toCellKeySet(entries: { doctor_id: number; date: string; period:
 export function serverRows(
   leaveKeys: Set<string>,
   extraKeys: Set<string>,
+  blockedKeys: Set<string>,
   key: string,
 ): ServerSlotRows {
-  return { hasLeave: leaveKeys.has(key), hasExtra: extraKeys.has(key) };
+  return {
+    hasLeave: leaveKeys.has(key),
+    hasExtra: extraKeys.has(key),
+    hasBlocked: blockedKeys.has(key),
+  };
 }
 
-/** Leave wins where both rows exist (extra sessions plan, Design Decision
- * 6) - the same precedence the engine and the coverage endpoint apply. */
+/** Leave > blocked > extra_session where more than one row exists (extra
+ * sessions plan, Design Decision 6, extended to blocked - see
+ * leave_planning.py's module docstring). Matches the coverage endpoint's
+ * own precedence, and the bulk endpoint's skip-reason ordering
+ * (leave_exists / blocked_exists) that keeps a stale-grid batch from
+ * producing more than one row on a cell in normal use. */
 export function toCellState(rows: ServerSlotRows): PlanningCellState {
   if (rows.hasLeave) return "leave";
+  if (rows.hasBlocked) return "blocked";
   if (rows.hasExtra) return "extra_session";
   return "normal";
 }
@@ -189,14 +210,49 @@ export function toCellState(rows: ServerSlotRows): PlanningCellState {
  * the row underneath it can never disagree. */
 export function mergeCellState(
   server: PlanningCellState,
-  pending: PlanningAction | undefined,
+  pending: PendingEdit | undefined,
 ): PlanningCellState {
   if (pending === undefined) return server;
-  return pending === "clear" ? "normal" : pending;
+  return pending.action === "clear" ? "normal" : pending.action;
 }
 
-export function nextCellState(state: PlanningCellState): PlanningCellState {
-  return NEXT_STATE[state];
+/** Membership set over BlockedEntry[] - same shape as toCellKeySet. */
+export function toBlockedKeySet(entries: BlockedEntry[]): Set<string> {
+  return toCellKeySet(entries);
+}
+
+/** (doctor, date, period) -> notes, over any entry list carrying one -
+ * built once per fetch, not per cell. Empty/null notes are omitted, so a
+ * lookup miss and "no note" both read as undefined. */
+export function toNotesMap(
+  entries: { doctor_id: number; date: string; period: Period; notes?: string | null }[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.notes) map.set(planningCellKey(entry.doctor_id, entry.date, entry.period), entry.notes);
+  }
+  return map;
+}
+
+/** The note belonging to whichever server row is currently active for this
+ * cell, empty string if none - same leave > blocked > extra_session
+ * precedence as `toCellState`, so the note shown always matches the state
+ * shown. */
+export function serverNotes(
+  leaveNotes: Map<string, string>,
+  extraNotes: Map<string, string>,
+  blockedNotes: Map<string, string>,
+  key: string,
+): string {
+  return leaveNotes.get(key) ?? blockedNotes.get(key) ?? extraNotes.get(key) ?? "";
+}
+
+/** What the cell's notes show right now: the pending edit's notes if
+ * there is one, the server's own notes otherwise - the same merge
+ * `mergeCellState` does for state. */
+export function mergeNotes(server: string, pending: PendingEdit | undefined): string {
+  if (pending === undefined) return server;
+  return pending.action === "clear" ? "" : pending.notes;
 }
 
 /** The wire action that produces this state. "normal" is a clear. */
@@ -309,7 +365,10 @@ function isCounted(
   templateType: MasterSessionType | undefined,
   state: PlanningCellState,
 ): boolean {
-  if (state === "leave") return false;
+  // Blocked is treated exactly like leave for coverage purposes (clinical
+  // rota, "Blocked" annual planner option) -- excluded from headcount,
+  // without writing a LeaveEntry.
+  if (state === "leave" || state === "blocked") return false;
   let effective = templateType;
   if (state === "extra_session" && (effective === undefined || OVERRIDABLE_TYPES.has(effective))) {
     effective = "requires_room";
@@ -321,7 +380,7 @@ export interface CoverageTotalsInput {
   /** The server's baseline for the displayed range. */
   coverage: CoverageSlot[];
   /** Unsaved edits, keyed by `planningCellKey`. */
-  pending: Map<string, PlanningAction>;
+  pending: Map<string, PendingEdit>;
   /**
    * The rows the grid renders, which are exactly the doctors the server
    * counts: active, Partner or Salaried, window-overlapping the month.
@@ -333,6 +392,7 @@ export interface CoverageTotalsInput {
   sessions: MasterRotaSession[];
   leave: LeaveEntry[];
   extraSessions: ExtraSessionEntry[];
+  blocked: BlockedEntry[];
 }
 
 /**
@@ -353,6 +413,7 @@ export function applyPendingToCoverage({
   sessions,
   leave,
   extraSessions,
+  blocked,
 }: CoverageTotalsInput): Map<string, number | null> {
   const totals = new Map<string, number | null>();
   for (const slot of coverage) {
@@ -362,9 +423,10 @@ export function applyPendingToCoverage({
   const template = buildTemplateIndex(sessions);
   const leaveKeys = toCellKeySet(leave);
   const extraKeys = toCellKeySet(extraSessions);
+  const blockedKeys = toCellKeySet(blocked);
   const doctorsById = new Map(doctors.map((d) => [d.id, d]));
 
-  for (const [key, action] of pending) {
+  for (const [key, edit] of pending) {
     const cell = parsePlanningCellKey(key);
     if (cell === null) continue;
 
@@ -380,8 +442,8 @@ export function applyPendingToCoverage({
     // slot has no headcount to adjust - Phase 2 creates no session there.
     if (base === undefined || base === null) continue;
 
-    const before = toCellState(serverRows(leaveKeys, extraKeys, key));
-    const after = mergeCellState(before, action);
+    const before = toCellState(serverRows(leaveKeys, extraKeys, blockedKeys, key));
+    const after = mergeCellState(before, edit);
     if (before === after) continue;
 
     const day = weekdayName(cell.date);
@@ -398,52 +460,71 @@ export function applyPendingToCoverage({
 }
 
 export interface PlanningActionsInput {
-  pending: Map<string, PlanningAction>;
+  pending: Map<string, PendingEdit>;
   leaveKeys: Set<string>;
   extraKeys: Set<string>;
+  blockedKeys: Set<string>;
+  leaveNotes: Map<string, string>;
+  extraNotes: Map<string, string>;
+  blockedNotes: Map<string, string>;
 }
 
 /**
  * The batch POST /leave-planning/bulk gets: the actions that move each
- * edited cell from its server state to the state the grid is showing.
+ * edited cell from its server state to the state the grid is showing,
+ * carrying whatever notes the admin typed.
  *
- * Usually one action per cell, but moving *between* leave and extra
- * planned emits a `clear` first. The bulk endpoint applies clears, then
- * leave, then extra sessions (Design Decision 9), so a `clear` paired
- * with the new state in the same batch removes the old row before the new
- * one is written. Without the clear the endpoint would skip the action -
- * `leave_exists` in one direction, a surviving superseded extra session
- * in the other - and the saved state would not match the grid, which is
- * the one thing a state-setting grid must not do.
+ * Usually one action per cell, but switching to a *different*
+ * leave/extra/blocked state emits a `clear` first whenever another row is
+ * still present. The bulk endpoint applies clears, then leave, then
+ * blocked, then extra sessions (Design Decision 9, extended for blocked -
+ * see leave_planning.py's module docstring), so a `clear` paired with the
+ * new state in the same batch removes the old row before the new one is
+ * written. Without the clear the endpoint would skip the action -
+ * `leave_exists`/`blocked_exists` in one direction, a surviving
+ * superseded extra session in the other - and the saved state would not
+ * match the grid, which is the one thing a state-setting grid must not
+ * do. A cell that keeps its state but changes only its notes needs no
+ * clear - the existing row is updated in place.
  *
- * A cell whose pending state equals its server state emits nothing; the
- * page also drops such keys from the pending map as they happen, so this
- * is a belt-and-braces filter rather than the only guard.
+ * A cell whose pending state *and* notes equal the server's emits
+ * nothing; the page also drops such keys from the pending map as they
+ * happen, so this is a belt-and-braces filter rather than the only guard.
  */
 export function buildPlanningActions({
   pending,
   leaveKeys,
   extraKeys,
+  blockedKeys,
+  leaveNotes,
+  extraNotes,
+  blockedNotes,
 }: PlanningActionsInput): PlanningActionIn[] {
   const actions: PlanningActionIn[] = [];
 
-  for (const [key, action] of pending) {
+  for (const [key, edit] of pending) {
     const cell = parsePlanningCellKey(key);
     if (cell === null) continue;
 
-    const rows = serverRows(leaveKeys, extraKeys, key);
+    const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
     const before = toCellState(rows);
-    const after = mergeCellState(before, action);
-    if (before === after) continue;
+    const after = mergeCellState(before, edit);
+
+    const notesBefore = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
+    const notesAfter = mergeNotes(notesBefore, edit);
+    if (before === after && notesBefore === notesAfter) continue;
 
     const base = { doctor_id: cell.doctorId, date: cell.date, period: cell.period };
     const needsClear =
       after === "normal" ||
-      (after === "leave" && rows.hasExtra) ||
-      (after === "extra_session" && rows.hasLeave);
+      (rows.hasLeave && after !== "leave") ||
+      (rows.hasExtra && after !== "extra_session") ||
+      (rows.hasBlocked && after !== "blocked");
 
     if (needsClear) actions.push({ ...base, action: "clear" });
-    if (after !== "normal") actions.push({ ...base, action: stateToAction(after) });
+    if (after !== "normal") {
+      actions.push({ ...base, action: stateToAction(after), notes: notesAfter || null });
+    }
   }
 
   return actions;

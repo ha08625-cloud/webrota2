@@ -1,25 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import type { CoverageSlot, MasterSessionType, PlanningAction } from "@/api/types";
-import { makeDoctor, makeExtraSessionEntry, makeLeaveEntry, makeSchoolHoliday } from "@/test/fixtures/reference";
+import {
+  makeBlockedEntry,
+  makeDoctor,
+  makeExtraSessionEntry,
+  makeLeaveEntry,
+  makeSchoolHoliday,
+} from "@/test/fixtures/reference";
 import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 
 import {
+  type PendingEdit,
   applyPendingToCoverage,
   buildPlanningActions,
   buildTemplateIndex,
   isInMonth,
   isWithinWindow,
   mergeCellState,
-  nextCellState,
+  mergeNotes,
   overlapsRange,
   parsePlanningCellKey,
   planningCellKey,
   schoolHolidayDatesInRange,
+  serverNotes,
   serverRows,
   stateToAction,
   toCellKeySet,
   toCellState,
+  toNotesMap,
   weekdayName,
   weekdaysInMonth,
 } from "./planningMonth";
@@ -57,8 +66,13 @@ const BASE_COVERAGE = [
   slot(TUESDAY, "PM", 0),
 ];
 
-function pendingMap(entries: [string, PlanningAction][]): Map<string, PlanningAction> {
-  return new Map(entries);
+/** Shorthand for a pending edit with no note - most tests don't care. */
+function edit(action: PlanningAction, notes = ""): PendingEdit {
+  return { action, notes };
+}
+
+function pendingMap(entries: [string, PlanningAction | PendingEdit][]): Map<string, PendingEdit> {
+  return new Map(entries.map(([key, value]) => [key, typeof value === "string" ? edit(value) : value]));
 }
 
 /** Totals for one slot, with the full world defaulted to the baseline. */
@@ -67,14 +81,15 @@ function totalFor(
   period: "AM" | "PM",
   {
     coverage = BASE_COVERAGE,
-    pending = new Map<string, PlanningAction>(),
+    pending = new Map<string, PendingEdit>(),
     doctors = [AA, BB],
     sessions = BASE_TEMPLATE,
     leave = [],
     extraSessions = [],
+    blocked = [],
   }: Partial<Parameters<typeof applyPendingToCoverage>[0]> = {},
 ): number | null | undefined {
-  return applyPendingToCoverage({ coverage, pending, doctors, sessions, leave, extraSessions }).get(
+  return applyPendingToCoverage({ coverage, pending, doctors, sessions, leave, extraSessions, blocked }).get(
     `${date}|${period}`,
   );
 }
@@ -163,28 +178,53 @@ describe("planningCellKey", () => {
 });
 
 describe("cell state machine", () => {
-  it("cycles normal -> leave -> extra planned -> normal", () => {
-    expect(nextCellState("normal")).toBe("leave");
-    expect(nextCellState("leave")).toBe("extra_session");
-    expect(nextCellState("extra_session")).toBe("normal");
-  });
-
-  it("resolves leave over an extra session where both rows exist", () => {
-    expect(toCellState({ hasLeave: true, hasExtra: true })).toBe("leave");
-    expect(toCellState({ hasLeave: false, hasExtra: true })).toBe("extra_session");
-    expect(toCellState({ hasLeave: false, hasExtra: false })).toBe("normal");
+  it("resolves leave > blocked > extra_session where more than one row exists", () => {
+    expect(toCellState({ hasLeave: true, hasExtra: true, hasBlocked: true })).toBe("leave");
+    expect(toCellState({ hasLeave: false, hasExtra: true, hasBlocked: true })).toBe("blocked");
+    expect(toCellState({ hasLeave: false, hasExtra: true, hasBlocked: false })).toBe("extra_session");
+    expect(toCellState({ hasLeave: false, hasExtra: false, hasBlocked: false })).toBe("normal");
   });
 
   it("lets a pending edit override the server state, with clear meaning normal", () => {
     expect(mergeCellState("leave", undefined)).toBe("leave");
-    expect(mergeCellState("leave", "clear")).toBe("normal");
-    expect(mergeCellState("normal", "extra_session")).toBe("extra_session");
+    expect(mergeCellState("leave", edit("clear"))).toBe("normal");
+    expect(mergeCellState("normal", edit("extra_session"))).toBe("extra_session");
+    expect(mergeCellState("normal", edit("blocked"))).toBe("blocked");
   });
 
   it("maps normal onto the clear action", () => {
     expect(stateToAction("normal")).toBe("clear");
     expect(stateToAction("leave")).toBe("leave");
     expect(stateToAction("extra_session")).toBe("extra_session");
+    expect(stateToAction("blocked")).toBe("blocked");
+  });
+});
+
+describe("notes", () => {
+  it("builds a notes map, omitting empty/null notes", () => {
+    const map = toNotesMap([
+      makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM", notes: "Training" }),
+      makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "PM", notes: null }),
+    ]);
+    expect(map.get(planningCellKey(1, MONDAY, "AM"))).toBe("Training");
+    expect(map.has(planningCellKey(1, MONDAY, "PM"))).toBe(false);
+  });
+
+  it("resolves notes with the same leave > blocked > extra_session precedence as state", () => {
+    const key = planningCellKey(1, MONDAY, "AM");
+    const leaveNotes = new Map([[key, "Leave note"]]);
+    const blockedNotes = new Map([[key, "Blocked note"]]);
+    const extraNotes = new Map([[key, "Extra note"]]);
+    expect(serverNotes(leaveNotes, extraNotes, blockedNotes, key)).toBe("Leave note");
+    expect(serverNotes(new Map(), extraNotes, blockedNotes, key)).toBe("Blocked note");
+    expect(serverNotes(new Map(), extraNotes, new Map(), key)).toBe("Extra note");
+    expect(serverNotes(new Map(), new Map(), new Map(), key)).toBe("");
+  });
+
+  it("lets a pending edit override the server notes, with clear meaning empty", () => {
+    expect(mergeNotes("Old", undefined)).toBe("Old");
+    expect(mergeNotes("Old", edit("clear"))).toBe("");
+    expect(mergeNotes("Old", edit("blocked", "New"))).toBe("New");
   });
 });
 
@@ -364,6 +404,24 @@ describe("applyPendingToCoverage", () => {
     ).toBe(1);
   });
 
+  it("drops one from the headcount for pending blocked, same as leave", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "blocked"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("treats existing blocked the same way existing leave is treated", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        blocked: [makeBlockedEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        coverage: [slot(MONDAY, "AM", 1)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "clear"]]),
+      }),
+    ).toBe(2);
+  });
+
   it("restores the headcount when existing leave is cleared", () => {
     expect(
       totalFor(MONDAY, "AM", {
@@ -410,6 +468,7 @@ describe("applyPendingToCoverage", () => {
       sessions: BASE_TEMPLATE,
       leave: [],
       extraSessions: [],
+      blocked: [],
     });
     expect(totals.get(`${MONDAY}|AM`)).toBe(2);
     expect(totals.get("2026-09-07|AM")).toBeUndefined();
@@ -441,30 +500,41 @@ describe("buildPlanningActions", () => {
   const key = planningCellKey(1, MONDAY, "AM");
 
   function actionsFor(
-    action: PlanningAction,
-    { leave = false, extra = false } = {},
+    pendingEdit: PendingEdit,
+    { leave = false, extra = false, blocked = false, serverNote = "" } = {},
   ) {
+    const notesMap = serverNote ? new Map([[key, serverNote]]) : new Map<string, string>();
     return buildPlanningActions({
-      pending: pendingMap([[key, action]]),
+      pending: pendingMap([[key, pendingEdit]]),
       leaveKeys: leave ? new Set([key]) : new Set(),
       extraKeys: extra ? new Set([key]) : new Set(),
+      blockedKeys: blocked ? new Set([key]) : new Set(),
+      leaveNotes: leave ? notesMap : new Map(),
+      extraNotes: extra ? notesMap : new Map(),
+      blockedNotes: blocked ? notesMap : new Map(),
     });
   }
 
   it("emits a single leave action on an empty cell", () => {
-    expect(actionsFor("leave")).toEqual([
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave" },
+    expect(actionsFor(edit("leave"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
     ]);
   });
 
   it("emits a single extra_session action on an empty cell", () => {
-    expect(actionsFor("extra_session")).toEqual([
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session" },
+    expect(actionsFor(edit("extra_session"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+    ]);
+  });
+
+  it("emits a single blocked action on an empty cell, notes included", () => {
+    expect(actionsFor(edit("blocked", "Training"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: "Training" },
     ]);
   });
 
   it("emits a clear for a cell being emptied", () => {
-    expect(actionsFor("clear", { leave: true })).toEqual([
+    expect(actionsFor(edit("clear"), { leave: true })).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
     ]);
   });
@@ -472,24 +542,37 @@ describe("buildPlanningActions", () => {
   it("clears the existing leave before adding an extra session", () => {
     // Without the clear the endpoint would skip the extra session as
     // "leave_exists" and the saved state would not match the grid.
-    expect(actionsFor("extra_session", { leave: true })).toEqual([
+    expect(actionsFor(edit("extra_session"), { leave: true })).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
     ]);
   });
 
   it("clears the existing extra session before adding leave", () => {
     // Otherwise the extra session survives and comes back as a
     // superseded-extra-session warning the admin did not ask for.
-    expect(actionsFor("leave", { extra: true })).toEqual([
+    expect(actionsFor(edit("leave"), { extra: true })).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
     ]);
   });
 
-  it("emits nothing for a pending state that already matches the server", () => {
-    expect(actionsFor("leave", { leave: true })).toEqual([]);
-    expect(actionsFor("clear")).toEqual([]);
+  it("clears an existing extra session before adding blocked", () => {
+    expect(actionsFor(edit("blocked"), { extra: true })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: null },
+    ]);
+  });
+
+  it("emits nothing for a pending state that already matches the server, notes included", () => {
+    expect(actionsFor(edit("leave"), { leave: true })).toEqual([]);
+    expect(actionsFor(edit("clear"))).toEqual([]);
+  });
+
+  it("emits an action with no clear when only the notes change on an unchanged state", () => {
+    expect(actionsFor(edit("blocked", "New"), { blocked: true, serverNote: "Old" })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: "New" },
+    ]);
   });
 
   it("skips a malformed key rather than posting garbage", () => {
@@ -498,6 +581,10 @@ describe("buildPlanningActions", () => {
         pending: pendingMap([["nonsense", "leave"]]),
         leaveKeys: new Set(),
         extraKeys: new Set(),
+        blockedKeys: new Set(),
+        leaveNotes: new Map(),
+        extraNotes: new Map(),
+        blockedNotes: new Map(),
       }),
     ).toEqual([]);
   });
@@ -506,9 +593,10 @@ describe("buildPlanningActions", () => {
 describe("toCellKeySet / serverRows", () => {
   it("builds membership keys matching planningCellKey", () => {
     const keys = toCellKeySet([makeLeaveEntry({ doctor_id: 4, date: MONDAY, period: "PM" })]);
-    expect(serverRows(keys, new Set(), planningCellKey(4, MONDAY, "PM"))).toEqual({
+    expect(serverRows(keys, new Set(), new Set(), planningCellKey(4, MONDAY, "PM"))).toEqual({
       hasLeave: true,
       hasExtra: false,
+      hasBlocked: false,
     });
   });
 });

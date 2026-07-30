@@ -37,6 +37,7 @@ from .doctor import (
     PreferredRoomOut,
 )
 from .extra_session import ExtraSessionIn, ExtraSessionOut
+from .blocked import BlockedOut
 from .leave import (
     LeaveBulkDeleteIn,
     LeaveBulkDeleteOut,
@@ -102,7 +103,7 @@ __all__ = [
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
     "PreferredRoomIn", "PreferredRoomOut",
-    "ExtraSessionIn", "ExtraSessionOut",
+    "ExtraSessionIn", "ExtraSessionOut", "BlockedOut",
     "LeaveIn", "LeaveOut",
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",

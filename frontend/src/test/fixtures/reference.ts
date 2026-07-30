@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  BlockedEntry,
   ClinicCounter,
   ClinicType,
   Closure,
@@ -90,6 +91,19 @@ export function makeExtraSessionEntry(overrides: Partial<ExtraSessionEntry> = {}
     doctor_id: 1,
     date: "2026-08-03",
     period: "AM",
+    ...overrides,
+  };
+}
+
+let blockedIdCounter = 1;
+
+export function makeBlockedEntry(overrides: Partial<BlockedEntry> = {}): BlockedEntry {
+  return {
+    id: blockedIdCounter++,
+    doctor_id: 1,
+    date: "2026-08-03",
+    period: "AM",
+    notes: null,
     ...overrides,
   };
 }

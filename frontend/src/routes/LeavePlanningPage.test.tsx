@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 
 import type {
   BankHoliday,
+  BlockedEntry,
   CoverageSlot,
   Doctor,
   ExtraSessionEntry,
@@ -59,6 +60,7 @@ function setUpServer({
   doctors = [AA, BB],
   leave = [] as LeaveEntry[],
   extraSessions = [] as ExtraSessionEntry[],
+  blocked = [] as BlockedEntry[],
   closures = [] as ReturnType<typeof makeClosure>[],
   coverage = coverageFor([MONDAY, TUESDAY], 2),
   template = TEMPLATE,
@@ -68,6 +70,7 @@ function setUpServer({
   doctors?: Doctor[];
   leave?: LeaveEntry[];
   extraSessions?: ExtraSessionEntry[];
+  blocked?: BlockedEntry[];
   closures?: ReturnType<typeof makeClosure>[];
   coverage?: CoverageSlot[];
   template?: typeof TEMPLATE;
@@ -78,6 +81,7 @@ function setUpServer({
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/leave", () => HttpResponse.json(leave)),
     http.get("/api/v1/extra-sessions", () => HttpResponse.json(extraSessions)),
+    http.get("/api/v1/leave-planning/blocked", () => HttpResponse.json(blocked)),
     http.get("/api/v1/closures", () => HttpResponse.json(closures)),
     http.get("/api/v1/leave-planning/coverage", () => HttpResponse.json(coverage)),
     http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
@@ -108,6 +112,20 @@ function cell(doctorId: number, date: string, period: "AM" | "PM") {
 
 async function findCell(doctorId: number, date: string, period: "AM" | "PM") {
   return screen.findByTestId(`planning-cell-${doctorId}-${date}-${period}`);
+}
+
+/** Opens a cell's popover, picks a status from the dropdown, then clicks
+ * Apply - the only way to change a cell's state now that clicking opens
+ * `PlanningCellPopover` instead of cycling through states directly. */
+async function pickCellState(
+  user: ReturnType<typeof userEvent.setup>,
+  target: HTMLElement,
+  state: "normal" | "leave" | "extra_session" | "blocked",
+) {
+  await user.click(target);
+  const popover = screen.getByTestId("planning-cell-popover");
+  await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), state);
+  await user.click(within(popover).getByTestId("planning-cell-apply"));
 }
 
 describe("LeavePlanningPage", () => {
@@ -157,6 +175,48 @@ describe("LeavePlanningPage", () => {
     expect(cell(2, TUESDAY, "PM")).toHaveAttribute("data-state", "extra_session");
   });
 
+  it("renders existing blocked entries, with their note in place of the AM/PM label", async () => {
+    setUpServer({
+      blocked: [{ id: 1, doctor_id: 1, date: MONDAY, period: "AM", notes: "Training" }],
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    const target = await findCell(1, MONDAY, "AM");
+    expect(target).toHaveAttribute("data-state", "blocked");
+    expect(target).toHaveTextContent("Training");
+  });
+
+  it("drops the total for pending blocked, the same as leave", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    renderWithProviders(<LeavePlanningPage />);
+
+    const total = () => screen.getByTestId(`planning-total-${MONDAY}-AM`);
+    await waitFor(() => expect(total()).toHaveTextContent("2"));
+
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "blocked");
+    expect(total()).toHaveTextContent("1");
+  });
+
+  it("posts a blocked action with its note", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    const bodies = captureBulkBodies();
+    renderWithProviders(<LeavePlanningPage />);
+
+    await user.click(await findCell(1, MONDAY, "AM"));
+    const popover = screen.getByTestId("planning-cell-popover");
+    await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), "blocked");
+    await user.type(within(popover).getByTestId("planning-cell-notes-input"), "Training");
+    await user.click(within(popover).getByTestId("planning-cell-apply"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].actions).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: "Training" },
+    ]);
+  });
+
   it("updates the cover total live as cells are toggled, before any save", async () => {
     const user = userEvent.setup();
     setUpServer();
@@ -165,17 +225,17 @@ describe("LeavePlanningPage", () => {
     const total = () => screen.getByTestId(`planning-total-${MONDAY}-AM`);
     await waitFor(() => expect(total()).toHaveTextContent("2"));
 
-    // One click: leave for AA, so cover drops to 1.
-    await user.click(await findCell(1, MONDAY, "AM"));
+    // Leave for AA, so cover drops to 1.
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     expect(total()).toHaveTextContent("1");
 
-    // Second click: extra planned. AA already worked this slot, so the
-    // override is a no-op and cover comes back to 2 - not 3.
-    await user.click(cell(1, MONDAY, "AM"));
+    // Extra planned instead. AA already worked this slot, so the override
+    // is a no-op and cover comes back to 2 - not 3.
+    await pickCellState(user, cell(1, MONDAY, "AM"), "extra_session");
     expect(total()).toHaveTextContent("2");
 
-    // Third click: back to normal, and the edit stops counting as unsaved.
-    await user.click(cell(1, MONDAY, "AM"));
+    // Back to normal, and the edit stops counting as unsaved.
+    await pickCellState(user, cell(1, MONDAY, "AM"), "normal");
     expect(total()).toHaveTextContent("2");
     expect(screen.queryByTestId("planning-unsaved-count")).not.toBeInTheDocument();
   });
@@ -187,8 +247,7 @@ describe("LeavePlanningPage", () => {
 
     // Tuesday has no template row at all, so an extra session there is a
     // genuine +1 (the copy loop's new-row branch).
-    await user.click(await findCell(1, TUESDAY, "AM"));
-    await user.click(cell(1, TUESDAY, "AM"));
+    await pickCellState(user, await findCell(1, TUESDAY, "AM"), "extra_session");
 
     expect(cell(1, TUESDAY, "AM")).toHaveAttribute("data-state", "extra_session");
     expect(screen.getByTestId(`planning-total-${TUESDAY}-AM`)).toHaveTextContent("1");
@@ -199,8 +258,8 @@ describe("LeavePlanningPage", () => {
     setUpServer();
     renderWithProviders(<LeavePlanningPage />);
 
-    await user.click(await findCell(1, MONDAY, "AM"));
-    await user.click(cell(2, MONDAY, "PM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+    await pickCellState(user, cell(2, MONDAY, "PM"), "leave");
     expect(screen.getByTestId("planning-unsaved-count")).toHaveTextContent("2 unsaved changes");
 
     await user.click(screen.getByRole("button", { name: "Discard" }));
@@ -223,15 +282,14 @@ describe("LeavePlanningPage", () => {
     const bodies = captureBulkBodies();
     renderWithProviders(<LeavePlanningPage />);
 
-    await user.click(await findCell(1, MONDAY, "AM"));
-    await user.click(cell(2, TUESDAY, "PM"));
-    await user.click(cell(2, TUESDAY, "PM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+    await pickCellState(user, cell(2, TUESDAY, "PM"), "extra_session");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0].actions).toEqual([
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave" },
-      { doctor_id: 2, date: TUESDAY, period: "PM", action: "extra_session" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
+      { doctor_id: 2, date: TUESDAY, period: "PM", action: "extra_session", notes: null },
     ]);
     await waitFor(() =>
       expect(screen.queryByTestId("planning-unsaved-count")).not.toBeInTheDocument(),
@@ -246,13 +304,13 @@ describe("LeavePlanningPage", () => {
 
     // Existing leave -> extra planned. Without the paired clear the
     // server would skip this as "leave_exists".
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "extra_session");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0].actions).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
     ]);
   });
 
@@ -269,7 +327,7 @@ describe("LeavePlanningPage", () => {
     });
     renderWithProviders(<LeavePlanningPage />);
 
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     const summary = await screen.findByText(/1 change saved/);
@@ -290,7 +348,7 @@ describe("LeavePlanningPage", () => {
     );
     renderWithProviders(<LeavePlanningPage />);
 
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(
@@ -486,7 +544,7 @@ describe("LeavePlanningPage", () => {
     setUpServer();
     renderWithElsewhereLink();
 
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("link", { name: "Elsewhere" }));
 
     const dialog = await screen.findByTestId("unsaved-changes-dialog");
@@ -502,7 +560,7 @@ describe("LeavePlanningPage", () => {
     setUpServer();
     renderWithElsewhereLink();
 
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("link", { name: "Elsewhere" }));
     const dialog = await screen.findByTestId("unsaved-changes-dialog");
     await user.click(within(dialog).getByRole("button", { name: "Discard" }));
@@ -516,7 +574,7 @@ describe("LeavePlanningPage", () => {
     const bodies = captureBulkBodies();
     renderWithElsewhereLink();
 
-    await user.click(await findCell(1, MONDAY, "AM"));
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("link", { name: "Elsewhere" }));
     const dialog = await screen.findByTestId("unsaved-changes-dialog");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));

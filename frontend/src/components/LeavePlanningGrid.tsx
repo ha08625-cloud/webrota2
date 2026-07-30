@@ -1,16 +1,19 @@
-import type { Doctor, MasterSessionType, Period, PlanningAction } from "@/api/types";
+import type { Doctor, MasterSessionType, Period } from "@/api/types";
+import { PlanningCellPopover } from "@/components/PlanningCellPopover";
 import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
 import { formatHolidayRange, parseLocalDate } from "@/lib/date";
 import {
   PLANNING_PERIODS,
+  type PendingEdit,
   type PlanningCellState,
   type SchoolPlannerRow,
   isInMonth,
   isSurgerySession,
   isWithinWindow,
   mergeCellState,
-  nextCellState,
+  mergeNotes,
   planningCellKey,
+  serverNotes,
   serverRows,
   templateKey,
   toCellState,
@@ -24,8 +27,10 @@ import {
  *
  * Every cell's appearance is the *merge* of server state and any pending
  * edit for that key, computed at render - the component holds no state of
- * its own. Clicking cycles normal -> leave -> extra planned -> normal
- * through `onToggle`; nothing here fires an API call.
+ * its own. Clicking opens `PlanningCellPopover`, a dropdown choosing one
+ * of normal/leave/extra_session/blocked plus a free-text note; Apply
+ * calls `onApply` with the picked state and note. Nothing here fires an
+ * API call.
  *
  * Two kinds of inert cell, deliberately given different treatments
  * because confusing them would mislead:
@@ -48,6 +53,7 @@ const CELL_CLASSES: Record<PlanningCellState, string> = {
   normal: "bg-surface text-ink/30 hover:bg-accent/10",
   leave: "bg-green-500 text-white",
   extra_session: "bg-yellow-300 text-yellow-900",
+  blocked: "bg-slate-500 text-white",
 };
 
 const NO_SURGERY_NORMAL_CLASS = "bg-gray-300 text-ink/40 hover:bg-accent/10";
@@ -56,11 +62,13 @@ const CELL_TITLES: Record<PlanningCellState, string> = {
   normal: "Working as normal",
   leave: "On leave",
   extra_session: "Extra session planned",
+  blocked: "Blocked (not available, not leave)",
 };
 
 const LEGEND: { state: PlanningCellState; label: string }[] = [
   { state: "leave", label: "Leave" },
   { state: "extra_session", label: "Extra planned" },
+  { state: "blocked", label: "Blocked" },
 ];
 
 /**
@@ -143,10 +151,16 @@ export interface LeavePlanningGridProps {
    * Decision 9) - rendered above the doctor rows, not editable. */
   schoolRows: SchoolPlannerRow[];
   /** Unsaved edits, keyed by `planningCellKey`. */
-  pending: Map<string, PlanningAction>;
-  /** Existing LeaveEntry / ExtraSessionEntry keys, same key shape. */
+  pending: Map<string, PendingEdit>;
+  /** Existing LeaveEntry / ExtraSessionEntry / BlockedEntry keys, same key shape. */
   leaveKeys: Set<string>;
   extraKeys: Set<string>;
+  blockedKeys: Set<string>;
+  /** (doctor, date, period) -> notes, one map per entry type, same key
+   * shape as the *Keys sets above. */
+  leaveNotes: Map<string, string>;
+  extraNotes: Map<string, string>;
+  blockedNotes: Map<string, string>;
   /** Closed (date, period) slots, keyed by `closedSlotKey`. */
   closedSlots: Set<string>;
   /** Total row: `closedSlotKey` -> headcount, null when closed. */
@@ -155,9 +169,16 @@ export interface LeavePlanningGridProps {
    * `buildTemplateIndex`. Used only to colour normal cells (see the module
    * docstring) - has no bearing on state or the coverage total. */
   templateTypes: Map<string, MasterSessionType>;
-  /** Receives the state the clicked cell should move to - the cycle
-   * itself is this component's business, the page only records it. */
-  onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
+  /** Fired when the cell popover's Apply button is pressed, with the
+   * picked state and note - the popover itself is this component's
+   * business, the page only records the result. */
+  onApply: (
+    doctorId: number,
+    date: string,
+    period: Period,
+    state: PlanningCellState,
+    notes: string,
+  ) => void;
 }
 
 export function LeavePlanningGrid({
@@ -169,10 +190,14 @@ export function LeavePlanningGrid({
   pending,
   leaveKeys,
   extraKeys,
+  blockedKeys,
+  leaveNotes,
+  extraNotes,
+  blockedNotes,
   closedSlots,
   totals,
   templateTypes,
-  onToggle,
+  onApply,
 }: LeavePlanningGridProps) {
   if (doctors.length === 0) {
     return <p className="mt-4 text-sm text-ink/50">No partners, salaried doctors, or locums work this month.</p>;
@@ -258,9 +283,13 @@ export function LeavePlanningGrid({
                         pending={pending}
                         leaveKeys={leaveKeys}
                         extraKeys={extraKeys}
+                        blockedKeys={blockedKeys}
+                        leaveNotes={leaveNotes}
+                        extraNotes={extraNotes}
+                        blockedNotes={blockedNotes}
                         closedSlots={closedSlots}
                         templateTypes={templateTypes}
-                        onToggle={onToggle}
+                        onApply={onApply}
                       />
                     ))}
                   </td>
@@ -360,12 +389,22 @@ interface PlanningCellHalfProps {
   doctor: Doctor;
   date: string;
   period: Period;
-  pending: Map<string, PlanningAction>;
+  pending: Map<string, PendingEdit>;
   leaveKeys: Set<string>;
   extraKeys: Set<string>;
+  blockedKeys: Set<string>;
+  leaveNotes: Map<string, string>;
+  extraNotes: Map<string, string>;
+  blockedNotes: Map<string, string>;
   closedSlots: Set<string>;
   templateTypes: Map<string, MasterSessionType>;
-  onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
+  onApply: (
+    doctorId: number,
+    date: string,
+    period: Period,
+    state: PlanningCellState,
+    notes: string,
+  ) => void;
 }
 
 function PlanningCellHalf({
@@ -375,12 +414,17 @@ function PlanningCellHalf({
   pending,
   leaveKeys,
   extraKeys,
+  blockedKeys,
+  leaveNotes,
+  extraNotes,
+  blockedNotes,
   closedSlots,
   templateTypes,
-  onToggle,
+  onApply,
 }: PlanningCellHalfProps) {
   const testId = `planning-cell-${doctor.id}-${date}-${period}`;
-  const shared = "mt-0.5 block w-full rounded-sm text-center text-[10px] leading-tight first:mt-0";
+  const shared =
+    "mt-0.5 block w-full truncate rounded-sm px-0.5 text-center text-[10px] leading-tight first:mt-0";
 
   if (isSlotClosed(closedSlots, date, period)) {
     return (
@@ -409,8 +453,10 @@ function PlanningCellHalf({
   }
 
   const key = planningCellKey(doctor.id, date, period);
-  const pendingAction = pending.get(key);
-  const state = mergeCellState(toCellState(serverRows(leaveKeys, extraKeys, key)), pendingAction);
+  const pendingEdit = pending.get(key);
+  const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
+  const state = mergeCellState(toCellState(rows), pendingEdit);
+  const notes = mergeNotes(serverNotes(leaveNotes, extraNotes, blockedNotes, key), pendingEdit);
 
   const day = weekdayName(date);
   const templateType = day === null ? undefined : templateTypes.get(templateKey(doctor.id, day, period));
@@ -418,19 +464,25 @@ function PlanningCellHalf({
     state === "normal" && !isSurgerySession(templateType) ? NO_SURGERY_NORMAL_CLASS : CELL_CLASSES[state];
 
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      data-state={state}
-      data-pending={pendingAction !== undefined ? "true" : "false"}
-      title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}`}
-      aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}`}
-      onClick={() => onToggle(doctor.id, date, period, nextCellState(state))}
-      className={`${shared} ${stateClass} ${
-        pendingAction !== undefined ? "ring-2 ring-inset ring-ink/60" : ""
-      }`}
+    <PlanningCellPopover
+      state={state}
+      notes={notes}
+      onApply={(nextState, nextNotes) => onApply(doctor.id, date, period, nextState, nextNotes)}
     >
-      {period}
-    </button>
+      <button
+        type="button"
+        data-testid={testId}
+        data-state={state}
+        data-notes={notes}
+        data-pending={pendingEdit !== undefined ? "true" : "false"}
+        title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}${notes ? `: ${notes}` : ""}`}
+        aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}${notes ? `, note ${notes}` : ""}`}
+        className={`${shared} ${stateClass} ${
+          pendingEdit !== undefined ? "ring-2 ring-inset ring-ink/60" : ""
+        }`}
+      >
+        {notes || period}
+      </button>
+    </PlanningCellPopover>
   );
 }

@@ -4,15 +4,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useExtraSessions } from "@/api/extraSessions";
-import { useApplyPlanningBulk, useCoverage } from "@/api/leavePlanning";
+import { useApplyPlanningBulk, useBlockedEntries, useCoverage } from "@/api/leavePlanning";
 import { useLeave } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
-import type { ApiError, Period, PlanningAction, PlanningBulkOut } from "@/api/types";
+import type { ApiError, Period, PlanningBulkOut } from "@/api/types";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 import {
+  type PendingEdit,
   type PlanningCellState,
   applyPendingToCoverage,
   buildPlanningActions,
@@ -20,10 +21,11 @@ import {
   overlapsRange,
   planningCellKey,
   schoolHolidayDatesInRange,
+  serverNotes,
   serverRows,
-  stateToAction,
   toCellKeySet,
   toCellState,
+  toNotesMap,
   weekdaysInMonth,
 } from "@/lib/planningMonth";
 
@@ -78,10 +80,12 @@ function summariseSave(result: PlanningBulkOut): string {
     (s) => s.reason === "duplicate" || s.reason === "nothing_to_clear",
   ).length;
   const leaveWins = result.skipped.filter((s) => s.reason === "leave_exists").length;
+  const blockedWins = result.skipped.filter((s) => s.reason === "blocked_exists").length;
 
   if (alreadySet > 0) parts.push(`${alreadySet} already matched`);
   if (outOfWindow > 0) parts.push(`${outOfWindow} skipped (doctor not employed on that date)`);
-  if (leaveWins > 0) parts.push(`${leaveWins} extra session${leaveWins === 1 ? "" : "s"} skipped (leave takes precedence)`);
+  if (leaveWins > 0) parts.push(`${leaveWins} entr${leaveWins === 1 ? "y" : "ies"} skipped (leave takes precedence)`);
+  if (blockedWins > 0) parts.push(`${blockedWins} extra session${blockedWins === 1 ? "" : "s"} skipped (blocked takes precedence)`);
 
   let summary = `${parts.join(", ")}.`;
 
@@ -105,7 +109,7 @@ export function LeavePlanningPage() {
     year: today.getFullYear(),
     month: today.getMonth() + 1,
   });
-  const [pending, setPending] = useState<Map<string, PlanningAction>>(new Map());
+  const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSummary, setSaveSummary] = useState<string | null>(null);
 
@@ -120,6 +124,7 @@ export function LeavePlanningPage() {
   const { data: coverage, isLoading: coverageLoading } = useCoverage(fromDate, toDate);
   const { data: leave } = useLeave(null);
   const { data: extraSessions } = useExtraSessions(null);
+  const { data: blocked } = useBlockedEntries();
   const { data: closures } = useClosures();
   const { data: bankHolidays } = useBankHolidays(year);
   const { data: schools } = useSchools();
@@ -170,6 +175,10 @@ export function LeavePlanningPage() {
 
   const leaveKeys = useMemo(() => toCellKeySet(leave ?? []), [leave]);
   const extraKeys = useMemo(() => toCellKeySet(extraSessions ?? []), [extraSessions]);
+  const blockedKeys = useMemo(() => toCellKeySet(blocked ?? []), [blocked]);
+  const leaveNotes = useMemo(() => toNotesMap(leave ?? []), [leave]);
+  const extraNotes = useMemo(() => toNotesMap(extraSessions ?? []), [extraSessions]);
+  const blockedNotes = useMemo(() => toNotesMap(blocked ?? []), [blocked]);
   const closedSlots = useMemo(() => toClosedSlotSet(closures ?? []), [closures]);
 
   const totals = useMemo(
@@ -181,26 +190,31 @@ export function LeavePlanningPage() {
         sessions: template?.sessions ?? [],
         leave: leave ?? [],
         extraSessions: extraSessions ?? [],
+        blocked: blocked ?? [],
       }),
-    [coverage, pending, doctors, template, leave, extraSessions],
+    [coverage, pending, doctors, template, leave, extraSessions, blocked],
   );
 
-  function handleToggle(
+  function handleApply(
     doctorId: number,
     date: string,
     period: Period,
-    next: PlanningCellState,
+    state: PlanningCellState,
+    notes: string,
   ) {
     const key = planningCellKey(doctorId, date, period);
     setPending((prev) => {
       const updated = new Map(prev);
-      // Cycling a cell back to what the server already says is not an
-      // edit - dropping the key keeps the unsaved count honest and keeps
-      // a no-op out of the batch.
-      if (next === toCellState(serverRows(leaveKeys, extraKeys, key))) {
+      const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
+      const serverState = toCellState(rows);
+      const serverNotesValue = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
+      // Picking a cell back to exactly what the server already says is
+      // not an edit - dropping the key keeps the unsaved count honest and
+      // keeps a no-op out of the batch.
+      if (state === serverState && notes === serverNotesValue) {
         updated.delete(key);
       } else {
-        updated.set(key, stateToAction(next));
+        updated.set(key, { action: state === "normal" ? "clear" : state, notes });
       }
       return updated;
     });
@@ -228,7 +242,15 @@ export function LeavePlanningPage() {
     setSaveError(null);
     setSaveSummary(null);
 
-    const actions = buildPlanningActions({ pending, leaveKeys, extraKeys });
+    const actions = buildPlanningActions({
+      pending,
+      leaveKeys,
+      extraKeys,
+      blockedKeys,
+      leaveNotes,
+      extraNotes,
+      blockedNotes,
+    });
     if (actions.length === 0) {
       setPending(new Map());
       return true;
@@ -399,10 +421,14 @@ export function LeavePlanningPage() {
         pending={pending}
         leaveKeys={leaveKeys}
         extraKeys={extraKeys}
+        blockedKeys={blockedKeys}
+        leaveNotes={leaveNotes}
+        extraNotes={extraNotes}
+        blockedNotes={blockedNotes}
         closedSlots={closedSlots}
         totals={totals}
         templateTypes={templateTypes}
-        onToggle={handleToggle}
+        onApply={handleApply}
       />
 
       {navigationTarget ? (

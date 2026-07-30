@@ -9,6 +9,7 @@ import datetime
 import pytest
 
 from app.models import (
+    BlockedEntry,
     Doctor,
     ExtraSessionEntry,
     LeaveEntry,
@@ -101,6 +102,27 @@ class TestCoverage:
         slots = _coverage(client)
         assert slots[(MONDAY.isoformat(), "AM")]["headcount"] == 1
         assert slots[(MONDAY.isoformat(), "PM")]["headcount"] == 2
+
+    def test_blocked_reduces_headcount(self, client, db_session, seeded):
+        db_session.add(BlockedEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+        ))
+        db_session.commit()
+
+        slots = _coverage(client)
+        assert slots[(MONDAY.isoformat(), "AM")]["headcount"] == 1
+        assert slots[(MONDAY.isoformat(), "PM")]["headcount"] == 2
+
+    def test_extra_session_does_not_override_blocked(self, client, db_session, seeded):
+        db_session.add(BlockedEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+        ))
+        db_session.add(ExtraSessionEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+        ))
+        db_session.commit()
+
+        assert _coverage(client)[(MONDAY.isoformat(), "AM")]["headcount"] == 1
 
     def test_extra_session_on_no_surgery_increases_headcount(
         self, client, db_session, seeded
@@ -326,6 +348,99 @@ class TestBulk:
         assert db_session.query(LeaveEntry).count() == 1
         assert db_session.query(ExtraSessionEntry).count() == 0
 
+    def test_blocked_action_creates_entry_with_notes(self, client, db_session, seeded):
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked", "notes": "Training"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["applied"] == 1
+
+        entry = db_session.query(BlockedEntry).one()
+        assert entry.notes == "Training"
+        assert db_session.query(LeaveEntry).count() == 0
+        assert db_session.query(ExtraSessionEntry).count() == 0
+
+    def test_notes_over_12_chars_422s(self, client, seeded):
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked", "notes": "Way too long a note"},
+        ]})
+        assert resp.status_code == 422
+
+    def test_leave_wins_over_blocked_on_the_same_cell(
+        self, client, db_session, seeded
+    ):
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked"},
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "leave"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 1
+        assert [s["reason"] for s in body["skipped"]] == ["leave_exists"]
+        assert body["skipped"][0]["action"] == "blocked"
+
+        assert db_session.query(LeaveEntry).count() == 1
+        assert db_session.query(BlockedEntry).count() == 0
+
+    def test_blocked_wins_over_extra_session_on_the_same_cell(
+        self, client, db_session, seeded
+    ):
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "extra_session"},
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 1
+        assert [s["reason"] for s in body["skipped"]] == ["blocked_exists"]
+        assert body["skipped"][0]["action"] == "extra_session"
+
+        assert db_session.query(BlockedEntry).count() == 1
+        assert db_session.query(ExtraSessionEntry).count() == 0
+
+    def test_duplicate_blocked_is_skipped_not_409(self, client, db_session, seeded):
+        db_session.add(BlockedEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+        ))
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 0
+        assert [s["reason"] for s in body["skipped"]] == ["duplicate"]
+        assert db_session.query(BlockedEntry).count() == 1
+
+    def test_changed_notes_on_existing_entry_updates_rather_than_skips(
+        self, client, db_session, seeded
+    ):
+        db_session.add(BlockedEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+            notes="Old",
+        ))
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked", "notes": "New"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 1
+        assert body["skipped"] == []
+
+        entry = db_session.query(BlockedEntry).one()
+        assert entry.notes == "New"
+
     def test_duplicate_leave_is_skipped_not_409(self, client, db_session, seeded):
         db_session.add(LeaveEntry(
             doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
@@ -389,6 +504,20 @@ class TestBulk:
 
         assert db_session.query(LeaveEntry).count() == 0
         assert db_session.query(ExtraSessionEntry).count() == 0
+
+    def test_clear_removes_a_blocked_row_too(self, client, db_session, seeded):
+        db_session.add(BlockedEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+        ))
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "clear"},
+        ]})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["applied"] == 1
+        assert db_session.query(BlockedEntry).count() == 0
 
     def test_clear_of_an_empty_cell_is_skipped(self, client, seeded):
         resp = client.post(BULK, json={"actions": [
@@ -552,6 +681,21 @@ class TestBulkReleasesDraftRooms:
         ]})
         assert resp.status_code == 200, resp.text
         assert [s["reason"] for s in resp.json()["skipped"]] == ["duplicate"]
+
+        db_session.expire_all()
+        assert self._draft_session(db_session, seeded).room_id is None
+
+    def test_blocked_clears_the_draft_room(self, client, db_session, seeded):
+        generate_rota(client)
+        session = self._draft_session(db_session, seeded)
+        session.room_id = seeded["room_c1"]
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [
+            {"doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+             "period": "AM", "action": "blocked"},
+        ]})
+        assert resp.status_code == 200, resp.text
 
         db_session.expire_all()
         assert self._draft_session(db_session, seeded).room_id is None
