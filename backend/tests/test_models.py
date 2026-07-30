@@ -612,6 +612,13 @@ def _reception_rota(session, date=datetime.date(2026, 8, 3)):
 
 def test_reception_role_round_trips_by_value():
     assert ReceptionRole.PHONES.value == "phones"
+    assert ReceptionRole.PRESCRIPTIONS.value == "prescriptions"
+    assert ReceptionRole.REGISTRATIONS.value == "registrations"
+    assert ReceptionRole.FRONT_DESK.value == "front_desk"
+    assert ReceptionRole.ADMIN.value == "admin"
+    assert ReceptionRole.ONLINE_TRIAGE.value == "online_triage"
+    assert ReceptionRole.ROTAS.value == "rotas"
+    assert ReceptionRole.TASKS.value == "tasks"
     assert ReceptionRole.OTHER.value == "other"
 
 

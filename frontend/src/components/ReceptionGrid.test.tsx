@@ -140,7 +140,7 @@ describe("ReceptionGrid: edit and delete", () => {
     const cell = screen.getByTestId("reception-cell-1-9");
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Phones"));
-    await user.click(await screen.findByRole("radio", { name: "Other" }));
+    await user.selectOptions(await screen.findByLabelText("Role"), "other");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledWith({ staffId: 1, hour: 9, session, role: "other", note: null });

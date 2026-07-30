@@ -825,7 +825,16 @@ export interface SignatureMeta {
 // is the same schema the clinical rota uses, just with `week`/`period`
 // always null.
 
-export type ReceptionRole = "phones" | "other";
+export type ReceptionRole =
+  | "phones"
+  | "prescriptions"
+  | "registrations"
+  | "front_desk"
+  | "admin"
+  | "online_triage"
+  | "rotas"
+  | "tasks"
+  | "other";
 
 export interface ReceptionStaff {
   id: number;

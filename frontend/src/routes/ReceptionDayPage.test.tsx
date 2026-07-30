@@ -83,7 +83,7 @@ describe("ReceptionDayPage", () => {
 
     const cell = await screen.findByTestId("reception-cell-1-9");
     await user.click(within(cell).getByText("Phones"));
-    await user.click(await screen.findByRole("radio", { name: "Other" }));
+    await user.selectOptions(await screen.findByLabelText("Role"), "other");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await within(cell).findByText("Training")).toBeInTheDocument();

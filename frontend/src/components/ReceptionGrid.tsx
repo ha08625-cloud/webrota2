@@ -4,6 +4,7 @@ import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
 import { formatHour, RECEPTION_HOURS } from "@/lib/receptionHours";
 import { getReceptionCell, pivotReception, type ReceptionCellData } from "@/lib/pivotReception";
+import { RECEPTION_ROLE_CHIP_CLASSNAME, RECEPTION_ROLE_LABELS } from "@/lib/receptionRoles";
 
 export interface ReceptionSavePayload<T extends ReceptionCellData> {
   staffId: number;
@@ -151,11 +152,9 @@ function CellContent<T extends ReceptionCellData>({ session }: { session: T }) {
   return (
     <>
       <span
-        className={`rounded px-1 text-xs font-medium ${
-          session.role === "phones" ? "bg-accent/10 text-accent" : "bg-ink/10 text-ink/70"
-        }`}
+        className={`rounded px-1 text-xs font-medium ${RECEPTION_ROLE_CHIP_CLASSNAME[session.role]}`}
       >
-        {session.role === "phones" ? "Phones" : "Other"}
+        {RECEPTION_ROLE_LABELS[session.role]}
       </span>
       {session.note ? <div className="text-xs text-ink/60">{session.note}</div> : null}
     </>

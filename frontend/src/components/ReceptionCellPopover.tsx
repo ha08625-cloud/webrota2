@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import type { ReceptionRole } from "@/api/types";
 import type { ReceptionCellData } from "@/lib/pivotReception";
+import { RECEPTION_ROLE_LABELS, RECEPTION_ROLE_ORDER } from "@/lib/receptionRoles";
 
 interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
   /**
@@ -76,20 +77,22 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           data-testid="reception-cell-edit-popover"
           className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
         >
-          <div className="flex gap-1" role="radiogroup" aria-label="Role">
-            <RoleButton
-              label="Phones"
-              active={role === "phones"}
-              disabled={saving}
-              onClick={() => setRole("phones")}
-            />
-            <RoleButton
-              label="Other"
-              active={role === "other"}
-              disabled={saving}
-              onClick={() => setRole("other")}
-            />
-          </div>
+          <label className="block text-xs font-medium text-ink/70" htmlFor="reception-cell-role">
+            Role
+          </label>
+          <select
+            id="reception-cell-role"
+            value={role}
+            disabled={saving}
+            onChange={(e) => setRole(e.target.value as ReceptionRole)}
+            className="mt-1 w-full rounded border border-border p-1 text-sm"
+          >
+            {RECEPTION_ROLE_ORDER.map((r) => (
+              <option key={r} value={r}>
+                {RECEPTION_ROLE_LABELS[r]}
+              </option>
+            ))}
+          </select>
 
           <label className="mt-2 block text-xs font-medium text-ink/70" htmlFor="reception-cell-note">
             Note
@@ -131,32 +134,5 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-  );
-}
-
-function RoleButton({
-  label,
-  active,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex-1 rounded px-2 py-1 text-sm ${
-        active ? "bg-accent/10 font-semibold text-accent" : "text-ink/70 hover:bg-ink/5"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
