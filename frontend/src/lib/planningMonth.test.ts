@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CoverageSlot, MasterSessionType, PlanningAction } from "@/api/types";
-import { makeDoctor, makeExtraSessionEntry, makeLeaveEntry } from "@/test/fixtures/reference";
+import { makeDoctor, makeExtraSessionEntry, makeLeaveEntry, makeSchoolHoliday } from "@/test/fixtures/reference";
 import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 
 import {
@@ -15,6 +15,7 @@ import {
   overlapsRange,
   parsePlanningCellKey,
   planningCellKey,
+  schoolHolidayDatesInRange,
   serverRows,
   stateToAction,
   toCellKeySet,
@@ -214,6 +215,30 @@ describe("overlapsRange", () => {
   it("excludes a window entirely before or after the range", () => {
     expect(overlapsRange({ start_date: null, end_date: "2026-07-31" }, "2026-08-03", "2026-08-31")).toBe(false);
     expect(overlapsRange({ start_date: "2026-09-01", end_date: null }, "2026-08-03", "2026-08-31")).toBe(false);
+  });
+});
+
+describe("schoolHolidayDatesInRange", () => {
+  it("maps each in-range date to the holiday covering it", () => {
+    const holiday = makeSchoolHoliday({ start_date: "2026-08-03", end_date: "2026-08-04" });
+    const result = schoolHolidayDatesInRange(["2026-08-03", "2026-08-04", "2026-08-05"], [holiday]);
+
+    expect([...result.keys()]).toEqual(["2026-08-03", "2026-08-04"]);
+    expect(result.get("2026-08-03")).toBe(holiday);
+  });
+
+  it("returns an empty map for a school with no holiday in range", () => {
+    const holiday = makeSchoolHoliday({ start_date: "2026-01-01", end_date: "2026-01-05" });
+    expect(schoolHolidayDatesInRange(["2026-08-03", "2026-08-04"], [holiday]).size).toBe(0);
+  });
+
+  it("includes the weekdays either side of a weekend the holiday spans", () => {
+    // Friday 31 Jul - Monday 3 Aug: the grid has no weekend columns, so
+    // only the Friday and Monday appear in `dates` at all.
+    const holiday = makeSchoolHoliday({ start_date: "2026-07-31", end_date: "2026-08-03" });
+    const result = schoolHolidayDatesInRange(["2026-07-31", "2026-08-03", "2026-08-04"], [holiday]);
+
+    expect([...result.keys()]).toEqual(["2026-07-31", "2026-08-03"]);
   });
 });
 

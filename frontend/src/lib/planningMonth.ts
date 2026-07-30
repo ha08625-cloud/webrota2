@@ -9,6 +9,7 @@ import type {
   Period,
   PlanningAction,
   PlanningActionIn,
+  SchoolHoliday,
 } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import { parseLocalDate } from "@/lib/date";
@@ -225,6 +226,39 @@ export function overlapsRange(doctor: DoctorWindow, from: string, to: string): b
     (doctor.start_date === null || doctor.start_date <= to) &&
     (doctor.end_date === null || doctor.end_date >= from)
   );
+}
+
+/**
+ * Which of `dates` (the grid's Mon-Fri columns) fall inside one of a
+ * school's holidays, each mapped to the covering holiday - a school with
+ * an empty result gets no planner row (Design Decision 9).
+ *
+ * Reuses `overlapsRange` rather than a near-duplicate range comparison:
+ * a holiday's start/end are never null (unlike a doctor's window), so
+ * `overlapsRange(holiday, date, date)` is exactly the "date falls inside
+ * this holiday" test. First matching holiday wins where two overlap for
+ * the same school - there is no ordering guarantee to pick between them,
+ * and the plan treats overlapping ranges as harmless (Design Decision 5).
+ */
+export function schoolHolidayDatesInRange(
+  dates: string[],
+  holidays: SchoolHoliday[],
+): Map<string, SchoolHoliday> {
+  const result = new Map<string, SchoolHoliday>();
+  for (const date of dates) {
+    const match = holidays.find((holiday) => overlapsRange(holiday, date, date));
+    if (match) result.set(date, match);
+  }
+  return result;
+}
+
+/** One informational row on the Annual Planner. `dates` maps each
+ * in-holiday grid column to the holiday covering it, for the cell title -
+ * a school with no dates in view gets no row at all (Design Decision 9). */
+export interface SchoolPlannerRow {
+  id: number;
+  name: string;
+  dates: Map<string, SchoolHoliday>;
 }
 
 function templateKey(doctorId: number, day: Day, period: Period): string {

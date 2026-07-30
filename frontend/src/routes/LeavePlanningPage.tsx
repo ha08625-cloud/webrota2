@@ -6,6 +6,7 @@ import { useExtraSessions } from "@/api/extraSessions";
 import { useApplyPlanningBulk, useCoverage } from "@/api/leavePlanning";
 import { useLeave } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
+import { useSchools } from "@/api/schools";
 import type { ApiError, Period, PlanningAction, PlanningBulkOut } from "@/api/types";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
@@ -16,6 +17,7 @@ import {
   buildPlanningActions,
   overlapsRange,
   planningCellKey,
+  schoolHolidayDatesInRange,
   serverRows,
   stateToAction,
   toCellKeySet,
@@ -117,6 +119,7 @@ export function LeavePlanningPage() {
   const { data: leave } = useLeave(null);
   const { data: extraSessions } = useExtraSessions(null);
   const { data: closures } = useClosures();
+  const { data: schools } = useSchools();
   // 404s when no template is active; the grid still draws its leave cells,
   // the cover row simply reads zero throughout (matching the endpoint's
   // own no-active-template behaviour).
@@ -141,6 +144,18 @@ export function LeavePlanningPage() {
           ),
         ),
     [allDoctors, fromDate, toDate],
+  );
+
+  const schoolRows = useMemo(
+    () =>
+      (schools ?? [])
+        .map((school) => ({
+          id: school.id,
+          name: school.name,
+          dates: schoolHolidayDatesInRange(dates, school.holidays),
+        }))
+        .filter((row) => row.dates.size > 0),
+    [schools, dates],
   );
 
   const leaveKeys = useMemo(() => toCellKeySet(leave ?? []), [leave]);
@@ -288,6 +303,7 @@ export function LeavePlanningPage() {
         year={year}
         month={month}
         doctors={doctors}
+        schoolRows={schoolRows}
         pending={pending}
         leaveKeys={leaveKeys}
         extraKeys={extraKeys}

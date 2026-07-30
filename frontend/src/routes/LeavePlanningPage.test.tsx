@@ -10,6 +10,7 @@ import type {
   LeaveEntry,
   PlanningActionIn,
   PlanningBulkOut,
+  School,
 } from "@/api/types";
 import { makeMasterRotaSession, makeMasterRotaTemplate } from "@/test/fixtures/masterRota";
 import {
@@ -17,6 +18,8 @@ import {
   makeDoctor,
   makeExtraSessionEntry,
   makeLeaveEntry,
+  makeSchool,
+  makeSchoolHoliday,
 } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -56,6 +59,7 @@ function setUpServer({
   closures = [] as ReturnType<typeof makeClosure>[],
   coverage = coverageFor([MONDAY, TUESDAY], 2),
   template = TEMPLATE,
+  schools = [] as School[],
 }: {
   doctors?: Doctor[];
   leave?: LeaveEntry[];
@@ -63,6 +67,7 @@ function setUpServer({
   closures?: ReturnType<typeof makeClosure>[];
   coverage?: CoverageSlot[];
   template?: typeof TEMPLATE;
+  schools?: School[];
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
@@ -71,6 +76,7 @@ function setUpServer({
     http.get("/api/v1/closures", () => HttpResponse.json(closures)),
     http.get("/api/v1/leave-planning/coverage", () => HttpResponse.json(coverage)),
     http.get("/api/v1/master-rota/active", () => HttpResponse.json(template)),
+    http.get("/api/v1/schools", () => HttpResponse.json(schools)),
   );
 }
 
@@ -322,6 +328,84 @@ describe("LeavePlanningPage", () => {
 
     expect(await screen.findByText("AA")).toBeInTheDocument();
     expect(screen.queryByText("GO")).not.toBeInTheDocument();
+  });
+
+  it("shows a row for a school with a holiday in August, none for one without", async () => {
+    const inView = makeSchool({
+      name: "St Mary's",
+      holidays: [makeSchoolHoliday({ start_date: "2026-07-21", end_date: "2026-08-31" })],
+    });
+    const outOfView = makeSchool({
+      name: "Other School",
+      holidays: [makeSchoolHoliday({ start_date: "2026-01-01", end_date: "2026-01-05" })],
+    });
+    setUpServer({ schools: [inView, outOfView] });
+    renderWithProviders(<LeavePlanningPage />);
+
+    await findCell(1, MONDAY, "AM");
+    expect(screen.getByText("St Mary's")).toBeInTheDocument();
+    expect(screen.queryByText("Other School")).not.toBeInTheDocument();
+  });
+
+  it("shades exactly the weekday columns a holiday covers, spanning a weekend", async () => {
+    // 2026-08-07 is a Friday, 2026-08-10 the following Monday - the grid
+    // has no weekend columns, so a Fri-Mon holiday shades only those two.
+    const FRIDAY = "2026-08-07";
+    const NEXT_MONDAY = "2026-08-10";
+    const school = makeSchool({
+      name: "Weekend School",
+      holidays: [makeSchoolHoliday({ start_date: FRIDAY, end_date: NEXT_MONDAY })],
+    });
+    setUpServer({ schools: [school] });
+    renderWithProviders(<LeavePlanningPage />);
+
+    const row = await screen.findByText("Weekend School");
+    expect(row).toBeInTheDocument();
+    expect(screen.getByTestId(`planning-school-cell-${school.id}-${FRIDAY}`)).toHaveAttribute(
+      "data-state",
+      "school_holiday",
+    );
+    expect(screen.getByTestId(`planning-school-cell-${school.id}-${NEXT_MONDAY}`)).toHaveAttribute(
+      "data-state",
+      "school_holiday",
+    );
+    expect(screen.getByTestId(`planning-school-cell-${school.id}-${TUESDAY}`)).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+  });
+
+  it("renders a school row as inert cells with no button", async () => {
+    const school = makeSchool({
+      name: "Inert School",
+      holidays: [makeSchoolHoliday({ start_date: MONDAY, end_date: MONDAY })],
+    });
+    setUpServer({ schools: [school] });
+    renderWithProviders(<LeavePlanningPage />);
+
+    const cell = await screen.findByTestId(`planning-school-cell-${school.id}-${MONDAY}`);
+    expect(cell.querySelector("button")).not.toBeInTheDocument();
+  });
+
+  it("leaves coverage totals and closed-slot rendering unchanged with school rows present", async () => {
+    const school = makeSchool({
+      name: "Coexisting School",
+      holidays: [makeSchoolHoliday({ start_date: MONDAY, end_date: MONDAY })],
+    });
+    setUpServer({
+      schools: [school],
+      closures: [makeClosure({ date: MONDAY, period: "AM", name: "Bank holiday" })],
+      coverage: [
+        { date: MONDAY, period: "AM", headcount: 0, is_closed: true },
+        { date: MONDAY, period: "PM", headcount: 2, is_closed: false },
+      ],
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    await screen.findByText("Coexisting School");
+    expect(screen.getByTestId(`planning-total-${MONDAY}-AM`)).toHaveTextContent("—");
+    expect(screen.getByTestId(`planning-total-${MONDAY}-PM`)).toHaveTextContent("2");
+    expect(cell(1, MONDAY, "AM")).toHaveAttribute("data-state", "closed");
   });
 
   it("says extra sessions apply at the next staging creation", async () => {
