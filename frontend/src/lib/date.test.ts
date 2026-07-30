@@ -8,6 +8,7 @@ import {
   formatWeekLabel,
   getDutyPeriodStart,
   getDutyPeriodStarts,
+  getSurroundingMondays,
   getUpcomingMondays,
   getYearRange,
   isMonday,
@@ -93,6 +94,24 @@ describe("getUpcomingMondays", () => {
 
   it("returns exactly `count` results", () => {
     expect(getUpcomingMondays(12, parseLocalDate("2026-07-13"))).toHaveLength(12);
+  });
+});
+
+describe("getSurroundingMondays", () => {
+  it("returns pastCount + futureCount + 1 Mondays, ascending, centred on today's week", () => {
+    const mondays = getSurroundingMondays(2, 2, parseLocalDate("2026-07-15"));
+    expect(mondays).toEqual([
+      "2026-07-06",
+      "2026-07-13",
+      "2026-07-20",
+      "2026-07-27",
+      "2026-08-03",
+    ]);
+  });
+
+  it("anchors on today itself when today is a Monday", () => {
+    const mondays = getSurroundingMondays(1, 1, parseLocalDate("2026-07-13"));
+    expect(mondays).toEqual(["2026-07-06", "2026-07-13", "2026-07-20"]);
   });
 });
 
