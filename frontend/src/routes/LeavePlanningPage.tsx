@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
@@ -221,28 +221,98 @@ export function LeavePlanningPage() {
     setSaveSummary(null);
   }
 
-  async function handleSave() {
+  // Returns whether the save succeeded, so callers that chain a navigation
+  // onto it (the unsaved-changes guard below) know whether it's safe to
+  // leave.
+  async function handleSave(): Promise<boolean> {
     setSaveError(null);
     setSaveSummary(null);
 
     const actions = buildPlanningActions({ pending, leaveKeys, extraKeys });
     if (actions.length === 0) {
       setPending(new Map());
-      return;
+      return true;
     }
 
     try {
       const result = await applyBulk.mutateAsync({ actions });
       setSaveSummary(summariseSave(result));
       setPending(new Map());
+      return true;
     } catch (err) {
       // The batch is one transaction, so a failure means nothing was
       // written - the pending map is kept so the admin can retry.
       setSaveError(errorDetail(err, "Could not save these changes."));
+      return false;
     }
   }
 
   const unsavedCount = pending.size;
+  const navigate = useNavigate();
+  const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
+
+  // Closing the tab or reloading isn't a router navigation, so it can't be
+  // caught by the click-intercept below - this is the browser's own hook
+  // for that case.
+  useEffect(() => {
+    if (unsavedCount === 0) return;
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [unsavedCount]);
+
+  // The app uses a plain BrowserRouter (not a data router), so there is no
+  // useBlocker/usePrompt to hook into - in-app navigation (the other
+  // session-management tabs, the left nav, "Switch app") is caught instead
+  // by intercepting clicks on links before the router acts on them.
+  useEffect(() => {
+    if (unsavedCount === 0) return;
+
+    function handleClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      const anchor = (event.target as HTMLElement | null)?.closest("a");
+      if (!anchor) return;
+      if (anchor.target && anchor.target !== "_self") return;
+
+      const href = anchor.getAttribute("href");
+      if (!href || href === window.location.pathname) return;
+
+      event.preventDefault();
+      setNavigationTarget(href);
+    }
+
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [unsavedCount]);
+
+  async function handleNavigationSave() {
+    const target = navigationTarget;
+    const saved = await handleSave();
+    setNavigationTarget(null);
+    if (saved && target) {
+      navigate(target);
+    }
+  }
+
+  function handleNavigationDiscard() {
+    const target = navigationTarget;
+    handleDiscard();
+    setNavigationTarget(null);
+    if (target) {
+      navigate(target);
+    }
+  }
+
+  function handleNavigationCancel() {
+    setNavigationTarget(null);
+  }
 
   // Any still unset, not "none set at all": a part-filled year leaves the
   // cover totals wrong on exactly the days that are still missing, which is
@@ -268,17 +338,6 @@ export function LeavePlanningPage() {
           page.
         </p>
       ) : null}
-      <p className="text-sm text-ink/70">
-        Click a cell to cycle it: leave, then extra session, then back to normal. Nothing is saved
-        until you press Save. The Clinical cover row counts partner, salaried, and locum doctors
-        working that session; the Weekly cover row underneath sums AM and PM cover across the whole
-        week.
-      </p>
-      <p className="mt-1 text-sm text-ink/50">
-        Extra sessions planned here are applied when a staging run is next created that covers the
-        date - they do not change a staging or rota that already exists.
-      </p>
-
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -345,6 +404,45 @@ export function LeavePlanningPage() {
         templateTypes={templateTypes}
         onToggle={handleToggle}
       />
+
+      {navigationTarget ? (
+        <div
+          data-testid="unsaved-changes-dialog"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+        >
+          <div className="w-full max-w-sm rounded bg-surface p-4 shadow-lg">
+            <p className="text-sm font-medium">Unsaved changes</p>
+            <p className="mt-1 text-sm text-ink/70">
+              You have {unsavedCount} unsaved change{unsavedCount === 1 ? "" : "s"}. Save them,
+              discard them, or cancel and stay on this page.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleNavigationCancel}
+                className="rounded border border-border px-3 py-1 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleNavigationDiscard}
+                className="rounded border border-border px-3 py-1 text-sm"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={handleNavigationSave}
+                disabled={applyBulk.isPending}
+                className="rounded bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
