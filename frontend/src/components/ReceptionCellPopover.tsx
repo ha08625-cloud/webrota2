@@ -90,6 +90,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           sideOffset={5}
           data-testid="reception-cell-edit-popover"
           className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
         >
           {hourCount > 1 ? (
             <p className="text-xs font-medium text-ink/70">Editing {hourCount} hours</p>
