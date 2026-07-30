@@ -1,7 +1,8 @@
 import { HttpResponse, http } from "msw";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Link } from "react-router-dom";
 
 import type {
   BankHoliday,
@@ -458,12 +459,69 @@ describe("LeavePlanningPage", () => {
     expect(screen.queryByTestId("bank-holidays-missing-warning")).not.toBeInTheDocument();
   });
 
-  it("says extra sessions apply at the next staging creation", async () => {
-    setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+  function renderWithElsewhereLink() {
+    return renderWithProviders(
+      <>
+        <Link to="/elsewhere">Elsewhere</Link>
+        <LeavePlanningPage />
+      </>,
+      { additionalRoutes: [{ path: "/elsewhere", element: <p>Somewhere else</p> }] },
+    );
+  }
 
-    expect(
-      await screen.findByText(/applied when a staging run is next created/),
-    ).toBeInTheDocument();
+  it("navigates immediately when there are no unsaved changes", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    renderWithElsewhereLink();
+
+    await findCell(1, MONDAY, "AM");
+    await user.click(screen.getByRole("link", { name: "Elsewhere" }));
+
+    expect(await screen.findByText("Somewhere else")).toBeInTheDocument();
+    expect(screen.queryByTestId("unsaved-changes-dialog")).not.toBeInTheDocument();
+  });
+
+  it("blocks navigation with a Save/Discard/Cancel dialog when changes are unsaved", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    renderWithElsewhereLink();
+
+    await user.click(await findCell(1, MONDAY, "AM"));
+    await user.click(screen.getByRole("link", { name: "Elsewhere" }));
+
+    const dialog = await screen.findByTestId("unsaved-changes-dialog");
+    expect(screen.queryByText("Somewhere else")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("unsaved-changes-dialog")).not.toBeInTheDocument();
+    expect(cell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
+  });
+
+  it("discards pending edits and navigates away when Discard is chosen", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    renderWithElsewhereLink();
+
+    await user.click(await findCell(1, MONDAY, "AM"));
+    await user.click(screen.getByRole("link", { name: "Elsewhere" }));
+    const dialog = await screen.findByTestId("unsaved-changes-dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Discard" }));
+
+    expect(await screen.findByText("Somewhere else")).toBeInTheDocument();
+  });
+
+  it("saves pending edits then navigates away when Save is chosen", async () => {
+    const user = userEvent.setup();
+    setUpServer();
+    const bodies = captureBulkBodies();
+    renderWithElsewhereLink();
+
+    await user.click(await findCell(1, MONDAY, "AM"));
+    await user.click(screen.getByRole("link", { name: "Elsewhere" }));
+    const dialog = await screen.findByTestId("unsaved-changes-dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(await screen.findByText("Somewhere else")).toBeInTheDocument();
   });
 });
