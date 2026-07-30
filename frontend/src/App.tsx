@@ -1,10 +1,15 @@
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
- 
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
+
 import { useQueryClient } from "@tanstack/react-query";
- 
+
 import { triggerUnauthorized } from "@/api/client";
 import { useLogout } from "@/api/auth";
 import { clearToken } from "@/auth/tokenStore";
+import {
+  SESSION_MANAGEMENT_PATHS,
+  SESSION_MANAGEMENT_TABS,
+  SessionManagementLayout,
+} from "@/components/SessionManagementTabs";
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
 import { ClosuresPage } from "@/routes/ClosuresPage";
 import { CountersPage } from "@/routes/CountersPage";
@@ -22,27 +27,51 @@ import { ReceptionStaffPage } from "@/routes/ReceptionStaffPage";
 import { RecurringNotesPage } from "@/routes/RecurringNotesPage";
 import { RotaDetailPage } from "@/routes/RotaDetailPage";
 import { RotaPage } from "@/routes/RotaPage";
+import { SchoolHolidaysPage } from "@/routes/SchoolHolidaysPage";
 import { SignaturesPage } from "@/routes/SignaturesPage";
 import { StagingPage } from "@/routes/StagingPage";
 import { UsersPage } from "@/routes/UsersPage";
  
-// Clinical rota nav, paths relative to the /clinical mount point.
-const CLINICAL_NAV_ITEMS = [
+interface NavItem {
+  to: string;
+  label: string;
+  end: boolean;
+  /**
+   * Extra paths that should also mark this entry active. Set only for the
+   * grouped "Session Management" entry: its sub-tabs are sibling paths, which
+   * NavLink's own isActive can never match, so the group would un-highlight as
+   * soon as you switched sub-tab.
+   */
+  groupPaths?: readonly string[];
+}
+
+// Clinical rota nav. The five session-planning pages are grouped behind one
+// "Session Management" entry and switched between with the sub-tab bar in
+// SessionManagementTabs.tsx; their routes are unchanged.
+const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical", label: "Generate new rotas", end: true },
   { to: "/clinical/staging", label: "Staging", end: false },
   { to: "/clinical/master-rota", label: "Master Rota", end: false },
   { to: "/clinical/clinic-types", label: "Clinic Types", end: false },
   { to: "/clinical/doctors", label: "Staff", end: false },
-  { to: "/clinical/leave", label: "Assign Leave", end: false },
-  { to: "/clinical/leave-planning", label: "Leave Planning", end: false },
-  { to: "/clinical/extra-sessions", label: "Extra Sessions", end: false },
+  {
+    to: SESSION_MANAGEMENT_TABS[0].to,
+    label: "Session Management",
+    end: false,
+    groupPaths: SESSION_MANAGEMENT_PATHS,
+  },
   { to: "/clinical/duty", label: "Assign Duty", end: false },
-  { to: "/clinical/closures", label: "Closures", end: false },
   { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
   { to: "/clinical/signatures", label: "Signatures", end: false },
   { to: "/clinical/users", label: "Users", end: false },
-] as const;
+];
+
+function navLinkClass(isActive: boolean) {
+  return `block px-4 py-2 text-sm ${
+    isActive ? "bg-accent/10 font-medium text-accent" : "text-ink/80 hover:bg-accent/5"
+  }`;
+}
 
 // Reception nav, paths relative to the /reception mount point. Built the
 // same way as CLINICAL_NAV_ITEMS above - see App.tsx's Task 5 plan.
@@ -80,7 +109,8 @@ function useHandleLogout() {
  
 function ClinicalShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
- 
+  const { pathname } = useLocation();
+
   return (
     <div className="flex min-h-screen bg-background text-ink">
       <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
@@ -92,9 +122,7 @@ function ClinicalShell() {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `block px-4 py-2 text-sm ${
-                    isActive ? "bg-accent/10 font-medium text-accent" : "text-ink/80 hover:bg-accent/5"
-                  }`
+                  navLinkClass(isActive || (item.groupPaths?.includes(pathname) ?? false))
                 }
               >
                 {item.label}
@@ -125,11 +153,16 @@ function ClinicalShell() {
           <Route path="master-rota" element={<MasterRotaPage />} />
           <Route path="clinic-types" element={<ClinicTypesPage />} />
           <Route path="doctors" element={<DoctorsPage />} />
-          <Route path="leave" element={<LeavePage />} />
-          <Route path="leave-planning" element={<LeavePlanningPage />} />
-          <Route path="extra-sessions" element={<ExtraSessionsPage />} />
+          {/* Session Management group - one layout route so the sub-tab bar
+              is rendered in a single place, above whichever page is active. */}
+          <Route element={<SessionManagementLayout />}>
+            <Route path="leave-planning" element={<LeavePlanningPage />} />
+            <Route path="leave" element={<LeavePage />} />
+            <Route path="extra-sessions" element={<ExtraSessionsPage />} />
+            <Route path="closures" element={<ClosuresPage />} />
+            <Route path="school-holidays" element={<SchoolHolidaysPage />} />
+          </Route>
           <Route path="duty" element={<DutyPage />} />
-          <Route path="closures" element={<ClosuresPage />} />
           <Route path="recurring-notes" element={<RecurringNotesPage />} />
           <Route path="counters" element={<CountersPage />} />
           <Route path="signatures" element={<SignaturesPage />} />
