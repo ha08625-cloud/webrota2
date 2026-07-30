@@ -71,6 +71,35 @@ const COVERAGE_LEGEND = [
   { className: "bg-yellow-100", label: "4 covering" },
 ];
 
+/** Mon-Fri dates chunked into weeks of 5 - safe because `weekdaysInMonth`
+ * only ever returns whole Monday-Friday weeks (it pads partial weeks at
+ * the edges of the month out to a full 5, see its docstring). */
+function chunkIntoWeeks(dates: string[]): string[][] {
+  const weeks: string[][] = [];
+  for (let i = 0; i < dates.length; i += 5) {
+    weeks.push(dates.slice(i, i + 5));
+  }
+  return weeks;
+}
+
+/** Sum of AM + PM clinical cover across a whole week. Closed slots
+ * contribute nothing (there is no headcount to add), matching the daily
+ * row's "-" treatment; null only when every slot in the week is closed,
+ * so there is nothing at all to add up. */
+function weeklyTotal(weekDates: string[], totals: Map<string, number | null>): number | null {
+  let sum = 0;
+  let any = false;
+  for (const date of weekDates) {
+    for (const period of PLANNING_PERIODS) {
+      const total = totals.get(closedSlotKey(date, period));
+      if (total === undefined || total === null) continue;
+      any = true;
+      sum += total;
+    }
+  }
+  return any ? sum : null;
+}
+
 /** "Mon" / "3" for a date column header. */
 function columnLabel(date: string): { weekday: string; dayOfMonth: string } {
   return {
@@ -214,6 +243,24 @@ export function LeavePlanningGrid({
                   })}
                 </td>
               ))}
+            </tr>
+            <tr>
+              <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                Weekly cover
+              </td>
+              {chunkIntoWeeks(dates).map((weekDates) => {
+                const total = weeklyTotal(weekDates, totals);
+                return (
+                  <td
+                    key={weekDates[0]}
+                    colSpan={weekDates.length}
+                    data-testid={`planning-weekly-total-${weekDates[0]}`}
+                    className="border-r-[3px] border-t border-ink/40 bg-background p-0.5 text-center text-[11px] font-medium leading-tight tabular-nums text-ink/70"
+                  >
+                    {total === null ? "—" : total}
+                  </td>
+                );
+              })}
             </tr>
           </tfoot>
         </table>

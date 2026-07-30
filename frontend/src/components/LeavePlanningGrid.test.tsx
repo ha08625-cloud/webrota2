@@ -252,6 +252,33 @@ describe("LeavePlanningGrid", () => {
     );
   });
 
+  it("shows a weekly total below the daily row, summing AM+PM across the week", () => {
+    renderGrid({
+      totals: new Map<string, number | null>([
+        [closedSlotKey(MONDAY, "AM"), 4],
+        [closedSlotKey(MONDAY, "PM"), 3],
+        [closedSlotKey(TUESDAY, "AM"), 5],
+        [closedSlotKey(TUESDAY, "PM"), null],
+      ]),
+    });
+
+    // Closed slots contribute nothing, so this is 4 + 3 + 5.
+    expect(screen.getByTestId(`planning-weekly-total-${MONDAY}`)).toHaveTextContent("12");
+  });
+
+  it("shows an em dash for a week that is entirely closed", () => {
+    renderGrid({
+      totals: new Map<string, number | null>([
+        [closedSlotKey(MONDAY, "AM"), null],
+        [closedSlotKey(MONDAY, "PM"), null],
+        [closedSlotKey(TUESDAY, "AM"), null],
+        [closedSlotKey(TUESDAY, "PM"), null],
+      ]),
+    });
+
+    expect(screen.getByTestId(`planning-weekly-total-${MONDAY}`)).toHaveTextContent("—");
+  });
+
   it("shows an empty-state message when no doctors work the month", () => {
     renderGrid({ doctors: [] });
     expect(
