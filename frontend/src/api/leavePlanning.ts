@@ -4,13 +4,27 @@ import { apiClient } from "./client";
 import { extraSessionKeys } from "./extraSessions";
 import { leaveKeys } from "./leave";
 import { rotaKeys } from "./rota";
-import type { CoverageSlot, PlanningBulkIn, PlanningBulkOut } from "./types";
+import type { BlockedEntry, CoverageSlot, PlanningBulkIn, PlanningBulkOut } from "./types";
 
 export const leavePlanningKeys = {
   all: ["leave-planning"] as const,
   coverage: (fromDate: string, toDate: string) =>
     [...leavePlanningKeys.all, "coverage", fromDate, toDate] as const,
+  blocked: ["leave-planning", "blocked"] as const,
 };
+
+/**
+ * All `BlockedEntry` rows, unfiltered - mirrors `useLeave(null)` /
+ * `useExtraSessions(null)`, the two sibling reads the Annual Planner grid
+ * already fetches whole. There is no ad-hoc write surface for blocked
+ * entries; the only writer is `useApplyPlanningBulk` below.
+ */
+export function useBlockedEntries() {
+  return useQuery({
+    queryKey: leavePlanningKeys.blocked,
+    queryFn: () => apiClient.get<BlockedEntry[]>("/leave-planning/blocked"),
+  });
+}
 
 /**
  * Clinical headcount per (date, period) across a weekday range. Both

@@ -326,6 +326,8 @@ export interface LeaveEntry {
   doctor_id: number;
   date: string;
   period: Period;
+  /** Annual Planner free-text note (12-char cap); null/absent outside that grid. */
+  notes?: string | null;
 }
 
 export interface LeaveIn {
@@ -382,12 +384,29 @@ export interface ExtraSessionEntry {
   doctor_id: number;
   date: string;
   period: Period;
+  /** Annual Planner free-text note (12-char cap); null/absent outside that grid. */
+  notes?: string | null;
 }
 
 export interface ExtraSessionIn {
   doctor_id: number;
   date: string;
   period: Period;
+}
+
+// --- Blocked (schemas/blocked.py, clinical rota "Blocked" planner option) ---
+// A third Annual Planner cell state, alongside leave and extra session:
+// the doctor is unavailable for clinical cover but this is deliberately
+// NOT leave (a whole-day training session is the canonical case). Written
+// only via POST /leave-planning/bulk - there is no ad-hoc CRUD router,
+// unlike LeaveEntry/ExtraSessionEntry.
+
+export interface BlockedEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+  notes?: string | null;
 }
 
 // --- Leave planning (schemas/leave_planning.py, annual leave planning) ---
@@ -413,12 +432,14 @@ export interface CoverageSlot {
 }
 
 /**
- * What POST /leave-planning/bulk does to one cell. "clear" removes both
- * the LeaveEntry and the ExtraSessionEntry for the slot - they share the
- * same (doctor_id, date, period) key, so there is nothing to
- * disambiguate.
+ * What POST /leave-planning/bulk does to one cell. "clear" removes
+ * whichever of the LeaveEntry / ExtraSessionEntry / BlockedEntry rows
+ * exists for the slot - they share the same (doctor_id, date, period)
+ * key, so there is nothing to disambiguate. Precedence across the three
+ * non-clear actions is leave > blocked > extra_session (see
+ * leave_planning.py's module docstring).
  */
-export type PlanningAction = "leave" | "extra_session" | "clear";
+export type PlanningAction = "leave" | "extra_session" | "blocked" | "clear";
 
 /**
  * Why the batch declined one action. Skipping rather than failing is the
@@ -429,6 +450,7 @@ export type PlanningSkipReason =
   | "duplicate"
   | "outside_doctor_dates"
   | "leave_exists"
+  | "blocked_exists"
   | "nothing_to_clear";
 
 export interface PlanningActionIn {
@@ -436,6 +458,8 @@ export interface PlanningActionIn {
   date: string;
   period: Period;
   action: PlanningAction;
+  /** Free-text cell note (12-char cap). Ignored for "clear". */
+  notes?: string | null;
 }
 
 export interface PlanningBulkIn {

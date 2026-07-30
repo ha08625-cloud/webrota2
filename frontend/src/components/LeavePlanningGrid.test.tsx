@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PlanningAction, SchoolHoliday } from "@/api/types";
+import type { SchoolHoliday } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import { formatHolidayRange } from "@/lib/date";
-import { planningCellKey, stateToAction } from "@/lib/planningMonth";
+import { type PendingEdit, planningCellKey } from "@/lib/planningMonth";
 import { makeDoctor, makeSchoolHoliday } from "@/test/fixtures/reference";
 
 import { LeavePlanningGrid } from "./LeavePlanningGrid";
@@ -19,7 +19,7 @@ const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
 const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
 
 function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> = {}) {
-  const onToggle = vi.fn();
+  const onApply = vi.fn();
   render(
     <LeavePlanningGrid
       dates={[MONDAY, TUESDAY]}
@@ -27,17 +27,21 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
       month={8}
       doctors={[AA, BB]}
       schoolRows={[]}
-      pending={new Map<string, PlanningAction>()}
+      pending={new Map<string, PendingEdit>()}
       leaveKeys={new Set()}
       extraKeys={new Set()}
+      blockedKeys={new Set()}
+      leaveNotes={new Map()}
+      extraNotes={new Map()}
+      blockedNotes={new Map()}
       closedSlots={new Set()}
       totals={new Map()}
       templateTypes={new Map()}
-      onToggle={onToggle}
+      onApply={onApply}
       {...overrides}
     />,
   );
-  return { onToggle };
+  return { onApply };
 }
 
 /** A single-date school row, built from a real holiday fixture so the
@@ -50,13 +54,33 @@ function cell(doctorId: number, date: string, period: "AM" | "PM") {
   return screen.getByTestId(`planning-cell-${doctorId}-${date}-${period}`);
 }
 
+/** Opens the cell's popover, picks a status from the dropdown, optionally
+ * types a note, then clicks Apply - the only way to change a cell's state
+ * now that clicking opens `PlanningCellPopover` instead of cycling. */
+async function pickCellState(
+  user: ReturnType<typeof userEvent.setup>,
+  target: HTMLElement,
+  state: "normal" | "leave" | "extra_session" | "blocked",
+  notes?: string,
+) {
+  await user.click(target);
+  const popover = screen.getByTestId("planning-cell-popover");
+  await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), state);
+  if (notes !== undefined) {
+    const notesInput = within(popover).getByTestId("planning-cell-notes-input");
+    await user.clear(notesInput);
+    await user.type(notesInput, notes);
+  }
+  await user.click(within(popover).getByTestId("planning-cell-apply"));
+}
+
 /**
- * The minimum of what the page does with `onToggle` - hold the pending
- * map and feed it back in. The grid is stateless, so the cycle is only
- * observable through a parent that stores what the click reported.
+ * The minimum of what the page does with `onApply` - hold the pending
+ * map and feed it back in. The grid is stateless, so a state change is
+ * only observable through a parent that stores what Apply reported.
  */
-function CycleHarness() {
-  const [pending, setPending] = useState<Map<string, PlanningAction>>(new Map());
+function EditHarness() {
+  const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
   return (
     <LeavePlanningGrid
       dates={[MONDAY, TUESDAY]}
@@ -67,12 +91,16 @@ function CycleHarness() {
       pending={pending}
       leaveKeys={new Set()}
       extraKeys={new Set()}
+      blockedKeys={new Set()}
+      leaveNotes={new Map()}
+      extraNotes={new Map()}
+      blockedNotes={new Map()}
       closedSlots={new Set()}
       totals={new Map()}
       templateTypes={new Map()}
-      onToggle={(doctorId, date, period, next) =>
+      onApply={(doctorId, date, period, state, notes) =>
         setPending(
-          new Map([[planningCellKey(doctorId, date, period), stateToAction(next)]]),
+          new Map([[planningCellKey(doctorId, date, period), { action: state === "normal" ? "clear" : state, notes }]]),
         )
       }
     />
@@ -131,7 +159,7 @@ describe("LeavePlanningGrid", () => {
   it("lets a pending edit override the server row", () => {
     renderGrid({
       leaveKeys: new Set([planningCellKey(1, MONDAY, "AM")]),
-      pending: new Map([[planningCellKey(1, MONDAY, "AM"), "clear" as PlanningAction]]),
+      pending: new Map([[planningCellKey(1, MONDAY, "AM"), { action: "clear", notes: "" } as PendingEdit]]),
     });
 
     const target = cell(1, MONDAY, "AM");
@@ -139,46 +167,66 @@ describe("LeavePlanningGrid", () => {
     expect(target).toHaveAttribute("data-pending", "true");
   });
 
-  it("reports the state a click should move to", async () => {
+  it("reports the picked state and notes when Apply is pressed", async () => {
     const user = userEvent.setup();
-    const { onToggle } = renderGrid();
+    const { onApply } = renderGrid();
 
-    await user.click(cell(1, MONDAY, "AM"));
+    await pickCellState(user, cell(1, MONDAY, "AM"), "blocked", "Training");
 
-    expect(onToggle).toHaveBeenCalledWith(1, MONDAY, "AM", "leave");
+    expect(onApply).toHaveBeenCalledWith(1, MONDAY, "AM", "blocked", "Training");
   });
 
-  it("cycles normal -> leave -> extra planned -> normal, without firing a request", async () => {
+  it("moves a cell through every state via the popover, without firing a request", async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    render(<CycleHarness />);
+    render(<EditHarness />);
 
     const target = () => cell(1, MONDAY, "AM");
     expect(target()).toHaveAttribute("data-state", "normal");
 
-    await user.click(target());
+    await pickCellState(user, target(), "leave");
     expect(target()).toHaveAttribute("data-state", "leave");
 
-    await user.click(target());
+    await pickCellState(user, target(), "extra_session");
     expect(target()).toHaveAttribute("data-state", "extra_session");
 
-    await user.click(target());
+    await pickCellState(user, target(), "blocked", "Course");
+    expect(target()).toHaveAttribute("data-state", "blocked");
+    expect(target()).toHaveTextContent("Course");
+
+    await pickCellState(user, target(), "normal");
     expect(target()).toHaveAttribute("data-state", "normal");
 
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
+  it("shows the note in place of the AM/PM label, capped by the input's maxlength", async () => {
+    const user = userEvent.setup();
+    renderGrid({
+      blockedKeys: new Set([planningCellKey(1, MONDAY, "AM")]),
+      blockedNotes: new Map([[planningCellKey(1, MONDAY, "AM"), "Training"]]),
+    });
+
+    const target = cell(1, MONDAY, "AM");
+    expect(target).toHaveTextContent("Training");
+
+    await user.click(target);
+    const popover = screen.getByTestId("planning-cell-popover");
+    expect(within(popover).getByTestId("planning-cell-notes-input")).toHaveAttribute("maxlength", "12");
+  });
+
   it("renders a closed slot inert, with no click handler", async () => {
     const user = userEvent.setup();
-    const { onToggle } = renderGrid({
+    const { onApply } = renderGrid({
       closedSlots: new Set([closedSlotKey(MONDAY, "AM")]),
     });
 
     const target = cell(1, MONDAY, "AM");
     expect(target).toHaveAttribute("data-state", "closed");
     await user.click(target);
-    expect(onToggle).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("planning-cell-popover")).not.toBeInTheDocument();
     // The other half of the same day is unaffected - closures are
     // half-day granular.
     expect(cell(1, MONDAY, "PM")).toHaveAttribute("data-state", "normal");
@@ -196,7 +244,7 @@ describe("LeavePlanningGrid", () => {
   it("renders an out-of-window cell inert, and distinguishably from a closed one", async () => {
     const user = userEvent.setup();
     const leaver = makeDoctor({ id: 3, code: "CC", doctor_type: "Partner", end_date: MONDAY });
-    const { onToggle } = renderGrid({
+    const { onApply } = renderGrid({
       doctors: [leaver],
       closedSlots: new Set([closedSlotKey(MONDAY, "AM")]),
     });
@@ -204,7 +252,7 @@ describe("LeavePlanningGrid", () => {
     const outOfWindow = cell(3, TUESDAY, "AM");
     expect(outOfWindow).toHaveAttribute("data-state", "out_of_window");
     await user.click(outOfWindow);
-    expect(onToggle).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
 
     // Distinct treatments: black hatching for closed, plain absent grey for
     // not-employed. Confusing the two would mislead.

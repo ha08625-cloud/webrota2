@@ -2,7 +2,7 @@
 
 Backs the month-at-a-time planning grid: a read-only per-(date, period)
 clinical headcount, and a batched write applying leave / extra-session /
-clear actions in one transaction.
+blocked / clear actions in one transaction.
 
 Deliberately a separate module from `leave.py` rather than an extension of
 it (annual leave planning, Design Decision 11) -- `/leave` remains the
@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ...models.blocked import NOTES_MAX_LENGTH
 from ...models.enums import Period
 from .extra_session import ExtraSessionOut
 
@@ -27,12 +28,13 @@ MAX_COVERAGE_RANGE_DAYS = 62
 # without letting a client post an unbounded batch.
 MAX_PLANNING_ACTIONS = 2000
 
-PlanningAction = Literal["leave", "extra_session", "clear"]
+PlanningAction = Literal["leave", "extra_session", "blocked", "clear"]
 
 PlanningSkipReason = Literal[
     "duplicate",
     "outside_doctor_dates",
     "leave_exists",
+    "blocked_exists",
     "nothing_to_clear",
 ]
 
@@ -58,6 +60,10 @@ class PlanningActionIn(BaseModel):
     date: datetime.date
     period: Period
     action: PlanningAction
+    # Free-text cell note (12-char cap, matching the grid cell's display
+    # limit). Only meaningful for "leave" / "extra_session" / "blocked" --
+    # ignored for "clear", which has no row left to hold it.
+    notes: str | None = Field(default=None, max_length=NOTES_MAX_LENGTH)
 
 
 class PlanningBulkIn(BaseModel):

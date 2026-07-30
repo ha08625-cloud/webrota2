@@ -18,6 +18,9 @@ class LeaveIn(BaseModel):
 
 class LeaveOut(LeaveIn):
     id: int
+    # Annual Planner free-text note (see leave_planning.py); null on every
+    # row created outside that grid.
+    notes: str | None = None
     model_config = {"from_attributes": True}
 
 
