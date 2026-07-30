@@ -10,6 +10,8 @@ import type {
   LeaveEntry,
   RecurringNote,
   Room,
+  School,
+  SchoolHoliday,
   SystemCounter,
 } from "@/api/types";
 
@@ -164,6 +166,30 @@ export function makeRecurringNote(overrides: Partial<RecurringNote> = {}): Recur
     is_active: true,
     doctor_ids: [1],
     template_weeks: [1, 2, 3, 4],
+    ...overrides,
+  };
+}
+
+let schoolHolidayIdCounter = 1;
+
+export function makeSchoolHoliday(overrides: Partial<SchoolHoliday> = {}): SchoolHoliday {
+  return {
+    id: schoolHolidayIdCounter++,
+    school_id: 1,
+    start_date: "2026-07-21",
+    end_date: "2026-08-31",
+    name: "Summer holidays",
+    ...overrides,
+  };
+}
+
+let schoolIdCounter = 1;
+
+export function makeSchool(overrides: Partial<School> = {}): School {
+  return {
+    id: schoolIdCounter++,
+    name: "St Mary's Primary",
+    holidays: [],
     ...overrides,
   };
 }

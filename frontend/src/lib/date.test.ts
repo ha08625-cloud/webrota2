@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   formatDate,
+  formatHolidayRange,
   formatPeriodLabel,
   formatWeekLabel,
   getDutyPeriodStart,
@@ -44,6 +45,20 @@ describe("isMonday", () => {
 
   it("returns false for a malformed string", () => {
     expect(isMonday("not-a-date")).toBe(false);
+  });
+});
+
+describe("formatHolidayRange", () => {
+  it("formats a multi-day range with full weekday names and d/m/yy", () => {
+    expect(formatHolidayRange("2026-07-21", "2026-08-31")).toBe("Tuesday 21/7/26 – Monday 31/8/26");
+  });
+
+  it("returns the single date alone, no dash, when start and end match", () => {
+    expect(formatHolidayRange("2026-12-25", "2026-12-25")).toBe("Friday 25/12/26");
+  });
+
+  it("crosses a year boundary correctly", () => {
+    expect(formatHolidayRange("2026-12-12", "2027-01-04")).toBe("Saturday 12/12/26 – Monday 4/1/27");
   });
 });
 

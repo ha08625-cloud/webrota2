@@ -520,6 +520,38 @@ export interface ClosedSlot {
   period: Period;
 }
 
+// --- Schools and school holidays (schemas/school.py, school holidays plan) ---
+// Global planning data, purely informational - no engine coupling of any
+// kind (Design Decision in school_holidays.md's implementation plan). A
+// school holiday never suppresses a slot, changes a coverage total, or is
+// snapshotted per-rota; it exists only so the School Holidays page and the
+// Annual Planner's shading can show it. Date ranges, not per-slot rows,
+// unlike Closure - nothing looks these up by (date, period).
+
+export interface SchoolHoliday {
+  id: number;
+  school_id: number;
+  start_date: string;
+  end_date: string;
+  name: string | null;
+}
+
+export interface SchoolHolidayIn {
+  start_date: string;
+  end_date: string;
+  name?: string | null;
+}
+
+export interface School {
+  id: number;
+  name: string;
+  holidays: SchoolHoliday[];
+}
+
+export interface SchoolIn {
+  name: string;
+}
+
 // --- Recurring notes (schemas/recurring_note.py, recurring notes plan Task 4) ---
 // Annotation-only: applying at generation time stamps `text` into
 // RotaSession.notes for every matching doctor/week/day/period slot - see
