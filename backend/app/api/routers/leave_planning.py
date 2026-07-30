@@ -81,7 +81,7 @@ _COUNTED_TYPES = frozenset({
 # total always equals the sum of the visible rows. Deliberately NOT
 # applied to the bulk write endpoint below, which is a generic write path
 # with no reason to refuse a Trainee.
-_PLANNING_DOCTOR_TYPES = frozenset({DoctorType.PARTNER, DoctorType.SALARIED})
+_PLANNING_DOCTOR_TYPES = frozenset({DoctorType.PARTNER, DoctorType.SALARIED, DoctorType.LOCUM})
 
 
 def _weekdays(start: datetime.date, end: datetime.date) -> list[datetime.date]:
@@ -102,9 +102,9 @@ def _week_one_template(db: Session) -> dict[tuple[int, Day, Period], MasterSessi
     Week 1 only, and treated as the working pattern for every calendar date
     (Design Decision 1): mapping a date onto the 4-week cycle needs a
     `start_week`, and the only source of one is `RotaConfig.template_start_week`
-    -- a per-run value with no calendar anchor. Partner and salaried doctors
-    work the same sessions every week, so week 1 is the right answer for
-    leave planning even though the schema keeps four weeks.
+    -- a per-run value with no calendar anchor. Partner, salaried, and locum
+    doctors work the same sessions every week, so week 1 is the right answer
+    for leave planning even though the schema keeps four weeks.
 
     The template is resolved the way `GET /master-rota/active` resolves it
     -- lowest id among active rows -- because `is_active` is not
