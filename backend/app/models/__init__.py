@@ -33,6 +33,7 @@ from .master_rota import MasterRotaTemplate, MasterRotaSession
 from .staging import RotaStaging, RotaStagingSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
 from .closure import PracticeClosure, RotaClosure
+from .school import School, SchoolHoliday
 from .bank_holidays import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, BankHoliday
 from .recurring_note import RecurringNote, RecurringNoteDoctor, RecurringNoteWeek
 from .generation_log import RotaGenerationLogEntry
@@ -59,6 +60,7 @@ __all__ = [
     "GeneratedRota", "RotaSession",
     "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",
     "PracticeClosure", "RotaClosure", "RotaGenerationLogEntry",
+    "School", "SchoolHoliday",
     "BANK_HOLIDAYS", "BANK_HOLIDAYS_BY_KEY", "BankHoliday",
     "RecurringNote", "RecurringNoteDoctor", "RecurringNoteWeek",
     "DoctorSignature", "User", "UserSession",
