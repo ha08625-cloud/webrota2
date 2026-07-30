@@ -16,8 +16,16 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
   session: T | null;
   children: ReactNode;
   onSave: (role: ReceptionRole, note: string | null) => void;
-  /** Edit mode only (session non-null). Direct action, no confirm dialog - there is no steal/displacement concept here (Decision 6: several staff can share an hour), unlike MasterCellEditPopover's room picks. */
+  /** Shown and wired only when canDelete is true. Direct action, no confirm dialog - there is no steal/displacement concept here (Decision 6: several staff can share an hour), unlike MasterCellEditPopover's room picks. */
   onDelete?: () => void;
+  /**
+   * True when any hour in the edited range has a session to remove - drives the Remove
+   * button independently of `session`, which only seeds the form. Defaults to `session !== null`,
+   * the single-cell behaviour, when not supplied.
+   */
+  canDelete?: boolean;
+  /** Number of hours this popover edits - a shift-click range, or 1 for a single cell. */
+  hourCount?: number;
   saving: boolean;
 }
 
@@ -40,6 +48,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
   children,
   onSave,
   onDelete,
+  canDelete,
   saving,
 }: ReceptionCellPopoverProps<T>) {
   const [open, setOpen] = useState(false);
@@ -108,7 +117,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           />
 
           <div className="mt-3 flex items-center justify-between">
-            {session !== null && onDelete ? (
+            {(canDelete ?? session !== null) && onDelete ? (
               <button
                 type="button"
                 onClick={handleDelete}

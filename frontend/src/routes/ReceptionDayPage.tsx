@@ -198,24 +198,30 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
     );
   }
 
-  function handleSave({ staffId, hour, session, role, note }: ReceptionSavePayload<ReceptionRotaSession>) {
-    if (!rota) return;
+  // Task 1 wiring only: fires every mutation in the range and always reports success.
+  // Task 2 replaces this with a sequential mutateAsync loop and real failure aggregation.
+  async function handleSave(payloads: ReceptionSavePayload<ReceptionRotaSession>[]): Promise<boolean> {
+    if (!rota) return false;
     setActionError(null);
     const onError = (err: ApiError) => setActionError(apiErrorMessage(err, "Could not save this slot."));
-    if (session) {
-      updateSession.mutate({ rotaId: rota.rota_id, date, sessionId: session.session_id, role, note }, { onError });
-    } else {
-      createSession.mutate({ rotaId: rota.rota_id, date, staffId, hour, role, note }, { onError });
+    for (const { staffId, hour, session, role, note } of payloads) {
+      if (session) {
+        updateSession.mutate({ rotaId: rota.rota_id, date, sessionId: session.session_id, role, note }, { onError });
+      } else {
+        createSession.mutate({ rotaId: rota.rota_id, date, staffId, hour, role, note }, { onError });
+      }
     }
+    return true;
   }
 
-  function handleDelete(session: ReceptionRotaSession) {
-    if (!rota) return;
+  async function handleDelete(sessions: ReceptionRotaSession[]): Promise<boolean> {
+    if (!rota) return false;
     setActionError(null);
-    deleteSession.mutate(
-      { rotaId: rota.rota_id, date, sessionId: session.session_id },
-      { onError: (err: ApiError) => setActionError(apiErrorMessage(err, "Could not remove this slot.")) },
-    );
+    const onError = (err: ApiError) => setActionError(apiErrorMessage(err, "Could not remove this slot."));
+    for (const session of sessions) {
+      deleteSession.mutate({ rotaId: rota.rota_id, date, sessionId: session.session_id }, { onError });
+    }
+    return true;
   }
 
   return (
@@ -258,6 +264,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
 
           <div className="mt-3 flex gap-4">
             <ReceptionGrid
+              key={date}
               staff={staff}
               sessions={rota.sessions}
               issues={rota.issues}
