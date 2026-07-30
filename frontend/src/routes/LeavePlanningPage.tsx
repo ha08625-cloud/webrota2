@@ -236,20 +236,24 @@ export function LeavePlanningPage() {
 
   const unsavedCount = pending.size;
 
-  // None set at all, not "some missing" - a partly-filled year (e.g. this
-  // year's already done, next year's not started) is normal mid-year and
-  // shouldn't nag; a wholly blank year is the case worth a warning.
-  const bankHolidaysMissing = (bankHolidays ?? []).length > 0 && (bankHolidays ?? []).every((h) => h.date === null);
+  // Any still unset, not "none set at all": a part-filled year leaves the
+  // cover totals wrong on exactly the days that are still missing, which is
+  // what this banner exists to flag, so it only clears once all of the named
+  // holidays have a date. Counted off the fetched list rather than a
+  // hardcoded 8 - the fixed list lives in the backend (models/bank_holidays)
+  // and the endpoint always returns every entry, dated or not.
+  const bankHolidaysTotal = bankHolidays?.length ?? 0;
+  const bankHolidaysMissing = (bankHolidays ?? []).filter((h) => h.date === null).length;
 
   return (
     <div>
-      {bankHolidaysMissing ? (
+      {bankHolidaysMissing > 0 ? (
         <p
           data-testid="bank-holidays-missing-warning"
           className="mb-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
         >
-          Bank holidays for {year} have not been added yet. Clinical cover totals here won't account
-          for them until they're set on the{" "}
+          {bankHolidaysMissing} of {bankHolidaysTotal} bank holidays for {year} have not been added
+          yet. Clinical cover totals here won't account for them until they're set on the{" "}
           <Link to="/clinical/closures" className="font-medium underline">
             Closures
           </Link>{" "}
