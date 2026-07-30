@@ -86,6 +86,7 @@ export function ReceptionDayPage() {
       <h1 className="text-lg font-semibold">Day Rota</h1>
       <p className="mt-2 max-w-2xl text-sm text-ink/70">
         Pick a week to generate Monday to Friday from the master template, or edit an existing week.
+        Shift-click a second hour in the same row to apply one role to the whole range.
       </p>
 
       <div className="mt-4 flex items-end gap-3">
