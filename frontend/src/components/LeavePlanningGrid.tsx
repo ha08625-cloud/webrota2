@@ -34,8 +34,8 @@ import {
 
 const CELL_CLASSES: Record<PlanningCellState, string> = {
   normal: "bg-surface text-ink/30 hover:bg-accent/10",
-  leave: "bg-accent text-white",
-  extra_session: "bg-sky-100 text-sky-900",
+  leave: "bg-green-500 text-white",
+  extra_session: "bg-yellow-300 text-yellow-900",
 };
 
 const CELL_TITLES: Record<PlanningCellState, string> = {
@@ -83,7 +83,7 @@ function columnLabel(date: string): { weekday: string; dayOfMonth: string } {
  * following Monday, and this is the one boundary worth calling out as a
  * new working week rather than just the next day. */
 function weekDividerClass(date: string): string {
-  return weekdayName(date) === "Friday" ? "border-r-2" : "border-r";
+  return weekdayName(date) === "Friday" ? "border-r-[3px]" : "border-r";
 }
 
 export interface LeavePlanningGridProps {
@@ -121,11 +121,11 @@ export function LeavePlanningGrid({
 
   return (
     <div>
-      <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
+      <div className="mt-4 overflow-x-auto rounded border-[3px] border-ink/40">
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-0 z-10 w-24 border-b-[3px] border-r-[3px] border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
                 Doctor
               </th>
               {dates.map((date) => {
@@ -135,7 +135,7 @@ export function LeavePlanningGrid({
                   <th
                     key={date}
                     data-testid={`planning-header-${date}`}
-                    className={`border-b-2 ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
+                    className={`border-b-[3px] ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
                       fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
                     }`}
                   >
@@ -149,7 +149,7 @@ export function LeavePlanningGrid({
           <tbody>
             {doctors.map((doctor) => (
               <tr key={doctor.id}>
-                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 font-medium">
+                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium">
                   {doctor.code}
                 </td>
                 {dates.map((date) => (
@@ -177,13 +177,13 @@ export function LeavePlanningGrid({
           </tbody>
           <tfoot>
             <tr>
-              <td className="sticky left-0 z-10 whitespace-nowrap border-r-2 border-t-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+              <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t-[3px] border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
                 Clinical cover
               </td>
               {dates.map((date) => (
                 <td
                   key={date}
-                  className={`${weekDividerClass(date)} border-t-2 border-ink/40 bg-background p-0.5 align-top`}
+                  className={`${weekDividerClass(date)} border-t-[3px] border-ink/40 bg-background p-0.5 align-top`}
                 >
                   {PLANNING_PERIODS.map((period) => {
                     const total = totals.get(closedSlotKey(date, period));
