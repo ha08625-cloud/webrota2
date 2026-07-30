@@ -1,7 +1,7 @@
 import type { ReceptionRole } from "@/api/types";
 
 /**
- * Fixed display order for the role dropdown and any other place all nine
+ * Fixed display order for the role dropdown and any other place all
  * roles are listed together. Not alphabetical - phones first (the
  * historical default and the only role coverage rules track), other last
  * (the catch-all), the rest in the order the roles were added.
@@ -15,6 +15,8 @@ export const RECEPTION_ROLE_ORDER: ReceptionRole[] = [
   "online_triage",
   "rotas",
   "tasks",
+  "lunch",
+  "not_working",
   "other",
 ];
 
@@ -27,6 +29,8 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
   online_triage: "Online triage",
   rotas: "Rotas",
   tasks: "Tasks",
+  lunch: "Lunch",
+  not_working: "Not working",
   other: "Other",
 };
 
@@ -34,7 +38,7 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
  * Tailwind classes for the small role chip rendered in a grid cell.
  * Phones keeps its existing accent colour (Decision: coverage rules only
  * track phones, so it stays visually distinct); the rest share a neutral
- * palette rather than inventing eight more brand colours for tags with no
+ * palette rather than inventing a brand colour per tag for tags with no
  * further semantics.
  */
 export const RECEPTION_ROLE_CHIP_CLASSNAME: Record<ReceptionRole, string> = {
@@ -46,5 +50,7 @@ export const RECEPTION_ROLE_CHIP_CLASSNAME: Record<ReceptionRole, string> = {
   online_triage: "bg-ink/10 text-ink/70",
   rotas: "bg-ink/10 text-ink/70",
   tasks: "bg-ink/10 text-ink/70",
+  lunch: "bg-ink/10 text-ink/70",
+  not_working: "bg-ink/10 text-ink/70",
   other: "bg-ink/10 text-ink/70",
 };

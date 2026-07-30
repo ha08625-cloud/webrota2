@@ -619,6 +619,8 @@ def test_reception_role_round_trips_by_value():
     assert ReceptionRole.ONLINE_TRIAGE.value == "online_triage"
     assert ReceptionRole.ROTAS.value == "rotas"
     assert ReceptionRole.TASKS.value == "tasks"
+    assert ReceptionRole.LUNCH.value == "lunch"
+    assert ReceptionRole.NOT_WORKING.value == "not_working"
     assert ReceptionRole.OTHER.value == "other"
 
 
