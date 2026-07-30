@@ -35,22 +35,24 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
 };
 
 /**
- * Tailwind classes for the small role chip rendered in a grid cell.
- * Phones keeps its existing accent colour (Decision: coverage rules only
- * track phones, so it stays visually distinct); the rest share a neutral
- * palette rather than inventing a brand colour per tag for tags with no
- * further semantics.
+ * Tailwind classes for the small role chip rendered in a grid cell, one
+ * distinct colour per role so the two reception grids (master template and
+ * generated day, both rendered by ReceptionGrid) are scannable at a glance.
+ * Picked from Tailwind's -100/-800 pairs, distinct from the clinical rota's
+ * red/blue/green cell-background language (RotaGrid.tsx) so the two never
+ * read as the same colour code. Exact hues are arbitrary - no functional
+ * meaning attaches to any of them beyond "not the same as its neighbours".
  */
 export const RECEPTION_ROLE_CHIP_CLASSNAME: Record<ReceptionRole, string> = {
   phones: "bg-accent/10 text-accent",
-  prescriptions: "bg-ink/10 text-ink/70",
-  registrations: "bg-ink/10 text-ink/70",
-  front_desk: "bg-ink/10 text-ink/70",
-  admin: "bg-ink/10 text-ink/70",
-  online_triage: "bg-ink/10 text-ink/70",
-  rotas: "bg-ink/10 text-ink/70",
-  tasks: "bg-ink/10 text-ink/70",
-  lunch: "bg-ink/10 text-ink/70",
-  not_working: "bg-ink/10 text-ink/70",
+  prescriptions: "bg-purple-100 text-purple-800",
+  registrations: "bg-teal-100 text-teal-800",
+  front_desk: "bg-orange-100 text-orange-800",
+  admin: "bg-sky-100 text-sky-800",
+  online_triage: "bg-pink-100 text-pink-800",
+  rotas: "bg-lime-100 text-lime-800",
+  tasks: "bg-indigo-100 text-indigo-800",
+  lunch: "bg-yellow-100 text-yellow-800",
+  not_working: "bg-ink/10 text-ink/50",
   other: "bg-ink/10 text-ink/70",
 };
