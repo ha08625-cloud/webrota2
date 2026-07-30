@@ -20,3 +20,17 @@
     outline-offset: -2px;
   }
 }
+
+/* "Practice closed" cells in the Annual Planner - black hatching so it
+   reads as unambiguously distinct from the "no surgery" solid grey next
+   to it, rather than another shade of grey. */
+.closed-hatch {
+  background-color: theme("colors.surface");
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(0 0 0 / 0.75) 0,
+    rgb(0 0 0 / 0.75) 1.5px,
+    transparent 1.5px,
+    transparent 6px
+  );
+}

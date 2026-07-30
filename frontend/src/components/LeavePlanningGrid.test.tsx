@@ -189,8 +189,8 @@ describe("LeavePlanningGrid", () => {
       closedSlots: new Set([closedSlotKey(MONDAY, "AM"), closedSlotKey(MONDAY, "PM")]),
     });
 
-    expect(screen.getByTestId(`planning-header-${MONDAY}`).className).toContain("bg-gray-200");
-    expect(screen.getByTestId(`planning-header-${TUESDAY}`).className).not.toContain("bg-gray-200");
+    expect(screen.getByTestId(`planning-header-${MONDAY}`).className).toContain("closed-hatch");
+    expect(screen.getByTestId(`planning-header-${TUESDAY}`).className).not.toContain("closed-hatch");
   });
 
   it("renders an out-of-window cell inert, and distinguishably from a closed one", async () => {
@@ -206,10 +206,10 @@ describe("LeavePlanningGrid", () => {
     await user.click(outOfWindow);
     expect(onToggle).not.toHaveBeenCalled();
 
-    // Distinct treatments: solid grey for closed, plain absent grey for
+    // Distinct treatments: black hatching for closed, plain absent grey for
     // not-employed. Confusing the two would mislead.
-    expect(cell(3, MONDAY, "AM").className).toContain("bg-gray-200");
-    expect(outOfWindow.className).not.toContain("bg-gray-200");
+    expect(cell(3, MONDAY, "AM").className).toContain("closed-hatch");
+    expect(outOfWindow.className).not.toContain("closed-hatch");
   });
 
   it("still offers the in-window part of a leaver's month", () => {
@@ -245,11 +245,11 @@ describe("LeavePlanningGrid", () => {
       ]),
     });
 
-    expect(screen.getByTestId(`planning-total-${MONDAY}-AM`).className).toContain("bg-red-100");
-    expect(screen.getByTestId(`planning-total-${MONDAY}-PM`).className).toContain("bg-orange-100");
-    expect(screen.getByTestId(`planning-total-${TUESDAY}-AM`).className).toContain("bg-yellow-100");
+    expect(screen.getByTestId(`planning-total-${MONDAY}-AM`).className).toContain("bg-red-200");
+    expect(screen.getByTestId(`planning-total-${MONDAY}-PM`).className).toContain("bg-orange-200");
+    expect(screen.getByTestId(`planning-total-${TUESDAY}-AM`).className).toContain("bg-yellow-200");
     expect(screen.getByTestId(`planning-total-${TUESDAY}-PM`).className).not.toMatch(
-      /bg-(red|orange|yellow)-100/,
+      /bg-(red|orange|yellow)-200/,
     );
   });
 
