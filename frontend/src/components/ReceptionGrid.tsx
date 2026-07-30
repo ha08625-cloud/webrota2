@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types";
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
@@ -15,6 +15,21 @@ export interface ReceptionSavePayload<T extends ReceptionCellData> {
   note: string | null;
 }
 
+/** A staff row's shift-click range, `anchorHour === focusHour` for a plain single-cell click. */
+interface ReceptionSelection {
+  staffId: number;
+  anchorHour: number;
+  focusHour: number;
+}
+
+/** The hours between anchor and focus (inclusive, ascending), or [] when the selection is absent or on another row. */
+export function selectedRangeHours(selection: ReceptionSelection | null, staffId: number): number[] {
+  if (selection === null || selection.staffId !== staffId) return [];
+  const lo = Math.min(selection.anchorHour, selection.focusHour);
+  const hi = Math.max(selection.anchorHour, selection.focusHour);
+  return RECEPTION_HOURS.filter((hour) => hour >= lo && hour <= hi);
+}
+
 interface ReceptionGridProps<T extends ReceptionCellData> {
   staff: ReceptionStaff[];
   sessions: T[];
@@ -29,8 +44,10 @@ interface ReceptionGridProps<T extends ReceptionCellData> {
    * it's the same shape the clinical rota's week/day/period issues use.
    */
   issues?: ValidationIssue[];
-  onSave: (payload: ReceptionSavePayload<T>) => void;
-  onDelete: (session: T) => void;
+  /** Ascending by hour. Resolves true only if every write succeeded (shift-click range select). */
+  onSave: (payloads: ReceptionSavePayload<T>[]) => Promise<boolean>;
+  /** Only cells in the range that actually have a session. Resolves true if all succeeded. */
+  onDelete: (sessions: T[]) => Promise<boolean>;
   saving: boolean;
 }
 
@@ -60,6 +77,42 @@ export function ReceptionGrid<T extends ReceptionCellData>({
 }: ReceptionGridProps<T>) {
   const grid = useMemo(() => pivotReception(sessions, staff), [sessions, staff]);
   const issuesByHour = useMemo(() => groupIssuesByHour(issues ?? []), [issues]);
+  const [selection, setSelection] = useState<ReceptionSelection | null>(null);
+
+  useEffect(() => {
+    if (selection === null) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setSelection(null);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [selection]);
+
+  function handleCellClick(staffId: number, hour: number, shiftKey: boolean) {
+    setSelection((prev) =>
+      shiftKey && prev !== null && prev.staffId === staffId
+        ? { ...prev, focusHour: hour }
+        : { staffId, anchorHour: hour, focusHour: hour },
+    );
+  }
+
+  async function handleSave(staffId: number, hours: number[], role: ReceptionRole, note: string | null) {
+    const payloads = hours.map((hour) => ({
+      staffId,
+      hour,
+      session: getReceptionCell(grid, staffId, hour) ?? null,
+      role,
+      note,
+    }));
+    if (await onSave(payloads)) setSelection(null);
+  }
+
+  async function handleDelete(staffId: number, hours: number[]) {
+    const sessionsInRange = hours
+      .map((hour) => getReceptionCell(grid, staffId, hour))
+      .filter((session): session is T => session !== undefined);
+    if (await onDelete(sessionsInRange)) setSelection(null);
+  }
 
   return (
     <div className="overflow-x-auto rounded border-2 border-ink/40">
@@ -96,52 +149,73 @@ export function ReceptionGrid<T extends ReceptionCellData>({
           </tr>
         </thead>
         <tbody>
-          {grid.rows.map(({ staff: member, inactiveWithSessions }) => (
-            <tr key={member.id}>
-              <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium">
-                <div>{member.code}</div>
-                {inactiveWithSessions ? <div className="text-xs text-ink/50">(inactive)</div> : null}
-              </td>
-              {RECEPTION_HOURS.map((hour, hourIndex) => {
-                const session = getReceptionCell(grid, member.id, hour);
-                const dividerClassName = hourIndex === RECEPTION_HOURS.length - 1 ? "" : "border-r-2 border-ink/40";
-                return (
-                  <td
-                    key={hour}
-                    className={`border-b border-border px-2 py-1 text-center ${dividerClassName}`}
-                    data-testid={`reception-cell-${member.id}-${hour}`}
-                  >
-                    {session ? (
-                      <ReceptionCellPopover
-                        session={session}
-                        saving={saving}
-                        onSave={(role, note) => onSave({ staffId: member.id, hour, session, role, note })}
-                        onDelete={() => onDelete(session)}
-                      >
-                        <div>
-                          <CellContent session={session} />
-                        </div>
-                      </ReceptionCellPopover>
-                    ) : member.active ? (
-                      <ReceptionCellPopover
-                        session={null}
-                        saving={saving}
-                        onSave={(role, note) => onSave({ staffId: member.id, hour, session: null, role, note })}
-                      >
-                        <button
-                          type="button"
-                          aria-label={`Add session for ${member.code} ${formatHour(hour)}`}
-                          className="flex h-full w-full items-center justify-center text-ink/30 hover:text-ink/50"
+          {grid.rows.map(({ staff: member, inactiveWithSessions }) => {
+            // Decision 9: on an inactive row, a range only ever covers hours that already have a session -
+            // no new rows get created for a leaver.
+            const memberRange = selectedRangeHours(selection, member.id).filter(
+              (hour) => member.active || getReceptionCell(grid, member.id, hour) !== undefined,
+            );
+            return (
+              <tr key={member.id}>
+                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium">
+                  <div>{member.code}</div>
+                  {inactiveWithSessions ? <div className="text-xs text-ink/50">(inactive)</div> : null}
+                </td>
+                {RECEPTION_HOURS.map((hour, hourIndex) => {
+                  const session = getReceptionCell(grid, member.id, hour);
+                  const interactive = session !== undefined || member.active;
+                  const isSelected = interactive && memberRange.includes(hour);
+                  const isFocusCell =
+                    selection !== null && selection.staffId === member.id && selection.focusHour === hour;
+                  const hours = isFocusCell && memberRange.length > 1 ? memberRange : [hour];
+                  const seedSession =
+                    hours.length > 1
+                      ? (getReceptionCell(grid, member.id, selection!.focusHour) ??
+                        getReceptionCell(grid, member.id, selection!.anchorHour) ??
+                        null)
+                      : (session ?? null);
+                  const canDelete = hours.some((h) => getReceptionCell(grid, member.id, h) !== undefined);
+                  const dividerClassName = hourIndex === RECEPTION_HOURS.length - 1 ? "" : "border-r-2 border-ink/40";
+                  const selectedClassName = isSelected ? "bg-accent/10 ring-1 ring-inset ring-accent" : "";
+                  const cursorClassName = interactive ? "cursor-pointer" : "";
+                  return (
+                    <td
+                      key={hour}
+                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName}`}
+                      data-testid={`reception-cell-${member.id}-${hour}`}
+                      data-selected={isSelected ? "true" : undefined}
+                      onClick={interactive ? (e) => handleCellClick(member.id, hour, e.shiftKey) : undefined}
+                    >
+                      {interactive ? (
+                        <ReceptionCellPopover
+                          session={seedSession}
+                          hourCount={hours.length}
+                          canDelete={canDelete}
+                          saving={saving}
+                          onSave={(role, note) => handleSave(member.id, hours, role, note)}
+                          onDelete={() => handleDelete(member.id, hours)}
                         >
-                          +
-                        </button>
-                      </ReceptionCellPopover>
-                    ) : null}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+                          {session ? (
+                            <div>
+                              <CellContent session={session} />
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              aria-label={`Add session for ${member.code} ${formatHour(hour)}`}
+                              className="flex h-full w-full items-center justify-center text-ink/30 hover:text-ink/50"
+                            >
+                              +
+                            </button>
+                          )}
+                        </ReceptionCellPopover>
+                      ) : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

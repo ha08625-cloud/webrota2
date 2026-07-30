@@ -6,7 +6,16 @@ import type { ValidationIssue } from "@/api/types";
 import { makeReceptionMasterSession, makeReceptionStaff } from "@/test/fixtures/reception";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
-import { ReceptionGrid } from "./ReceptionGrid";
+import { ReceptionGrid, selectedRangeHours } from "./ReceptionGrid";
+
+/** Resolves true, matching the "save succeeded" contract used to clear the selection. */
+function resolvedOnSave() {
+  return vi.fn().mockResolvedValue(true);
+}
+
+function resolvedOnDelete() {
+  return vi.fn().mockResolvedValue(true);
+}
 
 describe("ReceptionGrid: rows", () => {
   it("gives an active staff member a row with zero sessions", () => {
@@ -14,8 +23,8 @@ describe("ReceptionGrid: rows", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -29,8 +38,8 @@ describe("ReceptionGrid: rows", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: false })]}
         sessions={[session]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -43,8 +52,8 @@ describe("ReceptionGrid: rows", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: false })]}
         sessions={[]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -57,8 +66,8 @@ describe("ReceptionGrid: rows", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: false })]}
         sessions={[session]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -76,8 +85,8 @@ describe("ReceptionGrid: cell content", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[session]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -91,8 +100,8 @@ describe("ReceptionGrid: cell content", () => {
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -102,14 +111,14 @@ describe("ReceptionGrid: cell content", () => {
 });
 
 describe("ReceptionGrid: create", () => {
-  it("clicking the add affordance and saving calls onSave with staffId, hour, and no session", async () => {
-    const onSave = vi.fn();
+  it("clicking the add affordance and saving calls onSave with one payload: staffId, hour, and no session", async () => {
+    const onSave = resolvedOnSave();
     renderWithProviders(
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[]}
         onSave={onSave}
-        onDelete={vi.fn()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -118,13 +127,13 @@ describe("ReceptionGrid: create", () => {
     await user.click(within(cell).getByLabelText("Add session for AB 08:00-09:00"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith({ staffId: 1, hour: 8, session: null, role: "phones", note: null });
+    expect(onSave).toHaveBeenCalledWith([{ staffId: 1, hour: 8, session: null, role: "phones", note: null }]);
   });
 });
 
 describe("ReceptionGrid: edit and delete", () => {
-  it("editing an existing cell calls onSave with the session and the new values", async () => {
-    const onSave = vi.fn();
+  it("editing an existing cell calls onSave with one payload carrying the session and the new values", async () => {
+    const onSave = resolvedOnSave();
     const session = makeReceptionMasterSession({
       session_id: 5, staff_id: 1, hour: 9, role: "phones", note: null,
     });
@@ -133,7 +142,7 @@ describe("ReceptionGrid: edit and delete", () => {
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[session]}
         onSave={onSave}
-        onDelete={vi.fn()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -143,17 +152,17 @@ describe("ReceptionGrid: edit and delete", () => {
     await user.selectOptions(await screen.findByLabelText("Role"), "other");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith({ staffId: 1, hour: 9, session, role: "other", note: null });
+    expect(onSave).toHaveBeenCalledWith([{ staffId: 1, hour: 9, session, role: "other", note: null }]);
   });
 
-  it("Remove calls onDelete with the session", async () => {
-    const onDelete = vi.fn();
+  it("Remove calls onDelete with an array containing the session", async () => {
+    const onDelete = resolvedOnDelete();
     const session = makeReceptionMasterSession({ session_id: 5, staff_id: 1, hour: 9 });
     renderWithProviders(
       <ReceptionGrid
         staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
         sessions={[session]}
-        onSave={vi.fn()}
+        onSave={resolvedOnSave()}
         onDelete={onDelete}
         saving={false}
       />,
@@ -163,7 +172,7 @@ describe("ReceptionGrid: edit and delete", () => {
     await user.click(within(cell).getByText("Phones"));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
 
-    expect(onDelete).toHaveBeenCalledWith(session);
+    expect(onDelete).toHaveBeenCalledWith([session]);
   });
 });
 
@@ -187,8 +196,8 @@ describe("ReceptionGrid: coverage warnings", () => {
         staff={[]}
         sessions={[]}
         issues={[shortfall(9)]}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
         saving={false}
       />,
     );
@@ -198,8 +207,195 @@ describe("ReceptionGrid: coverage warnings", () => {
 
   it("renders no markers when issues is absent (master template page)", () => {
     renderWithProviders(
-      <ReceptionGrid staff={[]} sessions={[]} onSave={vi.fn()} onDelete={vi.fn()} saving={false} />,
+      <ReceptionGrid staff={[]} sessions={[]} onSave={resolvedOnSave()} onDelete={resolvedOnDelete()} saving={false} />,
     );
     expect(screen.queryByLabelText(/Coverage shortfall/)).not.toBeInTheDocument();
+  });
+});
+
+describe("selectedRangeHours", () => {
+  it("returns the forward range between anchor and focus, inclusive", () => {
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 9, focusHour: 11 }, 1)).toEqual([9, 10, 11]);
+  });
+
+  it("returns the same range when focus precedes anchor", () => {
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 11, focusHour: 9 }, 1)).toEqual([9, 10, 11]);
+  });
+
+  it("returns a single hour when anchor and focus match", () => {
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 9, focusHour: 9 }, 1)).toEqual([9]);
+  });
+
+  it("returns an empty range when the selection belongs to a different staff row", () => {
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 9, focusHour: 11 }, 2)).toEqual([]);
+  });
+
+  it("returns an empty range when there is no selection", () => {
+    expect(selectedRangeHours(null, 1)).toEqual([]);
+  });
+});
+
+async function shiftClick(user: ReturnType<typeof userEvent.setup>, element: HTMLElement) {
+  await user.keyboard("{Shift>}");
+  await user.click(element);
+  await user.keyboard("{/Shift}");
+}
+
+describe("ReceptionGrid: shift-click range select", () => {
+  it("highlights every cell between anchor and focus, endpoints included", async () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-10")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-11")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-8")).not.toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-12")).not.toHaveAttribute("data-selected", "true");
+  });
+
+  it("shift-click on a different row starts a fresh single-cell selection there", async () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[
+          makeReceptionStaff({ id: 1, code: "AB", active: true }),
+          makeReceptionStaff({ id: 2, code: "CD", active: true }),
+        ]}
+        sessions={[]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-2-10")).getByLabelText("Add session for CD 10:00-11:00"));
+
+    expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-2-10")).toHaveAttribute("data-selected", "true");
+  });
+
+  it("a plain click after a range collapses the selection back to one cell", async () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+
+    expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-11")).not.toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-10")).toHaveAttribute("data-selected", "true");
+  });
+
+  it("Escape clears the selection", async () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
+  });
+
+  it("saving a 3-hour range calls onSave once with three payloads, ascending by hour, mixing filled and empty hours", async () => {
+    const onSave = resolvedOnSave();
+    const session = makeReceptionMasterSession({ session_id: 5, staff_id: 1, hour: 10, role: "phones", note: null });
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[session]}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith([
+      { staffId: 1, hour: 9, session: null, role: "phones", note: null },
+      { staffId: 1, hour: 10, session, role: "phones", note: null },
+      { staffId: 1, hour: 11, session: null, role: "phones", note: null },
+    ]);
+  });
+
+  it("on an inactive staff row, a range spanning an empty hour omits it from both the highlight and the payload", async () => {
+    const onSave = resolvedOnSave();
+    const session9 = makeReceptionMasterSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones", note: null });
+    const session11 = makeReceptionMasterSession({ session_id: 2, staff_id: 1, hour: 11, role: "phones", note: null });
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: false })]}
+        sessions={[session9, session11]}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByText("Phones"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByText("Phones"));
+
+    expect(screen.getByTestId("reception-cell-1-10")).not.toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-10")).toBeEmptyDOMElement();
+
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith([
+      { staffId: 1, hour: 9, session: session9, role: "phones", note: null },
+      { staffId: 1, hour: 11, session: session11, role: "phones", note: null },
+    ]);
+  });
+
+  it("keeps the highlight when onSave resolves false, and clears it when onSave resolves true", async () => {
+    const onSave = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
+
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
   });
 });

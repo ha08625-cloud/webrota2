@@ -39,21 +39,28 @@ export function ReceptionMasterPage() {
 
   const saving = createSession.isPending || updateSession.isPending || deleteSession.isPending;
 
-  function handleSave({ staffId, hour, session, role, note }: ReceptionSavePayload<ReceptionMasterSession>) {
+  // Task 1 wiring only: fires every mutation in the range and always reports success.
+  // Task 2 replaces this with a sequential mutateAsync loop and real failure aggregation.
+  async function handleSave(payloads: ReceptionSavePayload<ReceptionMasterSession>[]): Promise<boolean> {
     setError(null);
     const onError = (err: ApiError) => setError(apiErrorMessage(err, "Could not save this slot."));
-    if (session) {
-      updateSession.mutate({ sessionId: session.session_id, role, note }, { onError });
-    } else {
-      createSession.mutate({ staffId, day: activeDay, hour, role, note }, { onError });
+    for (const { staffId, hour, session, role, note } of payloads) {
+      if (session) {
+        updateSession.mutate({ sessionId: session.session_id, role, note }, { onError });
+      } else {
+        createSession.mutate({ staffId, day: activeDay, hour, role, note }, { onError });
+      }
     }
+    return true;
   }
 
-  function handleDelete(session: ReceptionMasterSession) {
+  async function handleDelete(sessions: ReceptionMasterSession[]): Promise<boolean> {
     setError(null);
-    deleteSession.mutate(session.session_id, {
-      onError: (err: ApiError) => setError(apiErrorMessage(err, "Could not remove this slot.")),
-    });
+    const onError = (err: ApiError) => setError(apiErrorMessage(err, "Could not remove this slot."));
+    for (const session of sessions) {
+      deleteSession.mutate(session.session_id, { onError });
+    }
+    return true;
   }
 
   return (
@@ -90,6 +97,7 @@ export function ReceptionMasterPage() {
       {staff && sessions ? (
         <div className="mt-4">
           <ReceptionGrid
+            key={activeDay}
             staff={staff}
             sessions={sessions.filter((s) => s.day === activeDay)}
             onSave={handleSave}
