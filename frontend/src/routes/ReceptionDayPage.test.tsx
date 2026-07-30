@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ValidationIssue } from "@/api/types";
+import { addDays } from "@/lib/date";
 import {
   makeReceptionRota,
   makeReceptionRotaSession,
@@ -14,22 +15,32 @@ import { server } from "@/test/msw/server";
 
 import { ReceptionDayPage } from "./ReceptionDayPage";
 
-async function pickDate(user: ReturnType<typeof userEvent.setup>, dateString: string) {
-  await user.type(screen.getByLabelText("Date"), dateString);
+/**
+ * The week-commencing select defaults to the current-or-next Monday from
+ * the real system clock, so tests read it back rather than hardcoding a
+ * date - same approach RotaPage.test.tsx uses for its week selector. The
+ * Monday tab is active by default, so this doubles as "the date under test".
+ */
+async function defaultMonday(): Promise<string> {
+  const select = (await screen.findByLabelText("Week commencing")) as HTMLSelectElement;
+  return select.value;
 }
 
 describe("ReceptionDayPage", () => {
   it("offers Generate from template for an ungenerated weekday, and generating renders the grid", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    let capturedBody: unknown;
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
     const generated = makeReceptionRota({
       rota_id: 7,
-      date: "2026-08-03",
+      date: monday,
       sessions: [makeReceptionRotaSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones" })],
       issues: [],
     });
-    let capturedBody: unknown;
     server.use(
-      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       // No override for GET /reception/rota - the default handler 404s,
       // which is the "never generated" steady state this test starts from.
       http.post("/api/v1/reception/rota", async ({ request }) => {
@@ -38,14 +49,11 @@ describe("ReceptionDayPage", () => {
       }),
     );
 
-    renderWithProviders(<ReceptionDayPage />);
     const user = userEvent.setup();
-    await pickDate(user, "2026-08-03");
-
     const generateButton = await screen.findByRole("button", { name: "Generate from template" });
     await user.click(generateButton);
 
-    expect(capturedBody).toEqual({ date: "2026-08-03" });
+    expect(capturedBody).toEqual({ date: monday });
     expect(await screen.findByTestId("reception-cell-1-9")).toBeInTheDocument();
   });
 
@@ -54,10 +62,13 @@ describe("ReceptionDayPage", () => {
     const session = makeReceptionRotaSession({
       session_id: 5, staff_id: 1, hour: 9, role: "phones", note: null,
     });
-    const rota = makeReceptionRota({ rota_id: 7, date: "2026-08-03", sessions: [session], issues: [] });
+
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+    const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [session], issues: [] });
 
     server.use(
-      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       http.get("/api/v1/reception/rota", () => HttpResponse.json(rota)),
       http.patch("/api/v1/reception/rota/7/sessions/5", () =>
         HttpResponse.json({
@@ -77,10 +88,7 @@ describe("ReceptionDayPage", () => {
       ),
     );
 
-    renderWithProviders(<ReceptionDayPage />);
     const user = userEvent.setup();
-    await pickDate(user, "2026-08-03");
-
     const cell = await screen.findByTestId("reception-cell-1-9");
     await user.click(within(cell).getByText("Phones"));
     await user.selectOptions(await screen.findByLabelText("Role"), "other");
@@ -92,12 +100,14 @@ describe("ReceptionDayPage", () => {
 
   it("regenerating confirms, then DELETEs the day before POSTing a fresh one", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
-    const rota = makeReceptionRota({ rota_id: 7, date: "2026-08-03", sessions: [], issues: [] });
-    const regenerated = makeReceptionRota({ rota_id: 8, date: "2026-08-03", sessions: [], issues: [] });
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+    const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [], issues: [] });
+    const regenerated = makeReceptionRota({ rota_id: 8, date: monday, sessions: [], issues: [] });
 
     const calls: string[] = [];
     server.use(
-      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       http.get("/api/v1/reception/rota", () => HttpResponse.json(rota)),
       http.delete("/api/v1/reception/rota/7", () => {
         calls.push("DELETE");
@@ -110,10 +120,7 @@ describe("ReceptionDayPage", () => {
     );
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    renderWithProviders(<ReceptionDayPage />);
     const user = userEvent.setup();
-    await pickDate(user, "2026-08-03");
-
     const regenerateButton = await screen.findByRole("button", { name: "Regenerate" });
     await user.click(regenerateButton);
 
@@ -122,11 +129,13 @@ describe("ReceptionDayPage", () => {
 
   it("does not regenerate when the confirm is dismissed", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
-    const rota = makeReceptionRota({ rota_id: 7, date: "2026-08-03", sessions: [], issues: [] });
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+    const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [], issues: [] });
 
     let deleteWasCalled = false;
     server.use(
-      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       http.get("/api/v1/reception/rota", () => HttpResponse.json(rota)),
       http.delete("/api/v1/reception/rota/7", () => {
         deleteWasCalled = true;
@@ -135,10 +144,7 @@ describe("ReceptionDayPage", () => {
     );
     vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    renderWithProviders(<ReceptionDayPage />);
     const user = userEvent.setup();
-    await pickDate(user, "2026-08-03");
-
     const regenerateButton = await screen.findByRole("button", { name: "Regenerate" });
     await user.click(regenerateButton);
 
@@ -150,6 +156,10 @@ describe("ReceptionDayPage", () => {
       makeReceptionStaff({ id: 1, code: "AB", active: true }),
       makeReceptionStaff({ id: 2, code: "CD", active: true }),
     ];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+
     const existing = makeReceptionRotaSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones" });
     const shortfall: ValidationIssue = {
       severity: "warning",
@@ -160,23 +170,19 @@ describe("ReceptionDayPage", () => {
       day: "Monday",
       period: null,
     };
-    const rota = makeReceptionRota({ rota_id: 7, date: "2026-08-03", sessions: [existing], issues: [shortfall] });
+    const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [existing], issues: [shortfall] });
     const created = makeReceptionRotaSession({ session_id: 2, staff_id: 2, hour: 9, role: "phones" });
 
     server.use(
-      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       http.get("/api/v1/reception/rota", () => HttpResponse.json(rota)),
       http.post("/api/v1/reception/rota/7/sessions", () =>
         HttpResponse.json({ session: created, issues: [] }, { status: 201 }),
       ),
     );
 
-    renderWithProviders(<ReceptionDayPage />);
-    const user = userEvent.setup();
-    await pickDate(user, "2026-08-03");
-
     expect(await screen.findByText("09:00-10:00: 1 staff on phones, 2 required")).toBeInTheDocument();
 
+    const user = userEvent.setup();
     const emptyCell = await screen.findByTestId("reception-cell-2-9");
     await user.click(within(emptyCell).getByLabelText("Add session for CD 09:00-10:00"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
@@ -187,16 +193,61 @@ describe("ReceptionDayPage", () => {
     expect(screen.getByText("No coverage shortfalls.")).toBeInTheDocument();
   });
 
-  it("flags a weekend date instead of querying the rota", async () => {
-    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json([])));
+  it("switching to another weekday's tab loads that day independently", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
-    const user = userEvent.setup();
-    // 2026-08-08 is a Saturday.
-    await pickDate(user, "2026-08-08");
+    const monday = await defaultMonday();
+    const tuesday = addDays(monday, 1);
 
-    expect(
-      await screen.findByText("2026-08-08 is a weekend; the day rota only runs Monday to Friday."),
-    ).toBeInTheDocument();
+    const tuesdaySession = makeReceptionRotaSession({ session_id: 9, staff_id: 1, hour: 10, role: "phones" });
+    const tuesdayRota = makeReceptionRota({ rota_id: 11, date: tuesday, sessions: [tuesdaySession], issues: [] });
+    // Monday has no rota (default 404 handler); Tuesday alone gets one.
+    server.use(
+      http.get("/api/v1/reception/rota", ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("date") !== tuesday) {
+          return HttpResponse.json({ detail: "No rota for this date" }, { status: 404 });
+        }
+        return HttpResponse.json(tuesdayRota);
+      }),
+    );
+
+    expect(await screen.findByRole("button", { name: "Generate from template" })).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: new RegExp(`^Tuesday ${tuesday}$`) }));
+
+    expect(await screen.findByTestId("reception-cell-1-10")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generate from template" })).not.toBeInTheDocument();
+  });
+
+  it("generating the week posts once per weekday, skipping days that already exist (409)", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    await defaultMonday();
+
+    const postedDates: string[] = [];
+    server.use(
+      http.post("/api/v1/reception/rota", async ({ request }) => {
+        const body = (await request.json()) as { date: string };
+        postedDates.push(body.date);
+        // Every other day already exists - simulate the mixed skip/create case.
+        if (postedDates.length % 2 === 0) {
+          return HttpResponse.json({ detail: "Rota already exists for this date" }, { status: 409 });
+        }
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: postedDates.length, date: body.date, sessions: [], issues: [] }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate week from template" }));
+
+    await waitFor(() => expect(postedDates).toHaveLength(5));
+    expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
   });
 });

@@ -81,6 +81,24 @@ export function getUpcomingMondays(count: number, from: Date = new Date()): stri
 }
 
 /**
+ * Returns `pastCount` + `futureCount` + 1 Mondays, ascending, centred on
+ * the current-or-next Monday from `from` (defaults to today) - the same
+ * "today forward" anchor as getUpcomingMondays, extended backward too.
+ * Backs the reception day rota's week-commencing dropdown (Decision: week
+ * view), which - unlike the forward-only staging week selector this
+ * mirrors - needs recent past weeks reachable too, since an already
+ * generated week stays editable indefinitely.
+ */
+export function getSurroundingMondays(pastCount: number, futureCount: number, from: Date = new Date()): string[] {
+  const anchor = getUpcomingMondays(1, from)[0];
+  const mondays: string[] = [];
+  for (let i = -pastCount; i <= futureCount; i++) {
+    mondays.push(addDays(anchor, i * 7));
+  }
+  return mondays;
+}
+
+/**
  * Formats a "YYYY-MM-DD" Monday as "w/c 13 Jul 2026" for the duty grid's
  * week selector. Deliberately pinned to "en-GB" for the month name
  * rather than the `undefined`-locale pattern formatDate/formatDateTime
