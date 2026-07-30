@@ -112,63 +112,66 @@ function ClinicalShell() {
   const { pathname } = useLocation();
 
   return (
-    <div className="flex min-h-screen bg-background text-ink">
-      <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
-        <div className="px-4 py-4 text-sm font-semibold">Rota Generator</div>
-        <ul className="flex-1">
-          {CLINICAL_NAV_ITEMS.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  navLinkClass(isActive || (item.groupPaths?.includes(pathname) ?? false))
-                }
-              >
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-        <NavLink
-          to="/"
-          className="border-t border-border px-4 py-3 text-left text-sm text-ink/80 hover:bg-accent/5"
-        >
-          Switch app
-        </NavLink>
-        <button
-          type="button"
-          onClick={handleLogout}
-          disabled={isLoggingOut}
-          className="border-t border-border px-4 py-3 text-left text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-60"
-        >
-          Log out
-        </button>
-      </nav>
-      <main className="flex-1 p-6">
-        <Routes>
-          <Route index element={<RotaPage />} />
-          <Route path="staging" element={<StagingPage />} />
-          <Route path="rota/:id" element={<RotaDetailPage />} />
-          <Route path="master-rota" element={<MasterRotaPage />} />
-          <Route path="clinic-types" element={<ClinicTypesPage />} />
-          <Route path="doctors" element={<DoctorsPage />} />
-          {/* Session Management group - one layout route so the sub-tab bar
-              is rendered in a single place, above whichever page is active. */}
-          <Route element={<SessionManagementLayout />}>
-            <Route path="leave-planning" element={<LeavePlanningPage />} />
-            <Route path="leave" element={<LeavePage />} />
-            <Route path="extra-sessions" element={<ExtraSessionsPage />} />
-            <Route path="closures" element={<ClosuresPage />} />
-            <Route path="school-holidays" element={<SchoolHolidaysPage />} />
-          </Route>
-          <Route path="duty" element={<DutyPage />} />
-          <Route path="recurring-notes" element={<RecurringNotesPage />} />
-          <Route path="counters" element={<CountersPage />} />
-          <Route path="signatures" element={<SignaturesPage />} />
-          <Route path="users" element={<UsersPage />} />
-        </Routes>
-      </main>
+    <div className="flex min-h-screen flex-col bg-background text-ink">
+      <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
+        <span className="text-sm font-semibold">Rota Generator</span>
+        <div className="flex items-center gap-4">
+          <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
+            Switch app
+          </NavLink>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="text-sm text-ink/80 hover:text-accent disabled:opacity-60"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-1">
+        <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
+          <ul>
+            {CLINICAL_NAV_ITEMS.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    navLinkClass(isActive || (item.groupPaths?.includes(pathname) ?? false))
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <main className="flex-1 p-6">
+          <Routes>
+            <Route index element={<RotaPage />} />
+            <Route path="staging" element={<StagingPage />} />
+            <Route path="rota/:id" element={<RotaDetailPage />} />
+            <Route path="master-rota" element={<MasterRotaPage />} />
+            <Route path="clinic-types" element={<ClinicTypesPage />} />
+            <Route path="doctors" element={<DoctorsPage />} />
+            {/* Session Management group - one layout route so the sub-tab bar
+                is rendered in a single place, above whichever page is active. */}
+            <Route element={<SessionManagementLayout />}>
+              <Route path="leave-planning" element={<LeavePlanningPage />} />
+              <Route path="leave" element={<LeavePage />} />
+              <Route path="extra-sessions" element={<ExtraSessionsPage />} />
+              <Route path="closures" element={<ClosuresPage />} />
+              <Route path="school-holidays" element={<SchoolHolidaysPage />} />
+            </Route>
+            <Route path="duty" element={<DutyPage />} />
+            <Route path="recurring-notes" element={<RecurringNotesPage />} />
+            <Route path="counters" element={<CountersPage />} />
+            <Route path="signatures" element={<SignaturesPage />} />
+            <Route path="users" element={<UsersPage />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }
