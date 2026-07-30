@@ -1,4 +1,4 @@
-import type { Doctor, Period, PlanningAction } from "@/api/types";
+import type { Doctor, MasterSessionType, Period, PlanningAction } from "@/api/types";
 import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
 import { formatHolidayRange, parseLocalDate } from "@/lib/date";
 import {
@@ -6,11 +6,13 @@ import {
   type PlanningCellState,
   type SchoolPlannerRow,
   isInMonth,
+  isSurgerySession,
   isWithinWindow,
   mergeCellState,
   nextCellState,
   planningCellKey,
   serverRows,
+  templateKey,
   toCellState,
   weekdayName,
 } from "@/lib/planningMonth";
@@ -32,6 +34,13 @@ import {
  *    rather than 0 (Design Decision 5).
  *  - out of window: the doctor is not employed on that date. Plain absent
  *    grey - there is nothing to plan, but the practice is open.
+ *
+ * A "normal" cell (no leave, no extra session) is further split purely by
+ * colour, not state: `isSurgerySession` (COUNTED_TYPES) decides whether it
+ * reads as a working session (bright white) or a no-surgery one (medium
+ * grey), against the doctor's week-1 template. This is cosmetic only - it
+ * does not change `PlanningCellState` or anything the click cycle or the
+ * coverage total does.
  */
 
 const CELL_CLASSES: Record<PlanningCellState, string> = {
@@ -39,6 +48,8 @@ const CELL_CLASSES: Record<PlanningCellState, string> = {
   leave: "bg-green-500 text-white",
   extra_session: "bg-yellow-300 text-yellow-900",
 };
+
+const NO_SURGERY_NORMAL_CLASS = "bg-gray-300 text-ink/40 hover:bg-accent/10";
 
 const CELL_TITLES: Record<PlanningCellState, string> = {
   normal: "Working as normal",
@@ -139,6 +150,10 @@ export interface LeavePlanningGridProps {
   closedSlots: Set<string>;
   /** Total row: `closedSlotKey` -> headcount, null when closed. */
   totals: Map<string, number | null>;
+  /** Active template's week-1 (doctor, day, period) -> session type, from
+   * `buildTemplateIndex`. Used only to colour normal cells (see the module
+   * docstring) - has no bearing on state or the coverage total. */
+  templateTypes: Map<string, MasterSessionType>;
   /** Receives the state the clicked cell should move to - the cycle
    * itself is this component's business, the page only records it. */
   onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
@@ -155,6 +170,7 @@ export function LeavePlanningGrid({
   extraKeys,
   closedSlots,
   totals,
+  templateTypes,
   onToggle,
 }: LeavePlanningGridProps) {
   if (doctors.length === 0) {
@@ -242,6 +258,7 @@ export function LeavePlanningGrid({
                         leaveKeys={leaveKeys}
                         extraKeys={extraKeys}
                         closedSlots={closedSlots}
+                        templateTypes={templateTypes}
                         onToggle={onToggle}
                       />
                     ))}
@@ -308,6 +325,10 @@ export function LeavePlanningGrid({
           </span>
         ))}
         <span className="flex items-center gap-1 text-xs text-ink/60">
+          <span className="inline-block h-3 w-3 rounded-sm bg-gray-300" />
+          No surgery
+        </span>
+        <span className="flex items-center gap-1 text-xs text-ink/60">
           <span className="inline-block h-3 w-3 rounded-sm bg-gray-200" />
           Practice closed
         </span>
@@ -342,6 +363,7 @@ interface PlanningCellHalfProps {
   leaveKeys: Set<string>;
   extraKeys: Set<string>;
   closedSlots: Set<string>;
+  templateTypes: Map<string, MasterSessionType>;
   onToggle: (doctorId: number, date: string, period: Period, next: PlanningCellState) => void;
 }
 
@@ -353,6 +375,7 @@ function PlanningCellHalf({
   leaveKeys,
   extraKeys,
   closedSlots,
+  templateTypes,
   onToggle,
 }: PlanningCellHalfProps) {
   const testId = `planning-cell-${doctor.id}-${date}-${period}`;
@@ -388,6 +411,11 @@ function PlanningCellHalf({
   const pendingAction = pending.get(key);
   const state = mergeCellState(toCellState(serverRows(leaveKeys, extraKeys, key)), pendingAction);
 
+  const day = weekdayName(date);
+  const templateType = day === null ? undefined : templateTypes.get(templateKey(doctor.id, day, period));
+  const stateClass =
+    state === "normal" && !isSurgerySession(templateType) ? NO_SURGERY_NORMAL_CLASS : CELL_CLASSES[state];
+
   return (
     <button
       type="button"
@@ -397,7 +425,7 @@ function PlanningCellHalf({
       title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}`}
       aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}`}
       onClick={() => onToggle(doctor.id, date, period, nextCellState(state))}
-      className={`${shared} ${CELL_CLASSES[state]} ${
+      className={`${shared} ${stateClass} ${
         pendingAction !== undefined ? "ring-2 ring-inset ring-ink/60" : ""
       }`}
     >

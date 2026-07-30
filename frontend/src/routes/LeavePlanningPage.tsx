@@ -16,6 +16,7 @@ import {
   type PlanningCellState,
   applyPendingToCoverage,
   buildPlanningActions,
+  buildTemplateIndex,
   overlapsRange,
   planningCellKey,
   schoolHolidayDatesInRange,
@@ -158,6 +159,11 @@ export function LeavePlanningPage() {
         }))
         .filter((row) => row.dates.size > 0),
     [schools, dates],
+  );
+
+  const templateTypes = useMemo(
+    () => buildTemplateIndex(template?.sessions ?? []),
+    [template],
   );
 
   const leaveKeys = useMemo(() => toCellKeySet(leave ?? []), [leave]);
@@ -333,6 +339,7 @@ export function LeavePlanningPage() {
         extraKeys={extraKeys}
         closedSlots={closedSlots}
         totals={totals}
+        templateTypes={templateTypes}
         onToggle={handleToggle}
       />
     </div>

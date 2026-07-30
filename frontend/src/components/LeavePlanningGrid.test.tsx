@@ -32,6 +32,7 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
       extraKeys={new Set()}
       closedSlots={new Set()}
       totals={new Map()}
+      templateTypes={new Map()}
       onToggle={onToggle}
       {...overrides}
     />,
@@ -68,6 +69,7 @@ function CycleHarness() {
       extraKeys={new Set()}
       closedSlots={new Set()}
       totals={new Map()}
+      templateTypes={new Map()}
       onToggle={(doctorId, date, period, next) =>
         setPending(
           new Map([[planningCellKey(doctorId, date, period), stateToAction(next)]]),
