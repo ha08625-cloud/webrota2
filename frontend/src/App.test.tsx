@@ -53,14 +53,14 @@ describe("ClinicalShell nav", () => {
     );
   });
 
-  it("renders the sub-tab bar above the active tabbed page", () => {
+  it("renders the sub-tab bar above the active tabbed page", async () => {
     renderAt("/clinical/school-holidays");
 
     expect(screen.getByRole("tab", { name: "School Holidays" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByText(/Coming soon/)).toBeInTheDocument();
+    expect(await screen.findByText("No schools.")).toBeInTheDocument();
   });
 
   it("does not render the sub-tab bar on an ungrouped page", () => {

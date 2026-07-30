@@ -45,6 +45,7 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/duty", () => HttpResponse.json([])),
   http.get("/api/v1/duty/counts", () => HttpResponse.json([])),
   http.get("/api/v1/closures", () => HttpResponse.json([])),
+  http.get("/api/v1/schools", () => HttpResponse.json([])),
   http.get("/api/v1/closures/bank-holidays", () =>
     HttpResponse.json([
       { key: "new_year", name: "New Year's Day", date: null },

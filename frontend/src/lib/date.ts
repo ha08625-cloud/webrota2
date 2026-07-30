@@ -103,6 +103,30 @@ export function formatDateWithDay(dateString: string): string {
   return `${dayName}, ${dateString}`;
 }
 
+/**
+ * Formats a school holiday's inclusive range as e.g.
+ * "Monday 21/7/26 - Friday 31/8/26", or the single date alone
+ * (no dash) when start and end are the same day. Full weekday name +
+ * `d/m/yy`, pinned to "en-GB" like formatWeekLabel/formatPeriodLabel - no
+ * existing helper produces this exact format, and the planner row tooltip
+ * reuses it alongside the School Holidays page.
+ */
+export function formatHolidayRange(start: string, end: string): string {
+  function formatOne(dateString: string): string {
+    const date = parseLocalDate(dateString);
+    const weekday = date.toLocaleDateString("en-GB", { weekday: "long" });
+    const day = date.getDate();
+    const month = date.getMonth() + 1;
+    const year = String(date.getFullYear()).slice(-2);
+    return `${weekday} ${day}/${month}/${year}`;
+  }
+
+  if (start === end) {
+    return formatOne(start);
+  }
+  return `${formatOne(start)} – ${formatOne(end)}`;
+}
+
 // --- 4-weekly duty periods ---------------------------------------------
 
 /**
