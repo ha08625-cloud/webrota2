@@ -8,6 +8,7 @@ import {
   applyPendingToCoverage,
   buildPlanningActions,
   buildTemplateIndex,
+  isInMonth,
   isWithinWindow,
   mergeCellState,
   nextCellState,
@@ -79,10 +80,11 @@ function totalFor(
 
 describe("weekdaysInMonth", () => {
   it("returns every Mon-Fri date of the month as YYYY-MM-DD", () => {
+    // 2026-08-01 is a Saturday, so August's own weekdays start on the 3rd
+    // with no lead-in borrowed from July.
     const dates = weekdaysInMonth(2026, 8);
-    expect(dates[0]).toBe("2026-08-03");
-    expect(dates[dates.length - 1]).toBe("2026-08-31");
-    expect(dates).toHaveLength(21);
+    expect(dates).toContain("2026-08-03");
+    expect(dates).toContain("2026-08-31");
   });
 
   it("excludes weekends", () => {
@@ -91,8 +93,22 @@ describe("weekdaysInMonth", () => {
     expect(weekdaysInMonth(2026, 8)).not.toContain("2026-08-02");
   });
 
+  it("borrows lead-out days from the next month to complete the last week", () => {
+    // 2026-08-31 is a Monday, so the grid runs through that week's Friday.
+    const dates = weekdaysInMonth(2026, 8);
+    expect(dates[dates.length - 1]).toBe("2026-09-04");
+    expect(dates).toContain("2026-09-01");
+  });
+
+  it("borrows lead-in days from the previous month to complete the first week", () => {
+    // 2026-01-01 is a Thursday, so the grid starts from that week's Monday.
+    const dates = weekdaysInMonth(2026, 1);
+    expect(dates[0]).toBe("2025-12-29");
+    expect(dates).toContain("2026-01-01");
+  });
+
   it("pads single-digit months and days", () => {
-    expect(weekdaysInMonth(2026, 1)[0]).toBe("2026-01-01");
+    expect(weekdaysInMonth(2026, 1)).toContain("2026-01-02");
   });
 
   it("handles a leap February", () => {
@@ -100,10 +116,22 @@ describe("weekdaysInMonth", () => {
     expect(dates).toContain("2028-02-29");
   });
 
-  it("handles December without rolling into the next year", () => {
+  it("rolls a borrowed lead-out week into the next calendar year", () => {
+    // 2026-12-31 is a Thursday, so the grid runs one day into January 2027.
     const dates = weekdaysInMonth(2026, 12);
-    expect(dates.every((d) => d.startsWith("2026-12-"))).toBe(true);
-    expect(dates[dates.length - 1]).toBe("2026-12-31");
+    expect(dates[dates.length - 1]).toBe("2027-01-01");
+    expect(dates).toContain("2026-12-31");
+  });
+});
+
+describe("isInMonth", () => {
+  it("is true for a date within the given month", () => {
+    expect(isInMonth("2026-08-14", 2026, 8)).toBe(true);
+  });
+
+  it("is false for a borrowed lead-in/lead-out date from an adjacent month", () => {
+    expect(isInMonth("2026-09-01", 2026, 8)).toBe(false);
+    expect(isInMonth("2025-12-29", 2026, 1)).toBe(false);
   });
 });
 

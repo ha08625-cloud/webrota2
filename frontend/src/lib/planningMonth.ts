@@ -86,24 +86,53 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+function formatDate(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
 /**
- * Every Mon-Fri date in the given month as "YYYY-MM-DD", ascending.
- * `month` is 1-12.
+ * Every Mon-Fri date of the weeks that touch the given month, as
+ * "YYYY-MM-DD", ascending. `month` is 1-12.
+ *
+ * A month rarely starts or ends on a Monday, so the first and last weeks
+ * of the grid would otherwise be shown cut in half. This fills each partial
+ * week out to a full Monday-Friday span by borrowing weekday dates from the
+ * adjacent month - `isInMonth` tells the grid which columns those are, so
+ * they can be rendered dimmed rather than looking like a data error.
  *
  * `new Date(year, month, 0)` is day zero of the *following* month, i.e.
- * the last day of this one - component-wise construction throughout, per
- * lib/date.ts's rule against `new Date(dateString)`.
+ * the last day of this one; out-of-range day numbers below roll over into
+ * the neighbouring month/year the same way - component-wise construction
+ * throughout, per lib/date.ts's rule against `new Date(dateString)`.
  */
 export function weekdaysInMonth(year: number, month: number): string[] {
   const daysInMonth = new Date(year, month, 0).getDate();
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const lastWeekday = new Date(year, month - 1, daysInMonth).getDay();
+
+  // Sun/Sat first days already align to a following Monday - nothing to
+  // borrow. Tue-Fri first days leave a gap back to that week's Monday.
+  const leadingDays = firstWeekday >= 2 && firstWeekday <= 5 ? firstWeekday - 1 : 0;
+  // Sun/Sat last days already align to a preceding Friday. Mon-Thu last
+  // days leave a gap forward to that week's Friday.
+  const trailingDays = lastWeekday >= 1 && lastWeekday <= 4 ? 5 - lastWeekday : 0;
+
   const dates: string[] = [];
-  for (let day = 1; day <= daysInMonth; day++) {
-    const weekday = new Date(year, month - 1, day).getDay();
+  for (let day = 1 - leadingDays; day <= daysInMonth + trailingDays; day++) {
+    const date = new Date(year, month - 1, day);
+    const weekday = date.getDay();
     if (weekday >= 1 && weekday <= 5) {
-      dates.push(`${year}-${pad2(month)}-${pad2(day)}`);
+      dates.push(formatDate(date));
     }
   }
   return dates;
+}
+
+/** Whether `date` ("YYYY-MM-DD") falls within the given calendar month, as
+ * opposed to being a lead-in/lead-out day borrowed from the adjacent month
+ * to complete a week in `weekdaysInMonth`'s output. */
+export function isInMonth(date: string, year: number, month: number): boolean {
+  return date.startsWith(`${year}-${pad2(month)}-`);
 }
 
 /** The template `Day` a date falls on, or null for a weekend. */
