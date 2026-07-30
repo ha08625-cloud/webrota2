@@ -376,6 +376,34 @@ describe("ReceptionGrid: shift-click range select", () => {
     ]);
   });
 
+  it("changing the role dropdown mid-range does not collapse the selection back to one cell", async () => {
+    const onSave = resolvedOnSave();
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+
+    await user.selectOptions(await screen.findByLabelText("Role"), "prescriptions");
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-11")).toHaveAttribute("data-selected", "true");
+
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith([
+      { staffId: 1, hour: 9, session: null, role: "prescriptions", note: null },
+      { staffId: 1, hour: 10, session: null, role: "prescriptions", note: null },
+      { staffId: 1, hour: 11, session: null, role: "prescriptions", note: null },
+    ]);
+  });
+
   it("keeps the highlight when onSave resolves false, and clears it when onSave resolves true", async () => {
     const onSave = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     renderWithProviders(
