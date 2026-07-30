@@ -261,7 +261,7 @@ export interface SchoolPlannerRow {
   dates: Map<string, SchoolHoliday>;
 }
 
-function templateKey(doctorId: number, day: Day, period: Period): string {
+export function templateKey(doctorId: number, day: Day, period: Period): string {
   return `${doctorId}|${day}|${period}`;
 }
 
@@ -297,6 +297,14 @@ export function buildTemplateIndex(sessions: MasterRotaSession[]): Map<string, M
  * room to pre_assigned rather than requires_room; both count, so that
  * branch needs no reproduction here.
  */
+/** True when the template type is one that puts the doctor in surgery -
+ * the same COUNTED_TYPES test the coverage total uses, reused here purely
+ * to colour a normal cell (no_surgery/admin_time/wfh/no row all read as
+ * "no surgery" the same way they read as zero for coverage). */
+export function isSurgerySession(templateType: MasterSessionType | undefined): boolean {
+  return templateType !== undefined && COUNTED_TYPES.has(templateType);
+}
+
 function isCounted(
   templateType: MasterSessionType | undefined,
   state: PlanningCellState,
