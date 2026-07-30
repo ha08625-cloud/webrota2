@@ -225,7 +225,7 @@ export function LeavePlanningPage() {
       <p className="mt-1 text-sm text-ink/70">
         Click a cell to cycle it: leave, then extra session, then back to normal. Nothing is saved
         until you press Save. The Clinical cover row counts partners and salaried doctors working
-        that session.
+        that session; the Weekly cover row underneath sums AM and PM cover across the whole week.
       </p>
       <p className="mt-1 text-sm text-ink/50">
         Extra sessions planned here are applied when a staging run is next created that covers the
