@@ -9,6 +9,8 @@ Architecture documentation: User maintains their own architecture documentation.
 Deployment
 User has a github account connected to a railway account which we can use for deployment and live testing.  We can also use github actions for unit testing and backend integration testing.
 
+Testing during a chat: CI already runs the full test suite on every commit/PR, so there's no need to duplicate that locally. During a chat, only run the tests relevant to the files you changed (e.g. `uv run pytest tests/test_engine/` or `npm run test -- src/some/changed/file`), not the entire backend and frontend suites. Run the full suite locally only if asked, or if you're unsure what's relevant (e.g. a change to shared/core code with wide-reaching effects).
+
 Workflow:
 Very simple tickets may be started and completed in a single chat, but most tickets will go through this process:
 1. Discussion: Explore the issue, ask clarifying questions and make design decisions, write a provisional plan
