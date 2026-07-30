@@ -5,6 +5,7 @@ import { useDoctors } from "@/api/doctors";
 import { useBulkCreateLeave, useBulkDeleteLeave, useLeave } from "@/api/leave";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
+import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
 import { parseLocalDate } from "@/lib/date";
 import { collapseLeaveEntries } from "@/lib/collapseLeaveEntries";
 import type { LeaveBlock } from "@/lib/collapseLeaveEntries";
@@ -80,6 +81,7 @@ export function LeavePage() {
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
 
   const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const { data: entries, isLoading, isError } = useLeave(filterDoctorId);
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
@@ -328,7 +330,8 @@ export function LeavePage() {
   });
 
   return (
-    <div>
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="min-w-0 lg:flex-1">
       <form
         onSubmit={handleSubmit}
         className={`mt-4 flex flex-wrap items-end gap-2 rounded border p-3 ${
@@ -560,6 +563,18 @@ export function LeavePage() {
             ))}
           </tbody>
         </table>
+      ) : null}
+      </div>
+
+      {filterDoctorId !== null ? (
+        <div className="min-w-0 lg:flex-1">
+          <LeaveYearCalendar
+            year={calendarYear}
+            onPrevYear={() => setCalendarYear((y) => y - 1)}
+            onNextYear={() => setCalendarYear((y) => y + 1)}
+            entries={entries ?? []}
+          />
+        </div>
       ) : null}
     </div>
   );
