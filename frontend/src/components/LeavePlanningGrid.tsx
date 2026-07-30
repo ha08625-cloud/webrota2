@@ -4,6 +4,7 @@ import { parseLocalDate } from "@/lib/date";
 import {
   PLANNING_PERIODS,
   type PlanningCellState,
+  isInMonth,
   isWithinWindow,
   mergeCellState,
   nextCellState,
@@ -87,8 +88,13 @@ function weekDividerClass(date: string): string {
 }
 
 export interface LeavePlanningGridProps {
-  /** Mon-Fri dates of the displayed month, ascending. */
+  /** Mon-Fri dates spanning the displayed month's full weeks, ascending -
+   * includes lead-in/lead-out days borrowed from the adjacent month. */
   dates: string[];
+  /** The displayed month, used to dim dates borrowed from an adjacent
+   * month via `isInMonth`. */
+  year: number;
+  month: number;
   /** Rows, already filtered to Partner/Salaried and ordered canonically. */
   doctors: Doctor[];
   /** Unsaved edits, keyed by `planningCellKey`. */
@@ -107,6 +113,8 @@ export interface LeavePlanningGridProps {
 
 export function LeavePlanningGrid({
   dates,
+  year,
+  month,
   doctors,
   pending,
   leaveKeys,
@@ -131,12 +139,14 @@ export function LeavePlanningGrid({
               {dates.map((date) => {
                 const { weekday, dayOfMonth } = columnLabel(date);
                 const fullyClosed = isDayFullyClosed(closedSlots, date);
+                const outOfMonth = !isInMonth(date, year, month);
                 return (
                   <th
                     key={date}
                     data-testid={`planning-header-${date}`}
+                    data-out-of-month={outOfMonth ? "true" : "false"}
                     className={`border-b-[3px] ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
-                      fullyClosed ? "bg-gray-200 text-ink/40" : "text-ink/70"
+                      fullyClosed ? "bg-gray-200 text-ink/40" : outOfMonth ? "text-ink/40" : "text-ink/70"
                     }`}
                   >
                     <div className="text-[10px] font-normal">{weekday}</div>
@@ -155,7 +165,9 @@ export function LeavePlanningGrid({
                 {dates.map((date) => (
                   <td
                     key={date}
-                    className={`border-b ${weekDividerClass(date)} border-ink/40 p-0.5 align-top`}
+                    className={`border-b ${weekDividerClass(date)} border-ink/40 p-0.5 align-top ${
+                      isInMonth(date, year, month) ? "" : "bg-ink/[0.03]"
+                    }`}
                   >
                     {PLANNING_PERIODS.map((period) => (
                       <PlanningCellHalf
@@ -183,7 +195,9 @@ export function LeavePlanningGrid({
               {dates.map((date) => (
                 <td
                   key={date}
-                  className={`${weekDividerClass(date)} border-t-[3px] border-ink/40 bg-background p-0.5 align-top`}
+                  className={`${weekDividerClass(date)} border-t-[3px] border-ink/40 p-0.5 align-top ${
+                    isInMonth(date, year, month) ? "bg-background" : "bg-ink/[0.03]"
+                  }`}
                 >
                   {PLANNING_PERIODS.map((period) => {
                     const total = totals.get(closedSlotKey(date, period));

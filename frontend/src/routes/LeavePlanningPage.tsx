@@ -286,6 +286,8 @@ export function LeavePlanningPage() {
 
       <LeavePlanningGrid
         dates={dates}
+        year={year}
+        month={month}
         doctors={doctors}
         pending={pending}
         leaveKeys={leaveKeys}
