@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeClosure } from "@/test/fixtures/reference";
 
-import { useCreateClosure, useDeleteClosure, useClosures } from "./closures";
+import { useBankHolidays, useCreateClosure, useDeleteClosure, useClosures, useSetBankHoliday } from "./closures";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -93,5 +93,59 @@ describe("useDeleteClosure", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(deletedId).toBe("4");
+  });
+});
+
+describe("useBankHolidays", () => {
+  it("fetches the fixed list for a given year", async () => {
+    let requestedUrl = "";
+    server.use(
+      http.get("/api/v1/closures/bank-holidays", ({ request }) => {
+        requestedUrl = request.url;
+        return HttpResponse.json([{ key: "christmas_day", name: "Christmas Day bank holiday", date: null }]);
+      }),
+    );
+
+    const { result } = renderHook(() => useBankHolidays(2026), { wrapper: makeWrapper(freshClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(1);
+    expect(requestedUrl).toContain("year=2026");
+  });
+});
+
+describe("useSetBankHoliday", () => {
+  it("PUTs the date under the holiday's key and the given year", async () => {
+    let capturedUrl = "";
+    let capturedBody: unknown;
+    server.use(
+      http.put("/api/v1/closures/bank-holidays/:key", async ({ request, params }) => {
+        capturedUrl = request.url;
+        capturedBody = await request.json();
+        return HttpResponse.json({ key: params.key, name: "Christmas Day bank holiday", date: "2026-12-25" });
+      }),
+    );
+
+    const { result } = renderHook(() => useSetBankHoliday(2026), { wrapper: makeWrapper(freshClient()) });
+    result.current.mutate({ key: "christmas_day", date: "2026-12-25" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedUrl).toContain("/closures/bank-holidays/christmas_day?year=2026");
+    expect(capturedBody).toEqual({ date: "2026-12-25" });
+  });
+
+  it("PUTs null to clear a holiday", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.put("/api/v1/closures/bank-holidays/:key", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ key: "christmas_day", name: "Christmas Day bank holiday", date: null });
+      }),
+    );
+
+    const { result } = renderHook(() => useSetBankHoliday(2026), { wrapper: makeWrapper(freshClient()) });
+    result.current.mutate({ key: "christmas_day", date: null });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedBody).toEqual({ date: null });
   });
 });

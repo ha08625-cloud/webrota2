@@ -503,6 +503,16 @@ export interface ClosureIn {
   name?: string | null;
 }
 
+// A row of the fixed, system-wide bank-holiday list for a given year
+// (routers/closures.py bank-holidays endpoints). `date` is null until an
+// admin sets it for that year; setting it creates the underlying AM+PM
+// Closure pair, tagged so it can be found again by key rather than name.
+export interface BankHoliday {
+  key: string;
+  name: string;
+  date: string | null;
+}
+
 /** A single closed (date, period) slot, as reported on `Rota`/`Staging` -
  * the wire shape of ClosedSlotOut (schemas/closure.py). */
 export interface ClosedSlot {

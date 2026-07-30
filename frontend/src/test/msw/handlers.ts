@@ -45,6 +45,18 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/duty", () => HttpResponse.json([])),
   http.get("/api/v1/duty/counts", () => HttpResponse.json([])),
   http.get("/api/v1/closures", () => HttpResponse.json([])),
+  http.get("/api/v1/closures/bank-holidays", () =>
+    HttpResponse.json([
+      { key: "new_year", name: "New Year's Day", date: null },
+      { key: "good_friday", name: "Good Friday", date: null },
+      { key: "easter_monday", name: "Easter Monday", date: null },
+      { key: "early_may", name: "Early May bank holiday", date: null },
+      { key: "spring", name: "Spring bank holiday", date: null },
+      { key: "summer", name: "Summer bank holiday", date: null },
+      { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
+      { key: "boxing_day", name: "Boxing Day bank holiday", date: null },
+    ]),
+  ),
   http.get("/api/v1/recurring-notes", () => HttpResponse.json([])),
   http.get("/api/v1/counters/clinic", () => HttpResponse.json([])),
   http.get("/api/v1/counters/system", () => HttpResponse.json([])),

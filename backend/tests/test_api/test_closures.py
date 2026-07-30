@@ -97,6 +97,87 @@ class TestClosures:
             ("2026-06-01", "AM"),
         ]
 
+    def test_list_bank_holidays_defaults_to_no_dates(self, client, seeded):
+        resp = client.get("/api/v1/closures/bank-holidays?year=2026")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 8
+        assert all(h["date"] is None for h in body)
+        assert {h["key"] for h in body} == {
+            "new_year", "good_friday", "easter_monday", "early_may",
+            "spring", "summer", "christmas_day", "boxing_day",
+        }
+
+    def test_set_bank_holiday_creates_full_day_closure(self, client, seeded):
+        resp = client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": "2026-12-25"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "key": "christmas_day", "name": "Christmas Day bank holiday", "date": "2026-12-25",
+        }
+
+        listed = client.get("/api/v1/closures").json()
+        assert len(listed) == 2
+        assert {c["period"] for c in listed} == {"AM", "PM"}
+        assert all(c["date"] == "2026-12-25" for c in listed)
+        assert all(c["name"] == "Christmas Day bank holiday" for c in listed)
+
+        holidays = client.get("/api/v1/closures/bank-holidays?year=2026").json()
+        christmas = next(h for h in holidays if h["key"] == "christmas_day")
+        assert christmas["date"] == "2026-12-25"
+
+    def test_set_bank_holiday_replaces_previous_date(self, client, seeded):
+        client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": "2026-12-25"},
+        )
+        resp = client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": "2026-12-28"},
+        )
+        assert resp.status_code == 200
+        listed = client.get("/api/v1/closures").json()
+        assert len(listed) == 2
+        assert all(c["date"] == "2026-12-28" for c in listed)
+
+    def test_clear_bank_holiday_deletes_closure(self, client, seeded):
+        client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": "2026-12-25"},
+        )
+        resp = client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["date"] is None
+        assert client.get("/api/v1/closures").json() == []
+
+    def test_set_bank_holiday_weekend_422(self, client, seeded):
+        resp = client.put(
+            "/api/v1/closures/bank-holidays/new_year?year=2026",
+            json={"date": "2026-01-10"},  # Saturday
+        )
+        assert resp.status_code == 422
+
+    def test_set_bank_holiday_unknown_key_404(self, client, seeded):
+        resp = client.put(
+            "/api/v1/closures/bank-holidays/not_a_real_holiday?year=2026",
+            json={"date": "2026-01-05"},
+        )
+        assert resp.status_code == 404
+
+    def test_bank_holidays_scoped_by_year(self, client, seeded):
+        client.put(
+            "/api/v1/closures/bank-holidays/christmas_day?year=2026",
+            json={"date": "2026-12-25"},
+        )
+        holidays_2027 = client.get("/api/v1/closures/bank-holidays?year=2027").json()
+        christmas_2027 = next(h for h in holidays_2027 if h["key"] == "christmas_day")
+        assert christmas_2027["date"] is None
+
     def test_delete_does_not_affect_a_generated_rota(
         self, client, db_session, seeded
     ):
