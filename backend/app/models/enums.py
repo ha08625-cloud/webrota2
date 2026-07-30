@@ -89,6 +89,8 @@ class ReceptionRole(str, enum.Enum):
     ONLINE_TRIAGE = "online_triage"
     ROTAS = "rotas"
     TASKS = "tasks"
+    LUNCH = "lunch"
+    NOT_WORKING = "not_working"
     OTHER = "other"
 
 

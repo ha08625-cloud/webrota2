@@ -834,6 +834,8 @@ export type ReceptionRole =
   | "online_triage"
   | "rotas"
   | "tasks"
+  | "lunch"
+  | "not_working"
   | "other";
 
 export interface ReceptionStaff {
