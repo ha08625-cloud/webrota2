@@ -115,6 +115,8 @@ function BankHolidaysSection() {
                     type="date"
                     value={h.date ?? ""}
                     onChange={(e) => handleChange(h.key, e.target.value)}
+                    min={`${year}-01-01`}
+                    max={`${year}-12-31`}
                     className="rounded border border-border p-1 text-sm"
                   />
                 </td>
