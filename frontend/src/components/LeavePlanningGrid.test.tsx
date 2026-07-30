@@ -4,10 +4,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PlanningAction } from "@/api/types";
+import type { PlanningAction, SchoolHoliday } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
+import { formatHolidayRange } from "@/lib/date";
 import { planningCellKey, stateToAction } from "@/lib/planningMonth";
-import { makeDoctor } from "@/test/fixtures/reference";
+import { makeDoctor, makeSchoolHoliday } from "@/test/fixtures/reference";
 
 import { LeavePlanningGrid } from "./LeavePlanningGrid";
 
@@ -25,6 +26,7 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
       year={2026}
       month={8}
       doctors={[AA, BB]}
+      schoolRows={[]}
       pending={new Map<string, PlanningAction>()}
       leaveKeys={new Set()}
       extraKeys={new Set()}
@@ -35,6 +37,12 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
     />,
   );
   return { onToggle };
+}
+
+/** A single-date school row, built from a real holiday fixture so the
+ * title text matches formatHolidayRange. */
+function schoolRow(id: number, name: string, date: string, holiday: SchoolHoliday = makeSchoolHoliday()) {
+  return { id, name, dates: new Map([[date, holiday]]) };
 }
 
 function cell(doctorId: number, date: string, period: "AM" | "PM") {
@@ -54,6 +62,7 @@ function CycleHarness() {
       year={2026}
       month={8}
       doctors={[AA, BB]}
+      schoolRows={[]}
       pending={pending}
       leaveKeys={new Set()}
       extraKeys={new Set()}
@@ -284,5 +293,29 @@ describe("LeavePlanningGrid", () => {
     expect(
       screen.getByText("No partners or salaried doctors work this month."),
     ).toBeInTheDocument();
+  });
+
+  it("renders a school row above the doctor rows, shading only the dates in its holiday", () => {
+    const holiday = makeSchoolHoliday();
+    renderGrid({ schoolRows: [schoolRow(1, "St Mary's", MONDAY, holiday)] });
+
+    expect(screen.getByText("St Mary's")).toBeInTheDocument();
+    const holidayCell = screen.getByTestId(`planning-school-cell-1-${MONDAY}`);
+    expect(holidayCell).toHaveAttribute("data-state", "school_holiday");
+    expect(holidayCell).toHaveAttribute(
+      "title",
+      `St Mary's: ${formatHolidayRange(holiday.start_date, holiday.end_date)}`,
+    );
+    expect(screen.getByTestId(`planning-school-cell-1-${TUESDAY}`)).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+  });
+
+  it("renders a school cell as inert, with no button", () => {
+    renderGrid({ schoolRows: [schoolRow(1, "St Mary's", MONDAY)] });
+    expect(
+      screen.getByTestId(`planning-school-cell-1-${MONDAY}`).querySelector("button"),
+    ).not.toBeInTheDocument();
   });
 });

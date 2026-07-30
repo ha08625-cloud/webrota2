@@ -1,9 +1,10 @@
 import type { Doctor, Period, PlanningAction } from "@/api/types";
 import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
-import { parseLocalDate } from "@/lib/date";
+import { formatHolidayRange, parseLocalDate } from "@/lib/date";
 import {
   PLANNING_PERIODS,
   type PlanningCellState,
+  type SchoolPlannerRow,
   isInMonth,
   isWithinWindow,
   mergeCellState,
@@ -126,6 +127,9 @@ export interface LeavePlanningGridProps {
   month: number;
   /** Rows, already filtered to Partner/Salaried and ordered canonically. */
   doctors: Doctor[];
+  /** Informational rows, one per school with a holiday in view (Design
+   * Decision 9) - rendered above the doctor rows, not editable. */
+  schoolRows: SchoolPlannerRow[];
   /** Unsaved edits, keyed by `planningCellKey`. */
   pending: Map<string, PlanningAction>;
   /** Existing LeaveEntry / ExtraSessionEntry keys, same key shape. */
@@ -145,6 +149,7 @@ export function LeavePlanningGrid({
   year,
   month,
   doctors,
+  schoolRows,
   pending,
   leaveKeys,
   extraKeys,
@@ -163,7 +168,7 @@ export function LeavePlanningGrid({
           <thead>
             <tr>
               <th className="sticky left-0 z-10 w-24 border-b-[3px] border-r-[3px] border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
-                Doctor
+                Doctor / School
               </th>
               {dates.map((date) => {
                 const { weekday, dayOfMonth } = columnLabel(date);
@@ -185,6 +190,35 @@ export function LeavePlanningGrid({
               })}
             </tr>
           </thead>
+          {schoolRows.length > 0 ? (
+            <tbody>
+              {schoolRows.map((school) => (
+                <tr key={`school-${school.id}`}>
+                  <td
+                    data-testid={`planning-school-label-${school.id}`}
+                    className="sticky left-0 z-10 whitespace-nowrap border-b border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium"
+                  >
+                    {school.name}
+                  </td>
+                  {dates.map((date) => {
+                    const holiday = school.dates.get(date);
+                    const outOfMonth = !isInMonth(date, year, month);
+                    return (
+                      <td
+                        key={date}
+                        data-testid={`planning-school-cell-${school.id}-${date}`}
+                        data-state={holiday ? "school_holiday" : "normal"}
+                        title={holiday ? `${school.name}: ${formatHolidayRange(holiday.start_date, holiday.end_date)}` : undefined}
+                        className={`h-6 border-b ${weekDividerClass(date)} border-ink/40 ${
+                          holiday ? "bg-indigo-200" : outOfMonth ? "bg-ink/[0.03]" : ""
+                        }`}
+                      />
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          ) : null}
           <tbody>
             {doctors.map((doctor) => (
               <tr key={doctor.id}>
@@ -280,6 +314,10 @@ export function LeavePlanningGrid({
         <span className="flex items-center gap-1 text-xs text-ink/60">
           <span className="inline-block h-3 w-3 rounded-sm bg-ink/5" />
           Not employed
+        </span>
+        <span className="flex items-center gap-1 text-xs text-ink/60">
+          <span className="inline-block h-3 w-3 rounded-sm bg-indigo-200" />
+          School holiday
         </span>
       </div>
 
