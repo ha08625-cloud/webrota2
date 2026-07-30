@@ -30,8 +30,9 @@ import {
  * Two kinds of inert cell, deliberately given different treatments
  * because confusing them would mislead:
  *  - closed: the practice is shut, so Phase 2 creates no slot at all.
- *    Reuses RotaGrid's solid `bg-gray-200`, and the total shows "-"
- *    rather than 0 (Design Decision 5).
+ *    Black-hatched (`.closed-hatch`, index.css) rather than a flat grey so
+ *    it can't be mistaken for the "no surgery" grey, and the total shows
+ *    "-" rather than 0 (Design Decision 5).
  *  - out of window: the doctor is not employed on that date. Plain absent
  *    grey - there is nothing to plan, but the practice is open.
  *
@@ -71,16 +72,16 @@ const LEGEND: { state: PlanningCellState; label: string }[] = [
  */
 function coverageClass(total: number | null | undefined): string {
   if (total === null || total === undefined) return "bg-surface text-ink/70";
-  if (total <= 2) return "bg-red-100 text-red-900";
-  if (total === 3) return "bg-orange-100 text-orange-900";
-  if (total === 4) return "bg-yellow-100 text-yellow-900";
+  if (total <= 2) return "bg-red-200 text-red-900";
+  if (total === 3) return "bg-orange-200 text-orange-900";
+  if (total === 4) return "bg-yellow-200 text-yellow-900";
   return "bg-surface text-ink/70";
 }
 
 const COVERAGE_LEGEND = [
-  { className: "bg-red-100", label: "0–2 covering" },
-  { className: "bg-orange-100", label: "3 covering" },
-  { className: "bg-yellow-100", label: "4 covering" },
+  { className: "bg-red-200", label: "0–2 covering" },
+  { className: "bg-orange-200", label: "3 covering" },
+  { className: "bg-yellow-200", label: "4 covering" },
 ];
 
 /** Mon-Fri dates chunked into weeks of 5 - safe because `weekdaysInMonth`
@@ -196,7 +197,7 @@ export function LeavePlanningGrid({
                     data-testid={`planning-header-${date}`}
                     data-out-of-month={outOfMonth ? "true" : "false"}
                     className={`border-b-[3px] ${weekDividerClass(date)} border-ink/40 px-1 py-1 text-center font-medium ${
-                      fullyClosed ? "bg-gray-200 text-ink/40" : outOfMonth ? "text-ink/40" : "text-ink/70"
+                      fullyClosed ? "closed-hatch text-ink/40" : outOfMonth ? "text-ink/40" : "text-ink/70"
                     }`}
                   >
                     <div className="text-[10px] font-normal">{weekday}</div>
@@ -238,13 +239,13 @@ export function LeavePlanningGrid({
           <tbody>
             {doctors.map((doctor) => (
               <tr key={doctor.id}>
-                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium">
+                <td className="sticky left-0 z-10 whitespace-nowrap border-b-2 border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium">
                   {doctor.code}
                 </td>
                 {dates.map((date) => (
                   <td
                     key={date}
-                    className={`border-b ${weekDividerClass(date)} border-ink/40 p-0.5 align-top ${
+                    className={`border-b-2 ${weekDividerClass(date)} border-ink/40 p-0.5 align-top ${
                       isInMonth(date, year, month) ? "" : "bg-ink/[0.03]"
                     }`}
                   >
@@ -329,7 +330,7 @@ export function LeavePlanningGrid({
           No surgery
         </span>
         <span className="flex items-center gap-1 text-xs text-ink/60">
-          <span className="inline-block h-3 w-3 rounded-sm bg-gray-200" />
+          <span className="closed-hatch inline-block h-3 w-3 rounded-sm border border-ink/20" />
           Practice closed
         </span>
         <span className="flex items-center gap-1 text-xs text-ink/60">
@@ -387,7 +388,7 @@ function PlanningCellHalf({
         data-testid={testId}
         data-state="closed"
         title={`${date} ${period} - practice closed`}
-        className={`${shared} bg-gray-200 text-ink/40`}
+        className={`${shared} closed-hatch text-ink/40`}
       >
         {period}
       </div>
