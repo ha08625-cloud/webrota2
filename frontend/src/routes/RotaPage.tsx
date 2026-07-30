@@ -129,18 +129,19 @@ function StartStagingForm() {
   const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
   const [startDate, setStartDate] = useState(upcomingMondays[0]);
   const [numWeeks, setNumWeeks] = useState<1 | 2 | 4>(1);
+  const [templateStartWeek, setTemplateStartWeek] = useState<1 | 2 | 3 | 4>(1);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    // template_start_week is intentionally not a form field - always 1
-    // for now (product decision: hide it until there's a real need to
-    // start generation mid-template). Staging create applies it once at
-    // copy time and discards it (staging plan, Design Decision 4).
+    // Staging create applies template_start_week once at copy time, to
+    // pick which template weeks get copied, then discards it (staging
+    // plan, Design Decision 4) - the persisted RotaConfig always stores
+    // template_start_week=1.
     const payload: CreateStagingIn = {
       start_date: startDate,
       num_weeks: numWeeks,
-      template_start_week: 1,
+      template_start_week: templateStartWeek,
     };
 
     createStaging.mutate(payload, {
@@ -183,6 +184,23 @@ function StartStagingForm() {
           <option value={1}>1</option>
           <option value={2}>2</option>
           <option value={4}>4</option>
+        </select>
+      </div>
+
+      <div className="mt-3">
+        <label className="block text-sm font-medium text-ink" htmlFor="template-start-week">
+          Template starting week
+        </label>
+        <select
+          id="template-start-week"
+          value={templateStartWeek}
+          onChange={(event) => setTemplateStartWeek(Number(event.target.value) as 1 | 2 | 3 | 4)}
+          className="mt-1 rounded border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        >
+          <option value={1}>Week 1</option>
+          <option value={2}>Week 2</option>
+          <option value={3}>Week 3</option>
+          <option value={4}>Week 4</option>
         </select>
       </div>
 
