@@ -11,6 +11,8 @@ interface RenderPopoverOptions {
   session?: ReturnType<typeof makeReceptionMasterSession> | null;
   onSave?: ReturnType<typeof vi.fn>;
   onDelete?: ReturnType<typeof vi.fn>;
+  canDelete?: boolean;
+  hourCount?: number;
   saving?: boolean;
 }
 
@@ -21,10 +23,19 @@ function renderPopover(options: RenderPopoverOptions = {}) {
       : options.session;
   const onSave = options.onSave ?? vi.fn();
   const onDelete = options.onDelete;
+  const canDelete = options.canDelete ?? (onDelete !== undefined && session !== null);
+  const hourCount = options.hourCount;
   const saving = options.saving ?? false;
 
   renderWithProviders(
-    <ReceptionCellPopover session={session} onSave={onSave} onDelete={onDelete} saving={saving}>
+    <ReceptionCellPopover
+      session={session}
+      onSave={onSave}
+      onDelete={onDelete}
+      canDelete={canDelete}
+      hourCount={hourCount}
+      saving={saving}
+    >
       <button type="button">Cell</button>
     </ReceptionCellPopover>,
   );
@@ -115,6 +126,45 @@ describe("ReceptionCellPopover: edit mode", () => {
 
     await user.click(screen.getByText("Cell"));
     expect(await screen.findByLabelText("Note")).toHaveValue("original");
+  });
+});
+
+describe("ReceptionCellPopover: range editing", () => {
+  it("shows an 'Editing N hours' heading only when hourCount is greater than 1", async () => {
+    renderPopover({ hourCount: 3 });
+    await open();
+
+    expect(screen.getByText("Editing 3 hours")).toBeInTheDocument();
+  });
+
+  it("does not show the heading for a single-cell edit", async () => {
+    renderPopover({ hourCount: 1 });
+    await open();
+
+    expect(screen.queryByText(/Editing/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the heading when hourCount is omitted", async () => {
+    renderPopover();
+    await open();
+
+    expect(screen.queryByText(/Editing/)).not.toBeInTheDocument();
+  });
+
+  it("canDelete alone drives Remove: it renders even with session null, when canDelete is true", async () => {
+    const onDelete = vi.fn();
+    renderPopover({ session: null, onDelete, canDelete: true });
+    await open();
+
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  it("canDelete alone drives Remove: it is absent with an existing session, when canDelete is false", async () => {
+    const onDelete = vi.fn();
+    renderPopover({ onDelete, canDelete: false });
+    await open();
+
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
   });
 });
 

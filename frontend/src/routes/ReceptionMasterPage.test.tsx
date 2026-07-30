@@ -112,6 +112,81 @@ describe("ReceptionMasterPage", () => {
     expect(await within(cell).findByLabelText("Add session for AB 09:00-10:00")).toBeInTheDocument();
   });
 
+  it("saving a 3-hour range issues one PATCH and two POSTs, with POST bodies carrying the right hour and the active day", async () => {
+    const session = makeReceptionMasterSession({
+      session_id: 5, staff_id: 1, day: "Monday", hour: 9, role: "phones", note: null,
+    });
+    setUpServer({ sessions: [session] });
+    const postBodies: unknown[] = [];
+    let patchBody: unknown;
+    server.use(
+      http.post("/api/v1/reception/master/sessions", async ({ request }) => {
+        const body = (await request.json()) as { hour: number };
+        postBodies.push(body);
+        return HttpResponse.json(
+          makeReceptionMasterSession({ session_id: 100 + body.hour, staff_id: 1, day: "Monday", hour: body.hour, role: "phones" }),
+          { status: 201 },
+        );
+      }),
+      http.patch("/api/v1/reception/master/sessions/5", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json({ ...session });
+      }),
+    );
+
+    renderWithProviders(<ReceptionMasterPage />);
+    const user = userEvent.setup();
+    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.keyboard("{Shift>}");
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+    await user.keyboard("{/Shift}");
+    await screen.findByLabelText("Role");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await within(screen.getByTestId("reception-cell-1-8")).findByText("Phones");
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeInTheDocument();
+
+    expect(patchBody).toEqual({ role: "phones", note: null });
+    expect(postBodies).toEqual([
+      { staff_id: 1, day: "Monday", hour: 8, role: "phones", note: null },
+      { staff_id: 1, day: "Monday", hour: 10, role: "phones", note: null },
+    ]);
+  });
+
+  it("when one write in the range 500s, the others still fire and the error banner names the failing hour", async () => {
+    const session = makeReceptionMasterSession({
+      session_id: 5, staff_id: 1, day: "Monday", hour: 9, role: "phones", note: null,
+    });
+    setUpServer({ sessions: [session] });
+    const postedHours: number[] = [];
+    server.use(
+      http.post("/api/v1/reception/master/sessions", async ({ request }) => {
+        const body = (await request.json()) as { hour: number };
+        postedHours.push(body.hour);
+        if (body.hour === 8) {
+          return HttpResponse.json({ detail: "boom" }, { status: 500 });
+        }
+        return HttpResponse.json(
+          makeReceptionMasterSession({ session_id: 100 + body.hour, staff_id: 1, day: "Monday", hour: body.hour, role: "other" }),
+          { status: 201 },
+        );
+      }),
+      http.patch("/api/v1/reception/master/sessions/5", () => HttpResponse.json({ ...session, role: "other" })),
+    );
+
+    renderWithProviders(<ReceptionMasterPage />);
+    const user = userEvent.setup();
+    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.keyboard("{Shift>}");
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+    await user.keyboard("{/Shift}");
+    await screen.findByLabelText("Role");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/Could not save every hour: 08:00-09:00: boom/)).toBeInTheDocument();
+    expect(postedHours).toEqual([8, 10]);
+  });
+
   it("shows a load error when the sessions request fails", async () => {
     server.use(
       http.get("/api/v1/reception/staff", () => HttpResponse.json([])),

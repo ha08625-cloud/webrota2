@@ -13,6 +13,7 @@ import type { ApiError, ReceptionRotaSession, ReceptionStaff } from "@/api/types
 import { ReceptionCoveragePanel } from "@/components/ReceptionCoveragePanel";
 import { ReceptionGrid, type ReceptionSavePayload } from "@/components/ReceptionGrid";
 import { addDays, formatWeekLabel, getSurroundingMondays, parseLocalDate } from "@/lib/date";
+import { formatHour } from "@/lib/receptionHours";
 
 /** Weeks reachable behind/ahead of the current week in the "Week commencing" dropdown. */
 const PAST_WEEKS = 4;
@@ -154,6 +155,7 @@ interface ReceptionDayTabProps {
  */
 function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const [actionError, setActionError] = useState<string | null>(null);
+  const [savingRange, setSavingRange] = useState(false);
 
   const { data: rota, isLoading, isError, error } = useReceptionRotaByDate(date);
   const generateRota = useGenerateReceptionRota();
@@ -163,12 +165,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const deleteSession = useDeleteReceptionRotaSession();
 
   const notFound = isError && error.status === 404;
-  const saving =
-    generateRota.isPending ||
-    deleteRota.isPending ||
-    createSession.isPending ||
-    updateSession.isPending ||
-    deleteSession.isPending;
+  const saving = savingRange || generateRota.isPending || deleteRota.isPending;
 
   function handleGenerate() {
     setActionError(null);
@@ -198,30 +195,42 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
     );
   }
 
-  // Task 1 wiring only: fires every mutation in the range and always reports success.
-  // Task 2 replaces this with a sequential mutateAsync loop and real failure aggregation.
   async function handleSave(payloads: ReceptionSavePayload<ReceptionRotaSession>[]): Promise<boolean> {
     if (!rota) return false;
     setActionError(null);
-    const onError = (err: ApiError) => setActionError(apiErrorMessage(err, "Could not save this slot."));
+    setSavingRange(true);
+    const failures: string[] = [];
     for (const { staffId, hour, session, role, note } of payloads) {
-      if (session) {
-        updateSession.mutate({ rotaId: rota.rota_id, date, sessionId: session.session_id, role, note }, { onError });
-      } else {
-        createSession.mutate({ rotaId: rota.rota_id, date, staffId, hour, role, note }, { onError });
+      try {
+        if (session) {
+          await updateSession.mutateAsync({ rotaId: rota.rota_id, date, sessionId: session.session_id, role, note });
+        } else {
+          await createSession.mutateAsync({ rotaId: rota.rota_id, date, staffId, hour, role, note });
+        }
+      } catch (err) {
+        failures.push(`${formatHour(hour)}: ${apiErrorMessage(err as ApiError, "failed")}`);
       }
     }
-    return true;
+    setSavingRange(false);
+    if (failures.length > 0) setActionError(`Could not save every hour: ${failures.join("; ")}`);
+    return failures.length === 0;
   }
 
   async function handleDelete(sessions: ReceptionRotaSession[]): Promise<boolean> {
     if (!rota) return false;
     setActionError(null);
-    const onError = (err: ApiError) => setActionError(apiErrorMessage(err, "Could not remove this slot."));
+    setSavingRange(true);
+    const failures: string[] = [];
     for (const session of sessions) {
-      deleteSession.mutate({ rotaId: rota.rota_id, date, sessionId: session.session_id }, { onError });
+      try {
+        await deleteSession.mutateAsync({ rotaId: rota.rota_id, date, sessionId: session.session_id });
+      } catch (err) {
+        failures.push(`${formatHour(session.hour)}: ${apiErrorMessage(err as ApiError, "failed")}`);
+      }
     }
-    return true;
+    setSavingRange(false);
+    if (failures.length > 0) setActionError(`Could not remove every hour: ${failures.join("; ")}`);
+    return failures.length === 0;
   }
 
   return (

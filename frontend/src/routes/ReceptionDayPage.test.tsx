@@ -222,6 +222,54 @@ describe("ReceptionDayPage", () => {
     expect(screen.queryByRole("button", { name: "Generate from template" })).not.toBeInTheDocument();
   });
 
+  it("a range save over a generated day fires one request per hour and the grid shows every hour updated", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+
+    const session10 = makeReceptionRotaSession({ session_id: 5, staff_id: 1, hour: 10, role: "phones", note: null });
+    const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [session10], issues: [] });
+
+    const postedHours: number[] = [];
+    let patchCalled = false;
+    server.use(
+      http.get("/api/v1/reception/rota", () => HttpResponse.json(rota)),
+      http.post("/api/v1/reception/rota/7/sessions", async ({ request }) => {
+        const body = (await request.json()) as { hour: number };
+        postedHours.push(body.hour);
+        return HttpResponse.json(
+          {
+            session: makeReceptionRotaSession({ session_id: 100 + body.hour, staff_id: 1, hour: body.hour, role: "phones" }),
+            issues: [],
+          },
+          { status: 201 },
+        );
+      }),
+      http.patch("/api/v1/reception/rota/7/sessions/5", () => {
+        patchCalled = true;
+        return HttpResponse.json({
+          session: { ...session10 },
+          issues: [],
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(within(await screen.findByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.keyboard("{Shift>}");
+    await user.click(within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.keyboard("{/Shift}");
+    await screen.findByLabelText("Role");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await within(screen.getByTestId("reception-cell-1-9")).findByText("Phones");
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeInTheDocument();
+    expect(within(screen.getByTestId("reception-cell-1-11")).getByText("Phones")).toBeInTheDocument();
+    expect(postedHours).toEqual([9, 11]);
+    expect(patchCalled).toBe(true);
+  });
+
   it("generating the week posts once per weekday, skipping days that already exist (409)", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
