@@ -425,14 +425,29 @@ describe("LeavePlanningPage", () => {
 
     expect(
       await screen.findByTestId("bank-holidays-missing-warning"),
-    ).toHaveTextContent("Bank holidays for 2026 have not been added yet");
+    ).toHaveTextContent("2 of 2 bank holidays for 2026 have not been added yet");
   });
 
-  it("does not warn once at least one bank holiday is set for the year", async () => {
+  it("still warns while only some bank holidays are set for the year", async () => {
     setUpServer({
       bankHolidays: [
         { key: "new_year", name: "New Year's Day", date: "2026-01-01" },
+        { key: "good_friday", name: "Good Friday", date: null },
         { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
+      ],
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    expect(
+      await screen.findByTestId("bank-holidays-missing-warning"),
+    ).toHaveTextContent("2 of 3 bank holidays for 2026 have not been added yet");
+  });
+
+  it("does not warn once every bank holiday is set for the year", async () => {
+    setUpServer({
+      bankHolidays: [
+        { key: "new_year", name: "New Year's Day", date: "2026-01-01" },
+        { key: "christmas_day", name: "Christmas Day bank holiday", date: "2026-12-25" },
       ],
     });
     renderWithProviders(<LeavePlanningPage />);
