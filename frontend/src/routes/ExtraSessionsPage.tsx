@@ -89,8 +89,7 @@ export function ExtraSessionsPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold">Extra Sessions</h1>
-      <p className="mt-1 text-sm text-ink/70">
+      <p className="text-sm text-ink/70">
         An extra session marks a doctor as working a session they would not normally work. It is
         applied when a staging run is started that covers the planned date.
       </p>

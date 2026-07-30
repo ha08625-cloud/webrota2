@@ -221,8 +221,7 @@ export function LeavePlanningPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold">Leave Planning</h1>
-      <p className="mt-1 text-sm text-ink/70">
+      <p className="text-sm text-ink/70">
         Click a cell to cycle it: leave, then extra session, then back to normal. Nothing is saved
         until you press Save. The Clinical cover row counts partners and salaried doctors working
         that session; the Weekly cover row underneath sums AM and PM cover across the whole week.

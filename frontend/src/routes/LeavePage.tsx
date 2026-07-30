@@ -329,8 +329,6 @@ export function LeavePage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold">Leave</h1>
-
       <form
         onSubmit={handleSubmit}
         className={`mt-4 flex flex-wrap items-end gap-2 rounded border p-3 ${
