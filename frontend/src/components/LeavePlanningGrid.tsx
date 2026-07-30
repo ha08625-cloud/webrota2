@@ -137,7 +137,7 @@ export interface LeavePlanningGridProps {
    * month via `isInMonth`. */
   year: number;
   month: number;
-  /** Rows, already filtered to Partner/Salaried and ordered canonically. */
+  /** Rows, already filtered to Partner/Salaried/Locum and ordered canonically. */
   doctors: Doctor[];
   /** Informational rows, one per school with a holiday in view (Design
    * Decision 9) - rendered above the doctor rows, not editable. */
@@ -175,7 +175,7 @@ export function LeavePlanningGrid({
   onToggle,
 }: LeavePlanningGridProps) {
   if (doctors.length === 0) {
-    return <p className="mt-4 text-sm text-ink/50">No partners or salaried doctors work this month.</p>;
+    return <p className="mt-4 text-sm text-ink/50">No partners, salaried doctors, or locums work this month.</p>;
   }
 
   return (

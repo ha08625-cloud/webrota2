@@ -223,7 +223,7 @@ class TestCoverage:
         assert _coverage(client)[(MONDAY.isoformat(), "AM")]["headcount"] == 1
 
     @pytest.mark.parametrize("doctor_type", [
-        DoctorType.TRAINEE, DoctorType.LOCUM, DoctorType.AHP,
+        DoctorType.TRAINEE, DoctorType.AHP,
     ])
     def test_non_planning_doctor_types_never_counted(
         self, client, db_session, seeded, doctor_type
@@ -234,6 +234,16 @@ class TestCoverage:
             MasterSessionType.REQUIRES_ROOM,
         )
         assert _coverage(client)[(MONDAY.isoformat(), "AM")]["headcount"] == 2
+
+    def test_locum_counted_as_a_planning_doctor_type(
+        self, client, db_session, seeded
+    ):
+        doctor_id = _add_doctor(db_session, "XL", DoctorType.LOCUM)
+        _add_template_row(
+            db_session, seeded, doctor_id, Day.MONDAY, Period.AM,
+            MasterSessionType.REQUIRES_ROOM,
+        )
+        assert _coverage(client)[(MONDAY.isoformat(), "AM")]["headcount"] == 3
 
     def test_range_cap_422(self, client, seeded):
         resp = client.get(

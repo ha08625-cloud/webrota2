@@ -36,6 +36,7 @@ const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
 const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
 const TRAINEE = makeDoctor({ id: 3, code: "TT", doctor_type: "Trainee" });
 const AHP = makeDoctor({ id: 4, code: "HH", doctor_type: "AHP" });
+const LOCUM = makeDoctor({ id: 7, code: "LL", doctor_type: "Locum" });
 
 /** Both partners working requires_room all day Monday, per template week 1. */
 const TEMPLATE = makeMasterRotaTemplate({
@@ -115,12 +116,13 @@ describe("LeavePlanningPage", () => {
     return () => vi.useRealTimers();
   });
 
-  it("renders Partner and Salaried rows only", async () => {
-    setUpServer({ doctors: [AA, BB, TRAINEE, AHP] });
+  it("renders Partner, Salaried, and Locum rows only", async () => {
+    setUpServer({ doctors: [AA, BB, LOCUM, TRAINEE, AHP] });
     renderWithProviders(<LeavePlanningPage />);
 
     expect(await screen.findByText("AA")).toBeInTheDocument();
     expect(screen.getByText("BB")).toBeInTheDocument();
+    expect(screen.getByText("LL")).toBeInTheDocument();
     expect(screen.queryByText("TT")).not.toBeInTheDocument();
     expect(screen.queryByText("HH")).not.toBeInTheDocument();
   });

@@ -28,8 +28,8 @@ import {
 } from "@/lib/planningMonth";
 
 /**
- * Annual leave planning: one month of weekday cells per Partner/Salaried
- * doctor, with a live clinical-cover total underneath.
+ * Annual leave planning: one month of weekday cells per Partner/Salaried/
+ * Locum doctor, with a live clinical-cover total underneath.
  *
  * Edits are batched. Every click writes to a page-level pending map and
  * nothing else; Save posts the whole batch to POST /leave-planning/bulk
@@ -135,7 +135,9 @@ export function LeavePlanningPage() {
       (allDoctors ?? [])
         .filter(
           (d) =>
-            (d.doctor_type === "Partner" || d.doctor_type === "Salaried") &&
+            (d.doctor_type === "Partner" ||
+              d.doctor_type === "Salaried" ||
+              d.doctor_type === "Locum") &&
             // Overlap, not "in window today": a doctor leaving mid-month
             // must still show for the part of the month they worked.
             overlapsRange(d, fromDate, toDate),
@@ -268,8 +270,9 @@ export function LeavePlanningPage() {
       ) : null}
       <p className="text-sm text-ink/70">
         Click a cell to cycle it: leave, then extra session, then back to normal. Nothing is saved
-        until you press Save. The Clinical cover row counts partners and salaried doctors working
-        that session; the Weekly cover row underneath sums AM and PM cover across the whole week.
+        until you press Save. The Clinical cover row counts partner, salaried, and locum doctors
+        working that session; the Weekly cover row underneath sums AM and PM cover across the whole
+        week.
       </p>
       <p className="mt-1 text-sm text-ink/50">
         Extra sessions planned here are applied when a staging run is next created that covers the

@@ -293,7 +293,7 @@ describe("LeavePlanningGrid", () => {
   it("shows an empty-state message when no doctors work the month", () => {
     renderGrid({ doctors: [] });
     expect(
-      screen.getByText("No partners or salaried doctors work this month."),
+      screen.getByText("No partners, salaried doctors, or locums work this month."),
     ).toBeInTheDocument();
   });
 
