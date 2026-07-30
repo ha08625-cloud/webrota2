@@ -20,8 +20,7 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
   onDelete?: () => void;
   /**
    * True when any hour in the edited range has a session to remove - drives the Remove
-   * button independently of `session`, which only seeds the form. Defaults to `session !== null`,
-   * the single-cell behaviour, when not supplied.
+   * button independently of `session`, which only seeds the form. Defaults to false.
    */
   canDelete?: boolean;
   /** Number of hours this popover edits - a shift-click range, or 1 for a single cell. */
@@ -42,13 +41,19 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
  * committed with one explicit Save action rather than firing on every
  * pick - a free-text note can't fire onSave keystroke by keystroke, so
  * there is no direct-pick path to mirror.
+ *
+ * Edits a selection, which is usually one cell but may be a shift-click
+ * range spanning several hours in one staff row - `hourCount` says how
+ * many, `session` only ever seeds role/note (from the focus cell, or the
+ * anchor, or the "phones"/empty defaults - ReceptionGrid decides which).
  */
 export function ReceptionCellPopover<T extends ReceptionCellData>({
   session,
   children,
   onSave,
   onDelete,
-  canDelete,
+  canDelete = false,
+  hourCount = 1,
   saving,
 }: ReceptionCellPopoverProps<T>) {
   const [open, setOpen] = useState(false);
@@ -86,6 +91,10 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           data-testid="reception-cell-edit-popover"
           className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
         >
+          {hourCount > 1 ? (
+            <p className="text-xs font-medium text-ink/70">Editing {hourCount} hours</p>
+          ) : null}
+
           <label className="block text-xs font-medium text-ink/70" htmlFor="reception-cell-role">
             Role
           </label>
@@ -117,7 +126,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           />
 
           <div className="mt-3 flex items-center justify-between">
-            {(canDelete ?? session !== null) && onDelete ? (
+            {canDelete && onDelete ? (
               <button
                 type="button"
                 onClick={handleDelete}
