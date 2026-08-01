@@ -243,11 +243,11 @@ def seeded_no_d_rooms(client, db_session):
 @pytest.fixture
 def seeded_reception(client, db_session):
     """Three active reception staff (RA/RB/RC) plus one inactive (RD), and
-    Monday's coverage rules -- 3 required on phones for the 9am/10am hours,
-    2 for every other hour, matching seed_reception_coverage's numbers. Only
-    Monday is seeded (not all five weekdays) since the seed script itself
-    does not run against the test database and no test here needs the rest
-    of the week.
+    Monday's coverage rules -- 3 required on phones for the half-hour slots
+    inside the 9am/10am hours, 2 for every other slot, matching
+    seed_reception_coverage's numbers. Only Monday is seeded (not all five
+    weekdays) since the seed script itself does not run against the test
+    database and no test here needs the rest of the week.
     """
     s = db_session
     ra = ReceptionStaff(code="RA", name="Alice Reception", active=True)
@@ -259,7 +259,7 @@ def seeded_reception(client, db_session):
     for hour in RECEPTION_HOURS:
         s.add(ReceptionCoverageRule(
             day=Day.MONDAY, hour=hour,
-            min_phones_staff=3 if hour in (9, 10) else 2,
+            min_phones_staff=3 if hour in (9.0, 9.5, 10.0, 10.5) else 2,
         ))
     s.commit()
     return {

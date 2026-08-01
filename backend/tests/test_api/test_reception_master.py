@@ -138,3 +138,16 @@ class TestReceptionMaster:
             "staff_id": seeded_reception["staff_ra"], "day": "Monday", "hour": 7,
         })
         assert resp.status_code == 422
+
+    def test_half_hour_slot_is_legal(self, client, seeded_reception):
+        resp = client.post("/api/v1/reception/master/sessions", json={
+            "staff_id": seeded_reception["staff_ra"], "day": "Monday", "hour": 9.5,
+        })
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["hour"] == 9.5
+
+    def test_hour_not_on_a_half_hour_422(self, client, seeded_reception):
+        resp = client.post("/api/v1/reception/master/sessions", json={
+            "staff_id": seeded_reception["staff_ra"], "day": "Monday", "hour": 9.25,
+        })
+        assert resp.status_code == 422

@@ -19,7 +19,7 @@ function allRules() {
         id: dayIndex * RECEPTION_HOURS.length + hourIndex + 1,
         day,
         hour,
-        min_phones_staff: hour === 9 || hour === 10 ? 3 : 2,
+        min_phones_staff: hour === 9 || hour === 9.5 || hour === 10 || hour === 10.5 ? 3 : 2,
       }),
     ),
   );
@@ -30,9 +30,9 @@ describe("ReceptionCoverageRulesPage", () => {
     server.use(http.get("/api/v1/reception/coverage-rules", () => HttpResponse.json(allRules())));
     renderWithProviders(<ReceptionCoverageRulesPage />);
 
-    expect(await screen.findByLabelText("Minimum phones staff, Monday 09:00-10:00")).toHaveValue(3);
-    expect(screen.getByLabelText("Minimum phones staff, Monday 08:00-09:00")).toHaveValue(2);
-    expect(screen.getByLabelText("Minimum phones staff, Friday 17:00-18:00")).toHaveValue(2);
+    expect(await screen.findByLabelText("Minimum phones staff, Monday 09:00-09:30")).toHaveValue(3);
+    expect(screen.getByLabelText("Minimum phones staff, Monday 08:00-08:30")).toHaveValue(2);
+    expect(screen.getByLabelText("Minimum phones staff, Friday 17:30-18:00")).toHaveValue(2);
   });
 
   it("editing a cell fires exactly one PATCH on blur", async () => {
@@ -51,7 +51,7 @@ describe("ReceptionCoverageRulesPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ReceptionCoverageRulesPage />);
-    const input = await screen.findByLabelText("Minimum phones staff, Monday 08:00-09:00");
+    const input = await screen.findByLabelText("Minimum phones staff, Monday 08:00-08:30");
 
     await user.clear(input);
     await user.type(input, "4");
@@ -75,7 +75,7 @@ describe("ReceptionCoverageRulesPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ReceptionCoverageRulesPage />);
-    const input = await screen.findByLabelText("Minimum phones staff, Monday 08:00-09:00");
+    const input = await screen.findByLabelText("Minimum phones staff, Monday 08:00-08:30");
     await user.click(input);
     await user.tab();
 

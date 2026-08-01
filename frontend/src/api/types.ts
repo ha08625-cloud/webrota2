@@ -926,7 +926,7 @@ export interface ReceptionStaffPatch {
 
 /**
  * Minimum phones headcount for one (day, hour) slot. The row set is fixed
- * by the seed (50 rows, one per weekday/hour combination) - there is no
+ * by the seed (100 rows, one per weekday/half-hour combination) - there is no
  * POST or DELETE, only PATCH on `min_phones_staff` (CoverageRulePatch on
  * the backend; named with the `Reception` prefix here to avoid colliding
  * with the unrelated `CoverageSlot` leave-planning type above).

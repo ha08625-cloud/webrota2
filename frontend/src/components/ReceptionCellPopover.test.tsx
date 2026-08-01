@@ -130,11 +130,11 @@ describe("ReceptionCellPopover: edit mode", () => {
 });
 
 describe("ReceptionCellPopover: range editing", () => {
-  it("shows an 'Editing N hours' heading only when hourCount is greater than 1", async () => {
+  it("shows an 'Editing N slots' heading only when hourCount is greater than 1", async () => {
     renderPopover({ hourCount: 3 });
     await open();
 
-    expect(screen.getByText("Editing 3 hours")).toBeInTheDocument();
+    expect(screen.getByText("Editing 3 slots")).toBeInTheDocument();
   });
 
   it("does not show the heading for a single-cell edit", async () => {

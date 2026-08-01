@@ -10,11 +10,21 @@ docstring) -- any role/note combination is legal.
 """
 import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ...models.enums import Day, ReceptionRole
 from ...models.reception import RECEPTION_FIRST_HOUR, RECEPTION_LAST_HOUR
 from .common import ValidationIssueOut
+
+
+def _check_half_hour_step(hour: float) -> float:
+    """Field(ge=..., le=...) alone accepts any value in range, e.g. 8.3 --
+    this rejects anything that isn't a whole or half hour with a clean 422
+    rather than letting it fall through to the DB CheckConstraint (which
+    would surface as a 500). Mirrors HOUR_HALF_STEP_SQL in models/reception.py."""
+    if (hour * 2) != int(hour * 2):
+        raise ValueError("hour must be a whole or half hour (e.g. 9.0 or 9.5)")
+    return hour
 
 
 class ReceptionStaffIn(BaseModel):
@@ -47,7 +57,7 @@ class CoverageRulePatch(BaseModel):
 class CoverageRuleOut(BaseModel):
     id: int
     day: Day
-    hour: int
+    hour: float
     min_phones_staff: int
     model_config = {"from_attributes": True}
 
@@ -62,7 +72,7 @@ class ReceptionMasterSessionOut(BaseModel):
     staff_code: str
     staff_name: str
     day: Day
-    hour: int
+    hour: float
     role: ReceptionRole
     note: str | None = None
 
@@ -73,9 +83,11 @@ class ReceptionMasterSessionCreateIn(BaseModel):
     needs the pair, but POST has no row yet."""
     staff_id: int
     day: Day
-    hour: int = Field(ge=RECEPTION_FIRST_HOUR, le=RECEPTION_LAST_HOUR)
+    hour: float = Field(ge=RECEPTION_FIRST_HOUR, le=RECEPTION_LAST_HOUR)
     role: ReceptionRole = ReceptionRole.PHONES
     note: str | None = Field(default=None, max_length=200)
+
+    _check_hour = field_validator("hour")(_check_half_hour_step)
 
 
 class ReceptionMasterSessionPatchIn(BaseModel):
@@ -107,9 +119,11 @@ class ReceptionRotaSessionIn(BaseModel):
     of an existing day. Unlike the template's create schema this has no
     `day` -- the day is fixed by the rota it is posted against."""
     staff_id: int
-    hour: int = Field(ge=RECEPTION_FIRST_HOUR, le=RECEPTION_LAST_HOUR)
+    hour: float = Field(ge=RECEPTION_FIRST_HOUR, le=RECEPTION_LAST_HOUR)
     role: ReceptionRole = ReceptionRole.PHONES
     note: str | None = Field(default=None, max_length=200)
+
+    _check_hour = field_validator("hour")(_check_half_hour_step)
 
 
 class ReceptionRotaSessionPatchIn(BaseModel):
@@ -126,7 +140,7 @@ class ReceptionRotaSessionOut(BaseModel):
     staff_id: int
     staff_code: str
     staff_name: str
-    hour: int
+    hour: float
     role: ReceptionRole
     note: str | None = None
 

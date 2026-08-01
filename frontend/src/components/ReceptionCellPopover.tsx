@@ -23,7 +23,7 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
    * button independently of `session`, which only seeds the form. Defaults to false.
    */
   canDelete?: boolean;
-  /** Number of hours this popover edits - a shift-click range, or 1 for a single cell. */
+  /** Number of half-hour slots this popover edits - a shift-click range, or 1 for a single cell. */
   hourCount?: number;
   saving: boolean;
 }
@@ -92,7 +92,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
           className="z-50 w-64 rounded border border-border bg-surface p-3 shadow-lg"
         >
           {hourCount > 1 ? (
-            <p className="text-xs font-medium text-ink/70">Editing {hourCount} hours</p>
+            <p className="text-xs font-medium text-ink/70">Editing {hourCount} slots</p>
           ) : null}
 
           <label className="block text-xs font-medium text-ink/70" htmlFor="reception-cell-role">

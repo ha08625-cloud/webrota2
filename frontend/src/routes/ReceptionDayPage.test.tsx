@@ -78,7 +78,7 @@ describe("ReceptionDayPage", () => {
               severity: "warning",
               phase: "coverage",
               check: "phones_shortfall",
-              message: "09:00-10:00: 0 staff on phones, 1 required",
+              message: "09:00-09:30: 0 staff on phones, 1 required",
               week: null,
               day: "Monday",
               period: null,
@@ -95,7 +95,7 @@ describe("ReceptionDayPage", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await within(cell).findByText("Training")).toBeInTheDocument();
-    expect(await screen.findByText("09:00-10:00: 0 staff on phones, 1 required")).toBeInTheDocument();
+    expect(await screen.findByText("09:00-09:30: 0 staff on phones, 1 required")).toBeInTheDocument();
   });
 
   it("regenerating confirms, then DELETEs the day before POSTing a fresh one", async () => {
@@ -165,7 +165,7 @@ describe("ReceptionDayPage", () => {
       severity: "warning",
       phase: "coverage",
       check: "phones_shortfall",
-      message: "09:00-10:00: 1 staff on phones, 2 required",
+      message: "09:00-09:30: 1 staff on phones, 2 required",
       week: null,
       day: "Monday",
       period: null,
@@ -180,15 +180,15 @@ describe("ReceptionDayPage", () => {
       ),
     );
 
-    expect(await screen.findByText("09:00-10:00: 1 staff on phones, 2 required")).toBeInTheDocument();
+    expect(await screen.findByText("09:00-09:30: 1 staff on phones, 2 required")).toBeInTheDocument();
 
     const user = userEvent.setup();
     const emptyCell = await screen.findByTestId("reception-cell-2-9");
-    await user.click(within(emptyCell).getByLabelText("Add session for CD 09:00-10:00"));
+    await user.click(within(emptyCell).getByLabelText("Add session for CD 09:00-09:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(screen.queryByText("09:00-10:00: 1 staff on phones, 2 required")).not.toBeInTheDocument(),
+      expect(screen.queryByText("09:00-09:30: 1 staff on phones, 2 required")).not.toBeInTheDocument(),
     );
     expect(screen.getByText("No coverage shortfalls.")).toBeInTheDocument();
   });
@@ -222,7 +222,7 @@ describe("ReceptionDayPage", () => {
     expect(screen.queryByRole("button", { name: "Generate from template" })).not.toBeInTheDocument();
   });
 
-  it("a range save over a generated day fires one request per hour and the grid shows every hour updated", async () => {
+  it("a range save over a generated day fires one request per half-hour and the grid shows every hour updated", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
@@ -256,9 +256,9 @@ describe("ReceptionDayPage", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(within(await screen.findByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(within(await screen.findByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
     await user.keyboard("{Shift>}");
-    await user.click(within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
     await user.keyboard("{/Shift}");
     await screen.findByLabelText("Role");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -266,7 +266,7 @@ describe("ReceptionDayPage", () => {
     await within(screen.getByTestId("reception-cell-1-9")).findByText("Phones");
     expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeInTheDocument();
     expect(within(screen.getByTestId("reception-cell-1-11")).getByText("Phones")).toBeInTheDocument();
-    expect(postedHours).toEqual([9, 11]);
+    expect(postedHours).toEqual([9, 9.5, 10.5, 11]);
     expect(patchCalled).toBe(true);
   });
 

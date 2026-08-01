@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ValidationIssue } from "@/api/types";
+import { formatHour } from "@/lib/receptionHours";
 import { makeReceptionMasterSession, makeReceptionStaff } from "@/test/fixtures/reception";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
@@ -106,7 +107,7 @@ describe("ReceptionGrid: cell content", () => {
       />,
     );
     const cell = screen.getByTestId("reception-cell-1-8");
-    expect(within(cell).getByLabelText("Add session for AB 08:00-09:00")).toHaveTextContent("+");
+    expect(within(cell).getByLabelText("Add session for AB 08:00-08:30")).toHaveTextContent("+");
   });
 });
 
@@ -124,7 +125,7 @@ describe("ReceptionGrid: create", () => {
     );
     const cell = screen.getByTestId("reception-cell-1-8");
     const user = userEvent.setup();
-    await user.click(within(cell).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.click(within(cell).getByLabelText("Add session for AB 08:00-08:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledWith([{ staffId: 1, hour: 8, session: null, role: "phones", note: null }]);
@@ -178,12 +179,11 @@ describe("ReceptionGrid: edit and delete", () => {
 
 describe("ReceptionGrid: coverage warnings", () => {
   function shortfall(hour: number): ValidationIssue {
-    const pad = (h: number) => h.toString().padStart(2, "0");
     return {
       severity: "warning",
       phase: "coverage",
       check: "phones_shortfall",
-      message: `${pad(hour)}:00-${pad(hour + 1)}:00: 1 staff on phones, 2 required`,
+      message: `${formatHour(hour)}: 1 staff on phones, 2 required`,
       week: null,
       day: "Monday",
       period: null,
@@ -201,8 +201,8 @@ describe("ReceptionGrid: coverage warnings", () => {
         saving={false}
       />,
     );
-    expect(screen.getByLabelText("Coverage shortfall at 09:00-10:00")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Coverage shortfall at 08:00-09:00")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Coverage shortfall at 09:00-09:30")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Coverage shortfall at 08:00-08:30")).not.toBeInTheDocument();
   });
 
   it("renders no markers when issues is absent (master template page)", () => {
@@ -215,11 +215,11 @@ describe("ReceptionGrid: coverage warnings", () => {
 
 describe("selectedRangeHours", () => {
   it("returns the forward range between anchor and focus, inclusive", () => {
-    expect(selectedRangeHours({ staffId: 1, anchorHour: 9, focusHour: 11 }, 1)).toEqual([9, 10, 11]);
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 9, focusHour: 11 }, 1)).toEqual([9, 9.5, 10, 10.5, 11]);
   });
 
   it("returns the same range when focus precedes anchor", () => {
-    expect(selectedRangeHours({ staffId: 1, anchorHour: 11, focusHour: 9 }, 1)).toEqual([9, 10, 11]);
+    expect(selectedRangeHours({ staffId: 1, anchorHour: 11, focusHour: 9 }, 1)).toEqual([9, 9.5, 10, 10.5, 11]);
   });
 
   it("returns a single hour when anchor and focus match", () => {
@@ -253,8 +253,8 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
 
     expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("reception-cell-1-10")).toHaveAttribute("data-selected", "true");
@@ -277,8 +277,8 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-2-10")).getByLabelText("Add session for CD 10:00-11:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-2-10")).getByLabelText("Add session for CD 10:00-10:30"));
 
     expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("reception-cell-2-10")).toHaveAttribute("data-selected", "true");
@@ -295,9 +295,9 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
-    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-10:30"));
 
     expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("reception-cell-1-11")).not.toHaveAttribute("data-selected", "true");
@@ -315,7 +315,7 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
     expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
 
     await user.keyboard("{Escape}");
@@ -323,7 +323,7 @@ describe("ReceptionGrid: shift-click range select", () => {
     expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
   });
 
-  it("saving a 3-hour range calls onSave once with three payloads, ascending by hour, mixing filled and empty hours", async () => {
+  it("saving a range calls onSave once with one payload per half-hour, ascending by hour, mixing filled and empty hours", async () => {
     const onSave = resolvedOnSave();
     const session = makeReceptionMasterSession({ session_id: 5, staff_id: 1, hour: 10, role: "phones", note: null });
     renderWithProviders(
@@ -336,14 +336,16 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave).toHaveBeenCalledWith([
       { staffId: 1, hour: 9, session: null, role: "phones", note: null },
+      { staffId: 1, hour: 9.5, session: null, role: "phones", note: null },
       { staffId: 1, hour: 10, session, role: "phones", note: null },
+      { staffId: 1, hour: 10.5, session: null, role: "phones", note: null },
       { staffId: 1, hour: 11, session: null, role: "phones", note: null },
     ]);
   });
@@ -387,8 +389,8 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
 
     // The popover portals out to document.body but stays inside the cell's
     // React tree, so without the containment guard in handleCellClick every
@@ -399,7 +401,7 @@ describe("ReceptionGrid: shift-click range select", () => {
     expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("reception-cell-1-10")).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("reception-cell-1-11")).toHaveAttribute("data-selected", "true");
-    expect(await screen.findByText("Editing 3 hours")).toBeInTheDocument();
+    expect(await screen.findByText("Editing 5 slots")).toBeInTheDocument();
   });
 
   it("changing the role dropdown mid-range does not collapse the selection back to one cell", async () => {
@@ -414,8 +416,8 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
-    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-12:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-11")).getByLabelText("Add session for AB 11:00-11:30"));
 
     await user.selectOptions(await screen.findByLabelText("Role"), "prescriptions");
     expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
@@ -425,7 +427,9 @@ describe("ReceptionGrid: shift-click range select", () => {
 
     expect(onSave).toHaveBeenCalledWith([
       { staffId: 1, hour: 9, session: null, role: "prescriptions", note: null },
+      { staffId: 1, hour: 9.5, session: null, role: "prescriptions", note: null },
       { staffId: 1, hour: 10, session: null, role: "prescriptions", note: null },
+      { staffId: 1, hour: 10.5, session: null, role: "prescriptions", note: null },
       { staffId: 1, hour: 11, session: null, role: "prescriptions", note: null },
     ]);
   });
@@ -442,12 +446,12 @@ describe("ReceptionGrid: shift-click range select", () => {
       />,
     );
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(screen.getByTestId("reception-cell-1-9")).toHaveAttribute("data-selected", "true");
 
-    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");

@@ -4,8 +4,20 @@ coverage rules.
 Independent of the clinical rota (doctors, master_rota, engine/) end to end --
 the only things shared are auth, the app shell, the HTTP client, and
 deployment. Reception has a much simpler shape than the clinical rota: one
-day at a time, hourly slots 8am-6pm (RECEPTION_HOURS, ten per day), one role
-per staff member per hour (phones/other).
+day at a time, half-hourly slots 8am-6pm (RECEPTION_HOURS, twenty per day),
+one role per staff member per slot (phones/other).
+
+**Half-hour granularity.** `hour` stays the field/column name everywhere --
+it is still "the hour of day a slot starts" -- but it is a float, not an
+int: valid values are X.0 or X.5 (e.g. 8.5 is 8:30am), not just whole hours.
+This was chosen over renaming `hour` to something like `slot` (which would
+have touched the API contract, every schema/router/frontend reference, and
+every test) because X.5 reads unambiguously as a half hour and the column's
+meaning does not change, only its precision. RECEPTION_FIRST_HOUR/
+RECEPTION_LAST_HOUR/RECEPTION_HOURS below are unchanged in spirit from the
+original hourly model (still mirrored in the frontend's
+lib/receptionHours.ts, still "widening opening hours is a migration") --
+only the step between values shrank from 1 to 0.5.
 
 Row existence is the data, exactly as on master_rota_sessions: a staff member
 with no row for a given (day, hour) is not expected at that hour. Editing a
@@ -36,6 +48,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -46,9 +59,27 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..database import Base
 from .enums import Day, ReceptionRole, enum_col
 
-RECEPTION_FIRST_HOUR = 8
-RECEPTION_LAST_HOUR = 17
-RECEPTION_HOURS = range(RECEPTION_FIRST_HOUR, RECEPTION_LAST_HOUR + 1)
+RECEPTION_FIRST_HOUR = 8.0
+RECEPTION_LAST_HOUR = 17.5
+_RECEPTION_SLOT_COUNT = int(round((RECEPTION_LAST_HOUR - RECEPTION_FIRST_HOUR) / 0.5)) + 1
+RECEPTION_HOURS = [RECEPTION_FIRST_HOUR + 0.5 * i for i in range(_RECEPTION_SLOT_COUNT)]
+
+# Every valid `hour` value is exactly n * 0.5 for an integer n -- (hour * 2)
+# is then a whole number, and this expression (used by both the model's
+# CheckConstraints below and migration 024) is how the DB rejects anything
+# that isn't a clean half-hour, e.g. 8.25.
+HOUR_HALF_STEP_SQL = "(hour * 2) = CAST(hour * 2 AS INTEGER)"
+
+
+def format_hour(hour: float) -> str:
+    """format_hour(8.5) -> "08:30-09:00". Mirrors formatHour in
+    frontend/src/lib/receptionHours.ts -- the single formatter on each side,
+    kept in sync by hand since nothing generates one from the other."""
+    def _label(h: float) -> str:
+        whole = int(h)
+        minutes = "30" if h - whole >= 0.5 else "00"
+        return f"{whole:02d}:{minutes}"
+    return f"{_label(hour)}-{_label(hour + 0.5)}"
 
 
 class ReceptionStaff(Base):
@@ -73,7 +104,8 @@ class ReceptionMasterSession(Base):
     __tablename__ = "reception_master_sessions"
     __table_args__ = (
         CheckConstraint(
-            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR}",
+            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR} "
+            f"AND {HOUR_HALF_STEP_SQL}",
             name="ck_rms_hour",
         ),
         UniqueConstraint("staff_id", "day", "hour", name="uq_rms_slot"),
@@ -84,7 +116,7 @@ class ReceptionMasterSession(Base):
         ForeignKey("reception_staff.id"), nullable=False
     )
     day: Mapped[Day] = mapped_column(enum_col(Day), nullable=False)
-    hour: Mapped[int] = mapped_column(Integer, nullable=False)
+    hour: Mapped[float] = mapped_column(Float, nullable=False)
     role: Mapped[ReceptionRole] = mapped_column(
         enum_col(ReceptionRole), nullable=False, default=ReceptionRole.PHONES
     )
@@ -124,7 +156,8 @@ class ReceptionRotaSession(Base):
     __tablename__ = "reception_rota_sessions"
     __table_args__ = (
         CheckConstraint(
-            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR}",
+            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR} "
+            f"AND {HOUR_HALF_STEP_SQL}",
             name="ck_rrs_hour",
         ),
         UniqueConstraint("rota_id", "staff_id", "hour", name="uq_rrs_slot"),
@@ -137,7 +170,7 @@ class ReceptionRotaSession(Base):
     staff_id: Mapped[int] = mapped_column(
         ForeignKey("reception_staff.id"), nullable=False
     )
-    hour: Mapped[int] = mapped_column(Integer, nullable=False)
+    hour: Mapped[float] = mapped_column(Float, nullable=False)
     role: Mapped[ReceptionRole] = mapped_column(
         enum_col(ReceptionRole), nullable=False, default=ReceptionRole.PHONES
     )
@@ -162,7 +195,8 @@ class ReceptionCoverageRule(Base):
     __tablename__ = "reception_coverage_rules"
     __table_args__ = (
         CheckConstraint(
-            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR}",
+            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR} "
+            f"AND {HOUR_HALF_STEP_SQL}",
             name="ck_rcr_hour",
         ),
         UniqueConstraint("day", "hour", name="uq_rcr_slot"),
@@ -170,5 +204,5 @@ class ReceptionCoverageRule(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     day: Mapped[Day] = mapped_column(enum_col(Day), nullable=False)
-    hour: Mapped[int] = mapped_column(Integer, nullable=False)
+    hour: Mapped[float] = mapped_column(Float, nullable=False)
     min_phones_staff: Mapped[int] = mapped_column(Integer, nullable=False)
