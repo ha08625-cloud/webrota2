@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # backend/pyproject.toml, managed with uv
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Keeps actions in ci.yml/seed.yml (actions/checkout, setup-uv, etc.) current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
