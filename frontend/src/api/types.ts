@@ -1000,6 +1000,14 @@ export interface ReceptionRota {
   created_at: string;
   sessions: ReceptionRotaSession[];
   issues: ValidationIssue[];
+  /**
+   * Staff with a whole-day leave entry for this date. Their sessions are
+   * still in `sessions` - leave changes nothing about generation or row
+   * editing - but they are excluded from the coverage headcount, so the
+   * grid dims their row. Without that, a warning would report fewer staff
+   * on phones than the user can count on screen.
+   */
+  staff_on_leave: number[];
 }
 
 /** POST /reception/rota body. Weekend dates are rejected (422) by the backend validator before generation runs. */
@@ -1030,4 +1038,39 @@ export interface ReceptionRotaSessionPatchIn {
 export interface ReceptionSessionWriteOut {
   session: ReceptionRotaSession;
   issues: ValidationIssue[];
+}
+
+/**
+ * One whole day off for one reception staff member. Deliberately thinner
+ * than the clinical LeaveEntry - no period, no notes: reception's day is
+ * twenty half-hourly slots, so an AM/PM split would be an arbitrary line
+ * through it, and "off from 2pm" is already expressible (more precisely)
+ * by deleting those slots on the day rota.
+ */
+export interface ReceptionLeaveEntry {
+  id: number;
+  staff_id: number;
+  date: string;
+}
+
+/** POST /reception/leave/bulk and /bulk-delete body. */
+export interface ReceptionLeaveRangeIn {
+  staff_id: number;
+  start_date: string;
+  end_date: string;
+}
+
+/**
+ * Counts, not the clinical bulk endpoint's per-date skip list. Weekends
+ * are skipped because reception is Monday-Friday throughout, so a weekend
+ * row could never reach a rota.
+ */
+export interface ReceptionLeaveBulkOut {
+  created: number;
+  skipped_existing: number;
+  skipped_weekend: number;
+}
+
+export interface ReceptionLeaveBulkDeleteOut {
+  deleted_count: number;
 }

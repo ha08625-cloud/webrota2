@@ -45,6 +45,17 @@ interface ReceptionGridProps<T extends ReceptionCellData> {
    * it's the same shape the clinical rota's week/day/period issues use.
    */
   issues?: ValidationIssue[];
+  /**
+   * Staff ids with whole-day leave for the day being shown - absent on the
+   * master template page (a weekly pattern has no dates to be away on),
+   * present on the day rota page. Their sessions are still rendered and
+   * still editable: leave excludes them from the coverage headcount and
+   * nothing else, so the row is dimmed and labelled rather than removed.
+   * Without the dimming a coverage warning would report fewer staff on
+   * phones than the user can count in the column, which reads as a bug in
+   * the arithmetic rather than as leave working.
+   */
+  staffOnLeave?: number[];
   /** Ascending by hour. Resolves true only if every write succeeded (shift-click range select). */
   onSave: (payloads: ReceptionSavePayload<T>[]) => Promise<boolean>;
   /** Only cells in the range that actually have a session. Resolves true if all succeeded. */
@@ -72,12 +83,14 @@ export function ReceptionGrid<T extends ReceptionCellData>({
   staff,
   sessions,
   issues,
+  staffOnLeave,
   onSave,
   onDelete,
   saving,
 }: ReceptionGridProps<T>) {
   const grid = useMemo(() => pivotReception(sessions, staff), [sessions, staff]);
   const issuesByHour = useMemo(() => groupIssuesByHour(issues ?? []), [issues]);
+  const onLeaveIds = useMemo(() => new Set(staffOnLeave ?? []), [staffOnLeave]);
   const [selection, setSelection] = useState<ReceptionSelection | null>(null);
 
   useEffect(() => {
@@ -174,11 +187,18 @@ export function ReceptionGrid<T extends ReceptionCellData>({
             );
             const rowCells = RECEPTION_HOURS.map((hour) => getReceptionCell(grid, member.id, hour));
             const continuations = receptionRunContinuations(rowCells);
+            const onLeave = onLeaveIds.has(member.id);
+            // Dimming only - the cells stay clickable, since an admin may
+            // still want to delete or retag a slot on a day someone is off.
+            const onLeaveClassName = onLeave ? "opacity-50" : "";
             return (
-              <tr key={member.id}>
-                <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium">
+              <tr key={member.id} data-on-leave={onLeave ? "true" : undefined}>
+                <td
+                  className={`sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${onLeaveClassName}`}
+                >
                   <div>{member.code}</div>
                   {inactiveWithSessions ? <div className="text-xs text-ink/50">(inactive)</div> : null}
+                  {onLeave ? <div className="text-xs font-normal text-ink/50">On leave</div> : null}
                 </td>
                 {RECEPTION_HOURS.map((hour, hourIndex) => {
                   const session = rowCells[hourIndex];
@@ -204,7 +224,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                   return (
                     <td
                       key={hour}
-                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName}`}
+                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName} ${onLeaveClassName}`}
                       data-testid={`reception-cell-${member.id}-${hour}`}
                       data-selected={isSelected ? "true" : undefined}
                       data-run-continuation={repeatsPrevious ? "true" : undefined}

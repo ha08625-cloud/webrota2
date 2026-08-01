@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from ...engine.week_map import DAY_ORDER
 from ...models import (
     ReceptionCoverageRule,
+    ReceptionLeaveEntry,
     ReceptionMasterSession,
     ReceptionRota,
     ReceptionRotaSession,
@@ -84,20 +85,39 @@ def _get_session_or_404(
     return session
 
 
+def _staff_on_leave(db: Session, date: datetime.date) -> set[int]:
+    """Staff ids with a whole-day ReceptionLeaveEntry for `date`."""
+    return set(
+        db.execute(
+            select(ReceptionLeaveEntry.staff_id).where(
+                ReceptionLeaveEntry.date == date
+            )
+        ).scalars()
+    )
+
+
 def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[ValidationIssueOut]:
     """One issue per (day, hour) where the rota's phones headcount falls
     short of the coverage rule. The rule map is loaded once for the rota's
     weekday; counts come off `rota.sessions` (already loaded, not re-queried
     per hour). A (day, hour) with no rule row emits nothing (Decision 8).
-    Always severity="warning" -- nothing in this feature blocks."""
+    Always severity="warning" -- nothing in this feature blocks.
+
+    Staff on leave for the rota's date are excluded from the headcount,
+    which is the whole of what reception leave does (Decision 10, formerly
+    a documented limitation). Their session rows are untouched and still
+    returned by every read -- ReceptionRotaOut.staff_on_leave carries the
+    same ids so the grid can dim them, since a warning counting fewer
+    staff than the grid visibly shows would otherwise read as a bug."""
     day = _DAY_BY_WEEKDAY[rota.date.weekday()]
     rules = db.execute(
         select(ReceptionCoverageRule).where(ReceptionCoverageRule.day == day)
     ).scalars().all()
+    on_leave = _staff_on_leave(db, rota.date)
 
     counts: dict[float, int] = {}
     for session in rota.sessions:
-        if session.role == ReceptionRole.PHONES:
+        if session.role == ReceptionRole.PHONES and session.staff_id not in on_leave:
             counts[session.hour] = counts.get(session.hour, 0) + 1
 
     issues: list[ValidationIssueOut] = []
@@ -130,6 +150,7 @@ def _rota_out(db: Session, rota: ReceptionRota) -> ReceptionRotaOut:
         created_at=rota.created_at,
         sessions=[_session_out(session, staff) for session, staff in rows],
         issues=compute_coverage_issues(db, rota),
+        staff_on_leave=sorted(_staff_on_leave(db, rota.date)),
     )
 
 
@@ -285,13 +306,14 @@ def delete_session(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> None:
-    """Remove a staff member from an hour -- this IS the absence mechanism
-    (Decision 10): with reception leave tracking out of scope for v1, a
-    receptionist who cannot work an hour is represented only by deleting
-    their row for it, and coverage counts anyone with a remaining `phones`
-    row regardless of why. 204 with no body; the frontend refetches the
-    day rather than splicing the response, since issues need recomputing
-    too and this is an infrequent action."""
+    """Remove a staff member from an hour -- still the per-slot absence
+    mechanism (Decision 10), and the only one with half-hour precision:
+    reception leave is whole-day, so "off from 2pm" is expressed here (or
+    by tagging the slots `not_working`), not on the leave page. Coverage
+    counts anyone with a remaining `phones` row unless they are on leave
+    for the whole date. 204 with no body; the frontend refetches the day
+    rather than splicing the response, since issues need recomputing too
+    and this is an infrequent action."""
     _get_rota_or_404(db, rota_id)
     session = _get_session_or_404(db, rota_id, session_id)
     db.delete(session)

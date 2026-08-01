@@ -154,11 +154,83 @@ class ReceptionRotaOut(BaseModel):
     created_at: datetime.datetime
     sessions: list[ReceptionRotaSessionOut]
     issues: list[ValidationIssueOut]
+    # Staff with a ReceptionLeaveEntry for this date. Their sessions are
+    # still listed above (leave changes nothing about generation or row
+    # deletion) but are excluded from the coverage headcount, so the grid
+    # needs this to dim their row -- without it the panel would report
+    # fewer staff on phones than the user can visibly count.
+    staff_on_leave: list[int] = []
 
 
 class ReceptionSessionWriteOut(BaseModel):
     """Every mutating session endpoint (POST/PATCH) returns the written row
     plus freshly recomputed coverage issues, mirroring SessionPatchOut's
-    mutate-then-revalidate contract on the clinical rota."""
+    mutate-then-revalidate contract on the clinical rota.
+
+    Deliberately carries no `staff_on_leave`, unlike ReceptionRotaOut: a
+    session write cannot change who is on leave, so the by-date cache's
+    existing list stays correct and the frontend has nothing to re-splice.
+    """
     session: ReceptionRotaSessionOut
     issues: list[ValidationIssueOut]
+
+
+# --- Reception leave ---
+# Mirrors MAX_BULK_RANGE_DAYS in schemas/leave.py: without it a typo'd end
+# year silently inserts tens of thousands of rows.
+MAX_RECEPTION_LEAVE_RANGE_DAYS = 366
+
+
+class ReceptionLeaveIn(BaseModel):
+    """POST /reception/leave. Whole days only -- there is no period field
+    here or on the model (see ReceptionLeaveEntry's docstring)."""
+    staff_id: int
+    date: datetime.date
+
+
+class ReceptionLeaveOut(ReceptionLeaveIn):
+    id: int
+    model_config = {"from_attributes": True}
+
+
+class _ReceptionLeaveRangeIn(BaseModel):
+    staff_id: int
+    start_date: datetime.date
+    end_date: datetime.date
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "_ReceptionLeaveRangeIn":
+        if self.start_date > self.end_date:
+            raise ValueError("start_date must not be after end_date")
+        if (self.end_date - self.start_date).days > MAX_RECEPTION_LEAVE_RANGE_DAYS:
+            raise ValueError(
+                f"range must not exceed {MAX_RECEPTION_LEAVE_RANGE_DAYS} days"
+            )
+        return self
+
+
+class ReceptionLeaveBulkIn(_ReceptionLeaveRangeIn):
+    """POST /reception/leave/bulk."""
+
+
+class ReceptionLeaveBulkDeleteIn(_ReceptionLeaveRangeIn):
+    """POST /reception/leave/bulk-delete."""
+
+
+class ReceptionLeaveBulkOut(BaseModel):
+    """Counts, not the per-date skip list LeaveBulkOut returns. Reception
+    leave has no half-days, no employment window and no extra sessions to
+    supersede, so the only two things a date can be are "written" and "we
+    didn't write it", and three ints say that without the frontend having
+    to group and count a list. `skipped_weekend` earns its place because
+    reception is Monday-Friday only (the Day enum has no weekend members
+    and generation 422s a weekend date) -- a range spanning a fortnight
+    quietly writing four rows that can never affect anything would be
+    worse than saying so."""
+    created: int
+    skipped_existing: int
+    skipped_weekend: int
+
+
+class ReceptionLeaveBulkDeleteOut(BaseModel):
+    deleted_count: int

@@ -22,6 +22,7 @@ import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionCoverageRulesPage } from "@/routes/ReceptionCoverageRulesPage";
 import { ReceptionDayPage } from "@/routes/ReceptionDayPage";
+import { ReceptionLeavePage } from "@/routes/ReceptionLeavePage";
 import { ReceptionMasterPage } from "@/routes/ReceptionMasterPage";
 import { ReceptionStaffPage } from "@/routes/ReceptionStaffPage";
 import { RecurringNotesPage } from "@/routes/RecurringNotesPage";
@@ -78,6 +79,7 @@ function navLinkClass(isActive: boolean) {
 const RECEPTION_NAV_ITEMS = [
   { to: "/reception", label: "Day Rota", end: true },
   { to: "/reception/master", label: "Master Template", end: false },
+  { to: "/reception/leave", label: "Leave", end: false },
   { to: "/reception/staff", label: "Reception Staff", end: false },
   { to: "/reception/coverage-rules", label: "Coverage Rules", end: false },
 ] as const;
@@ -221,6 +223,7 @@ function ReceptionShell() {
           <Routes>
             <Route index element={<ReceptionDayPage />} />
             <Route path="master" element={<ReceptionMasterPage />} />
+            <Route path="leave" element={<ReceptionLeavePage />} />
             <Route path="staff" element={<ReceptionStaffPage />} />
             <Route path="coverage-rules" element={<ReceptionCoverageRulesPage />} />
           </Routes>
