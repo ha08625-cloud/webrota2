@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { server } from "@/test/msw/server";
 import {
   makeReceptionCoverageRule,
+  makeReceptionLeaveEntry,
   makeReceptionMasterSession,
   makeReceptionRota,
   makeReceptionRotaSession,
@@ -15,15 +16,19 @@ import {
 
 import {
   receptionKeys,
+  useBulkCreateReceptionLeave,
+  useBulkDeleteReceptionLeave,
   useCreateReceptionMasterSession,
   useCreateReceptionRotaSession,
   useCreateReceptionStaff,
+  useDeleteReceptionLeave,
   useDeleteReceptionMasterSession,
   useDeleteReceptionRota,
   useDeleteReceptionRotaSession,
   useGenerateReceptionRota,
   usePatchReceptionRotaSession,
   useReceptionCoverageRules,
+  useReceptionLeave,
   useReceptionMasterSessions,
   useReceptionRotaByDate,
   useReceptionStaff,
@@ -348,5 +353,83 @@ describe("useDeleteReceptionRotaSession", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedUrl).toContain("/api/v1/reception/rota/7/sessions/55");
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: receptionKeys.rotaByDate("2026-08-03") });
+  });
+});
+
+describe("reception leave hooks", () => {
+  it("useReceptionLeave fetches unfiltered by default and by staff when given an id", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get("/api/v1/reception/leave", ({ request }) => {
+        urls.push(request.url);
+        return HttpResponse.json([makeReceptionLeaveEntry()]);
+      }),
+    );
+
+    const client = freshClient();
+    const unfiltered = renderHook(() => useReceptionLeave(), { wrapper: makeWrapper(client) });
+    await waitFor(() => expect(unfiltered.result.current.isSuccess).toBe(true));
+    const filtered = renderHook(() => useReceptionLeave(7), { wrapper: makeWrapper(client) });
+    await waitFor(() => expect(filtered.result.current.isSuccess).toBe(true));
+
+    expect(urls[0]).not.toContain("staff_id");
+    expect(urls[1]).toContain("staff_id=7");
+  });
+
+  it("a leave write invalidates the day rota cache as well as the leave list", async () => {
+    // Leave feeds the coverage headcount and the grid's greyed rows, so a
+    // day already in cache is stale the moment leave changes.
+    server.use(
+      http.post("/api/v1/reception/leave/bulk", () =>
+        HttpResponse.json({ created: 1, skipped_existing: 0, skipped_weekend: 0 }),
+      ),
+    );
+    const client = freshClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    const { result } = renderHook(() => useBulkCreateReceptionLeave(), { wrapper: makeWrapper(client) });
+    result.current.mutate({ staff_id: 1, start_date: "2026-08-03", end_date: "2026-08-03" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const invalidatedKeys = invalidate.mock.calls.map(([arg]) => arg?.queryKey);
+    expect(invalidatedKeys).toContainEqual(receptionKeys.leaveAll);
+    expect(invalidatedKeys).toContainEqual(receptionKeys.rotaAll);
+  });
+
+  it("useBulkDeleteReceptionLeave POSTs the range to bulk-delete", async () => {
+    let body: unknown;
+    server.use(
+      http.post("/api/v1/reception/leave/bulk-delete", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ deleted_count: 4 });
+      }),
+    );
+
+    const { result } = renderHook(() => useBulkDeleteReceptionLeave(), {
+      wrapper: makeWrapper(freshClient()),
+    });
+    result.current.mutate({ staff_id: 3, start_date: "2026-08-03", end_date: "2026-08-07" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(body).toEqual({ staff_id: 3, start_date: "2026-08-03", end_date: "2026-08-07" });
+    expect(result.current.data).toEqual({ deleted_count: 4 });
+  });
+
+  it("useDeleteReceptionLeave deletes by id", async () => {
+    let deletedId: string | undefined;
+    server.use(
+      http.delete("/api/v1/reception/leave/:id", ({ params }) => {
+        deletedId = params.id as string;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const { result } = renderHook(() => useDeleteReceptionLeave(), {
+      wrapper: makeWrapper(freshClient()),
+    });
+    result.current.mutate(12);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(deletedId).toBe("12");
   });
 });

@@ -602,3 +602,62 @@ describe("ReceptionGrid: shift-click range select", () => {
     expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
   });
 });
+
+describe("ReceptionGrid: staff on leave", () => {
+  it("dims and labels a staff member on leave without removing their sessions", () => {
+    const session = makeReceptionMasterSession({ session_id: 1, staff_id: 1, hour: 9 });
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[session]}
+        staffOnLeave={[1]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+
+    expect(screen.getByText("On leave")).toBeInTheDocument();
+    // The row is still rendered in full - leave only changes the coverage
+    // headcount, never the rows themselves.
+    expect(screen.getByTestId("reception-cell-1-9")).toHaveTextContent("Phones");
+    expect(screen.getByTestId("reception-cell-1-9").className).toContain("opacity-50");
+  });
+
+  it("leaves other staff undimmed, and dims nobody when the prop is absent", () => {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[
+          makeReceptionStaff({ id: 1, code: "AB", active: true }),
+          makeReceptionStaff({ id: 2, code: "CD", active: true }),
+        ]}
+        sessions={[]}
+        staffOnLeave={[1]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+
+    expect(screen.getAllByText("On leave")).toHaveLength(1);
+    expect(screen.getByTestId("reception-cell-2-9").className).not.toContain("opacity-50");
+  });
+
+  it("keeps an on-leave staff member's cells clickable", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[makeReceptionMasterSession({ session_id: 1, staff_id: 1, hour: 9 })]}
+        staffOnLeave={[1]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByText("Phones"));
+
+    expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+});

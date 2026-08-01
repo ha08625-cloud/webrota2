@@ -278,6 +278,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
               staff={staff}
               sessions={rota.sessions}
               issues={rota.issues}
+              staffOnLeave={rota.staff_on_leave}
               onSave={handleSave}
               onDelete={handleDelete}
               saving={saving}

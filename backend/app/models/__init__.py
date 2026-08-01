@@ -42,6 +42,7 @@ from .signature import DoctorSignature
 from .user import User, UserSession
 from .reception import (
     ReceptionStaff,
+    ReceptionLeaveEntry,
     ReceptionMasterSession,
     ReceptionRota,
     ReceptionRotaSession,
@@ -65,6 +66,6 @@ __all__ = [
     "BANK_HOLIDAYS", "BANK_HOLIDAYS_BY_KEY", "BankHoliday",
     "RecurringNote", "RecurringNoteDoctor", "RecurringNoteWeek",
     "DoctorSignature", "User", "UserSession",
-    "ReceptionStaff", "ReceptionMasterSession", "ReceptionRota",
+    "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
     "ReceptionRotaSession", "ReceptionCoverageRule",
 ]

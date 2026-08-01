@@ -4,6 +4,10 @@ import { apiClient } from "./client";
 import type {
   Day,
   ReceptionCoverageRule,
+  ReceptionLeaveBulkDeleteOut,
+  ReceptionLeaveBulkOut,
+  ReceptionLeaveEntry,
+  ReceptionLeaveRangeIn,
   ReceptionMasterSession,
   ReceptionRole,
   ReceptionRota,
@@ -16,7 +20,7 @@ import type {
 } from "./types";
 
 /**
- * Flat, per-resource keys (one file, four routers) - deliberately not
+ * Flat, per-resource keys (one file, five routers) - deliberately not
  * nested per-resource objects, since a query key referencing a sibling
  * key from inside the same object literal is a footgun the rest of this
  * codebase's api/*.ts files avoid (rotaKeys, doctorKeys, masterRotaKeys
@@ -35,6 +39,9 @@ export const receptionKeys = {
   rotaAll: ["reception", "rota"] as const,
   rotaByDate: (date: string) => ["reception", "rota", "date", date] as const,
   rotaDetail: (rotaId: number) => ["reception", "rota", "detail", rotaId] as const,
+
+  leaveAll: ["reception", "leave"] as const,
+  leaveList: (staffId: number | null) => ["reception", "leave", "list", staffId] as const,
 };
 
 // --- Reception staff ---
@@ -335,5 +342,67 @@ export function useDeleteReceptionRotaSession() {
     onSuccess: (_data, { date }) => {
       queryClient.invalidateQueries({ queryKey: receptionKeys.rotaByDate(date) });
     },
+  });
+}
+
+// --- Reception leave ---
+// Whole-day absence. Every write invalidates the day rota queries as well
+// as the leave list: leave feeds the coverage headcount and the day grid's
+// greyed rows (ReceptionRotaOut.staff_on_leave), so a cached day rendered
+// before the leave was recorded would otherwise keep showing the old
+// numbers until something else refetched it.
+
+export function useReceptionLeave(staffId: number | null = null) {
+  return useQuery({
+    queryKey: receptionKeys.leaveList(staffId),
+    queryFn: () =>
+      apiClient.get<ReceptionLeaveEntry[]>(
+        staffId === null ? "/reception/leave" : `/reception/leave?staff_id=${staffId}`,
+      ),
+  });
+}
+
+function invalidateLeaveAndRotas(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: receptionKeys.leaveAll });
+  queryClient.invalidateQueries({ queryKey: receptionKeys.rotaAll });
+}
+
+export interface CreateReceptionLeavePayload {
+  staffId: number;
+  date: string;
+}
+
+export function useCreateReceptionLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ staffId, date }: CreateReceptionLeavePayload) =>
+      apiClient.post<ReceptionLeaveEntry>("/reception/leave", { staff_id: staffId, date }),
+    onSuccess: () => invalidateLeaveAndRotas(queryClient),
+  });
+}
+
+export function useBulkCreateReceptionLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReceptionLeaveRangeIn) =>
+      apiClient.post<ReceptionLeaveBulkOut>("/reception/leave/bulk", payload),
+    onSuccess: () => invalidateLeaveAndRotas(queryClient),
+  });
+}
+
+export function useBulkDeleteReceptionLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReceptionLeaveRangeIn) =>
+      apiClient.post<ReceptionLeaveBulkDeleteOut>("/reception/leave/bulk-delete", payload),
+    onSuccess: () => invalidateLeaveAndRotas(queryClient),
+  });
+}
+
+export function useDeleteReceptionLeave() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (leaveId: number) => apiClient.delete<void>(`/reception/leave/${leaveId}`),
+    onSuccess: () => invalidateLeaveAndRotas(queryClient),
   });
 }

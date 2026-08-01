@@ -299,3 +299,37 @@ describe("ReceptionDayPage", () => {
     expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
   });
 });
+
+describe("ReceptionDayPage: staff on leave", () => {
+  it("greys the row of a staff member the day's rota reports as on leave", async () => {
+    const staff = [
+      makeReceptionStaff({ id: 1, code: "AB", active: true }),
+      makeReceptionStaff({ id: 2, code: "CD", active: true }),
+    ];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+    server.use(
+      http.get("/api/v1/reception/rota", () =>
+        HttpResponse.json(
+          makeReceptionRota({
+            rota_id: 7,
+            date: monday,
+            sessions: [
+              makeReceptionRotaSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones" }),
+              makeReceptionRotaSession({ session_id: 2, staff_id: 2, hour: 9, role: "phones" }),
+            ],
+            // AB is off; their session row stays, so the grid must say why
+            // the coverage panel is not counting them.
+            staff_on_leave: [1],
+          }),
+        ),
+      ),
+    );
+
+    expect(await screen.findByText("On leave")).toBeInTheDocument();
+    expect(screen.getByTestId("reception-cell-1-9").className).toContain("opacity-50");
+    expect(screen.getByTestId("reception-cell-2-9").className).not.toContain("opacity-50");
+  });
+});

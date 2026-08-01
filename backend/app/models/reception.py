@@ -32,14 +32,14 @@ header exists solely so "never generated" (no header) is distinguishable from
 "generated, then every row deleted" (header with no sessions); there is no
 status/lifecycle column because none is needed with no draft/commit concept.
 
-Absence limitation (Decision 10): with reception leave tracking out of scope
-for v1, coverage validation counts anybody holding a `phones` row for an hour.
-A receptionist who is off sick still reads as covering that hour until their
-rows for the day are deleted -- deleting the row *is* the absence mechanism,
-mirroring the clinical rota's "cell absence is data" convention. This is a
-real limitation, not a bug, and should stay true until a reception leave
-table is added (which would become an additional filter on the coverage
-count, with no other change to any decision here).
+Absence (Decision 10, resolved): ReceptionLeaveEntry now records whole-day
+absence, and coverage validation excludes anyone on leave from the phones
+headcount. That is the *only* thing leave changes -- generation still copies
+every active staff member's template rows onto a day, and their rows stay on
+a day they are later marked off for. Deleting a row therefore remains a
+valid way to say "not working this slot" (the clinical rota's "cell absence
+is data" convention); leave is an additional, coarser fact layered on top of
+it, not a replacement.
 """
 import datetime
 
@@ -177,6 +177,36 @@ class ReceptionRotaSession(Base):
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     rota: Mapped["ReceptionRota"] = relationship(back_populates="sessions")
+    staff: Mapped["ReceptionStaff"] = relationship()
+
+
+class ReceptionLeaveEntry(Base):
+    """One whole day off for one reception staff member.
+
+    Deliberately thinner than the clinical LeaveEntry: no `period` column
+    and no `notes`. Reception's day is twenty half-hourly slots, so an
+    AM/PM split would be an arbitrary line through the middle of it, and
+    the finer-grained "off from 2pm" case is already expressible -- and
+    more precisely -- by deleting the slots or tagging them `not_working`
+    (Decision 13). This table answers exactly one question, "is this
+    person off on this date", which is the question coverage needs.
+
+    Absence of a row is not "present": a staff member with no row here is
+    simply not known to be away, and their rows count toward coverage as
+    they always did.
+    """
+
+    __tablename__ = "reception_leave_entries"
+    __table_args__ = (
+        UniqueConstraint("staff_id", "date", name="uq_rle_slot"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    staff_id: Mapped[int] = mapped_column(
+        ForeignKey("reception_staff.id"), nullable=False
+    )
+    date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+
     staff: Mapped["ReceptionStaff"] = relationship()
 
 
