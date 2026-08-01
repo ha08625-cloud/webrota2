@@ -264,8 +264,8 @@ describe("ReceptionDayPage", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await within(screen.getByTestId("reception-cell-1-9")).findByText("Phones");
-    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeInTheDocument();
-    expect(within(screen.getByTestId("reception-cell-1-11")).getByText("Phones")).toBeInTheDocument();
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).not.toBeVisible();
+    expect(within(screen.getByTestId("reception-cell-1-11")).getByText("Phones")).not.toBeVisible();
     expect(postedHours).toEqual([9, 9.5, 10.5, 11]);
     expect(patchCalled).toBe(true);
   });

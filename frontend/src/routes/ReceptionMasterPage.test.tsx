@@ -144,7 +144,7 @@ describe("ReceptionMasterPage", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await within(screen.getByTestId("reception-cell-1-8")).findByText("Phones");
-    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeInTheDocument();
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).not.toBeVisible();
 
     expect(patchBody).toEqual({ role: "phones", note: null });
     expect(postBodies).toEqual([
