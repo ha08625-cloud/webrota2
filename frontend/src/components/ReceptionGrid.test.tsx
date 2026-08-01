@@ -177,6 +177,151 @@ describe("ReceptionGrid: edit and delete", () => {
   });
 });
 
+describe("ReceptionGrid: run merging", () => {
+  it("hides the chip on continuation slots of a uniform run and flags them, leaving the run's first slot visible and unflagged", () => {
+    const sessions = [9, 9.5, 10].map((hour) =>
+      makeReceptionMasterSession({ staff_id: 1, hour, role: "phones", note: null }),
+    );
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const first = screen.getByTestId("reception-cell-1-9");
+    const second = screen.getByTestId("reception-cell-1-9.5");
+    const third = screen.getByTestId("reception-cell-1-10");
+
+    expect(within(first).getByText("Phones")).toBeVisible();
+    expect(within(second).getByText("Phones")).not.toBeVisible();
+    expect(within(third).getByText("Phones")).not.toBeVisible();
+    expect(first).not.toHaveAttribute("data-run-continuation", "true");
+    expect(second).toHaveAttribute("data-run-continuation", "true");
+    expect(third).toHaveAttribute("data-run-continuation", "true");
+  });
+
+  it("renders a shared note once, hidden in the continuation slots", () => {
+    const sessions = [9, 9.5, 10].map((hour) =>
+      makeReceptionMasterSession({ staff_id: 1, hour, role: "phones", note: "cover" }),
+    );
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    expect(within(screen.getByTestId("reception-cell-1-9")).getByText("cover")).toBeVisible();
+    expect(within(screen.getByTestId("reception-cell-1-9.5")).getByText("cover")).not.toBeVisible();
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("cover")).not.toBeVisible();
+  });
+
+  it("breaks the run when the note differs, showing the chip again", () => {
+    const sessions = [
+      makeReceptionMasterSession({ staff_id: 1, hour: 9, role: "phones", note: "cover" }),
+      makeReceptionMasterSession({ staff_id: 1, hour: 9.5, role: "phones", note: "cover" }),
+      makeReceptionMasterSession({ staff_id: 1, hour: 10, role: "phones", note: "different" }),
+    ];
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeVisible();
+  });
+
+  it("breaks the run when the role differs, showing the chip again", () => {
+    const sessions = [
+      makeReceptionMasterSession({ staff_id: 1, hour: 9, role: "phones", note: null }),
+      makeReceptionMasterSession({ staff_id: 1, hour: 9.5, role: "phones", note: null }),
+      makeReceptionMasterSession({ staff_id: 1, hour: 10, role: "other", note: null }),
+    ];
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Other")).toBeVisible();
+  });
+
+  it("breaks the run at an absent slot, showing the chip again after the gap", () => {
+    const sessions = [
+      makeReceptionMasterSession({ staff_id: 1, hour: 9, role: "phones", note: null }),
+      makeReceptionMasterSession({ staff_id: 1, hour: 10, role: "phones", note: null }),
+    ];
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).toBeVisible();
+  });
+
+  it("a continuation slot still opens its own popover and saves only its own half hour", async () => {
+    const onSave = resolvedOnSave();
+    const sessions = [9, 9.5, 10].map((hour) =>
+      makeReceptionMasterSession({ session_id: hour * 10, staff_id: 1, hour, role: "phones", note: null }),
+    );
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    const continuationCell = screen.getByTestId("reception-cell-1-9.5");
+    await user.click(within(continuationCell).getByText("Phones"));
+    await user.selectOptions(await screen.findByLabelText("Role"), "other");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith([
+      { staffId: 1, hour: 9.5, session: sessions[1], role: "other", note: null },
+    ]);
+  });
+
+  it("a shift-click range starting mid-run still highlights per slot", async () => {
+    const sessions = [9, 9.5, 10, 10.5].map((hour) =>
+      makeReceptionMasterSession({ staff_id: 1, hour, role: "phones", note: null }),
+    );
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9.5")).getByText("Phones"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-10.5")).getByText("Phones"));
+
+    expect(screen.getByTestId("reception-cell-1-9.5")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("reception-cell-1-9")).not.toHaveAttribute("data-selected", "true");
+  });
+});
+
 describe("ReceptionGrid: coverage warnings", () => {
   function shortfall(hour: number): ValidationIssue {
     return {

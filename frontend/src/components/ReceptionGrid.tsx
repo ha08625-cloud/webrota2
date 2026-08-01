@@ -4,6 +4,7 @@ import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
 import { formatHour, RECEPTION_HOURS } from "@/lib/receptionHours";
 import { getReceptionCell, pivotReception, type ReceptionCellData } from "@/lib/pivotReception";
+import { receptionRunContinuations } from "@/lib/receptionRuns";
 import { RECEPTION_ROLE_CHIP_CLASSNAME, RECEPTION_ROLE_LABELS } from "@/lib/receptionRoles";
 
 export interface ReceptionSavePayload<T extends ReceptionCellData> {
@@ -171,6 +172,8 @@ export function ReceptionGrid<T extends ReceptionCellData>({
             const memberRange = selectedRangeHours(selection, member.id).filter(
               (hour) => member.active || getReceptionCell(grid, member.id, hour) !== undefined,
             );
+            const rowCells = RECEPTION_HOURS.map((hour) => getReceptionCell(grid, member.id, hour));
+            const continuations = receptionRunContinuations(rowCells);
             return (
               <tr key={member.id}>
                 <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium">
@@ -178,7 +181,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                   {inactiveWithSessions ? <div className="text-xs text-ink/50">(inactive)</div> : null}
                 </td>
                 {RECEPTION_HOURS.map((hour, hourIndex) => {
-                  const session = getReceptionCell(grid, member.id, hour);
+                  const session = rowCells[hourIndex];
                   const interactive = session !== undefined || member.active;
                   const isSelected = interactive && memberRange.includes(hour);
                   const isFocusCell =
@@ -191,7 +194,11 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                         null)
                       : (session ?? null);
                   const canDelete = hours.some((h) => getReceptionCell(grid, member.id, h) !== undefined);
-                  const dividerClassName = hourIndex === RECEPTION_HOURS.length - 1 ? "" : "border-r-2 border-ink/40";
+                  const repeatsPrevious = continuations[hourIndex];
+                  const dividerClassName =
+                    hourIndex === RECEPTION_HOURS.length - 1 || continuations[hourIndex + 1]
+                      ? ""
+                      : "border-r-2 border-ink/40";
                   const selectedClassName = isSelected ? "bg-accent/10 ring-1 ring-inset ring-accent" : "";
                   const cursorClassName = interactive ? "cursor-pointer" : "";
                   return (
@@ -200,6 +207,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                       className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName}`}
                       data-testid={`reception-cell-${member.id}-${hour}`}
                       data-selected={isSelected ? "true" : undefined}
+                      data-run-continuation={repeatsPrevious ? "true" : undefined}
                       onClick={interactive ? (e) => handleCellClick(e, member.id, hour) : undefined}
                     >
                       {interactive ? (
@@ -213,7 +221,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                         >
                           {session ? (
                             <div>
-                              <CellContent session={session} />
+                              <CellContent session={session} repeated={repeatsPrevious} />
                             </div>
                           ) : (
                             <button
@@ -238,16 +246,16 @@ export function ReceptionGrid<T extends ReceptionCellData>({
   );
 }
 
-function CellContent<T extends ReceptionCellData>({ session }: { session: T }) {
+function CellContent<T extends ReceptionCellData>({ session, repeated }: { session: T; repeated: boolean }) {
   return (
-    <>
+    <div style={repeated ? { visibility: "hidden" } : undefined}>
       <span
         className={`rounded px-1 text-xs font-medium ${RECEPTION_ROLE_CHIP_CLASSNAME[session.role]}`}
       >
         {RECEPTION_ROLE_LABELS[session.role]}
       </span>
       {session.note ? <div className="text-xs text-ink/60">{session.note}</div> : null}
-    </>
+    </div>
   );
 }
 
