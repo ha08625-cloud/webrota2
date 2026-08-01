@@ -36,6 +36,7 @@ from ...models import (
     ReceptionStaff,
 )
 from ...models.enums import Day, ReceptionRole
+from ...models.reception import format_hour
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionRotaGenerateIn,
@@ -94,7 +95,7 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
         select(ReceptionCoverageRule).where(ReceptionCoverageRule.day == day)
     ).scalars().all()
 
-    counts: dict[int, int] = {}
+    counts: dict[float, int] = {}
     for session in rota.sessions:
         if session.role == ReceptionRole.PHONES:
             counts[session.hour] = counts.get(session.hour, 0) + 1
@@ -108,7 +109,7 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
                 phase="coverage",
                 check="phones_shortfall",
                 message=(
-                    f"{rule.hour:02d}:00-{rule.hour + 1:02d}:00: {count} "
+                    f"{format_hour(rule.hour)}: {count} "
                     f"staff on phones, {rule.min_phones_staff} required"
                 ),
                 day=day,

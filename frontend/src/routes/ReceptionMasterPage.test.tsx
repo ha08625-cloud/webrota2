@@ -48,7 +48,7 @@ describe("ReceptionMasterPage", () => {
     await user.click(screen.getByRole("tab", { name: "Tuesday" }));
 
     expect(
-      within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-10:00"),
+      within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"),
     ).toBeInTheDocument();
     expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Other")).toBeInTheDocument();
   });
@@ -69,7 +69,7 @@ describe("ReceptionMasterPage", () => {
     renderWithProviders(<ReceptionMasterPage />);
     const cell = await screen.findByTestId("reception-cell-1-8");
     const user = userEvent.setup();
-    await user.click(within(cell).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.click(within(cell).getByLabelText("Add session for AB 08:00-08:30"));
     await user.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(capturedBody).toEqual({ staff_id: 1, day: "Monday", hour: 8, role: "phones", note: null });
@@ -109,10 +109,10 @@ describe("ReceptionMasterPage", () => {
     await user.click(within(cell).getByText("Phones"));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
 
-    expect(await within(cell).findByLabelText("Add session for AB 09:00-10:00")).toBeInTheDocument();
+    expect(await within(cell).findByLabelText("Add session for AB 09:00-09:30")).toBeInTheDocument();
   });
 
-  it("saving a 3-hour range issues one PATCH and two POSTs, with POST bodies carrying the right hour and the active day", async () => {
+  it("saving a range issues one PATCH and four POSTs, with POST bodies carrying the right hour and the active day", async () => {
     const session = makeReceptionMasterSession({
       session_id: 5, staff_id: 1, day: "Monday", hour: 9, role: "phones", note: null,
     });
@@ -136,9 +136,9 @@ describe("ReceptionMasterPage", () => {
 
     renderWithProviders(<ReceptionMasterPage />);
     const user = userEvent.setup();
-    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-08:30"));
     await user.keyboard("{Shift>}");
-    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-10:30"));
     await user.keyboard("{/Shift}");
     await screen.findByLabelText("Role");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -149,6 +149,8 @@ describe("ReceptionMasterPage", () => {
     expect(patchBody).toEqual({ role: "phones", note: null });
     expect(postBodies).toEqual([
       { staff_id: 1, day: "Monday", hour: 8, role: "phones", note: null },
+      { staff_id: 1, day: "Monday", hour: 8.5, role: "phones", note: null },
+      { staff_id: 1, day: "Monday", hour: 9.5, role: "phones", note: null },
       { staff_id: 1, day: "Monday", hour: 10, role: "phones", note: null },
     ]);
   });
@@ -176,15 +178,15 @@ describe("ReceptionMasterPage", () => {
 
     renderWithProviders(<ReceptionMasterPage />);
     const user = userEvent.setup();
-    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-09:00"));
+    await user.click(within(await screen.findByTestId("reception-cell-1-8")).getByLabelText("Add session for AB 08:00-08:30"));
     await user.keyboard("{Shift>}");
-    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-11:00"));
+    await user.click(within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-10:30"));
     await user.keyboard("{/Shift}");
     await screen.findByLabelText("Role");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText(/Could not save every hour: 08:00-09:00: boom/)).toBeInTheDocument();
-    expect(postedHours).toEqual([8, 10]);
+    expect(await screen.findByText(/Could not save every hour: 08:00-08:30: boom/)).toBeInTheDocument();
+    expect(postedHours).toEqual([8, 8.5, 9.5, 10]);
   });
 
   it("shows a load error when the sessions request fails", async () => {
