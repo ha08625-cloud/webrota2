@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ReceptionRole } from "@/api/types";
 import { makeReceptionMasterSession } from "@/test/fixtures/reception";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
@@ -9,8 +10,8 @@ import { ReceptionCellPopover } from "./ReceptionCellPopover";
 
 interface RenderPopoverOptions {
   session?: ReturnType<typeof makeReceptionMasterSession> | null;
-  onSave?: ReturnType<typeof vi.fn>;
-  onDelete?: ReturnType<typeof vi.fn>;
+  onSave?: (role: ReceptionRole, note: string | null) => void;
+  onDelete?: () => void;
   canDelete?: boolean;
   hourCount?: number;
   saving?: boolean;
@@ -21,7 +22,7 @@ function renderPopover(options: RenderPopoverOptions = {}) {
     options.session === undefined
       ? makeReceptionMasterSession({ session_id: 1, role: "phones", note: null })
       : options.session;
-  const onSave = options.onSave ?? vi.fn();
+  const onSave = options.onSave ?? vi.fn<(role: ReceptionRole, note: string | null) => void>();
   const onDelete = options.onDelete;
   const canDelete = options.canDelete ?? (onDelete !== undefined && session !== null);
   const hourCount = options.hourCount;

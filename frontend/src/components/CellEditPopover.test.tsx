@@ -6,22 +6,22 @@ import { makeClinicType, makeRoom } from "@/test/fixtures/reference";
 import { makeRotaSession } from "@/test/fixtures/rota";
 import type { RotaSession } from "@/api/types";
 
-import { CellEditPopover } from "./CellEditPopover";
+import { CellEditPopover, type RoleTriple } from "./CellEditPopover";
 
 function renderPopover(overrides: {
   session?: RotaSession;
   sessions?: RotaSession[];
   rooms?: ReturnType<typeof makeRoom>[];
   clinicTypes?: ReturnType<typeof makeClinicType>[];
-  onSave?: ReturnType<typeof vi.fn>;
-  onSetRoom?: ReturnType<typeof vi.fn>;
-  onSetRole?: ReturnType<typeof vi.fn>;
+  onSave?: (isWfh: boolean, notes: string | null, isSupervising: boolean) => void;
+  onSetRoom?: (roomId: number | null, displaced: RotaSession | null) => void;
+  onSetRole?: (triple: RoleTriple, displaced: RotaSession | null) => void;
   saving?: boolean;
 } = {}) {
   const session = overrides.session ?? makeRotaSession();
-  const onSave = overrides.onSave ?? vi.fn();
-  const onSetRoom = overrides.onSetRoom ?? vi.fn();
-  const onSetRole = overrides.onSetRole ?? vi.fn();
+  const onSave = overrides.onSave ?? vi.fn<(isWfh: boolean, notes: string | null, isSupervising: boolean) => void>();
+  const onSetRoom = overrides.onSetRoom ?? vi.fn<(roomId: number | null, displaced: RotaSession | null) => void>();
+  const onSetRole = overrides.onSetRole ?? vi.fn<(triple: RoleTriple, displaced: RotaSession | null) => void>();
 
   render(
     <CellEditPopover
