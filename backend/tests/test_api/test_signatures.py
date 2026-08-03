@@ -10,13 +10,27 @@ longer implements, and was removed rather than rewritten.
 """
 import base64
 import io
+import shutil
+from pathlib import Path
 
 import pytest
 from docx import Document
 from docx.oxml.ns import qn
 
+from app.documents.errors import ConversionError
 from app.models import Doctor
 from app.models.enums import DoctorType
+
+SAMPLE_RTF_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
+
+# The RTF path shells out to LibreOffice, so the tests that exercise it end to
+# end are skipped where it is absent -- same rule as test_documents/
+# test_pdf_convert.py. The error-path tests below deliberately monkeypatch
+# convert_to_pdf instead, so they run everywhere.
+requires_soffice = pytest.mark.skipif(
+    shutil.which("soffice") is None,
+    reason="LibreOffice (soffice) is not installed",
+)
 
 # Minimal valid 1x1 transparent PNG.
 _TINY_PNG = base64.b64decode(
@@ -225,3 +239,115 @@ class TestApply:
             files={"file": ("letter.docx", big, "application/octet-stream")},
         )
         assert resp.status_code == 413
+
+    def test_apply_pdf_upload_422(self, client, db_session):
+        """A PDF is neither a zip nor RTF, so it never reaches either
+        transform -- the sniff rejects it (rtf/pdf plan, Decision 2)."""
+        doctor_id = _make_doctor(db_session)
+        client.post(
+            f"/api/v1/signatures/{doctor_id}",
+            files={"file": ("sig.png", _TINY_PNG, "image/png")},
+        )
+        resp = client.post(
+            f"/api/v1/signatures/{doctor_id}/apply",
+            files={"file": ("cert.pdf", b"%PDF-1.7\n%stub\n", "application/pdf")},
+        )
+        assert resp.status_code == 422
+        assert "not a valid" in resp.json()["detail"].lower()
+
+
+class TestApplyRtf:
+    """The .rtf path: splice a signature in, return a PDF."""
+
+    def _prepare(self, client, db_session):
+        doctor_id = _make_doctor(db_session)
+        client.post(
+            f"/api/v1/signatures/{doctor_id}",
+            files={"file": ("sig.png", _TINY_PNG, "image/png")},
+        )
+        return doctor_id
+
+    def _post_rtf(self, client, doctor_id, rtf_bytes, filename="certificate.rtf"):
+        return client.post(
+            f"/api/v1/signatures/{doctor_id}/apply",
+            files={"file": (filename, rtf_bytes, "application/rtf")},
+        )
+
+    @requires_soffice
+    def test_apply_rtf_returns_pdf(self, client, db_session):
+        doctor_id = self._prepare(client, db_session)
+
+        resp = self._post_rtf(client, doctor_id, SAMPLE_RTF_PATH.read_bytes())
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+        assert "-signed.pdf" in resp.headers["content-disposition"]
+        assert resp.content.startswith(b"%PDF-")
+
+    @requires_soffice
+    def test_apply_rtf_ignores_the_declared_content_type(self, client, db_session):
+        """Format comes from the bytes, not the browser's guess or the
+        extension: RTF content announced as docx still yields a PDF."""
+        doctor_id = self._prepare(client, db_session)
+
+        resp = client.post(
+            f"/api/v1/signatures/{doctor_id}/apply",
+            files={
+                "file": (
+                    "certificate.docx",
+                    SAMPLE_RTF_PATH.read_bytes(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/pdf"
+
+    def test_apply_rtf_without_the_anchor_422(self, client, db_session):
+        """Runs everywhere: the splice fails before any conversion, so this
+        needs no LibreOffice."""
+        doctor_id = self._prepare(client, db_session)
+        without_anchor = SAMPLE_RTF_PATH.read_bytes().replace(
+            b"Signature", b"Sign-ature"
+        )
+
+        resp = self._post_rtf(client, doctor_id, without_anchor)
+
+        assert resp.status_code == 422
+        assert "signature label" in resp.json()["detail"].lower()
+
+    def test_apply_rtf_no_signature_stored_409_before_converting(
+        self, client, db_session, monkeypatch
+    ):
+        """The 409 must come first, so a missing signature never spawns a
+        LibreOffice subprocess."""
+        doctor_id = _make_doctor(db_session)
+
+        def _fail(*args, **kwargs):
+            raise AssertionError("convert_to_pdf must not be called")
+
+        monkeypatch.setattr("app.api.routers.signatures.convert_to_pdf", _fail)
+
+        resp = self._post_rtf(client, doctor_id, SAMPLE_RTF_PATH.read_bytes())
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "No signature stored for this doctor"
+
+    def test_conversion_failure_502(self, client, db_session, monkeypatch):
+        """A converter failure is ours, not the admin's (Decision 10), and
+        the converter's own text stays in the log."""
+        doctor_id = self._prepare(client, db_session)
+
+        def _boom(*args, **kwargs):
+            raise ConversionError("soffice exited 1: /tmp/xyz/document.rtf")
+
+        monkeypatch.setattr("app.api.routers.signatures.convert_to_pdf", _boom)
+
+        resp = self._post_rtf(client, doctor_id, SAMPLE_RTF_PATH.read_bytes())
+
+        assert resp.status_code == 502
+        detail = resp.json()["detail"]
+        assert "Could not convert this document to PDF" in detail
+        assert "/tmp" not in detail
+        assert "soffice" not in detail
