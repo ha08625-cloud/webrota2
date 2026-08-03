@@ -5,10 +5,20 @@ accepted; the Partner/Salaried filter is frontend-only (signatures feature
 plan, Decision 9). No processed document is ever persisted: /apply reads
 the upload, transforms it in memory via app.documents, and returns bytes
 (Decision 13).
+
+/apply serves two document formats, distinguished by sniffing the uploaded
+bytes rather than the extension or the declared MIME type (rtf/pdf plan,
+Decision 2):
+
+  .docx  ->  signed .docx, Restrict Editing applied
+  .rtf   ->  signed .pdf; the spliced RTF is an intermediate LibreOffice
+             reads and nobody else sees, and the PDF is a stronger "do not
+             edit this" than the Word password (Decision 11)
 """
 from __future__ import annotations
 
 import datetime
+import logging
 import os
 import re
 from pathlib import Path
@@ -20,14 +30,19 @@ from sqlalchemy.orm import Session
 
 from ...documents import (
     DEFAULT_LOCK_PASSWORD,
+    ConversionError,
     DocumentFormatError,
     apply_read_only_protection,
+    convert_to_pdf,
     insert_signature,
+    insert_signature_rtf,
     save_docx,
 )
 from ...models import Doctor, DoctorSignature
 from ..deps import get_current_user, get_db
 from ..schemas import SignatureMetaOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/signatures", tags=["signatures"])
 
@@ -37,7 +52,16 @@ _MAX_DOCX_BYTES = 10 * 1024 * 1024
 _DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+_PDF_MEDIA_TYPE = "application/pdf"
 _FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._ -]")
+
+# What the admin sees when LibreOffice is missing, wedged, or fails. The real
+# reason is logged; it names temp paths and soffice internals, neither of
+# which belongs in a response body.
+_CONVERSION_FAILED_MESSAGE = (
+    "Could not convert this document to PDF. Please try again, and contact "
+    "support if it keeps happening."
+)
 
 
 def _get_doctor_or_404(db: Session, doctor_id: int) -> Doctor:
@@ -56,6 +80,33 @@ def _get_signature_or_404(db: Session, doctor_id: int) -> DoctorSignature:
             status_code=404, detail=f"No signature stored for doctor {doctor_id}"
         )
     return signature
+
+
+def _sniff_format(data: bytes) -> str:
+    """Return "rtf" or "docx" from the leading bytes (rtf/pdf plan,
+    Decision 2).
+
+    Neither the extension nor the declared content type is consulted:
+    browsers are inconsistent about both, and a renamed file would sail past
+    either. Some producers emit a UTF-8 BOM or leading whitespace before the
+    opening group, so the RTF check runs against a stripped copy.
+
+    Raises DocumentFormatError for anything else, which the caller maps to
+    422 -- this is where a legacy .doc, a PDF, or a stray image lands.
+    """
+    head = data[:64]
+    if head.startswith(b"\xef\xbb\xbf"):
+        head = head[3:]
+    if head.lstrip().startswith(rb"{\rtf1"):
+        return "rtf"
+    # Any zip is treated as a docx here; python-docx rejects a zip that is
+    # not an OOXML package, with its own DocumentFormatError.
+    if head.startswith(b"PK"):
+        return "docx"
+    raise DocumentFormatError(
+        "File is not a valid .docx or .rtf document. Word's .doc format is "
+        "not supported -- save it as .docx or .rtf and try again."
+    )
 
 
 def _safe_filename_stem(filename: str | None) -> str:
@@ -157,24 +208,40 @@ def apply_signature(
         )
 
     # Declared content type is not checked here -- browsers are inconsistent
-    # about docx MIME types; DocumentFormatError from actually opening the
-    # file is the real validation (signatures feature plan, Task 3).
-    docx_bytes = file.file.read()
-    if len(docx_bytes) > _MAX_DOCX_BYTES:
+    # about document MIME types; _sniff_format plus the DocumentFormatError
+    # raised by actually opening the file is the real validation.
+    document_bytes = file.file.read()
+    if len(document_bytes) > _MAX_DOCX_BYTES:
         raise HTTPException(status_code=413, detail="Document exceeds 10 MB")
 
+    # The size cap applies to the upload only. The spliced RTF is larger --
+    # hex encoding doubles the image's contribution -- but it is never
+    # returned or stored, so it only affects peak memory (Decision 13).
     try:
-        document = insert_signature(docx_bytes, signature.image)
-        apply_read_only_protection(
-            document, os.environ.get("DOC_LOCK_PASSWORD", DEFAULT_LOCK_PASSWORD)
-        )
-        out_bytes = save_docx(document)
+        if _sniff_format(document_bytes) == "rtf":
+            spliced = insert_signature_rtf(
+                document_bytes, signature.image, signature.content_type
+            )
+            out_bytes = convert_to_pdf(spliced, ".rtf")
+            media_type, extension = _PDF_MEDIA_TYPE, "pdf"
+        else:
+            document = insert_signature(document_bytes, signature.image)
+            apply_read_only_protection(
+                document, os.environ.get("DOC_LOCK_PASSWORD", DEFAULT_LOCK_PASSWORD)
+            )
+            out_bytes = save_docx(document)
+            media_type, extension = _DOCX_MEDIA_TYPE, "docx"
     except DocumentFormatError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ConversionError as exc:
+        # Ours, not theirs (Decision 10): 502, and the detail from the
+        # converter goes to the log rather than the response.
+        logger.exception("PDF conversion failed for doctor %s", doctor_id)
+        raise HTTPException(status_code=502, detail=_CONVERSION_FAILED_MESSAGE) from exc
 
-    filename = f"{_safe_filename_stem(file.filename)}-signed.docx"
+    filename = f"{_safe_filename_stem(file.filename)}-signed.{extension}"
     return Response(
         content=out_bytes,
-        media_type=_DOCX_MEDIA_TYPE,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
