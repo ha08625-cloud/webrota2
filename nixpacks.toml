@@ -26,8 +26,27 @@
 # there is exactly one place that can define it.
 providers = ["python", "node"]
 
+# LibreOffice is a runtime dependency of the signature/PDF path
+# (app/documents/pdf_convert.py shells out to `soffice --convert-to pdf`),
+# not a build tool - it has to be in the final image, and nixpacks phases
+# are layers of a single image, so installing it here achieves that.
+#
+# It must be libreoffice-writer, NOT libreoffice-core. With core and
+# -common alone, soffice is on PATH and starts fine, but every conversion
+# fails with `Error: source file could not be loaded` - which reads like a
+# corrupt upload rather than a missing component, and cost real time to
+# diagnose. Do not "slim the image" by dropping back to core.
+#
+# fonts-liberation supplies metric-compatible substitutes for the Arial and
+# Times New Roman the certificate template asks for; without them line
+# breaks and pagination shift.
+#
+# This adds a few hundred MB to the image. That is accepted: the
+# alternative is a separate conversion service for a handful of
+# certificates a day.
 [phases.install]
 cmds = [
+  "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
   "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
   "cd frontend && npm ci"
 ]
