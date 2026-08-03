@@ -68,6 +68,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # tests/test_documents/test_pdf_convert.py skips itself when soffice is
+      # absent, so a developer without LibreOffice can still run the suite.
+      # This step is what makes that skip inert here - if those tests ever
+      # show as skipped on CI, this is what regressed. Writer specifically:
+      # libreoffice-core alone leaves soffice on PATH but every conversion
+      # fails with a misleading "source file could not be loaded".
+      - name: Install LibreOffice (for PDF conversion tests)
+        run: sudo apt-get update && sudo apt-get install -y libreoffice-writer fonts-liberation
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
