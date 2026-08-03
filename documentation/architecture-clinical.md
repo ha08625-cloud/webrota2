@@ -204,6 +204,7 @@ api/
 | `/recurring-notes` | Recurring note definitions (annotation stamped into `RotaSession.notes` at generation time) | `GET`/`POST`/`PUT /{id}`/`DELETE /{id}`. Writes take the full nested object (`doctor_ids`, `template_weeks` as plain int lists) and use replace-children on `PUT`, mirroring `/clinic-types`. No cross-note uniqueness — overlapping notes are legal and concatenate at generation time, so there is nothing here to 409 on. `doctor_ids` are validated against live `Doctor` rows (missing or inactive ids 422) |
 | `/rooms` | Physical rooms | Read-only by design (seeded, 14 rooms). Room types needed by the frontend's colour rules come from this one fetch, deliberately not duplicated onto rota payloads |
 | `/counters` | Clinic and system counters | Read-only views (joined with doctor/clinic names) of live values — committed baseline plus any in-progress draft's edits |
+| `/signatures` | Stored doctor signature images, and stamping one into a certificate | CRUD on the image (`GET`/`POST`/`DELETE /{doctor_id}`, `GET /{doctor_id}/image`) plus `POST /{doctor_id}/apply`, which takes a document upload and returns signed bytes. Unscoped by `doctor_type` — the Partner/Salaried filter is frontend-only. Nothing processed is ever persisted — see "Signatures and documents" below |
 | `/auth` | Login/logout/session check | `POST /login` (issues a token, lazily deletes that user's expired session rows), `POST /logout` (deletes the session row, 204), `GET /me` (validates a stored token, used by `LoginGate`) |
 | `/users` | User management | Single-role trust model — any logged-in user can list/create/edit/deactivate/reset any other user's password, including their own. No `DELETE`; deactivation is `PATCH active=false`, matching the doctors router convention. `PATCH` also accepts a write-only `password` field, which re-hashes it and deletes every session belonging to that user. A `PATCH` that would deactivate the last remaining active user 409s |
 
@@ -282,6 +283,27 @@ Nothing here 409s on a state that already matches — the grid sends the state i
 **Notes** (migration 023) is a free-text field (12-char cap, `NOTES_MAX_LENGTH` in `app/models/blocked.py`) added to all three tables — leave, extra session, and blocked — settable only via `PlanningActionIn.notes` on this endpoint. The Annual Planner grid displays it in place of the AM/PM label on a cell when present.
 
 `_release_draft_rooms` is imported from `routers/leave.py` and called for every leave candidate, **duplicates included** — the same deliberate over-call `create_leave_bulk` makes, so an all-duplicates save still heals stale room state. The asymmetry is preserved too: `clear` does not restore rooms, matching both `/leave/bulk-delete` and the WFH behaviour.
+
+## Signatures and documents
+
+`backend/app/documents/` holds four pure, framework-free modules — `signature_insert.py`, `restrict_editing.py`, `rtf_signature_insert.py`, `pdf_convert.py` — with `routers/signatures.py` as the only caller. **No processed document is ever written to disk or the database**: `/apply` reads the upload, transforms it in memory, and returns the bytes. The only persisted artifact is the signature image itself (`signatures` table, one row per doctor).
+
+**`POST /apply` sniffs the uploaded bytes and branches on format**, ignoring both the file extension and the declared MIME type — browsers are inconsistent about document MIME types, and a renamed file would sail past either. `{\rtf1` (after stripping any BOM and leading whitespace) is RTF; a `PK` prefix is a zip, treated as docx. Anything else — a legacy `.doc`, a PDF, a stray image — is a 422 with an admin-readable message.
+
+| Upload | Pipeline | Response |
+|---|---|---|
+| `.docx` | `insert_signature` → `apply_read_only_protection` (`DOC_LOCK_PASSWORD`) | `.docx`, Restrict Editing applied |
+| `.rtf` (EMIS Web certificate export) | `insert_signature_rtf` → `convert_to_pdf` | `<stem>-signed.pdf` |
+
+The RTF branch is **splice-then-convert**, and the spliced RTF is never the deliverable — only LibreOffice reads it. That lowers the bar on the generated `\pict` group to "whatever LibreOffice's RTF reader accepts", rather than Word's. It also means the read-only password has no analogue on this path and none is needed: a PDF is a stronger "do not edit this" than `w:documentProtection`.
+
+The alternative considered and rejected was extracting text with `striprtf` and re-rendering through an HTML template, avoiding LibreOffice entirely. The real export is the University of Oxford certificate form — 12 `FORMCHECKBOX` fields, 45 table rows, an embedded crest, section shading — and reassembling that from flattened text fails by **silently corrupting a medico-legal document** (a dropped paragraph of clinical opinion, a tick migrating from "No" to "Yes"), which no assertion can catch, because text you failed to extract is text whose absence you cannot detect.
+
+**Every `soffice` invocation gets its own LibreOffice profile via `-env:UserInstallation`, and this is a correctness requirement, not a tuning knob.** Two concurrent conversions sharing the default profile were measured to collide, and the loser exited non-zero having *silently written no output file* — a request failing with nothing to diagnose. A private profile costs ~1.2 s and ~550 KB, removes the need for any mutex, and has a dedicated regression test. Conversion spawns a fresh process per document (~1.3–1.7 s measured on the real sample); a resident `unoserver` would reach ~0.3–0.8 s but adds a long-running process to supervise, which is not worth it at a handful of certificates a day.
+
+**Converter failures are 502, not 422** — `DocumentFormatError` means "your file is wrong", `ConversionError` means "our converter failed", and conflating them would send an admin hunting a bad upload when LibreOffice is what is broken. `subprocess.run` always carries an explicit timeout so a wedged `soffice` cannot hold a request thread open.
+
+**Deployment depends on LibreOffice being in the image**: `nixpacks.toml` installs `libreoffice-writer` (not `libreoffice-core` — with core alone `soffice` starts fine but every conversion fails with the misleading `Error: source file could not be loaded`) and `fonts-liberation` for the Arial/Times New Roman the template asks for. CI installs the same for the backend test job. `SOFFICE_BIN` overrides the binary path.
 
 ## Conventions
 

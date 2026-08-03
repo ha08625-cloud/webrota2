@@ -1,5 +1,14 @@
 # Plan
 
+**Status.** Tasks 1–4 are implemented and CI-green, and Task 5's documentation
+half is done (`documentation/architecture-clinical.md` now has a "Signatures and
+documents" section and a `/signatures` router row). Task 5 points 1–3 — the
+live Railway conversion of two or three real EMIS exports, the timing figure on
+Railway, and the first-conversion-after-deploy check — **have not been done**;
+they need a deployment and real patient-facing exports, neither of which is
+available from a chat container. This file moves to `documentation/completed/`
+once those three are ticked off.
+
 Extend the existing Signatures feature to accept `.rtf` certificates (EMIS Web
 exports) in addition to `.docx`, insert the doctor's stored signature image
 under the "Signature" label, and return a **PDF** rather than an editable
