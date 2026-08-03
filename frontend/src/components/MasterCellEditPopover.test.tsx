@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Day, MasterRotaSession, Period, Room } from "@/api/types";
+import type { Day, MasterRotaSession, MasterSessionType, Period, Room } from "@/api/types";
 import { makeRoom } from "@/test/fixtures/reference";
 import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -21,8 +21,8 @@ interface RenderPopoverOptions {
   period?: Period;
   sessions?: MasterRotaSession[];
   rooms?: Room[];
-  onPick?: ReturnType<typeof vi.fn>;
-  onDelete?: ReturnType<typeof vi.fn>;
+  onPick?: (sessionType: MasterSessionType, roomId: number | null, displaced: MasterRotaSession | null) => void;
+  onDelete?: () => void;
   saving?: boolean;
 }
 
@@ -35,7 +35,7 @@ function renderPopover(options: RenderPopoverOptions = {}) {
   const period = options.period ?? session?.period ?? "AM";
   const sessions = options.sessions ?? (session ? [session] : []);
   const rooms = options.rooms ?? [makeRoom({ id: 5, code: "D1" })];
-  const onPick = options.onPick ?? vi.fn();
+  const onPick = options.onPick ?? vi.fn<(sessionType: MasterSessionType, roomId: number | null, displaced: MasterRotaSession | null) => void>();
   const onDelete = options.onDelete;
   const saving = options.saving ?? false;
 
