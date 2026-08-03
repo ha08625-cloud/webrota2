@@ -156,11 +156,13 @@ export const handlers: HttpHandler[] = [
     HttpResponse.json({ doctor_id: 1, content_type: "image/png", uploaded_at: "2026-07-18T00:00:00Z" }),
   ),
   http.delete("/api/v1/signatures/:doctorId", () => new HttpResponse(null, { status: 204 })),
+  // The default apply response is the RTF branch's PDF, since that is the
+  // format EMIS certificates arrive in; docx-specific tests stub their own.
   http.post("/api/v1/signatures/:doctorId/apply", () =>
-    new HttpResponse(new Uint8Array([1, 2, 3]).buffer, {
+    new HttpResponse(new Uint8Array([0x25, 0x50, 0x44, 0x46]).buffer, {
       headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": 'attachment; filename="document-signed.docx"',
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="cert-signed.pdf"',
       },
     }),
   ),

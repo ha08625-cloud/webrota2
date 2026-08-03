@@ -21,6 +21,18 @@ function errorMessage(err: ApiError, fallback: string): string {
   return typeof err.detail === "string" ? err.detail : fallback;
 }
 
+/**
+ * Only used when the response carries no Content-Disposition, which the
+ * server always sends - so this is a safety net, not the naming scheme.
+ * It mirrors the server's format branch: .rtf comes back as a PDF, every
+ * other accepted format as a .docx (rtf/pdf plan, Task 4 point 2).
+ */
+function fallbackFilename(uploadedName: string): string {
+  const stem = uploadedName.replace(/\.[^.]*$/, "") || "document";
+  const extension = uploadedName.toLowerCase().endsWith(".rtf") ? "pdf" : "docx";
+  return `${stem}-signed.${extension}`;
+}
+
 interface SignatureRowProps {
   doctor: Doctor;
   meta: SignatureMeta | undefined;
@@ -76,7 +88,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
       { doctorId: doctor.id, file },
       {
         onSuccess: ({ blob, filename }) => {
-          downloadBlob(blob, filename ?? "signed.docx");
+          downloadBlob(blob, filename ?? fallbackFilename(file.name));
           showToast("Document signed and downloaded");
         },
         onError: (err) => showToast(errorMessage(err, "Could not sign this document")),
@@ -168,7 +180,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
         <input
           ref={docInputRef}
           type="file"
-          accept=".docx"
+          accept=".docx,.rtf"
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -195,8 +207,9 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
  * Lists Partner/Salaried active doctors (client-side filter only - the
  * signatures endpoints stay unscoped by doctor_type by design, Decision
  * 9) and lets admin staff upload a signature image per doctor and drop a
- * Word document onto a row to receive a signed, read-only copy back as
- * an immediate download.
+ * document onto a row to receive a signed copy back as an immediate
+ * download. The server decides the returned format from the upload: a
+ * .docx comes back as a read-only .docx, a .rtf as a PDF.
  */
 export function SignaturesPage() {
   const { data: doctors, isLoading, isError } = useDoctors(true);

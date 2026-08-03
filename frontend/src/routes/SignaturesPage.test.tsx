@@ -160,6 +160,69 @@ describe("SignaturesPage", () => {
     expect(await screen.findByText("Document signed and downloaded")).toBeInTheDocument();
   });
 
+  it("apply flow: dropping an rtf fires the mutation and downloads the returned PDF", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
+      signatures: [makeSignatureMeta({ doctor_id: 1 })],
+    });
+    let applied = false;
+    server.use(
+      http.post("/api/v1/signatures/1/apply", () => {
+        applied = true;
+        return new HttpResponse(new Uint8Array([0x25, 0x50, 0x44, 0x46]).buffer, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="cert-signed.pdf"',
+          },
+        });
+      }),
+    );
+
+    renderWithProviders(<SignaturesPage />);
+    const row = (await screen.findByText("PA1")).closest("tr") as HTMLTableRowElement;
+
+    const file = new File(["{\\rtf1 bytes"], "cert.rtf", { type: "application/rtf" });
+    fireEvent.drop(row, { dataTransfer: makeFileDataTransfer(file) });
+
+    await waitFor(() => expect(applied).toBe(true));
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "cert-signed.pdf"));
+    expect(await screen.findByText("Document signed and downloaded")).toBeInTheDocument();
+  });
+
+  it("falls back to a format-appropriate filename when Content-Disposition is missing", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
+      signatures: [makeSignatureMeta({ doctor_id: 1 })],
+    });
+    server.use(
+      http.post("/api/v1/signatures/1/apply", () =>
+        new HttpResponse(new Uint8Array([0x25, 0x50, 0x44, 0x46]).buffer, {
+          headers: { "Content-Type": "application/pdf" },
+        }),
+      ),
+    );
+
+    renderWithProviders(<SignaturesPage />);
+    const row = (await screen.findByText("PA1")).closest("tr") as HTMLTableRowElement;
+
+    const file = new File(["{\\rtf1 bytes"], "cert.rtf", { type: "application/rtf" });
+    fireEvent.drop(row, { dataTransfer: makeFileDataTransfer(file) });
+
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "cert-signed.pdf"));
+  });
+
+  it("offers both .docx and .rtf on the document picker", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
+      signatures: [makeSignatureMeta({ doctor_id: 1 })],
+    });
+    renderWithProviders(<SignaturesPage />);
+    await screen.findByText("PA1");
+
+    const input = document.querySelector('input[type="file"][accept=".docx,.rtf"]');
+    expect(input).not.toBeNull();
+  });
+
   it("dropping a docx on a signature-less row sends no request and shows guidance", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })], signatures: [] });
     let applied = false;
@@ -205,6 +268,32 @@ describe("SignaturesPage", () => {
     fireEvent.drop(row, { dataTransfer: makeFileDataTransfer(file) });
 
     expect(await screen.findByText("Document has no table to insert a signature into")).toBeInTheDocument();
+    expect(downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("shows the server's 502 detail verbatim when PDF conversion fails", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
+      signatures: [makeSignatureMeta({ doctor_id: 1 })],
+    });
+    server.use(
+      http.post("/api/v1/signatures/1/apply", () =>
+        HttpResponse.json(
+          { detail: "Could not convert this document to PDF. Please try again." },
+          { status: 502 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<SignaturesPage />);
+    const row = (await screen.findByText("PA1")).closest("tr") as HTMLTableRowElement;
+
+    const file = new File(["{\\rtf1 bytes"], "cert.rtf", { type: "application/rtf" });
+    fireEvent.drop(row, { dataTransfer: makeFileDataTransfer(file) });
+
+    expect(
+      await screen.findByText("Could not convert this document to PDF. Please try again."),
+    ).toBeInTheDocument();
     expect(downloadBlob).not.toHaveBeenCalled();
   });
 });
