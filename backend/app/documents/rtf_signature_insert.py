@@ -1,0 +1,162 @@
+"""Splices a signature image into an RTF certificate under the "Signature" label.
+
+The RTF path (rtf/pdf plan, Decision 1) is splice-then-convert: this module
+returns modified RTF, which only LibreOffice ever reads before it becomes a
+PDF. The intermediate is never the deliverable, so the generated \\pict group
+only has to satisfy LibreOffice's RTF reader, not Word's.
+
+Two deliberate constraints:
+
+Bytes throughout, never str (Decision 1). RTF is nominally 7-bit ASCII with
+escapes, but real EMIS exports carry raw high bytes, and a decode/encode round
+trip risks corrupting them.
+
+Splice, do not parse (Decision 4). The insertion is a pure string operation
+between two already-balanced groups; an RTF group-tree parser would be
+disproportionate for an edit this narrow. Every assumption is asserted and a
+violation raises DocumentFormatError with a message aimed at a non-technical
+admin -- the same loud-failure philosophy as signature_insert.py's
+column-count check, on the view that a wrong-but-silent insertion into a
+medico-legal document is worse than a visible failure.
+"""
+import re
+
+from docx.image.exceptions import (
+    InvalidImageStreamError,
+    UnexpectedEndOfFileError,
+    UnrecognizedImageError,
+)
+from docx.image.image import Image
+
+from .errors import DocumentFormatError
+
+# The anchor is the "Signature" label *plus* its paragraph break, and that
+# \par is load-bearing (Decision 3). A bare search for "Signature" matches
+# three times in a real export, and the first two hits are the built-in style
+# names "Signature;" and "E-mail Signature;" in the RTF stylesheet and latent
+# style table -- splicing at the first hit would inject the image into the
+# style definitions, not the document body. Those entries are followed by
+# ";" and the next style's \lsd* flags, never by \par.
+#
+# The [\s]* tolerances matter because RTF line breaks are cosmetic: Word wraps
+# its output at roughly 255 characters, so the exact position of the \r\n
+# around the \par is not stable across exports and must not be hard-coded.
+_ANCHOR_RE = re.compile(rb"Signature[\s]*\\par[\s]*\}")
+
+# Signature images are validated as JPEG or PNG at upload time, so no
+# re-encoding is needed (Decision 5) -- the stored bytes are hex-encoded as-is
+# under the matching blip keyword.
+_BLIP_BY_CONTENT_TYPE = {
+    "image/png": b"pngblip",
+    "image/jpeg": b"jpegblip",
+}
+
+# Rendered width, mirroring the docx module's fixed Cm(4): 4 cm x 567
+# twips/cm (Decision 6).
+_TARGET_WIDTH_TWIPS = 2268
+
+# Fallback for images whose header declares no (or a zero) DPI, so the
+# native-size calculation never divides by zero.
+_FALLBACK_DPI = 96
+
+_HUNDREDTHS_MM_PER_INCH = 2540
+
+
+def insert_signature_rtf(
+    rtf_bytes: bytes, image_bytes: bytes, content_type: str
+) -> bytes:
+    """Insert image_bytes as a picture directly beneath the "Signature"
+    label in rtf_bytes, and return the modified RTF bytes.
+
+    content_type is the signature's stored MIME type ("image/png" or
+    "image/jpeg"); where it disagrees with the type parsed from the image
+    header, the header wins.
+
+    Raises DocumentFormatError if rtf_bytes is not RTF, if the Signature
+    anchor is missing or appears more than once (the template has changed
+    and positional assumptions are no longer safe), or if image_bytes is
+    not a readable PNG or JPEG.
+    """
+    _require_rtf(rtf_bytes)
+
+    matches = _ANCHOR_RE.findall(rtf_bytes)
+    if not matches:
+        raise DocumentFormatError(
+            "Could not find the Signature label in this document"
+        )
+    if len(matches) > 1:
+        raise DocumentFormatError(
+            f"Found the Signature label {len(matches)} times in this document, "
+            "expected exactly one -- the certificate template may have changed"
+        )
+
+    match = _ANCHOR_RE.search(rtf_bytes)
+    picture = _build_picture_group(image_bytes, content_type)
+
+    return rtf_bytes[: match.end()] + picture + rtf_bytes[match.end() :]
+
+
+def _require_rtf(rtf_bytes: bytes) -> None:
+    """Validate the RTF magic. Some producers emit a UTF-8 BOM or leading
+    whitespace before the opening group, so check a stripped copy."""
+    head = rtf_bytes[:64]
+    if head.startswith(b"\xef\xbb\xbf"):
+        head = head[3:]
+    if not head.lstrip().startswith(rb"{\rtf1"):
+        raise DocumentFormatError("File is not a valid .rtf document")
+
+
+def _build_picture_group(image_bytes: bytes, content_type: str) -> bytes:
+    """Build the RTF group that renders image_bytes at 4 cm wide."""
+    try:
+        image = Image.from_blob(image_bytes)
+    # python-docx has no common base for these: an unknown format raises
+    # UnrecognizedImageError, but a truncated or malformed file of a known
+    # format raises one of the other two.
+    except (
+        UnrecognizedImageError,
+        InvalidImageStreamError,
+        UnexpectedEndOfFileError,
+    ):
+        raise DocumentFormatError(
+            "The stored signature image could not be read"
+        )
+
+    # The header is authoritative over the caller's stored content type.
+    blip = _BLIP_BY_CONTENT_TYPE.get(image.content_type)
+    if blip is None:
+        blip = _BLIP_BY_CONTENT_TYPE.get(content_type)
+    if blip is None:
+        raise DocumentFormatError(
+            "The stored signature image must be a PNG or JPEG"
+        )
+
+    px_width, px_height = image.px_width, image.px_height
+    if not px_width or not px_height:
+        raise DocumentFormatError(
+            "The stored signature image has no usable dimensions"
+        )
+
+    horz_dpi = image.horz_dpi or _FALLBACK_DPI
+    vert_dpi = image.vert_dpi or _FALLBACK_DPI
+
+    # picw/pich are the image's *native* size in hundredths of a millimetre,
+    # from the header's real DPI; picwgoal/pichgoal are the rendered size in
+    # twips, scaled to a fixed 4 cm width (Decision 6).
+    picw = round(px_width / horz_dpi * _HUNDREDTHS_MM_PER_INCH)
+    pich = round(px_height / vert_dpi * _HUNDREDTHS_MM_PER_INCH)
+    picwgoal = _TARGET_WIDTH_TWIPS
+    pichgoal = round(_TARGET_WIDTH_TWIPS * px_height / px_width)
+
+    # The hex payload is emitted on a single line. Word wraps it at 128
+    # columns, but long lines are legal RTF and LibreOffice reads them.
+    return (
+        b"{{\\pict"
+        + f"\\picw{picw}\\pich{pich}".encode("ascii")
+        + f"\\picwgoal{picwgoal}\\pichgoal{pichgoal}".encode("ascii")
+        + b"\\"
+        + blip
+        + b" "
+        + image_bytes.hex().encode("ascii")
+        + b"}\\par }"
+    )
