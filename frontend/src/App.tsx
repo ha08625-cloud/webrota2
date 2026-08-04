@@ -64,7 +64,6 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
-  { to: "/clinical/signatures", label: "Signatures", end: false },
   { to: "/clinical/users", label: "Users", end: false },
 ];
 
@@ -169,7 +168,6 @@ function ClinicalShell() {
             <Route path="duty" element={<DutyPage />} />
             <Route path="recurring-notes" element={<RecurringNotesPage />} />
             <Route path="counters" element={<CountersPage />} />
-            <Route path="signatures" element={<SignaturesPage />} />
             <Route path="users" element={<UsersPage />} />
           </Routes>
         </main>
@@ -178,6 +176,39 @@ function ClinicalShell() {
   );
 }
  
+/**
+ * Signatures is admin-staff tooling, not part of either rota, so it gets
+ * its own top-level page reachable from the landing page rather than
+ * living under the clinical section.
+ */
+function SignaturesShell() {
+  const { handleLogout, isLoggingOut } = useHandleLogout();
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background text-ink">
+      <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
+        <span className="text-sm font-semibold">Rota Generator - Signatures</span>
+        <div className="flex items-center gap-4">
+          <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
+            Switch app
+          </NavLink>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="text-sm text-ink/80 hover:text-accent disabled:opacity-60"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+      <main className="flex-1 p-6">
+        <SignaturesPage />
+      </main>
+    </div>
+  );
+}
+
 function ReceptionShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
  
@@ -240,6 +271,7 @@ export function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/clinical/*" element={<ClinicalShell />} />
         <Route path="/reception/*" element={<ReceptionShell />} />
+        <Route path="/signatures" element={<SignaturesShell />} />
       </Routes>
     </BrowserRouter>
   );
