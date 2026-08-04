@@ -84,6 +84,18 @@ nixPkgs = ["nodejs_24"]
 nixOverlays = []
 nixpkgsArchive = "ac62194c3917d5f474c1a844b6fd6da2db95077d"
 
+# Every node command runs under `env -u LD_LIBRARY_PATH`, and that is load-bearing.
+# Each setup phase drops a profile.d script exporting its own archive's libraries
+# onto LD_LIBRARY_PATH, and the two archives disagree: the python one contributes
+# gcc-13.3.0-lib (Nov 2024), while nodejs_24 and its icu4c-76.1 were built against
+# gcc-14.3.0-lib. Nix binaries find their libraries through DT_RUNPATH, which
+# LD_LIBRARY_PATH overrides, so the older libstdc++ gets loaded into node and
+# `npm ci` dies with "libicui18n.so.76: version `CXXABI_1.3.15' not found".
+# Clearing the variable for these commands only lets node's own RUNPATH resolve,
+# and leaves the python side of the image untouched. Ordering cannot fix this
+# instead - the scripts are sourced in filename (archive hash) order and each
+# prepends, so which gcc wins is not something this file controls.
+#
 # `npm ci --include=dev` is explicit because nixpacks sets NODE_ENV=production
 # in the build environment, which npm otherwise reads as "omit devDependencies".
 # vite, typescript and tailwind are all devDependencies, so an omitted dev tree
@@ -92,10 +104,10 @@ nixpkgsArchive = "ac62194c3917d5f474c1a844b6fd6da2db95077d"
 cmds = [
   "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
   "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
-  "cd frontend && npm ci --include=dev"
+  "cd frontend && env -u LD_LIBRARY_PATH npm ci --include=dev"
 ]
 
 [phases.build]
 cmds = [
-  "cd frontend && npm run build"
+  "cd frontend && env -u LD_LIBRARY_PATH npm run build"
 ]
