@@ -43,6 +43,12 @@ from .errors import DocumentFormatError
 # around the \par is not stable across exports and must not be hard-coded.
 _ANCHOR_RE = re.compile(rb"Signature[\s]*\\par[\s]*\}")
 
+# Same reasoning as _ANCHOR_RE, for the "Date" cell to the right of the
+# Signature cell. Unlike "Signature", "Date" has no decoy hits in the RTF
+# stylesheet, but the exactly-one-match requirement is kept anyway as the
+# same loud-failure guard against a template change.
+_DATE_ANCHOR_RE = re.compile(rb"Date[\s]*\\par[\s]*\}")
+
 # Signature images are validated as JPEG or PNG at upload time, so no
 # re-encoding is needed (Decision 5) -- the stored bytes are hex-encoded as-is
 # under the matching blip keyword.
@@ -94,6 +100,36 @@ def insert_signature_rtf(
     picture = _build_picture_group(image_bytes, content_type)
 
     return rtf_bytes[: match.end()] + picture + rtf_bytes[match.end() :]
+
+
+def insert_date_rtf(rtf_bytes: bytes, date_text: str) -> bytes:
+    """Insert date_text as a new paragraph directly beneath the "Date"
+    label in rtf_bytes, and return the modified RTF bytes.
+
+    Intended to run after insert_signature_rtf, on its output, splicing at
+    a separate anchor -- so this is called as a second pass, not folded
+    into the same function.
+
+    Raises DocumentFormatError if rtf_bytes is not RTF, or if the Date
+    anchor is missing or appears more than once.
+    """
+    _require_rtf(rtf_bytes)
+
+    matches = _DATE_ANCHOR_RE.findall(rtf_bytes)
+    if not matches:
+        raise DocumentFormatError("Could not find the Date label in this document")
+    if len(matches) > 1:
+        raise DocumentFormatError(
+            f"Found the Date label {len(matches)} times in this document, "
+            "expected exactly one -- the certificate template may have changed"
+        )
+
+    match = _DATE_ANCHOR_RE.search(rtf_bytes)
+    # Mirrors the character formatting of the existing "Date" label
+    # paragraph (\f0\fs20\lang2057), so the inserted line matches it.
+    paragraph = b"{\\f0\\fs20\\lang2057 " + date_text.encode("ascii") + b"\\par }"
+
+    return rtf_bytes[: match.end()] + paragraph + rtf_bytes[match.end() :]
 
 
 def _require_rtf(rtf_bytes: bytes) -> None:

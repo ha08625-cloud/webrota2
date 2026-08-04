@@ -9,6 +9,7 @@ used to live here tested the M3.5 API_TOKEN shim, which get_current_user no
 longer implements, and was removed rather than rewritten.
 """
 import base64
+import datetime
 import io
 import shutil
 from pathlib import Path
@@ -175,6 +176,10 @@ class TestApply:
         drawings = bottom_left_cell._tc.findall(".//" + qn("w:drawing"))
         assert len(drawings) == 1
 
+        today = datetime.date.today().strftime("%d/%m/%Y")
+        bottom_right_cell = out_doc.tables[0].rows[-1].cells[1]
+        assert today in bottom_right_cell.text
+
         protections = out_doc.settings.element.findall(qn("w:documentProtection"))
         assert len(protections) == 1
 
@@ -316,6 +321,18 @@ class TestApplyRtf:
 
         assert resp.status_code == 422
         assert "signature label" in resp.json()["detail"].lower()
+
+    def test_apply_rtf_without_the_date_anchor_422(self, client, db_session):
+        """Runs everywhere: same as the Signature-anchor test above, for
+        the Date anchor, and needs no LibreOffice either -- the splice
+        fails before conversion is attempted."""
+        doctor_id = self._prepare(client, db_session)
+        without_anchor = SAMPLE_RTF_PATH.read_bytes().replace(b"Date", b"Da-te")
+
+        resp = self._post_rtf(client, doctor_id, without_anchor)
+
+        assert resp.status_code == 422
+        assert "date label" in resp.json()["detail"].lower()
 
     def test_apply_rtf_no_signature_stored_409_before_converting(
         self, client, db_session, monkeypatch

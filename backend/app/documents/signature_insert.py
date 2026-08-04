@@ -48,3 +48,19 @@ def insert_signature(docx_bytes: bytes, image_bytes: bytes) -> Document:
     cell.paragraphs[0].add_run().add_picture(io.BytesIO(image_bytes), width=Cm(4))
 
     return document
+
+
+def insert_date(document: Document, date_text: str) -> None:
+    """Insert date_text into the cell to the right of the signature cell
+    (bottom row, second column of the first table), as a new paragraph.
+
+    Must be called on a document that has already been through
+    insert_signature, which validates the table exists and has exactly two
+    columns -- this function relies on that, rather than re-checking, since
+    the two are always used together. A new paragraph is appended rather
+    than writing into the existing first paragraph, because unlike the
+    signature cell (confirmed empty), this cell commonly already carries a
+    "Date" label.
+    """
+    cell = document.tables[0].rows[-1].cells[1]
+    cell.add_paragraph(date_text)

@@ -292,10 +292,12 @@ Nothing here 409s on a state that already matches — the grid sends the state i
 
 | Upload | Pipeline | Response |
 |---|---|---|
-| `.docx` | `insert_signature` → `apply_read_only_protection` (`DOC_LOCK_PASSWORD`) | `.docx`, Restrict Editing applied |
-| `.rtf` (EMIS Web certificate export) | `insert_signature_rtf` → `convert_to_pdf` | `<stem>-signed.pdf` |
+| `.docx` | `insert_signature` → `insert_date` → `apply_read_only_protection` (`DOC_LOCK_PASSWORD`) | `.docx`, Restrict Editing applied |
+| `.rtf` (EMIS Web certificate export) | `insert_signature_rtf` → `insert_date_rtf` → `convert_to_pdf` | `<stem>-signed.pdf` |
 
 The RTF branch is **splice-then-convert**, and the spliced RTF is never the deliverable — only LibreOffice reads it. That lowers the bar on the generated `\pict` group to "whatever LibreOffice's RTF reader accepts", rather than Word's. It also means the read-only password has no analogue on this path and none is needed: a PDF is a stronger "do not edit this" than `w:documentProtection`.
+
+**Today's date is stamped into the cell to the right of the signature** on both paths (`insert_date`/`insert_date_rtf`, router-computed `%d/%m/%Y`). The docx side appends a new paragraph rather than overwriting the target cell, since — unlike the signature cell — that cell commonly already carries a "Date" label; the RTF side reuses the Signature anchor's exactly-one-match, loud-failure pattern against a second anchor (`Date[\s]*\\par[\s]*\}`), splicing a sibling paragraph with the same character formatting as the existing label.
 
 The alternative considered and rejected was extracting text with `striprtf` and re-rendering through an HTML template, avoiding LibreOffice entirely. The real export is the University of Oxford certificate form — 12 `FORMCHECKBOX` fields, 45 table rows, an embedded crest, section shading — and reassembling that from flattened text fails by **silently corrupting a medico-legal document** (a dropped paragraph of clinical opinion, a tick migrating from "No" to "Yes"), which no assertion can catch, because text you failed to extract is text whose absence you cannot detect.
 

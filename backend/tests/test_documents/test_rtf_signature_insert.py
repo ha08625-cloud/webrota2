@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 
 from app.documents.errors import DocumentFormatError
-from app.documents.rtf_signature_insert import insert_signature_rtf
+from app.documents.rtf_signature_insert import insert_date_rtf, insert_signature_rtf
 
 SAMPLE_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
 ANCHOR_RE = re.compile(rb"Signature[\s]*\\par[\s]*\}")
+DATE_ANCHOR_RE = re.compile(rb"Date[\s]*\\par[\s]*\}")
 
 
 @pytest.fixture
@@ -204,3 +205,52 @@ class TestRejectsBadInput:
 
         with pytest.raises(DocumentFormatError, match="PNG or JPEG"):
             insert_signature_rtf(sample_rtf, gif_bytes, "image/gif")
+
+
+class TestInsertDateRtf:
+    def test_inserts_the_date_after_the_date_anchor(self, sample_rtf):
+        result = insert_date_rtf(sample_rtf, "04/08/2026")
+
+        anchor_end = DATE_ANCHOR_RE.search(result).end()
+        assert result.index(b"{\\f0\\fs20\\lang2057 04/08/2026\\par }") == anchor_end
+
+    def test_is_a_pure_insertion(self, sample_rtf):
+        result = insert_date_rtf(sample_rtf, "04/08/2026")
+
+        anchor_end = DATE_ANCHOR_RE.search(sample_rtf).end()
+        inserted_length = len(result) - len(sample_rtf)
+
+        assert result[:anchor_end] == sample_rtf[:anchor_end]
+        assert result[anchor_end + inserted_length :] == sample_rtf[anchor_end:]
+
+    def test_composes_after_insert_signature_rtf(self, sample_rtf):
+        """The router's real usage: splice the signature first, then the
+        date, on the same bytes."""
+        spliced = insert_signature_rtf(sample_rtf, _png_bytes(), "image/png")
+        result = insert_date_rtf(spliced, "04/08/2026")
+
+        assert result.startswith(rb"{\rtf1")
+        assert rb"\pict" in result
+        assert b"04/08/2026" in result
+
+    def test_rejects_non_rtf(self):
+        with pytest.raises(DocumentFormatError, match="not a valid .rtf"):
+            insert_date_rtf(b"not rtf at all", "04/08/2026")
+
+    def test_rejects_a_missing_anchor(self, sample_rtf):
+        without_anchor = DATE_ANCHOR_RE.sub(b"Endorsement\\\\par }", sample_rtf)
+        assert DATE_ANCHOR_RE.search(without_anchor) is None
+
+        with pytest.raises(DocumentFormatError, match="Could not find the Date"):
+            insert_date_rtf(without_anchor, "04/08/2026")
+
+    def test_rejects_a_duplicated_anchor(self, sample_rtf):
+        match = DATE_ANCHOR_RE.search(sample_rtf)
+        duplicated = (
+            sample_rtf[: match.end()]
+            + sample_rtf[match.start() : match.end()]
+            + sample_rtf[match.end() :]
+        )
+
+        with pytest.raises(DocumentFormatError, match="2 times"):
+            insert_date_rtf(duplicated, "04/08/2026")
