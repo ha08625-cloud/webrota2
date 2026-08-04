@@ -44,6 +44,16 @@ providers = ["python", "node"]
 # This adds a few hundred MB to the image. That is accepted: the
 # alternative is a separate conversion service for a handful of
 # certificates a day.
+#
+# The node provider has no frontend/package.json at this scanned root to read
+# an engines.node field from (see above), so it silently fell back to its
+# default (Node 18) - too old for vite 8, which requires Node >=20.19/22.12
+# and needs node:util's styleText export that only exists from Node 20.12+.
+# Pinned explicitly to match frontend/package.json's engines field and the
+# Node version CI runs on (.github/workflows/ci.yml).
+[variables]
+NIXPACKS_NODE_VERSION = "24"
+
 [phases.install]
 cmds = [
   "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
