@@ -180,7 +180,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
         <input
           ref={docInputRef}
           type="file"
-          accept=".docx,.rtf"
+          accept=".rtf,.docx"
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
