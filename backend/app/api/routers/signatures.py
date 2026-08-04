@@ -34,6 +34,8 @@ from ...documents import (
     DocumentFormatError,
     apply_read_only_protection,
     convert_to_pdf,
+    insert_date,
+    insert_date_rtf,
     insert_signature,
     insert_signature_rtf,
     save_docx,
@@ -214,6 +216,11 @@ def apply_signature(
     if len(document_bytes) > _MAX_DOCX_BYTES:
         raise HTTPException(status_code=413, detail="Document exceeds 10 MB")
 
+    # UK date format, matching the certificate template's day-month-year
+    # convention (documentation/architecture-clinical.md's other en-GB date
+    # helpers use the same order).
+    date_text = datetime.date.today().strftime("%d/%m/%Y")
+
     # The size cap applies to the upload only. The spliced RTF is larger --
     # hex encoding doubles the image's contribution -- but it is never
     # returned or stored, so it only affects peak memory (Decision 13).
@@ -222,10 +229,12 @@ def apply_signature(
             spliced = insert_signature_rtf(
                 document_bytes, signature.image, signature.content_type
             )
+            spliced = insert_date_rtf(spliced, date_text)
             out_bytes = convert_to_pdf(spliced, ".rtf")
             media_type, extension = _PDF_MEDIA_TYPE, "pdf"
         else:
             document = insert_signature(document_bytes, signature.image)
+            insert_date(document, date_text)
             apply_read_only_protection(
                 document, os.environ.get("DOC_LOCK_PASSWORD", DEFAULT_LOCK_PASSWORD)
             )

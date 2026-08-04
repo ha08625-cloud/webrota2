@@ -12,7 +12,7 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from app.documents.errors import DocumentFormatError
-from app.documents.signature_insert import insert_signature
+from app.documents.signature_insert import insert_date, insert_signature
 
 # A minimal valid 1x1 red PNG -- small enough to hardcode, but a real,
 # structurally valid PNG (verified: decodes to a 1x1 image).
@@ -97,3 +97,44 @@ class TestInsertSignature:
 
         with pytest.raises(DocumentFormatError, match="2 columns"):
             insert_signature(docx_bytes, _minimal_png_bytes())
+
+
+class TestInsertDate:
+    def test_appends_a_new_paragraph_to_the_bottom_right_cell(self):
+        docx_bytes = _make_docx_bytes()
+        document = Document(io.BytesIO(docx_bytes))
+
+        insert_date(document, "04/08/2026")
+
+        cell = document.tables[0].rows[-1].cells[1]
+        # The cell's existing content ("r2c1", per _make_docx_bytes) is left
+        # in place -- the date lands in a new paragraph after it, not
+        # overwriting it.
+        assert cell.paragraphs[0].text == "r2c1"
+        assert cell.paragraphs[-1].text == "04/08/2026"
+
+    def test_other_cells_are_untouched(self):
+        docx_bytes = _make_docx_bytes(rows=3, cols=2)
+        document = Document(io.BytesIO(docx_bytes))
+
+        insert_date(document, "04/08/2026")
+
+        table = document.tables[0]
+        for r in range(3):
+            for c in range(2):
+                if r == 2 and c == 1:
+                    continue
+                expected = "" if (r == 2 and c == 0) else f"r{r}c{c}"
+                assert table.rows[r].cells[c].text == expected
+
+    def test_survives_a_save_and_reopen_round_trip(self):
+        docx_bytes = _make_docx_bytes()
+        document = Document(io.BytesIO(docx_bytes))
+        insert_date(document, "04/08/2026")
+
+        buffer = io.BytesIO()
+        document.save(buffer)
+        reopened = Document(io.BytesIO(buffer.getvalue()))
+
+        cell = reopened.tables[0].rows[-1].cells[1]
+        assert "04/08/2026" in cell.text
