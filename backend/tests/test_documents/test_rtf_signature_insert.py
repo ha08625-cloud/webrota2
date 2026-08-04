@@ -20,7 +20,7 @@ from app.documents.rtf_signature_insert import insert_date_rtf, insert_signature
 SAMPLE_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
 ANCHOR_RE = re.compile(rb"Signature[\s]*\\par[\s]*\}")
-DATE_ANCHOR_RE = re.compile(rb"Date[\s]*\\par[\s]*\}")
+DATE_ANCHOR_RE = re.compile(rb"\{([^{}]*?)Date[\s]*(\\par|\\cell)[\s]*\}")
 
 
 @pytest.fixture
@@ -45,6 +45,25 @@ def _png_bytes(width: int = 200, height: int = 80) -> bytes:
         + chunk(b"IDAT", zlib.compress(raw))
         + chunk(b"IEND", b"")
     )
+
+
+def _brace_depth(rtf_bytes: bytes) -> int:
+    """Net group nesting, skipping escaped characters -- 0 for well-formed
+    RTF. A splice that dropped or added a brace would still look plausible
+    in a substring assertion but would break every reader."""
+    depth = 0
+    index = 0
+    while index < len(rtf_bytes):
+        char = rtf_bytes[index : index + 1]
+        if char == b"\\":
+            index += 2
+            continue
+        if char == b"{":
+            depth += 1
+        elif char == b"}":
+            depth -= 1
+        index += 1
+    return depth
 
 
 def _jpeg_bytes(width: int = 200, height: int = 80) -> bytes:
@@ -208,20 +227,57 @@ class TestRejectsBadInput:
 
 
 class TestInsertDateRtf:
-    def test_inserts_the_date_after_the_date_anchor(self, sample_rtf):
+    def test_inserts_the_date_below_the_date_label(self, sample_rtf):
+        """The label's paragraph gains a \\par, the date becomes the next
+        paragraph, and the cell's original terminator moves onto it -- so the
+        date lands inside the Date cell rather than after it."""
         result = insert_date_rtf(sample_rtf, "04/08/2026")
 
-        anchor_end = DATE_ANCHOR_RE.search(result).end()
-        assert result.index(b"{\\f0\\fs20\\lang2057 04/08/2026\\par }") == anchor_end
+        match = DATE_ANCHOR_RE.search(sample_rtf)
+        formatting, terminator = match.group(1), match.group(2)
+        # The sample's label run is bold (\b\f1); the date's is the same run
+        # without it.
+        assert (
+            b"{" + formatting + b"Date\\par }"
+            b"{" + formatting.replace(b"\\b\\f1", b"\\f1") + b"04/08/2026"
+            + terminator + b" }"
+        ) in result
 
-    def test_is_a_pure_insertion(self, sample_rtf):
+    def test_the_inserted_date_is_not_bold(self, sample_rtf):
+        """The label is bold in a real export; the date under it should not
+        inherit that, but should keep the label's font and size."""
         result = insert_date_rtf(sample_rtf, "04/08/2026")
 
-        anchor_end = DATE_ANCHOR_RE.search(sample_rtf).end()
-        inserted_length = len(result) - len(sample_rtf)
+        run = result[result.rindex(b"{", 0, result.index(b"04/08/2026")) :]
+        run = run[: run.index(b"04/08/2026")]
+        assert re.search(rb"\\a?b(?![a-zA-Z0-9])", run) is None
+        assert rb"\f1\fs20" in run
 
-        assert result[:anchor_end] == sample_rtf[:anchor_end]
-        assert result[anchor_end + inserted_length :] == sample_rtf[anchor_end:]
+    def test_leaves_the_rest_of_the_document_untouched(self, sample_rtf):
+        result = insert_date_rtf(sample_rtf, "04/08/2026")
+
+        match = DATE_ANCHOR_RE.search(sample_rtf)
+        assert result[: match.start()] == sample_rtf[: match.start()]
+        assert result[len(result) - (len(sample_rtf) - match.end()) :] == (
+            sample_rtf[match.end() :]
+        )
+
+    def test_keeps_the_document_brace_balanced(self, sample_rtf):
+        result = insert_date_rtf(sample_rtf, "04/08/2026")
+
+        assert _brace_depth(result) == _brace_depth(sample_rtf) == 0
+
+    def test_matches_a_label_terminated_by_par(self, sample_rtf):
+        """Word ends a cell's last paragraph with \\cell alone (what the
+        sample carries), but ends it with \\par when the cell holds a further
+        paragraph. Both are legal, and both must anchor."""
+        par_form = DATE_ANCHOR_RE.sub(
+            lambda m: b"{" + m.group(1) + b"Date\\par }\\cell", sample_rtf, count=1
+        )
+
+        result = insert_date_rtf(par_form, "04/08/2026")
+
+        assert b"04/08/2026\\par }\\cell" in result
 
     def test_composes_after_insert_signature_rtf(self, sample_rtf):
         """The router's real usage: splice the signature first, then the
@@ -238,7 +294,11 @@ class TestInsertDateRtf:
             insert_date_rtf(b"not rtf at all", "04/08/2026")
 
     def test_rejects_a_missing_anchor(self, sample_rtf):
-        without_anchor = DATE_ANCHOR_RE.sub(b"Endorsement\\\\par }", sample_rtf)
+        # Rename the body label, leaving the "Date;" style-table entries in
+        # place.
+        without_anchor = DATE_ANCHOR_RE.sub(
+            lambda m: b"{" + m.group(1) + b"Endorsed" + m.group(2) + b" }", sample_rtf
+        )
         assert DATE_ANCHOR_RE.search(without_anchor) is None
 
         with pytest.raises(DocumentFormatError, match="Could not find the Date"):
