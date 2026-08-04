@@ -88,14 +88,27 @@ nixpkgsArchive = "ac62194c3917d5f474c1a844b6fd6da2db95077d"
 # in the build environment, which npm otherwise reads as "omit devDependencies".
 # vite, typescript and tailwind are all devDependencies, so an omitted dev tree
 # would break the build phase below rather than this command.
+#
+# Every node/npm invocation is prefixed with `env -u LD_LIBRARY_PATH`. The
+# python setup phase exports its "libraries" derivation (which contains
+# gcc-13.3.0-lib from nixpacks' own older archive) on LD_LIBRARY_PATH so
+# compiled wheels can find libstdc++. But LD_LIBRARY_PATH outranks the
+# RUNPATH baked into the Node binary, so Node 24 from the newer archive
+# (see node:setup above) gets the gcc-13 libstdc++ instead of its own -
+# and its icu4c-76.1 needs CXXABI_1.3.15, which gcc-13's libstdc++ lacks:
+# `version 'CXXABI_1.3.15' not found`. Unsetting the variable for the node
+# commands lets the loader fall back to Node's RUNPATH, which resolves
+# every library from the matching snapshot. npm's native frontend deps
+# (rolldown etc.) are manylinux prebuilds resolved by the Ubuntu base
+# image's loader, so they don't need the nix library path either.
 [phases.install]
 cmds = [
   "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
   "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
-  "cd frontend && npm ci --include=dev"
+  "cd frontend && env -u LD_LIBRARY_PATH npm ci --include=dev"
 ]
 
 [phases.build]
 cmds = [
-  "cd frontend && npm run build"
+  "cd frontend && env -u LD_LIBRARY_PATH npm run build"
 ]
