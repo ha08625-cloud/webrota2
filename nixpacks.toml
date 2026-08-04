@@ -45,20 +45,54 @@ providers = ["python", "node"]
 # alternative is a separate conversion service for a handful of
 # certificates a day.
 #
-# The node provider has no frontend/package.json at this scanned root to read
-# an engines.node field from (see above), so it silently fell back to its
-# default (Node 18) - too old for vite 8, which requires Node >=20.19/22.12
-# and needs node:util's styleText export that only exists from Node 20.12+.
-# Pinned explicitly to match frontend/package.json's engines field and the
-# Node version CI runs on (.github/workflows/ci.yml).
-[variables]
-NIXPACKS_NODE_VERSION = "24"
+# Node comes from an explicitly overridden setup phase rather than from the
+# node provider's own defaults, for two compounding reasons.
+#
+# First, the provider has no frontend/package.json at this scanned root to
+# read an engines.node field from (see above), so it silently fell back to
+# its default (Node 18) - too old for vite 8, which requires Node
+# >=20.19/22.12 and needs node:util's styleText export that only exists
+# from Node 20.12+.
+#
+# Second, NIXPACKS_NODE_VERSION alone cannot fix that here. It only changes
+# which attribute name the provider asks for (nodejs_<version>), and it
+# still resolves that name against the nixpkgs archive nixpacks v1.41 pins
+# for node - ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7, a November 2024
+# snapshot. Setting it to 24 failed the build outright with "undefined
+# variable 'nodejs_24'", because that snapshot only carries nodejs_18/20/22/23.
+# Nor is there a usable version in it to fall back to: its nodejs_22 is
+# 22.11.0 and its nodejs_20 is 20.18.x, both just below vite 8's
+# ^20.19.0 || >=22.12.0 floor, and nodejs_23 is an EOL odd-numbered release
+# that vitest's engines field already excludes.
+#
+# So the phase overrides nixpkgsArchive too, pointing node (and only node -
+# the python setup phase keeps its own archive) at the nixos-25.05 channel
+# revision, where nodejs_24 is 24.11.1. That matches frontend/package.json's
+# engines field and the Node version CI runs on (.github/workflows/ci.yml).
+# Node is a build-time dependency only: it compiles the frontend bundle and
+# nothing in the running container uses it, so this pin affects build output
+# reproducibility, not runtime behaviour. To move the version later, bump the
+# archive to a revision that has the wanted nodejs_* attribute rather than
+# just editing the package name.
+#
+# nixOverlays is emptied deliberately. The provider's default adds railway's
+# nix-npm-overlay to pull in a standalone npm-9_x; nodejs_24 already bundles
+# npm 11, which reads this repo's lockfileVersion 3 lockfile fine, and
+# dropping the overlay removes a second archive fetch from the build.
+[phases."node:setup"]
+nixPkgs = ["nodejs_24"]
+nixOverlays = []
+nixpkgsArchive = "ac62194c3917d5f474c1a844b6fd6da2db95077d"
 
+# `npm ci --include=dev` is explicit because nixpacks sets NODE_ENV=production
+# in the build environment, which npm otherwise reads as "omit devDependencies".
+# vite, typescript and tailwind are all devDependencies, so an omitted dev tree
+# would break the build phase below rather than this command.
 [phases.install]
 cmds = [
   "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
   "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
-  "cd frontend && npm ci"
+  "cd frontend && npm ci --include=dev"
 ]
 
 [phases.build]
