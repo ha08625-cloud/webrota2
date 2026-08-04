@@ -2,32 +2,52 @@
 
 ## certificate_sample.rtf
 
-**Synthetic, not a real EMIS Web export.** The rtf/pdf plan asks for the real
-`Certificates_administration_DUCK_Donald_Ms_0907_20Jul2026.rtf` to be
-committed here; that file was not available to the implementation chat, so
-this is a structural stand-in built to reproduce the features the RTF splice
-actually depends on:
+**Synthetic, not a real EMIS Web export**, but its signature table is now
+copied verbatim from one. The first version of this file was written without
+a real export to hand and guessed that table's markup; the guess was wrong in
+a way that shipped a bug (see "Date" below), so the parts the splice actually
+reads are no longer invented.
+
+It is deliberately not the real export. `Certificates_administration_DUCK_
+Donald_Ms_0907_20Jul2026.rtf` carries no patient data -- the record is a
+dummy -- but it does carry the practice's letterhead, address, phone and NHS
+e-mail, and this repository is public. The structure below is what the tests
+need; the rest of the export is not.
+
+Features reproduced:
 
 - an RTF header, font table and colour table
-- a `\stylesheet` defining styles literally named `Signature;` and
-  `E-mail Signature;`, plus a `\*\latentstyles` table repeating both names --
-  these are the decoys that make the bare string "Signature" match three
-  times, and are what the anchor regex's `\par` exists to skip
+- a `\stylesheet` defining styles literally named `Signature;`,
+  `E-mail Signature;` and `Date;`, plus a `\*\latentstyles` table repeating
+  them -- these are the decoys that make a bare string search for either
+  label hit the style tables before the document body
+- the phrase "Date of birth" in the body, a second decoy for the Date anchor
 - one pre-existing `\pngblip` (standing in for the Oxford crest), so tests
   can assert the splice takes the blip count from one to two
 - `FORMCHECKBOX` form fields
-- a two-column signature table whose left cell holds the `Signature` label,
-  with a cosmetic line break between the label and its `\par` (Word wraps RTF
-  output at ~255 columns, so the break's position is not stable across
-  exports and the anchor must tolerate it)
+- the two-column signature table, run for run as Word writes it:
+
+  ```
+  {FMT Signature\par }{FMT \cell }{FMT Date\cell }
+  ```
+
+  Three things here are load-bearing. The cosmetic line break between
+  `Signature` and its `\par` (Word wraps RTF output at ~255 columns, so the
+  break's position is not stable across exports and the anchor must tolerate
+  it). The bold `\b` on both labels, which the inserted date must *not*
+  inherit. And the asymmetry between the two labels: the Signature cell holds
+  a second, empty paragraph so its label ends with an explicit `\par`, while
+  the Date cell holds one paragraph only and `\cell` terminates it directly
+  with no `\par` anywhere. The original fixture gave Date a `\par` by analogy
+  with Signature, the Date anchor was written to match, and the feature failed
+  on every real certificate with "Could not find the Date label in this
+  document" while the tests passed.
 
 It was verified to convert cleanly through `soffice --headless --convert-to
 pdf`, both before and after splicing, with the signature rendering inside the
-Signature cell.
+Signature cell and the date beneath the Date label. The same check was run
+against the real export.
 
-**Replace it with a real export when one is available**, and re-run
-`tests/test_documents/test_rtf_signature_insert.py`. The tests are written
-against structure rather than exact offsets, so a real file should drop in.
-Two things to confirm on the real file: that the anchor regex still matches
-exactly once, and that the checked-in copy carries no patient data beyond a
-synthetic test record.
+**If a real export is ever committed here**, confirm both anchors still match
+exactly once, and that it carries no patient data and nothing about the
+practice that should not be public.

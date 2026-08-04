@@ -43,11 +43,34 @@ from .errors import DocumentFormatError
 # around the \par is not stable across exports and must not be hard-coded.
 _ANCHOR_RE = re.compile(rb"Signature[\s]*\\par[\s]*\}")
 
-# Same reasoning as _ANCHOR_RE, for the "Date" cell to the right of the
-# Signature cell. Unlike "Signature", "Date" has no decoy hits in the RTF
-# stylesheet, but the exactly-one-match requirement is kept anyway as the
-# same loud-failure guard against a template change.
-_DATE_ANCHOR_RE = re.compile(rb"Date[\s]*\\par[\s]*\}")
+# The "Date" cell to the right of the Signature cell. This anchor cannot
+# mirror _ANCHOR_RE, because the two labels are not terminated the same way
+# in a real export:
+#
+#   {FMT Signature\par }{FMT \cell }{FMT Date\cell }
+#
+# The Signature cell holds a second, empty paragraph, so its label paragraph
+# ends with an explicit \par and the \cell arrives in a later run. The Date
+# cell holds one paragraph only, so \cell terminates the label paragraph
+# directly and no \par is ever written. An earlier version of this module
+# looked for "Date...\par" and therefore never matched a real certificate.
+#
+# Both terminators are accepted and captured, because either is legal Word
+# output for a cell's last paragraph, and the insertion (below) is the same
+# shape in both cases.
+#
+# The leading \{([^{}]*?) captures the label run's own character formatting,
+# which the inserted line reuses so it picks up the template's font and size
+# rather than hard-coding them. Anchoring on the run's opening brace also
+# rules out the "Date;" style names in the stylesheet and latent style table
+# by construction: those are followed by ";", never by \par or \cell.
+_DATE_ANCHOR_RE = re.compile(rb"\{([^{}]*?)Date[\s]*(\\par|\\cell)[\s]*\}")
+
+# Bold, in both its Latin (\b) and associated/complex-script (\ab) forms, as
+# whole control words -- the trailing lookahead stops \b matching inside
+# \brdrw and keeps \b0 (bold *off*) intact. Stripped from the formatting the
+# inserted date inherits, so the date is not bold like its label.
+_BOLD_RE = re.compile(rb"\\a?b(?![a-zA-Z0-9])")
 
 # Signature images are validated as JPEG or PNG at upload time, so no
 # re-encoding is needed (Decision 5) -- the stored bytes are hex-encoded as-is
@@ -106,6 +129,10 @@ def insert_date_rtf(rtf_bytes: bytes, date_text: str) -> bytes:
     """Insert date_text as a new paragraph directly beneath the "Date"
     label in rtf_bytes, and return the modified RTF bytes.
 
+    The new paragraph inherits the label's own character formatting minus
+    its bold, so the date picks up whatever font and size the template uses
+    rather than hard-coding one.
+
     Intended to run after insert_signature_rtf, on its output, splicing at
     a separate anchor -- so this is called as a second pass, not folded
     into the same function.
@@ -125,11 +152,42 @@ def insert_date_rtf(rtf_bytes: bytes, date_text: str) -> bytes:
         )
 
     match = _DATE_ANCHOR_RE.search(rtf_bytes)
-    # Mirrors the character formatting of the existing "Date" label
-    # paragraph (\f0\fs20\lang2057), so the inserted line matches it.
-    paragraph = b"{\\f0\\fs20\\lang2057 " + date_text.encode("ascii") + b"\\par }"
+    formatting, terminator = match.group(1), match.group(2)
 
-    return rtf_bytes[: match.end()] + paragraph + rtf_bytes[match.end() :]
+    # The label run is rewritten rather than appended to: its terminator moves
+    # onto the new run, so the label's paragraph now ends with \par and the
+    # date's paragraph ends with whatever ended the cell before. The result is
+    # two paragraphs where there was one, and the cell still closes exactly
+    # once.
+    replacement = (
+        b"{"
+        + formatting
+        + b"Date\\par }{"
+        + _delimited(_BOLD_RE.sub(b"", formatting))
+        + _escape_rtf(date_text)
+        + terminator
+        + b" }"
+    )
+
+    return rtf_bytes[: match.start()] + replacement + rtf_bytes[match.end() :]
+
+
+def _delimited(formatting: bytes) -> bytes:
+    """Guarantee a delimiter between the trailing control word of formatting
+    and the text that follows it. Word writes one, but it is not required to:
+    "\\fs20" abutting a date would otherwise be read as "\\fs2004", silently
+    resizing the text and eating the first digits."""
+    if not formatting or formatting[-1:].isspace():
+        return formatting
+    return formatting + b" "
+
+
+def _escape_rtf(text: str) -> bytes:
+    """Escape the three characters RTF treats as markup. The caller's date is
+    generated, not user-supplied, so this is belt and braces rather than a
+    sanitiser."""
+    escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    return escaped.encode("ascii")
 
 
 def _require_rtf(rtf_bytes: bytes) -> None:
