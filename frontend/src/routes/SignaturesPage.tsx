@@ -132,7 +132,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
       className={`border-t border-border ${isDragOver ? "bg-accent/10" : ""}`}
     >
       <td className="py-1 pr-4">{doctor.code}</td>
-      <td className="py-1 pr-4">
+      <td className="py-1 pr-2">
         {hasSignature ? (
           imageDataUrl ? (
             <img src={imageDataUrl} alt={`Signature for ${doctor.code}`} className="h-10 object-contain" />
@@ -223,7 +223,7 @@ export function SignaturesPage() {
   const metaByDoctorId = new Map((signatures ?? []).map((s) => [s.doctor_id, s]));
 
   return (
-    <div>
+    <div className="mx-auto max-w-2xl">
       <h1 className="text-lg font-semibold">Signatures</h1>
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
@@ -236,11 +236,17 @@ export function SignaturesPage() {
       {groups.map((group) => (
         <div key={group.type} className="mt-6">
           <h2 className="text-sm font-medium text-ink/70">{group.label}</h2>
-          <table className="mt-2 min-w-full text-sm">
+          <table className="mt-2 w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-20" />
+              <col className="w-32" />
+              <col className="w-32" />
+              <col />
+            </colgroup>
             <thead>
               <tr className="text-left text-ink/70">
                 <th className="py-1 pr-4 font-medium">Code</th>
-                <th className="py-1 pr-4 font-medium">Signature</th>
+                <th className="py-1 pr-2 font-medium">Signature</th>
                 <th className="py-1 pr-4 font-medium" />
                 <th className="py-1 font-medium">Sign a document</th>
               </tr>
