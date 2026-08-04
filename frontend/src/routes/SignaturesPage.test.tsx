@@ -219,7 +219,7 @@ describe("SignaturesPage", () => {
     renderWithProviders(<SignaturesPage />);
     await screen.findByText("PA1");
 
-    const input = document.querySelector('input[type="file"][accept=".docx,.rtf"]');
+    const input = document.querySelector('input[type="file"][accept=".rtf,.docx"]');
     expect(input).not.toBeNull();
   });
 
