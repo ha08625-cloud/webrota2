@@ -26,9 +26,9 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
   // Leave entitlement (leave entitlement and balances). The empty default
-  // renders the "no doctors with an entitlement" line rather than an error,
-  // so every LeavePage test that isn't about balances stays unaffected;
-  // tests that are about them stub real rows.
+  // means no doctor has a balance line or a sessions/week mismatch flag, so
+  // every LeavePage and DoctorsPage test that isn't about those stays
+  // unaffected; tests that are about them stub real rows.
   http.get("/api/v1/leave/entitlement", () =>
     HttpResponse.json({
       year: 2026,

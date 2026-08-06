@@ -9,7 +9,7 @@ import {
   useLeaveEntitlements,
 } from "@/api/leave";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
-import { LeaveEntitlementBalances } from "@/components/LeaveEntitlementBalances";
+import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
 import { parseLocalDate } from "@/lib/date";
@@ -118,12 +118,16 @@ export function LeavePage() {
   // cache; the preview isn't rendered in that state anyway.
   const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId);
 
-  // The doctor filter narrows the balances too, so filtering to one
-  // doctor gives one screen about that doctor rather than a full-practice
-  // table above their entries.
-  const entitlementRows = (entitlement?.doctors ?? []).filter(
-    (row) => filterDoctorId === null || row.doctor_id === filterDoctorId,
-  );
+  // Entitlement is a per-doctor figure only: with no doctor selected there
+  // is no single balance to state, and the full-practice table that used to
+  // sit at the top of the tab was more visual load than it was worth.
+  // Undefined (still loading) and "no row for this doctor" (an AHP or locum,
+  // who have no entitlement) both collapse to null - the summary renders
+  // nothing either way, and the loading flag below covers the first case.
+  const entitlementRow =
+    filterDoctorId === null
+      ? null
+      : ((entitlement?.doctors ?? []).find((row) => row.doctor_id === filterDoctorId) ?? null);
 
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
   const filterDoctorGroups = groupDoctorsByType(allDoctors ?? []);
@@ -351,16 +355,6 @@ export function LeavePage() {
   });
 
   return (
-    <div className="flex flex-col gap-4">
-    <LeaveEntitlementBalances
-      year={calendarYear}
-      onPrevYear={() => setCalendarYear((y) => y - 1)}
-      onNextYear={() => setCalendarYear((y) => y + 1)}
-      rows={entitlementRows}
-      isLoading={entitlementLoading}
-      isError={entitlementError}
-    />
-
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <div className="min-w-0 lg:flex-1">
       <form
@@ -599,15 +593,22 @@ export function LeavePage() {
 
       {filterDoctorId !== null ? (
         <div className="min-w-0 lg:flex-1">
+          <LeaveEntitlementSummary
+            year={calendarYear}
+            row={entitlementRow}
+            isLoading={entitlementLoading}
+            isError={entitlementError}
+          />
+          <div className="mt-3">
           <LeaveYearCalendar
             year={calendarYear}
             onPrevYear={() => setCalendarYear((y) => y - 1)}
             onNextYear={() => setCalendarYear((y) => y + 1)}
             entries={entries ?? []}
           />
+          </div>
         </div>
       ) : null}
-    </div>
     </div>
   );
 }

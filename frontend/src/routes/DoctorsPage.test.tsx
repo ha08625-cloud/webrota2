@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { formatDate } from "@/lib/date";
-import { makeDoctor } from "@/test/fixtures/reference";
+import { makeDoctor, makeLeaveEntitlement } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -237,5 +237,51 @@ describe("DoctorsPage", () => {
 
     expect(await screen.findByText("Server error")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Deactivate instead" })).not.toBeInTheDocument();
+  });
+
+  // The warning moved here from the Individual Leave tab: it is about the
+  // sessions/week field, which is edited here and nowhere else.
+  describe("sessions/week mismatch flag", () => {
+    function stubEntitlement(rows: ReturnType<typeof makeLeaveEntitlement>[]) {
+      server.use(
+        http.get("/api/v1/leave/entitlement", () =>
+          HttpResponse.json({
+            year: 2026,
+            from_date: "2026-01-01",
+            to_date: "2026-12-31",
+            doctors: rows,
+          }),
+        ),
+      );
+    }
+
+    it("flags a doctor whose master template disagrees with their sessions/week", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "6.0" })] });
+      stubEntitlement([
+        makeLeaveEntitlement({
+          doctor_id: 1,
+          doctor_code: "AB",
+          sessions_per_week: "6.0",
+          template_sessions_per_week: 8,
+          sessions_mismatch: true,
+        }),
+      ]);
+      renderWithProviders(<DoctorsPage />);
+
+      expect(await screen.findByTestId("sessions-mismatch-AB")).toHaveTextContent(
+        "Template implies 8",
+      );
+      expect(screen.getByText(/accrues and is spent in different units/)).toBeInTheDocument();
+    });
+
+    it("says nothing when the template and sessions/week agree", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "6.0" })] });
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      renderWithProviders(<DoctorsPage />);
+
+      await screen.findByText("AB");
+      expect(screen.queryByTestId("sessions-mismatch-AB")).not.toBeInTheDocument();
+      expect(screen.queryByText(/different units/)).not.toBeInTheDocument();
+    });
   });
 });

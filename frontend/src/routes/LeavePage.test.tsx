@@ -645,16 +645,23 @@ describe("LeavePage", () => {
 
     expect(doctorCodes).toEqual(["ZZ", "ZZ", "AA", "AA"]);
   });
-  describe("leave entitlement panel", () => {
-    it("renders a balance row per doctor above the leave table", async () => {
+  describe("leave entitlement summary", () => {
+    /** The two-doctor practice every test in this block filters within. */
+    function setUpTwoDoctors() {
       setUpServer({
         doctors: [
           makeDoctor({ id: 1, code: "AB", active: true }),
           makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true }),
         ],
       });
-      captureEntitlementYears([
-        makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB", used_sessions: 10, remaining_sessions: "26.0" }),
+      return captureEntitlementYears([
+        makeLeaveEntitlement({
+          doctor_id: 1,
+          doctor_code: "AB",
+          used_sessions: 10,
+          entitlement_sessions: "36.0",
+          remaining_sessions: "26.0",
+        }),
         makeLeaveEntitlement({
           doctor_id: 2,
           doctor_code: "CD",
@@ -664,10 +671,30 @@ describe("LeavePage", () => {
           remaining_sessions: "66.0",
         }),
       ]);
+    }
+
+    async function filterTo(user: ReturnType<typeof userEvent.setup>, code: string) {
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      await user.selectOptions(filter, await within(filter).findByRole("option", { name: code }));
+    }
+
+    it("shows nothing until a doctor is selected", async () => {
+      setUpTwoDoctors();
       renderWithProviders(<LeavePage />);
 
-      expect(await screen.findByTestId("remaining-AB")).toHaveTextContent("26");
-      expect(screen.getByTestId("remaining-CD")).toHaveTextContent("66");
+      expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+      expect(screen.queryByTestId("leave-entitlement")).not.toBeInTheDocument();
+    });
+
+    it("shows only the selected doctor's fraction once one is picked", async () => {
+      const user = userEvent.setup();
+      setUpTwoDoctors();
+      renderWithProviders(<LeavePage />);
+
+      await filterTo(user, "AB");
+
+      expect(await screen.findByTestId("leave-fraction-AB")).toHaveTextContent("10/36");
+      expect(screen.queryByTestId("leave-fraction-CD")).not.toBeInTheDocument();
     });
 
     it("queries the current year by default", async () => {
@@ -678,41 +705,35 @@ describe("LeavePage", () => {
       await waitFor(() => expect(years).toEqual([String(new Date().getFullYear())]));
     });
 
-    it("re-queries when the year is stepped", async () => {
+    it("re-queries when the calendar year is stepped", async () => {
       const user = userEvent.setup();
-      setUpServer();
+      setUpTwoDoctors();
       const years = captureEntitlementYears([]);
       renderWithProviders(<LeavePage />);
 
       const thisYear = new Date().getFullYear();
       await waitFor(() => expect(years).toEqual([String(thisYear)]));
 
-      await user.click(screen.getByLabelText("Next leave year"));
+      // The year control lives on the calendar, which only renders once a
+      // doctor is selected - the same gate the summary is behind.
+      await filterTo(user, "AB");
+      await user.click(await screen.findByLabelText("Next year"));
 
       await waitFor(() => expect(years).toContain(String(thisYear + 1)));
     });
 
-    it("narrows the balances to the filtered doctor", async () => {
+    it("says nothing for a doctor with no entitlement row", async () => {
       const user = userEvent.setup();
       setUpServer({
-        doctors: [
-          makeDoctor({ id: 1, code: "AB", active: true }),
-          makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true }),
-        ],
+        doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "AHP", active: true })],
       });
-      captureEntitlementYears([
-        makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" }),
-        makeLeaveEntitlement({ doctor_id: 2, doctor_code: "CD", doctor_type: "Partner" }),
-      ]);
+      captureEntitlementYears([]);
       renderWithProviders(<LeavePage />);
 
-      expect(await screen.findByTestId("remaining-CD")).toBeInTheDocument();
+      await filterTo(user, "AB");
 
-      const filter = screen.getByLabelText("Doctor", { selector: "#leave-filter" });
-      await user.selectOptions(filter, await within(filter).findByRole("option", { name: "AB" }));
-
-      await waitFor(() => expect(screen.queryByTestId("remaining-CD")).not.toBeInTheDocument());
-      expect(screen.getByTestId("remaining-AB")).toBeInTheDocument();
+      expect(await screen.findByTestId("leave-year-calendar")).toBeInTheDocument();
+      expect(screen.queryByTestId("leave-entitlement")).not.toBeInTheDocument();
     });
   });
 });
