@@ -18,10 +18,11 @@ const UPCOMING_WEEK_COUNT = 12;
  * Advisory duty-staffing status for every week the selected (startDate,
  * numWeeks) combination would cover - read-only, matches the marker
  * already shown on the Duty page (same isDutyWeekComplete rule, now
- * including closures - see below), so a user picking a start week can
- * see up front whether duty still needs filling in before they generate
- * against it. Nothing here blocks generation; the backend has no such
- * check either.
+ * including closures - see below). Rendered in the duty preview sidebar,
+ * above the DutyGrid it summarises, so a user picking a start week can see
+ * at a glance which weeks still need filling in before generating against
+ * them. Nothing here blocks generation; the backend has no such check
+ * either.
  */
 function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: number }) {
   const { data: dutyAssignments, isLoading: dutyLoading, isError: dutyError } = useDuty();
@@ -244,7 +245,6 @@ function StartStagingForm({
         </select>
       </div>
 
-      <DutyStatusList startDate={startDate} numWeeks={numWeeks} />
       <ClinicStatusList />
 
       <button
@@ -392,11 +392,9 @@ export function RotaPage() {
             Duty for {formatWeekLabel(startDate)}
             {numWeeks > 1 ? ` - ${numWeeks} weeks` : ""}
           </h2>
-          <p className="mt-1 text-xs text-ink/50">
-            Adjust duty for the selected week(s) here without leaving this page.
-          </p>
+          <DutyStatusList startDate={startDate} numWeeks={numWeeks} />
           <div className="mt-3 overflow-x-auto">
-            <DutyGrid startWeekDate={startDate} weeks={numWeeks} />
+            <DutyGrid startWeekDate={startDate} weeks={numWeeks} showCounts={false} />
           </div>
         </div>
       ) : null}

@@ -44,9 +44,17 @@ interface DutyGridProps {
    * week for a new rota.
    */
   weeks?: number;
+  /**
+   * Whether to show the period/year raw+weighted count columns next to each
+   * doctor chip. Defaults to true (the Duty page's full view). RotaPage's
+   * compact sidebar preview turns this off - those counters are about
+   * fairness bookkeeping across a duty period, not about picking a doctor
+   * for a specific slot right now.
+   */
+  showCounts?: boolean;
 }
 
-export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS }: DutyGridProps) {
+export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts = true }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
   // Counters are deliberately period-scoped, not all-time: the 4-weekly
@@ -166,21 +174,25 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS }: DutyGridP
         <div className="w-80 shrink-0">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-medium text-ink/70">Doctors</h2>
-            <div className="flex gap-3 text-xs text-ink/50">
-              <span className="w-[4.5rem] text-center">Period</span>
-              <span className="w-[4.5rem] text-center">Year</span>
-            </div>
+            {showCounts ? (
+              <div className="flex gap-3 text-xs text-ink/50">
+                <span className="w-[4.5rem] text-center">Period</span>
+                <span className="w-[4.5rem] text-center">Year</span>
+              </div>
+            ) : null}
           </div>
-          <div className="flex items-center justify-end gap-3 text-xs text-ink/50">
-            <div className="flex gap-1">
-              <span className="w-8 text-right">n</span>
-              <span className="w-10 text-right">wtd</span>
+          {showCounts ? (
+            <div className="flex items-center justify-end gap-3 text-xs text-ink/50">
+              <div className="flex gap-1">
+                <span className="w-8 text-right">n</span>
+                <span className="w-10 text-right">wtd</span>
+              </div>
+              <div className="flex gap-1">
+                <span className="w-8 text-right">n</span>
+                <span className="w-10 text-right">wtd</span>
+              </div>
             </div>
-            <div className="flex gap-1">
-              <span className="w-8 text-right">n</span>
-              <span className="w-10 text-right">wtd</span>
-            </div>
-          </div>
+          ) : null}
           <div className="mt-2 space-y-3">
             {doctorGroups.map((group) => (
               <div key={group.type}>
@@ -200,34 +212,38 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS }: DutyGridP
                         <div className="flex-1">
                           <DraggableDoctorChip doctorId={d.id} doctorCode={d.code} />
                         </div>
-                        <div className="flex gap-1">
-                          <span
-                            data-testid={`duty-period-raw-${d.id}`}
-                            className="w-8 text-right text-xs tabular-nums text-ink/70"
-                          >
-                            {raw ?? "–"}
-                          </span>
-                          <span
-                            data-testid={`duty-period-wtd-${d.id}`}
-                            className="w-10 text-right text-xs tabular-nums text-ink/70"
-                          >
-                            {wtd ?? "–"}
-                          </span>
-                        </div>
-                        <div className="flex gap-1">
-                          <span
-                            data-testid={`duty-annual-raw-${d.id}`}
-                            className="w-8 text-right text-xs tabular-nums text-ink/70"
-                          >
-                            {annualRaw ?? "–"}
-                          </span>
-                          <span
-                            data-testid={`duty-annual-wtd-${d.id}`}
-                            className="w-10 text-right text-xs tabular-nums text-ink/70"
-                          >
-                            {annualWtd ?? "–"}
-                          </span>
-                        </div>
+                        {showCounts ? (
+                          <>
+                            <div className="flex gap-1">
+                              <span
+                                data-testid={`duty-period-raw-${d.id}`}
+                                className="w-8 text-right text-xs tabular-nums text-ink/70"
+                              >
+                                {raw ?? "–"}
+                              </span>
+                              <span
+                                data-testid={`duty-period-wtd-${d.id}`}
+                                className="w-10 text-right text-xs tabular-nums text-ink/70"
+                              >
+                                {wtd ?? "–"}
+                              </span>
+                            </div>
+                            <div className="flex gap-1">
+                              <span
+                                data-testid={`duty-annual-raw-${d.id}`}
+                                className="w-8 text-right text-xs tabular-nums text-ink/70"
+                              >
+                                {annualRaw ?? "–"}
+                              </span>
+                              <span
+                                data-testid={`duty-annual-wtd-${d.id}`}
+                                className="w-10 text-right text-xs tabular-nums text-ink/70"
+                              >
+                                {annualWtd ?? "–"}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
                       </div>
                     );
                   })}
