@@ -374,6 +374,85 @@ export interface LeaveBulkDeleteOut {
   deleted_count: number;
 }
 
+// --- Leave entitlement (schemas/leave_entitlement.py) ---
+
+/**
+ * Why booked leave sessions did not charge against the balance, in
+ * *display* order. This is deliberately not the order the backend computes
+ * them in: closure is checked last there, so `closed` means "the doctor
+ * would have worked this slot but the practice was shut", not merely "a
+ * closure fell on it". See app/leave_charging.py.
+ *
+ * `no_template_row` is the one that must never be folded into a single
+ * "exempt" figure: a large count there means the doctor's master template
+ * was never populated, not that they were not due in.
+ */
+export interface LeaveExemptions {
+  closed: number;
+  weekend: number;
+  no_template_row: number;
+  no_surgery: number;
+}
+
+/**
+ * One doctor's leave entitlement, usage and balance for one leave year
+ * (1 Jan - 31 Dec). All session counts are sessions (one AM or PM half
+ * day), and every Decimal arrives as a string, like Doctor.sessions_per_week.
+ *
+ * The entitlement chain, in order: `weeks` x `sessions_per_week` =
+ * `full_year_sessions`; x `pro_rata_fraction` = `rule_sessions`;
+ * `override_sessions` replaces that when set; then carry-over and
+ * adjustment are added, giving `entitlement_sessions`. Every intermediate
+ * is on the wire so a balance can be reconstructed rather than trusted.
+ *
+ * The nullable fields are null exactly when the doctor's type has no
+ * entitlement (AHP, Locum). The list endpoint omits those doctors
+ * entirely; only the single-doctor read can return one.
+ */
+export interface LeaveEntitlement {
+  doctor_id: number;
+  doctor_code: string;
+  doctor_type: DoctorType;
+  year: number;
+  sessions_per_week: string;
+
+  weeks: string | null;
+  full_year_sessions: string | null;
+  pro_rata_fraction: string;
+  rule_sessions: string | null;
+  override_sessions: string | null;
+  carry_over_sessions: string;
+  adjustment_sessions: string;
+  entitlement_sessions: string | null;
+
+  /** Chargeable sessions - not the raw row count, which is `booked_sessions`. */
+  used_sessions: number;
+  booked_sessions: number;
+  exempt_by_reason: LeaveExemptions;
+  remaining_sessions: string | null;
+
+  /**
+   * Working sessions a week implied by the week-1 master template
+   * (everything except NO_SURGERY). Leave is *charged* against this while
+   * entitlement is *credited* against sessions_per_week, so when
+   * `sessions_mismatch` is true the balance accrues and burns in different
+   * units and the figure on screen is only as good as whichever field is
+   * wrong. An unpopulated template reads 0 and is never a mismatch - it
+   * shows up in `exempt_by_reason.no_template_row` instead.
+   */
+  template_sessions_per_week: number;
+  sessions_mismatch: boolean;
+
+  notes: string | null;
+}
+
+export interface LeaveEntitlementYear {
+  year: number;
+  from_date: string;
+  to_date: string;
+  doctors: LeaveEntitlement[];
+}
+
 // --- Extra sessions (schemas/extra_session.py, extra sessions plan) ---
 // Plans a doctor working a session they would not normally work
 // (Task 1). No bulk endpoints (Design Decision 10) - a single date plus

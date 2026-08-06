@@ -49,6 +49,11 @@ from .leave import (
     LeaveIn,
     LeaveOut,
 )
+from .leave_entitlement import (
+    LeaveEntitlementIn,
+    LeaveEntitlementOut,
+    LeaveEntitlementYearOut,
+)
 from .leave_planning import (
     CoverageSlotOut,
     PlanningActionIn,
@@ -113,6 +118,7 @@ __all__ = [
     "PreferredRoomIn", "PreferredRoomOut",
     "ExtraSessionIn", "ExtraSessionOut", "BlockedOut",
     "LeaveIn", "LeaveOut",
+    "LeaveEntitlementIn", "LeaveEntitlementOut", "LeaveEntitlementYearOut",
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
     "LeaveChargeableCountOut", "LeaveExemptionsOut",

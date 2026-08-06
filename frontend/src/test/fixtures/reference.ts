@@ -8,6 +8,7 @@ import type {
   DoctorDetail,
   DutyAssignment,
   ExtraSessionEntry,
+  LeaveEntitlement,
   LeaveEntry,
   RecurringNote,
   Room,
@@ -79,6 +80,42 @@ export function makeLeaveEntry(overrides: Partial<LeaveEntry> = {}): LeaveEntry 
     doctor_id: 1,
     date: "2026-08-03",
     period: "AM",
+    ...overrides,
+  };
+}
+
+/**
+ * A doctor's leave balance row. Defaults are a salaried doctor working 6
+ * sessions a week with nothing booked: 6 x 6 = 36 sessions, all remaining,
+ * template in agreement so no warning renders. Override
+ * `template_sessions_per_week`/`sessions_mismatch` together - the fixture
+ * does not derive one from the other, because tests need to be able to
+ * build the inconsistent combinations the server would never send.
+ */
+export function makeLeaveEntitlement(
+  overrides: Partial<LeaveEntitlement> = {},
+): LeaveEntitlement {
+  return {
+    doctor_id: 1,
+    doctor_code: "AB",
+    doctor_type: "Salaried",
+    year: 2026,
+    sessions_per_week: "6.0",
+    weeks: "6",
+    full_year_sessions: "36.0",
+    pro_rata_fraction: "1.000",
+    rule_sessions: "36.0",
+    override_sessions: null,
+    carry_over_sessions: "0.0",
+    adjustment_sessions: "0.0",
+    entitlement_sessions: "36.0",
+    used_sessions: 0,
+    booked_sessions: 0,
+    exempt_by_reason: { closed: 0, weekend: 0, no_template_row: 0, no_surgery: 0 },
+    remaining_sessions: "36.0",
+    template_sessions_per_week: 6,
+    sessions_mismatch: false,
+    notes: null,
     ...overrides,
   };
 }

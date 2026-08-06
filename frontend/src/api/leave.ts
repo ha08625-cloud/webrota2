@@ -7,6 +7,7 @@ import type {
   LeaveBulkDeleteOut,
   LeaveBulkIn,
   LeaveBulkOut,
+  LeaveEntitlementYear,
   LeaveEntry,
   LeaveIn,
 } from "./types";
@@ -14,7 +15,23 @@ import type {
 export const leaveKeys = {
   all: ["leave"] as const,
   list: (doctorId: number | null) => [...leaveKeys.all, "list", doctorId] as const,
+  entitlement: (year: number) => [...leaveKeys.all, "entitlement", year] as const,
 };
+
+/**
+ * Balances for every doctor the practice tracks leave for, in `year`.
+ *
+ * Under `leaveKeys.all` on purpose: `used_sessions` is derived from the
+ * same rows the list hook returns, so every leave mutation below already
+ * invalidates this without needing a second key added to each of them.
+ */
+export function useLeaveEntitlements(year: number) {
+  return useQuery({
+    queryKey: leaveKeys.entitlement(year),
+    queryFn: () =>
+      apiClient.get<LeaveEntitlementYear>(`/leave/entitlement?year=${year}`),
+  });
+}
 
 /** doctorId=null means unfiltered (the "all doctors" option in the filter select). */
 export function useLeave(doctorId: number | null) {
