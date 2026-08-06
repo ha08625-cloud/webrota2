@@ -459,6 +459,48 @@ describe("RotaPage", () => {
       const badges = screen.getAllByTestId(/generate-clinic-status-/);
       expect(badges.map((el) => el.textContent)).toEqual(["Diabetic clinic", "Asthma clinic", "Retired clinic"]);
     });
+
+    it("unchecking a clinic's checkbox fires a PATCH with only is_enabled", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      server.use(
+        http.get("/api/v1/clinic-types", () =>
+          HttpResponse.json([makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: true })]),
+        ),
+      );
+      let capturedBody: unknown;
+      server.use(
+        http.patch("/api/v1/clinic-types/:id", async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json(makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: false }));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<RotaPage />);
+      await user.click(await screen.findByLabelText("Enabled for Diabetic clinic"));
+
+      await waitFor(() => expect(capturedBody).toEqual({ is_enabled: false }));
+    });
+
+    it("a patch failure surfaces an error message", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      server.use(
+        http.get("/api/v1/clinic-types", () =>
+          HttpResponse.json([makeClinicType({ id: 1, name: "Diabetic clinic", is_enabled: true })]),
+        ),
+      );
+      server.use(
+        http.patch("/api/v1/clinic-types/:id", () =>
+          HttpResponse.json({ detail: "ClinicType 1 patch violates a uniqueness constraint" }, { status: 409 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<RotaPage />);
+      await user.click(await screen.findByLabelText("Enabled for Diabetic clinic"));
+
+      expect(
+        await screen.findByText("ClinicType 1 patch violates a uniqueness constraint"),
+      ).toBeInTheDocument();
+    });
   });
 
   describe("history tabs", () => {
