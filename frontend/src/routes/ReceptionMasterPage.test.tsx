@@ -9,6 +9,20 @@ import { server } from "@/test/msw/server";
 
 import { ReceptionMasterPage } from "./ReceptionMasterPage";
 
+/**
+ * A run's first cell renders two nodes with the same text (an invisible
+ * spacer plus the visible, centred chip) - this picks out the visible one
+ * via jest-dom's own visibility check, since jsdom has no `checkVisibility`.
+ */
+function isVisible(element: HTMLElement): boolean {
+  try {
+    expect(element).toBeVisible();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function setUpServer({
   staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })],
   sessions = [] as ReturnType<typeof makeReceptionMasterSession>[],
@@ -143,7 +157,12 @@ describe("ReceptionMasterPage", () => {
     await screen.findByLabelText("Role");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await within(screen.getByTestId("reception-cell-1-8")).findByText("Phones");
+    // Cell 8 heads the merged run, so it now carries two "Phones" nodes: an
+    // invisible in-flow spacer (keeps the popover trigger's hit box sized)
+    // and the visible chip, centred across the run.
+    const cell8PhonesChips = await within(screen.getByTestId("reception-cell-1-8")).findAllByText("Phones");
+    expect(cell8PhonesChips).toHaveLength(2);
+    expect(cell8PhonesChips.filter(isVisible)).toHaveLength(1);
     expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).not.toBeVisible();
 
     expect(patchBody).toEqual({ role: "phones", note: null });

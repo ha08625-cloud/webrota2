@@ -195,7 +195,12 @@ describe("ReceptionGrid: run merging", () => {
     const second = screen.getByTestId("reception-cell-1-9.5");
     const third = screen.getByTestId("reception-cell-1-10");
 
-    expect(within(first).getByText("Phones")).toBeVisible();
+    // The run's first cell now carries two "Phones" nodes: an invisible
+    // in-flow spacer (keeps the popover trigger's hit box sized) and the
+    // visible chip, centred across the run.
+    const firstCellChips = within(first).getAllByText("Phones");
+    expect(firstCellChips).toHaveLength(2);
+    expect(firstCellChips.filter(isVisible)).toHaveLength(1);
     expect(within(second).getByText("Phones")).not.toBeVisible();
     expect(within(third).getByText("Phones")).not.toBeVisible();
     expect(first).not.toHaveAttribute("data-run-continuation", "true");
@@ -216,7 +221,9 @@ describe("ReceptionGrid: run merging", () => {
         saving={false}
       />,
     );
-    expect(within(screen.getByTestId("reception-cell-1-9")).getByText("cover")).toBeVisible();
+    const cell9CoverNotes = within(screen.getByTestId("reception-cell-1-9")).getAllByText("cover");
+    expect(cell9CoverNotes).toHaveLength(2);
+    expect(cell9CoverNotes.filter(isVisible)).toHaveLength(1);
     expect(within(screen.getByTestId("reception-cell-1-9.5")).getByText("cover")).not.toBeVisible();
     expect(within(screen.getByTestId("reception-cell-1-10")).getByText("cover")).not.toBeVisible();
   });
@@ -379,6 +386,20 @@ describe("selectedRangeHours", () => {
     expect(selectedRangeHours(null, 1)).toEqual([]);
   });
 });
+
+/**
+ * A run's first cell renders two nodes with the same text (an invisible
+ * spacer plus the visible, centred chip) - this picks out the visible one
+ * via jest-dom's own visibility check, since jsdom has no `checkVisibility`.
+ */
+function isVisible(element: HTMLElement): boolean {
+  try {
+    expect(element).toBeVisible();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function shiftClick(user: ReturnType<typeof userEvent.setup>, element: HTMLElement) {
   await user.keyboard("{Shift>}");

@@ -26,6 +26,20 @@ async function defaultMonday(): Promise<string> {
   return select.value;
 }
 
+/**
+ * A run's first cell renders two nodes with the same text (an invisible
+ * spacer plus the visible, centred chip) - this picks out the visible one
+ * via jest-dom's own visibility check, since jsdom has no `checkVisibility`.
+ */
+function isVisible(element: HTMLElement): boolean {
+  try {
+    expect(element).toBeVisible();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("ReceptionDayPage", () => {
   it("offers Generate from template for an ungenerated weekday, and generating renders the grid", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
@@ -263,7 +277,12 @@ describe("ReceptionDayPage", () => {
     await screen.findByLabelText("Role");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await within(screen.getByTestId("reception-cell-1-9")).findByText("Phones");
+    // Cell 9 heads the merged run, so it now carries two "Phones" nodes: an
+    // invisible in-flow spacer (keeps the popover trigger's hit box sized)
+    // and the visible chip, centred across the run.
+    const cell9PhonesChips = await within(screen.getByTestId("reception-cell-1-9")).findAllByText("Phones");
+    expect(cell9PhonesChips).toHaveLength(2);
+    expect(cell9PhonesChips.filter(isVisible)).toHaveLength(1);
     expect(within(screen.getByTestId("reception-cell-1-10")).getByText("Phones")).not.toBeVisible();
     expect(within(screen.getByTestId("reception-cell-1-11")).getByText("Phones")).not.toBeVisible();
     expect(postedHours).toEqual([9, 9.5, 10.5, 11]);
