@@ -63,6 +63,13 @@ import {
  *  - out of window: the doctor is not employed on that date. Plain absent
  *    grey - there is nothing to plan, but the practice is open.
  *
+ * Separately from the drag selection, clicking a doctor's name in the
+ * sticky left column *selects that doctor*: their row is tinted so it can
+ * be followed to the right-hand edge of a wide month, and the page shows
+ * their leave balance. That selection is owned by the page (it drives the
+ * balance line too), lives across month changes, and never touches cell
+ * state or what an edit writes.
+ *
  * A "normal" cell (no leave, no extra session) is further split purely by
  * colour, not state: `isSurgerySession` (COUNTED_TYPES) decides whether it
  * reads as a working session (bright white) or a no-surgery one (medium
@@ -118,6 +125,12 @@ const CELL_CLASSES: Record<PlanningCellState, string> = {
 };
 
 const NO_SURGERY_NORMAL_CLASS = "bg-gray-300 text-ink/40 hover:bg-accent/10";
+
+/** A working session on the selected doctor's row. The only cell class the
+ * row highlight overrides: plain white cells are what break the band up,
+ * and unlike leave/extra/blocked (and the no-surgery grey) white carries no
+ * meaning of its own that a tint could be mistaken for. */
+const ROW_SELECTED_NORMAL_CLASS = "bg-accent/20 text-ink/40 hover:bg-accent/30";
 
 const CELL_TITLES: Record<PlanningCellState, string> = {
   normal: "Working as normal",
@@ -230,6 +243,13 @@ export interface LeavePlanningGridProps {
    * `buildTemplateIndex`. Used only to colour normal cells (see the module
    * docstring) - has no bearing on state or the coverage total. */
   templateTypes: Map<string, MasterSessionType>;
+  /** The doctor whose row is highlighted, or null for none. Purely a
+   * reading aid (and the page's cue for whose leave balance to show) - it
+   * has no bearing on what a cell says or on what an edit writes. */
+  selectedDoctorId: number | null;
+  /** Fired when a doctor's name in the left column is clicked. The page
+   * owns the toggle so it can clear the balance line at the same time. */
+  onSelectDoctor: (doctorId: number) => void;
   /** Fired when the cell popover's Apply button is pressed, with every
    * editable cell in the selection (one for a plain click) plus the
    * picked state and note - the popover and the selection are this
@@ -255,6 +275,8 @@ export function LeavePlanningGrid({
   closedSlots,
   totals,
   templateTypes,
+  selectedDoctorId,
+  onSelectDoctor,
   onApply,
 }: LeavePlanningGridProps) {
   const [selection, setSelection] = useState<GridSelection | null>(null);
@@ -456,16 +478,39 @@ export function LeavePlanningGrid({
               </tbody>
             ) : null}
             <tbody>
-              {doctors.map((doctor) => (
-                <tr key={doctor.id}>
-                  <td className="sticky left-0 z-10 whitespace-nowrap border-b-2 border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium">
-                    {doctor.code}
+              {doctors.map((doctor) => {
+                // Tints the cell padding rather than the cells themselves,
+                // so the row reads as a band without repainting any cell
+                // state - a leave cell must stay unmistakably green.
+                const rowSelected = doctor.id === selectedDoctorId;
+                return (
+                <tr key={doctor.id} data-testid={`planning-row-${doctor.id}`} data-row-selected={rowSelected ? "true" : "false"}>
+                  {/* The tint sits on the button, not this cell: the cell
+                      is the sticky column, so a translucent background on
+                      it would let scrolled cells show through it. */}
+                  <td className="sticky left-0 z-10 whitespace-nowrap border-b-2 border-r-[3px] border-ink/40 bg-background p-0 font-medium">
+                    <button
+                      type="button"
+                      data-testid={`planning-doctor-label-${doctor.id}`}
+                      aria-pressed={rowSelected}
+                      title={`Highlight ${doctor.code}'s row and show their leave balance`}
+                      onClick={() => onSelectDoctor(doctor.id)}
+                      className={`block w-full px-2 py-1 text-left hover:underline ${
+                        rowSelected ? "bg-accent/30" : ""
+                      }`}
+                    >
+                      {doctor.code}
+                    </button>
                   </td>
                   {dates.map((date) => (
                     <td
                       key={date}
                       className={`border-b-2 ${weekDividerClass(date)} border-ink/40 p-0.5 align-top ${
-                        isInMonth(date, year, month) ? "" : "bg-ink/[0.03]"
+                        rowSelected
+                          ? "bg-accent/20"
+                          : isInMonth(date, year, month)
+                            ? ""
+                            : "bg-ink/[0.03]"
                       }`}
                     >
                       {PLANNING_PERIODS.map((period) => (
@@ -478,6 +523,7 @@ export function LeavePlanningGrid({
                           closedSlots={closedSlots}
                           templateTypes={templateTypes}
                           selected={selectedKeys.has(planningCellKey(doctor.id, date, period))}
+                          rowSelected={rowSelected}
                           isFocus={
                             selection !== null &&
                             selection.doctorId === doctor.id &&
@@ -493,7 +539,8 @@ export function LeavePlanningGrid({
                     </td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
@@ -587,7 +634,8 @@ export function LeavePlanningGrid({
       </div>
 
       <p className="mt-1 text-xs text-ink/50">
-        Drag across a row, or shift+click, to set a range.
+        Drag across a row, or shift+click, to set a range. Click a doctor's name to highlight
+        their row and see their leave balance.
       </p>
 
       <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -612,6 +660,10 @@ interface PlanningCellHalfProps {
   templateTypes: Map<string, MasterSessionType>;
   /** In the current drag selection - highlighted even when inert. */
   selected: boolean;
+  /** This doctor's row is the highlighted one. Tints working sessions so
+   * the band stays followable to the right edge; see
+   * ROW_SELECTED_NORMAL_CLASS. */
+  rowSelected: boolean;
   /** The selection's moving endpoint: what the popover anchors at, and
    * what focus returns to when it closes. */
   isFocus: boolean;
@@ -639,6 +691,7 @@ function PlanningCellHalf({
   closedSlots,
   templateTypes,
   selected,
+  rowSelected,
   isFocus,
   focusCellRef,
   onCellMouseDown,
@@ -697,8 +750,12 @@ function PlanningCellHalf({
 
   const day = weekdayName(date);
   const templateType = day === null ? undefined : templateTypes.get(templateKey(doctor.id, day, period));
-  const stateClass =
-    state === "normal" && !isSurgerySession(templateType) ? NO_SURGERY_NORMAL_CLASS : CELL_CLASSES[state];
+  const normalClass = !isSurgerySession(templateType)
+    ? NO_SURGERY_NORMAL_CLASS
+    : rowSelected
+      ? ROW_SELECTED_NORMAL_CLASS
+      : CELL_CLASSES.normal;
+  const stateClass = state === "normal" ? normalClass : CELL_CLASSES[state];
 
   return (
     <button

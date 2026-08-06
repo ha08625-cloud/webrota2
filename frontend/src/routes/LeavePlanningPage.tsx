@@ -5,10 +5,11 @@ import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useExtraSessions } from "@/api/extraSessions";
 import { useApplyPlanningBulk, useBlockedEntries, useCoverage } from "@/api/leavePlanning";
-import { useLeave } from "@/api/leave";
+import { useLeave, useLeaveEntitlements } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
 import type { ApiError, PlanningBulkOut } from "@/api/types";
+import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
@@ -111,6 +112,10 @@ export function LeavePlanningPage() {
     month: today.getMonth() + 1,
   });
   const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
+  // Which doctor's row is highlighted, and whose leave balance is shown.
+  // A reading aid only - it never affects an edit. Kept across month
+  // changes: following one doctor through the year is the point of it.
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSummary, setSaveSummary] = useState<string | null>(null);
 
@@ -133,6 +138,14 @@ export function LeavePlanningPage() {
   // the cover row simply reads zero throughout (matching the endpoint's
   // own no-active-template behaviour).
   const { data: template } = useActiveMasterRota();
+  // The leave year follows the month being viewed, so paging from
+  // December into January swaps the balance to the new year's - a balance
+  // labelled with a different year than the cells beneath it would be
+  // worse than useless. Fetched unconditionally (one small cached query
+  // per year) rather than only while a doctor is selected, so picking a
+  // row doesn't flash a loading line.
+  const { data: entitlement, isLoading: entitlementLoading, isError: entitlementError } =
+    useLeaveEntitlements(year);
 
   const applyBulk = useApplyPlanningBulk();
 
@@ -156,6 +169,20 @@ export function LeavePlanningPage() {
         ),
     [allDoctors, fromDate, toDate],
   );
+
+  // Only a doctor with a row on screen counts as selected: a balance line
+  // for someone the grid isn't showing (they left before this month, or
+  // start after it) would have no highlighted row to belong to. The id is
+  // kept either way, so paging back to a month they work brings the
+  // highlight back.
+  const selectedDoctor = doctors.find((d) => d.id === selectedDoctorId) ?? null;
+  // Undefined (still loading) and "no row" (a locum - the endpoint only
+  // returns doctors with a tracked entitlement) both come out as null; the
+  // two are told apart below by `entitlementLoading`.
+  const entitlementRow =
+    selectedDoctor === null
+      ? null
+      : ((entitlement?.doctors ?? []).find((row) => row.doctor_id === selectedDoctor.id) ?? null);
 
   const schoolRows = useMemo(
     () =>
@@ -220,6 +247,12 @@ export function LeavePlanningPage() {
       }
       return updated;
     });
+  }
+
+  /** Clicking the highlighted doctor's name again clears the highlight -
+   * there is no other affordance for turning it back off. */
+  function handleSelectDoctor(doctorId: number) {
+    setSelectedDoctorId((prev) => (prev === doctorId ? null : doctorId));
   }
 
   function handleMonthChange(delta: number) {
@@ -414,6 +447,43 @@ export function LeavePlanningPage() {
 
       {coverageLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
 
+      {selectedDoctor !== null ? (
+        <div
+          data-testid="planning-selected-doctor"
+          className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-1 rounded border border-border bg-surface px-3 py-2"
+        >
+          <span className="text-sm font-semibold">{selectedDoctor.code}</span>
+          <div className="min-w-0 flex-1">
+            {entitlementRow === null && !entitlementLoading && !entitlementError ? (
+              <p className="text-sm text-ink/60">No leave entitlement is tracked for this doctor.</p>
+            ) : (
+              <LeaveEntitlementSummary
+                year={year}
+                row={entitlementRow}
+                isLoading={entitlementLoading}
+                isError={entitlementError}
+              />
+            )}
+            {unsavedCount > 0 && entitlementRow !== null ? (
+              // The figures come from the saved rows, so a batch still
+              // sitting in the pending map isn't in them - saying so beats
+              // an admin reading a stale balance as the post-save one.
+              <p className="mt-1 text-xs text-amber-700">
+                Unsaved changes on this page are not counted yet.
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            data-testid="planning-clear-doctor"
+            onClick={() => setSelectedDoctorId(null)}
+            className="text-xs text-ink/60 underline"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
+
       <LeavePlanningGrid
         dates={dates}
         year={year}
@@ -430,6 +500,8 @@ export function LeavePlanningPage() {
         closedSlots={closedSlots}
         totals={totals}
         templateTypes={templateTypes}
+        selectedDoctorId={selectedDoctorId}
+        onSelectDoctor={handleSelectDoctor}
         onApply={handleApply}
       />
 

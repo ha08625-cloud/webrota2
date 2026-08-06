@@ -20,6 +20,7 @@ const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
 
 function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> = {}) {
   const onApply = vi.fn();
+  const onSelectDoctor = vi.fn();
   render(
     <LeavePlanningGrid
       dates={[MONDAY, TUESDAY]}
@@ -37,11 +38,13 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
       closedSlots={new Set()}
       totals={new Map()}
       templateTypes={new Map()}
+      selectedDoctorId={null}
+      onSelectDoctor={onSelectDoctor}
       onApply={onApply}
       {...overrides}
     />,
   );
-  return { onApply };
+  return { onApply, onSelectDoctor };
 }
 
 /** A single-date school row, built from a real holiday fixture so the
@@ -100,6 +103,8 @@ function EditHarness(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]>
       closedSlots={new Set()}
       totals={new Map()}
       templateTypes={new Map()}
+      selectedDoctorId={null}
+      onSelectDoctor={() => {}}
       onApply={(cells, state, notes) =>
         setPending((prev) => {
           const updated = new Map(prev);
@@ -643,6 +648,37 @@ describe("LeavePlanningGrid", () => {
 
       expect(highlighted(1)).toEqual([]);
       expect(screen.queryByTestId("planning-cell-popover")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("doctor row selection", () => {
+    it("reports a click on a doctor's name", async () => {
+      const user = userEvent.setup();
+      const { onSelectDoctor } = renderGrid();
+
+      await user.click(screen.getByTestId("planning-doctor-label-2"));
+
+      expect(onSelectDoctor).toHaveBeenCalledWith(2);
+    });
+
+    it("marks only the selected doctor's row", () => {
+      renderGrid({ selectedDoctorId: 2 });
+
+      expect(screen.getByTestId("planning-row-2")).toHaveAttribute("data-row-selected", "true");
+      expect(screen.getByTestId("planning-row-1")).toHaveAttribute("data-row-selected", "false");
+      expect(screen.getByTestId("planning-doctor-label-2")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+
+    it("leaves cell state untouched when a row is selected", () => {
+      renderGrid({
+        selectedDoctorId: 1,
+        leaveKeys: new Set([planningCellKey(1, MONDAY, "AM")]),
+      });
+
+      expect(cell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
     });
   });
 });
