@@ -8,12 +8,13 @@ import { useApplyPlanningBulk, useBlockedEntries, useCoverage } from "@/api/leav
 import { useLeave } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
-import type { ApiError, Period, PlanningBulkOut } from "@/api/types";
+import type { ApiError, PlanningBulkOut } from "@/api/types";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 import {
   type PendingEdit,
+  type PlanningCell,
   type PlanningCellState,
   applyPendingToCoverage,
   buildPlanningActions,
@@ -195,26 +196,27 @@ export function LeavePlanningPage() {
     [coverage, pending, doctors, template, leave, extraSessions, blocked],
   );
 
-  function handleApply(
-    doctorId: number,
-    date: string,
-    period: Period,
-    state: PlanningCellState,
-    notes: string,
-  ) {
-    const key = planningCellKey(doctorId, date, period);
+  /** One popover Apply, over every cell the grid selected - a plain click
+   * is simply a range of one. The state and note are written verbatim to
+   * all of them; the grid has already dropped the closed and
+   * out-of-window cells a drag may have spanned. */
+  function handleApply(cells: PlanningCell[], state: PlanningCellState, notes: string) {
     setPending((prev) => {
       const updated = new Map(prev);
-      const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
-      const serverState = toCellState(rows);
-      const serverNotesValue = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
-      // Picking a cell back to exactly what the server already says is
-      // not an edit - dropping the key keeps the unsaved count honest and
-      // keeps a no-op out of the batch.
-      if (state === serverState && notes === serverNotesValue) {
-        updated.delete(key);
-      } else {
-        updated.set(key, { action: state === "normal" ? "clear" : state, notes });
+      for (const cell of cells) {
+        const key = planningCellKey(cell.doctorId, cell.date, cell.period);
+        const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
+        const serverState = toCellState(rows);
+        const serverNotesValue = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
+        // Picking a cell back to exactly what the server already says is
+        // not an edit - dropping the key keeps the unsaved count honest and
+        // keeps a no-op out of the batch. Applied per cell, so the cells in
+        // a range that already matched don't inflate the count either.
+        if (state === serverState && notes === serverNotesValue) {
+          updated.delete(key);
+        } else {
+          updated.set(key, { action: state === "normal" ? "clear" : state, notes });
+        }
       }
       return updated;
     });

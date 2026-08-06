@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Link } from "react-router-dom";
@@ -24,6 +24,7 @@ import {
   makeSchool,
   makeSchoolHoliday,
 } from "@/test/fixtures/reference";
+import { weekdayName } from "@/lib/planningMonth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -33,6 +34,10 @@ import { LeavePlanningPage } from "./LeavePlanningPage";
 // than the tests chasing it. 2026-08-03 is a Monday.
 const MONDAY = "2026-08-03";
 const TUESDAY = "2026-08-04";
+const WEDNESDAY = "2026-08-05";
+const THURSDAY = "2026-08-06";
+const FRIDAY = "2026-08-07";
+const WEEK = [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY];
 
 const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
 const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
@@ -526,6 +531,137 @@ describe("LeavePlanningPage", () => {
       { additionalRoutes: [{ path: "/elsewhere", element: <p>Somewhere else</p> }] },
     );
   }
+
+  describe("drag range selection", () => {
+    /** Both partners in surgery every weekday of the first week, so a
+     * range's effect on the cover row is visible on every day it spans -
+     * the default TEMPLATE only staffs Monday. */
+    const FULL_WEEK_TEMPLATE = makeMasterRotaTemplate({
+      sessions: WEEK.flatMap((date) =>
+        [1, 2].flatMap((doctorId) =>
+          (["AM", "PM"] as const).map((period) =>
+            makeMasterRotaSession({
+              doctor_id: doctorId,
+              week: 1,
+              // The grid maps a date onto its template day the same way.
+              day: weekdayName(date)!,
+              period,
+            }),
+          ),
+        ),
+      ),
+    });
+
+    function setUpWeek() {
+      setUpServer({ coverage: coverageFor(WEEK, 2), template: FULL_WEEK_TEMPLATE });
+    }
+
+    /** A drag along one doctor's row, cell by cell - userEvent does not
+     * synthesise the intermediate mouseenters a real drag produces. */
+    function dragRow(doctorId: number, halves: [string, "AM" | "PM"][]) {
+      const targets = halves.map(([date, period]) => cell(doctorId, date, period));
+      fireEvent.mouseDown(targets[0], { button: 0 });
+      for (const target of targets.slice(1)) fireEvent.mouseEnter(target);
+      fireEvent.mouseUp(targets[targets.length - 1]);
+    }
+
+    async function applyRange(
+      user: ReturnType<typeof userEvent.setup>,
+      state: "normal" | "leave" | "extra_session" | "blocked",
+    ) {
+      const popover = screen.getByTestId("planning-cell-popover");
+      await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), state);
+      await user.click(within(popover).getByTestId("planning-cell-apply"));
+    }
+
+    it("records one unsaved change per half-day of a Mon-Fri drag", async () => {
+      const user = userEvent.setup();
+      setUpWeek();
+      renderWithProviders(<LeavePlanningPage />);
+
+      await findCell(1, MONDAY, "AM");
+      dragRow(1, [
+        [MONDAY, "AM"],
+        [WEDNESDAY, "AM"],
+        [FRIDAY, "PM"],
+      ]);
+      await applyRange(user, "leave");
+
+      expect(screen.getByTestId("planning-unsaved-count")).toHaveTextContent("10 unsaved changes");
+    });
+
+    it("drops the cover total across the whole dragged range, not just its anchor", async () => {
+      const user = userEvent.setup();
+      setUpWeek();
+      renderWithProviders(<LeavePlanningPage />);
+
+      await findCell(1, MONDAY, "AM");
+      await waitFor(() =>
+        expect(screen.getByTestId(`planning-total-${FRIDAY}-PM`)).toHaveTextContent("2"),
+      );
+
+      dragRow(1, [
+        [MONDAY, "PM"],
+        [WEDNESDAY, "AM"],
+        [FRIDAY, "PM"],
+      ]);
+      await applyRange(user, "leave");
+
+      // The drag started on Monday PM, so Monday AM is untouched and
+      // every slot from Monday PM onwards loses AA.
+      expect(screen.getByTestId(`planning-total-${MONDAY}-AM`)).toHaveTextContent("2");
+      expect(screen.getByTestId(`planning-total-${MONDAY}-PM`)).toHaveTextContent("1");
+      expect(screen.getByTestId(`planning-total-${WEDNESDAY}-AM`)).toHaveTextContent("1");
+      expect(screen.getByTestId(`planning-total-${FRIDAY}-PM`)).toHaveTextContent("1");
+    });
+
+    it("posts one action per cell of the range, with the drag's half-day edges", async () => {
+      const user = userEvent.setup();
+      setUpWeek();
+      const bodies = captureBulkBodies();
+      renderWithProviders(<LeavePlanningPage />);
+
+      await findCell(1, MONDAY, "AM");
+      // Off at lunchtime Monday, back at lunchtime Wednesday.
+      dragRow(1, [
+        [MONDAY, "PM"],
+        [TUESDAY, "AM"],
+        [WEDNESDAY, "AM"],
+      ]);
+      await applyRange(user, "leave");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0].actions).toEqual([
+        { doctor_id: 1, date: MONDAY, period: "PM", action: "leave", notes: null },
+        { doctor_id: 1, date: TUESDAY, period: "AM", action: "leave", notes: null },
+        { doctor_id: 1, date: TUESDAY, period: "PM", action: "leave", notes: null },
+        { doctor_id: 1, date: WEDNESDAY, period: "AM", action: "leave", notes: null },
+      ]);
+    });
+
+    it("keeps the unsaved count honest for cells in a range that already matched", async () => {
+      const user = userEvent.setup();
+      setUpServer({
+        coverage: coverageFor(WEEK, 2),
+        template: FULL_WEEK_TEMPLATE,
+        leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+      });
+      renderWithProviders(<LeavePlanningPage />);
+
+      expect(await findCell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
+      dragRow(1, [
+        [MONDAY, "AM"],
+        [MONDAY, "PM"],
+        [TUESDAY, "AM"],
+      ]);
+      await applyRange(user, "leave");
+
+      // Three cells selected, but Monday AM was already leave on the
+      // server, so only two of them are actual edits.
+      expect(screen.getByTestId("planning-unsaved-count")).toHaveTextContent("2 unsaved changes");
+    });
+  });
 
   it("navigates immediately when there are no unsaved changes", async () => {
     const user = userEvent.setup();

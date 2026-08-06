@@ -23,6 +23,7 @@ import {
   parsePlanningCellKey,
   planningCellKey,
   schoolHolidayDatesInRange,
+  selectionCells,
   serverNotes,
   serverRows,
   stateToAction,
@@ -598,5 +599,99 @@ describe("toCellKeySet / serverRows", () => {
       hasExtra: false,
       hasBlocked: false,
     });
+  });
+});
+
+describe("selectionCells", () => {
+  // The full working week the Monday/Tuesday anchors above belong to.
+  const WEDNESDAY = "2026-08-05";
+  const THURSDAY = "2026-08-06";
+  const FRIDAY = "2026-08-07";
+  const WEEK = [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY];
+
+  /** "date|period" pairs, the readable form of the returned cells. */
+  function halves(
+    anchor: [string, "AM" | "PM"],
+    focus: [string, "AM" | "PM"],
+    dates = WEEK,
+  ): string[] {
+    return selectionCells(
+      dates,
+      1,
+      { date: anchor[0], period: anchor[1] },
+      { date: focus[0], period: focus[1] },
+    ).map((c) => `${c.date}|${c.period}`);
+  }
+
+  it("selects one half for a stationary click, not the whole day", () => {
+    expect(halves([MONDAY, "AM"], [MONDAY, "AM"])).toEqual([`${MONDAY}|AM`]);
+    expect(halves([MONDAY, "PM"], [MONDAY, "PM"])).toEqual([`${MONDAY}|PM`]);
+  });
+
+  it("selects both halves of one day when the drag spans AM to PM", () => {
+    expect(halves([MONDAY, "AM"], [MONDAY, "PM"])).toEqual([`${MONDAY}|AM`, `${MONDAY}|PM`]);
+  });
+
+  it("selects every half of a full Mon-Fri week", () => {
+    expect(halves([MONDAY, "AM"], [FRIDAY, "PM"])).toEqual(
+      WEEK.flatMap((date) => [`${date}|AM`, `${date}|PM`]),
+    );
+  });
+
+  it("starts at PM on the first day when the drag begins on a PM half", () => {
+    // "Off at lunchtime on Monday", running to the end of Wednesday.
+    expect(halves([MONDAY, "PM"], [WEDNESDAY, "PM"])).toEqual([
+      `${MONDAY}|PM`,
+      `${TUESDAY}|AM`,
+      `${TUESDAY}|PM`,
+      `${WEDNESDAY}|AM`,
+      `${WEDNESDAY}|PM`,
+    ]);
+  });
+
+  it("ends at AM on the last day when the drag ends on an AM half", () => {
+    // "Back at lunchtime on Wednesday".
+    expect(halves([MONDAY, "AM"], [WEDNESDAY, "AM"])).toEqual([
+      `${MONDAY}|AM`,
+      `${MONDAY}|PM`,
+      `${TUESDAY}|AM`,
+      `${TUESDAY}|PM`,
+      `${WEDNESDAY}|AM`,
+    ]);
+  });
+
+  it("covers exactly two halves for off-Monday-lunchtime, back-Tuesday-lunchtime", () => {
+    expect(halves([MONDAY, "PM"], [TUESDAY, "AM"])).toEqual([`${MONDAY}|PM`, `${TUESDAY}|AM`]);
+  });
+
+  it("normalises by date, so a reversed drag matches the forward one", () => {
+    expect(halves([WEDNESDAY, "AM"], [MONDAY, "PM"])).toEqual(halves([MONDAY, "PM"], [WEDNESDAY, "AM"]));
+    expect(halves([FRIDAY, "PM"], [MONDAY, "AM"])).toEqual(halves([MONDAY, "AM"], [FRIDAY, "PM"]));
+  });
+
+  it("never emits a date the grid does not render, across a weekend gap", () => {
+    // Friday and the following Monday are adjacent columns; Saturday and
+    // Sunday are not columns at all, so they cannot be selected.
+    const NEXT_MONDAY = "2026-08-10";
+    expect(halves([FRIDAY, "PM"], [NEXT_MONDAY, "AM"], [FRIDAY, NEXT_MONDAY])).toEqual([
+      `${FRIDAY}|PM`,
+      `${NEXT_MONDAY}|AM`,
+    ]);
+  });
+
+  it("returns nothing when an endpoint is not a visible column", () => {
+    expect(halves([MONDAY, "AM"], ["2026-09-01", "PM"])).toEqual([]);
+    expect(halves(["2026-09-01", "AM"], [MONDAY, "PM"])).toEqual([]);
+  });
+
+  it("carries the given doctor id on every cell", () => {
+    const cells = selectionCells(
+      WEEK,
+      7,
+      { date: MONDAY, period: "AM" },
+      { date: TUESDAY, period: "PM" },
+    );
+    expect(cells).toHaveLength(4);
+    expect(cells.every((c) => c.doctorId === 7)).toBe(true);
   });
 });

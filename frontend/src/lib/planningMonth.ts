@@ -166,6 +166,73 @@ export interface PlanningCell {
   period: Period;
 }
 
+/** One endpoint of a drag selection: a (date, period) half-cell within
+ * a single doctor's row. */
+export interface PlanningCellRef {
+  date: string;
+  period: Period;
+}
+
+/**
+ * Every half-cell covered by a drag between two endpoints on one doctor's
+ * row, ascending by (date, AM before PM).
+ *
+ * Normalised by date, not by click order: the two endpoints are first
+ * ordered by `(index in dates, AM < PM)`, so a right-to-left drag from
+ * Thursday AM back to Tuesday PM yields exactly the same cells as the
+ * left-to-right drag Tuesday PM -> Thursday AM.
+ *
+ * The half-day edges mirror the Individual Leave tab's
+ * (`lib/expandLeaveRange.ts`): starting on a PM covers only that day's PM
+ * ("off at lunchtime"), ending on an AM covers only that day's AM ("back
+ * at lunchtime"), and every day in between gets both halves. A stationary
+ * click - both endpoints the same - therefore selects that one half and
+ * nothing else, which is what preserves the grid's existing single-cell,
+ * half-day editing.
+ *
+ * Walks the grid's own `dates` array rather than calling
+ * `expandLeaveRange`: that one walks calendar days and would emit weekend
+ * keys to filter out, whereas an index slice over the Mon-Fri column list
+ * cannot produce a cell the grid does not render. The semantics are
+ * reused, the function deliberately is not.
+ *
+ * An endpoint whose date is not a visible column returns nothing - the
+ * grid only ever passes dates it rendered, but a month change mid-drag
+ * must not throw.
+ */
+export function selectionCells(
+  dates: string[],
+  doctorId: number,
+  anchor: PlanningCellRef,
+  focus: PlanningCellRef,
+): PlanningCell[] {
+  const anchorDate = dates.indexOf(anchor.date);
+  const focusDate = dates.indexOf(focus.date);
+  if (anchorDate === -1 || focusDate === -1) return [];
+
+  // Period order comes off PLANNING_PERIODS rather than a string
+  // comparison, so the two cannot drift apart.
+  const anchorPeriod = PLANNING_PERIODS.indexOf(anchor.period);
+  const focusPeriod = PLANNING_PERIODS.indexOf(focus.period);
+  const anchorIsFirst =
+    anchorDate < focusDate || (anchorDate === focusDate && anchorPeriod <= focusPeriod);
+  const [firstDate, firstPeriod, lastDate, lastPeriod] = anchorIsFirst
+    ? [anchorDate, anchorPeriod, focusDate, focusPeriod]
+    : [focusDate, focusPeriod, anchorDate, anchorPeriod];
+
+  const cells: PlanningCell[] = [];
+  for (let index = firstDate; index <= lastDate; index++) {
+    // Interior days run the full period list; only the two edges are
+    // clipped, and on a single-day selection both clips apply at once.
+    const from = index === firstDate ? firstPeriod : 0;
+    const to = index === lastDate ? lastPeriod : PLANNING_PERIODS.length - 1;
+    for (let period = from; period <= to; period++) {
+      cells.push({ doctorId, date: dates[index], period: PLANNING_PERIODS[period] });
+    }
+  }
+  return cells;
+}
+
 export function parsePlanningCellKey(key: string): PlanningCell | null {
   const [doctorId, date, period] = key.split("|");
   if (date === undefined || (period !== "AM" && period !== "PM")) return null;
