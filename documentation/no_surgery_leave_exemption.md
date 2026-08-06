@@ -560,7 +560,16 @@ Run `uv run pytest tests/test_api/test_leave_charging_endpoint.py tests/test_eng
 
 ## Follow-up tickets to raise separately
 
-1. **Leave entitlement and balances.** Owns both questions in Design Decision 7.
+1. ~~**Leave entitlement and balances.** Owns both questions in Design Decision 7.~~ **Shipped**
+   (migration 026, `app/leave_entitlement.py`, `routers/leave_entitlement.py`,
+   `LeaveEntitlementBalances.tsx`; see "Leave entitlement" in
+   `documentation/architecture-clinical.md`). Decision 7.2 was resolved by keeping
+   `sessions_per_week` authoritative and *reporting* the template's disagreement rather than
+   picking a side. Decision 7.1 is only half-answered: usage is still read-time, but the
+   entitlement side is now pinnable with a stored override, so a wrong balance can be corrected
+   without snapshotting everything. Freezing usage at year close remains open. That ticket also
+   subsumed (2) below, since a balance needs the used figure on screen anyway — including
+   `no_template_row` shown distinctly, as Decision 6b requires.
 2. **A frontend surface for the count** — a total on `LeavePage`'s block rows, or a leave
    register. Blocked on (1) for anything showing a *remaining* balance; a *used* total could
    ship without it. Whatever it renders, it **must show `no_template_row` distinctly** rather

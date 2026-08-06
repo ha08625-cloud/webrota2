@@ -2,8 +2,14 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { useDoctors } from "@/api/doctors";
-import { useBulkCreateLeave, useBulkDeleteLeave, useLeave } from "@/api/leave";
+import {
+  useBulkCreateLeave,
+  useBulkDeleteLeave,
+  useLeave,
+  useLeaveEntitlements,
+} from "@/api/leave";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
+import { LeaveEntitlementBalances } from "@/components/LeaveEntitlementBalances";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
 import { parseLocalDate } from "@/lib/date";
@@ -83,6 +89,14 @@ export function LeavePage() {
   const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const { data: entries, isLoading, isError } = useLeave(filterDoctorId);
+  // Entitlement shares the calendar's year control: the balance and the
+  // year-at-a-glance grid showing the leave that produced it must never be
+  // describing different years.
+  const {
+    data: entitlement,
+    isLoading: entitlementLoading,
+    isError: entitlementError,
+  } = useLeaveEntitlements(calendarYear);
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
@@ -103,6 +117,13 @@ export function LeavePage() {
   // With no doctor selected this shares the table's unfiltered query
   // cache; the preview isn't rendered in that state anyway.
   const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId);
+
+  // The doctor filter narrows the balances too, so filtering to one
+  // doctor gives one screen about that doctor rather than a full-practice
+  // table above their entries.
+  const entitlementRows = (entitlement?.doctors ?? []).filter(
+    (row) => filterDoctorId === null || row.doctor_id === filterDoctorId,
+  );
 
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
   const filterDoctorGroups = groupDoctorsByType(allDoctors ?? []);
@@ -330,6 +351,16 @@ export function LeavePage() {
   });
 
   return (
+    <div className="flex flex-col gap-4">
+    <LeaveEntitlementBalances
+      year={calendarYear}
+      onPrevYear={() => setCalendarYear((y) => y - 1)}
+      onNextYear={() => setCalendarYear((y) => y + 1)}
+      rows={entitlementRows}
+      isLoading={entitlementLoading}
+      isError={entitlementError}
+    />
+
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <div className="min-w-0 lg:flex-1">
       <form
@@ -576,6 +607,7 @@ export function LeavePage() {
           />
         </div>
       ) : null}
+    </div>
     </div>
   );
 }

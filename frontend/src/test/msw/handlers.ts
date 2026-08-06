@@ -25,6 +25,18 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
+  // Leave entitlement (leave entitlement and balances). The empty default
+  // renders the "no doctors with an entitlement" line rather than an error,
+  // so every LeavePage test that isn't about balances stays unaffected;
+  // tests that are about them stub real rows.
+  http.get("/api/v1/leave/entitlement", () =>
+    HttpResponse.json({
+      year: 2026,
+      from_date: "2026-01-01",
+      to_date: "2026-12-31",
+      doctors: [],
+    }),
+  ),
   http.get("/api/v1/extra-sessions", () => HttpResponse.json([])),
   http.post("/api/v1/extra-sessions", () =>
     HttpResponse.json(

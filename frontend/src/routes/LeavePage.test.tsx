@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeDoctor, makeLeaveEntry } from "@/test/fixtures/reference";
+import { makeDoctor, makeLeaveEntitlement, makeLeaveEntry } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -49,6 +49,28 @@ function captureBulkBodies() {
     }),
   );
   return bodies;
+}
+
+/**
+ * Stubs the entitlement endpoint and records the `year` each request asked
+ * for, so a test can prove the year control actually re-queries rather than
+ * just re-rendering the same numbers under a new heading.
+ */
+function captureEntitlementYears(rows: ReturnType<typeof makeLeaveEntitlement>[]) {
+  const years: string[] = [];
+  server.use(
+    http.get("/api/v1/leave/entitlement", ({ request }) => {
+      const year = new URL(request.url).searchParams.get("year") ?? "";
+      years.push(year);
+      return HttpResponse.json({
+        year: Number(year),
+        from_date: `${year}-01-01`,
+        to_date: `${year}-12-31`,
+        doctors: rows,
+      });
+    }),
+  );
+  return years;
 }
 
 describe("LeavePage", () => {
@@ -622,5 +644,75 @@ describe("LeavePage", () => {
     const doctorCodes = rows.map((row) => within(row).getAllByRole("cell")[1].textContent);
 
     expect(doctorCodes).toEqual(["ZZ", "ZZ", "AA", "AA"]);
+  });
+  describe("leave entitlement panel", () => {
+    it("renders a balance row per doctor above the leave table", async () => {
+      setUpServer({
+        doctors: [
+          makeDoctor({ id: 1, code: "AB", active: true }),
+          makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true }),
+        ],
+      });
+      captureEntitlementYears([
+        makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB", used_sessions: 10, remaining_sessions: "26.0" }),
+        makeLeaveEntitlement({
+          doctor_id: 2,
+          doctor_code: "CD",
+          doctor_type: "Partner",
+          entitlement_sessions: "70.0",
+          used_sessions: 4,
+          remaining_sessions: "66.0",
+        }),
+      ]);
+      renderWithProviders(<LeavePage />);
+
+      expect(await screen.findByTestId("remaining-AB")).toHaveTextContent("26");
+      expect(screen.getByTestId("remaining-CD")).toHaveTextContent("66");
+    });
+
+    it("queries the current year by default", async () => {
+      setUpServer();
+      const years = captureEntitlementYears([]);
+      renderWithProviders(<LeavePage />);
+
+      await waitFor(() => expect(years).toEqual([String(new Date().getFullYear())]));
+    });
+
+    it("re-queries when the year is stepped", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      const years = captureEntitlementYears([]);
+      renderWithProviders(<LeavePage />);
+
+      const thisYear = new Date().getFullYear();
+      await waitFor(() => expect(years).toEqual([String(thisYear)]));
+
+      await user.click(screen.getByLabelText("Next leave year"));
+
+      await waitFor(() => expect(years).toContain(String(thisYear + 1)));
+    });
+
+    it("narrows the balances to the filtered doctor", async () => {
+      const user = userEvent.setup();
+      setUpServer({
+        doctors: [
+          makeDoctor({ id: 1, code: "AB", active: true }),
+          makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true }),
+        ],
+      });
+      captureEntitlementYears([
+        makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" }),
+        makeLeaveEntitlement({ doctor_id: 2, doctor_code: "CD", doctor_type: "Partner" }),
+      ]);
+      renderWithProviders(<LeavePage />);
+
+      expect(await screen.findByTestId("remaining-CD")).toBeInTheDocument();
+
+      const filter = screen.getByLabelText("Doctor", { selector: "#leave-filter" });
+      await user.selectOptions(filter, await within(filter).findByRole("option", { name: "AB" }));
+
+      await waitFor(() => expect(screen.queryByTestId("remaining-CD")).not.toBeInTheDocument());
+      expect(screen.getByTestId("remaining-AB")).toBeInTheDocument();
+    });
   });
 });
