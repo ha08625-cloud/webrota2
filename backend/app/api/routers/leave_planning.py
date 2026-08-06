@@ -49,17 +49,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window
-from ...engine.week_map import DAY_ORDER
+from ...master_template import DAY_BY_WEEKDAY, WEEKDAY_MAX, load_week_one_template
 from ...models import (
     BlockedEntry,
     Doctor,
     ExtraSessionEntry,
     LeaveEntry,
-    MasterRotaSession,
-    MasterRotaTemplate,
     PracticeClosure,
 )
-from ...models.enums import Day, DoctorType, MasterSessionType, Period
+from ...models.enums import DoctorType, MasterSessionType, Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
     BlockedOut,
@@ -74,14 +72,6 @@ from .leave import _release_draft_rooms
 from .staging import _OVERRIDABLE_TYPES
 
 router = APIRouter(prefix="/leave-planning", tags=["leave-planning"])
-
-_WEEKDAY_MAX = 4  # Mon=0 ... Fri=4 (Python date.weekday())
-
-# `date.weekday()` -> Day, inverted from week_map's canonical ordering.
-# Module-local rather than a new shared helper: the engine maps generation
-# weeks onto dates, never a bare calendar date onto a template day, so
-# there is nothing here for it to reuse.
-_DAY_BY_WEEKDAY: dict[int, Day] = {offset: day for day, offset in DAY_ORDER.items()}
 
 # The two template types that mean "this doctor is clinically working this
 # slot" (Design Decision 3). NO_SURGERY / ADMIN_TIME / WFH / no template
@@ -108,42 +98,9 @@ def _weekdays(start: datetime.date, end: datetime.date) -> list[datetime.date]:
     days: list[datetime.date] = []
     for offset in range((end - start).days + 1):
         day = start + datetime.timedelta(days=offset)
-        if day.weekday() <= _WEEKDAY_MAX:
+        if day.weekday() <= WEEKDAY_MAX:
             days.append(day)
     return days
-
-
-def _week_one_template(db: Session) -> dict[tuple[int, Day, Period], MasterSessionType]:
-    """The active template's week-1 rows, keyed (doctor_id, day, period).
-
-    Week 1 only, and treated as the working pattern for every calendar date
-    (Design Decision 1): mapping a date onto the 4-week cycle needs a
-    `start_week`, and the only source of one is `RotaConfig.template_start_week`
-    -- a per-run value with no calendar anchor. Partner, salaried, and locum
-    doctors work the same sessions every week, so week 1 is the right answer
-    for leave planning even though the schema keeps four weeks.
-
-    The template is resolved the way `GET /master-rota/active` resolves it
-    -- lowest id among active rows -- because `is_active` is not
-    schema-enforced unique and this endpoint must not 500 where that one
-    renders. No active template at all yields an empty map, so every slot
-    reports a headcount of 0 and the grid still draws its leave cells.
-    """
-    template = db.execute(
-        select(MasterRotaTemplate)
-        .where(MasterRotaTemplate.is_active.is_(True))
-        .order_by(MasterRotaTemplate.id)
-    ).scalars().first()
-    if template is None:
-        return {}
-
-    rows = db.execute(
-        select(MasterRotaSession).where(
-            MasterRotaSession.template_id == template.id,
-            MasterRotaSession.week == 1,
-        )
-    ).scalars().all()
-    return {(r.doctor_id, r.day, r.period): r.session_type for r in rows}
 
 
 def _slot_keys(
@@ -195,7 +152,7 @@ def get_coverage(
         ).scalars()
         if d.doctor_type in _PLANNING_DOCTOR_TYPES
     ]
-    template = _week_one_template(db)
+    template = load_week_one_template(db)
     leave = _slot_keys(db, LeaveEntry, from_date, to_date)
     extra = _slot_keys(db, ExtraSessionEntry, from_date, to_date)
     blocked = _slot_keys(db, BlockedEntry, from_date, to_date)
@@ -211,7 +168,7 @@ def get_coverage(
 
     out: list[CoverageSlotOut] = []
     for day in dates:
-        day_enum = _DAY_BY_WEEKDAY[day.weekday()]
+        day_enum = DAY_BY_WEEKDAY[day.weekday()]
         for period in (Period.AM, Period.PM):
             if (day, period) in closed:
                 # Phase 2 creates no slot on a closed (date, period), so the
@@ -324,7 +281,7 @@ def apply_planning_bulk(
     # is more useful than a silent skip here, unlike the window case where
     # the data legitimately moves under a stale grid.
     for action in payload.actions:
-        if action.date.weekday() > _WEEKDAY_MAX:
+        if action.date.weekday() > WEEKDAY_MAX:
             raise HTTPException(
                 status_code=422,
                 detail=(

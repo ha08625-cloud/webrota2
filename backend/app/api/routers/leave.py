@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ...doctor_window import is_within_window, window_error_detail
 from ...engine.generate import get_active_draft
 from ...engine.week_map import build_date_to_genslot, build_week_dates
+from ...master_template import WEEKDAY_MAX as _WEEKDAY_MAX
 from ...models import Doctor, ExtraSessionEntry, LeaveEntry, RotaSession
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
@@ -28,8 +29,6 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/leave", tags=["leave"])
-
-_WEEKDAY_MAX = 4  # Mon=0 ... Fri=4 (Python date.weekday())
 
 
 def _expand_periods(period: Period | str) -> list[Period]:
