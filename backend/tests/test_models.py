@@ -624,7 +624,7 @@ def test_reception_role_round_trips_by_value():
     assert ReceptionRole.OTHER.value == "other"
 
 
-@pytest.mark.parametrize("bad_hour", [7, 18])
+@pytest.mark.parametrize("bad_hour", [7, 18.5])
 def test_reception_master_session_hour_check(session, bad_hour):
     staff = _reception_staff(session)
     session.add(ReceptionMasterSession(
@@ -634,7 +634,7 @@ def test_reception_master_session_hour_check(session, bad_hour):
         session.flush()
 
 
-@pytest.mark.parametrize("bad_hour", [7, 18])
+@pytest.mark.parametrize("bad_hour", [7, 18.5])
 def test_reception_rota_session_hour_check(session, bad_hour):
     staff = _reception_staff(session)
     rota = _reception_rota(session)
@@ -645,7 +645,7 @@ def test_reception_rota_session_hour_check(session, bad_hour):
         session.flush()
 
 
-@pytest.mark.parametrize("bad_hour", [7, 18])
+@pytest.mark.parametrize("bad_hour", [7, 18.5])
 def test_reception_coverage_rule_hour_check(session, bad_hour):
     session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=bad_hour, min_phones_staff=2))
     with pytest.raises(IntegrityError):

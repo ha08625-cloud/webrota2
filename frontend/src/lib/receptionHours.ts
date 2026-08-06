@@ -2,14 +2,15 @@
  * The reception day's fixed half-hour slots, mirroring
  * RECEPTION_FIRST_HOUR/RECEPTION_LAST_HOUR/RECEPTION_HOURS in
  * backend/app/models/reception.py. `hour` values are whole or half hours
- * (8, 8.5, 9, ...) - see that file's "Half-hour granularity" note for why
+ * (7.5, 8, 8.5, ...) - see that file's "Half-hour granularity" note for why
  * the field kept its name and int-vs-float precision is the only change.
  * Widening the practice's opening hours is a migration on the backend
  * (the check constraint) plus a change here - see the reception rota plan,
  * Design Decision 2.
  */
 export const RECEPTION_HOURS = [
-  8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5,
+  7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17,
+  17.5, 18,
 ] as const;
 
 function hourLabel(hour: number): string {

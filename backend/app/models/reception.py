@@ -4,7 +4,8 @@ coverage rules.
 Independent of the clinical rota (doctors, master_rota, engine/) end to end --
 the only things shared are auth, the app shell, the HTTP client, and
 deployment. Reception has a much simpler shape than the clinical rota: one
-day at a time, half-hourly slots 8am-6pm (RECEPTION_HOURS, twenty per day),
+day at a time, half-hourly slots 7:30am-6:30pm (RECEPTION_HOURS, twenty-two
+per day),
 one role per staff member per slot (phones/other).
 
 **Half-hour granularity.** `hour` stays the field/column name everywhere --
@@ -59,8 +60,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..database import Base
 from .enums import Day, ReceptionRole, enum_col
 
-RECEPTION_FIRST_HOUR = 8.0
-RECEPTION_LAST_HOUR = 17.5
+RECEPTION_FIRST_HOUR = 7.5
+RECEPTION_LAST_HOUR = 18.0
 _RECEPTION_SLOT_COUNT = int(round((RECEPTION_LAST_HOUR - RECEPTION_FIRST_HOUR) / 0.5)) + 1
 RECEPTION_HOURS = [RECEPTION_FIRST_HOUR + 0.5 * i for i in range(_RECEPTION_SLOT_COUNT)]
 
