@@ -18,17 +18,24 @@ const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[]
   { value: "more", label: "More" },
 ];
 
-// Sessions/week and Supervision are only shown for Partner/Salaried doctors.
-// Deliberate product decision, not a data restriction: sessions_per_week
-// still feeds the Phase 5 weighted clinic counter for every doctor type
-// (Trainee/AHP/Locum included), so hiding it here means those doctors'
-// sessions_per_week is no longer editable from this page if it ever needs
-// to change. supervision_preference genuinely only affects Partner/Salaried,
-// since only those types are eligible Phase 9C supervisors.
-const SESSIONS_AND_SUPERVISION_TYPES: DoctorType[] = ["Partner", "Salaried"];
+// Sessions/week is shown for the salaried-headcount types - Partner,
+// Salaried and Trainee. sessions_per_week feeds the Phase 5 weighted
+// clinic counter for every doctor type, so this is a display decision
+// rather than a data restriction; Locum/AHP stay hidden because their
+// sessions are ad hoc rather than a contracted weekly commitment, and
+// their sessions_per_week is consequently not editable from this page.
+const SESSIONS_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee"];
 
-function showSessionsAndSupervision(doctorType: DoctorType): boolean {
-  return SESSIONS_AND_SUPERVISION_TYPES.includes(doctorType);
+// Supervision genuinely only affects Partner/Salaried, since only those
+// types are eligible Phase 9C supervisors - a Trainee is the supervisee.
+const SUPERVISION_TYPES: DoctorType[] = ["Partner", "Salaried"];
+
+function showSessions(doctorType: DoctorType): boolean {
+  return SESSIONS_TYPES.includes(doctorType);
+}
+
+function showSupervision(doctorType: DoctorType): boolean {
+  return SUPERVISION_TYPES.includes(doctorType);
 }
 
 /**
@@ -190,13 +197,14 @@ export function DoctorsPage() {
                 </th>
               </tr>
               {group.doctors.map((d) => {
-                const showExtras = showSessionsAndSupervision(d.doctor_type);
+                const sessionsVisible = showSessions(d.doctor_type);
+                const supervisionVisible = showSupervision(d.doctor_type);
                 return (
                   <tr key={d.id} className="border-t border-border">
                     <td className="py-1 pr-4">{d.code}</td>
                     <td className="py-1 pr-4">{d.doctor_type}</td>
                     <td className="py-1 pr-4">
-                      {showExtras ? (
+                      {sessionsVisible ? (
                         <div className="flex items-center gap-1">
                           <span className="tabular-nums">{d.sessions_per_week}</span>
                           <div className="flex flex-col leading-none">
@@ -225,7 +233,7 @@ export function DoctorsPage() {
                       )}
                     </td>
                     <td className="py-1 pr-4">
-                      {showExtras ? (
+                      {supervisionVisible ? (
                         <select
                           aria-label={`Supervision preference for ${d.code}`}
                           value={d.supervision_preference}
