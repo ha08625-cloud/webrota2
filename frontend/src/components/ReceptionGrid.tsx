@@ -146,7 +146,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
 
   return (
     <div className="overflow-x-auto rounded border-2 border-ink/40">
-      <table className="min-w-full border-collapse text-sm">
+      <table className="min-w-full table-fixed border-collapse text-sm">
         <thead>
           <tr>
             <th className="sticky left-0 z-10 w-28 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
@@ -215,16 +215,18 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                       : (session ?? null);
                   const canDelete = hours.some((h) => getReceptionCell(grid, member.id, h) !== undefined);
                   const repeatsPrevious = continuations[hourIndex];
+                  const runLength = repeatsPrevious ? 1 : runLengthFrom(continuations, hourIndex);
                   const dividerClassName =
                     hourIndex === RECEPTION_HOURS.length - 1 || continuations[hourIndex + 1]
                       ? ""
                       : "border-r-2 border-ink/40";
                   const selectedClassName = isSelected ? "bg-accent/10 ring-1 ring-inset ring-accent" : "";
                   const cursorClassName = interactive ? "cursor-pointer" : "";
+                  const runOriginClassName = runLength > 1 ? "relative" : "";
                   return (
                     <td
                       key={hour}
-                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName} ${onLeaveClassName}`}
+                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName} ${onLeaveClassName} ${runOriginClassName}`}
                       data-testid={`reception-cell-${member.id}-${hour}`}
                       data-selected={isSelected ? "true" : undefined}
                       data-run-continuation={repeatsPrevious ? "true" : undefined}
@@ -241,7 +243,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                         >
                           {session ? (
                             <div>
-                              <CellContent session={session} repeated={repeatsPrevious} />
+                              <CellContent session={session} repeated={repeatsPrevious} runLength={runLength} />
                             </div>
                           ) : (
                             <button
@@ -266,17 +268,58 @@ export function ReceptionGrid<T extends ReceptionCellData>({
   );
 }
 
-function CellContent<T extends ReceptionCellData>({ session, repeated }: { session: T; repeated: boolean }) {
-  return (
-    <div style={repeated ? { visibility: "hidden" } : undefined}>
-      <span
-        className={`rounded px-1 text-xs font-medium ${RECEPTION_ROLE_CHIP_CLASSNAME[session.role]}`}
-      >
+/** How many consecutive slots from `startIndex` (inclusive) belong to the same run. */
+function runLengthFrom(continuations: boolean[], startIndex: number): number {
+  let length = 1;
+  while (startIndex + length < continuations.length && continuations[startIndex + length]) {
+    length += 1;
+  }
+  return length;
+}
+
+/**
+ * `runLength` is the number of slots the visible chip's cell heads up (1 for a lone
+ * slot). For a multi-slot run the chip is centred across the whole run rather than
+ * the run's first cell alone: the normal in-flow copy stays (invisible) to keep the
+ * popover trigger's box its usual size (Design Decision 4), and a second,
+ * pointer-events-none copy is absolutely positioned across the run's full width so
+ * it reads as centred on the merged run instead of pinned to its left edge. The `<td>`
+ * carries `position: relative` (via `runOriginClassName` in ReceptionGrid) so that
+ * width is measured against the run's own first column, not the whole table.
+ */
+function CellContent<T extends ReceptionCellData>({
+  session,
+  repeated,
+  runLength,
+}: {
+  session: T;
+  repeated: boolean;
+  runLength: number;
+}) {
+  const chip = (
+    <>
+      <span className={`rounded px-1 text-xs font-medium ${RECEPTION_ROLE_CHIP_CLASSNAME[session.role]}`}>
         {RECEPTION_ROLE_LABELS[session.role]}
       </span>
       {session.note ? <div className="text-xs text-ink/60">{session.note}</div> : null}
-    </div>
+    </>
   );
+
+  if (!repeated && runLength > 1) {
+    return (
+      <>
+        <div style={{ visibility: "hidden" }}>{chip}</div>
+        <div
+          className="pointer-events-none absolute inset-y-0 left-0 flex flex-col items-center justify-center"
+          style={{ width: `${runLength * 100}%` }}
+        >
+          {chip}
+        </div>
+      </>
+    );
+  }
+
+  return <div style={repeated ? { visibility: "hidden" } : undefined}>{chip}</div>;
 }
 
 function groupIssuesByHour(issues: ValidationIssue[]): Map<number, ValidationIssue[]> {
