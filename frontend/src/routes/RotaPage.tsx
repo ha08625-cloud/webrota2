@@ -7,6 +7,7 @@ import { useClosures } from "@/api/closures";
 import { useDuty } from "@/api/duty";
 import { useRotaList } from "@/api/rota";
 import type { ClinicType, CreateStagingIn } from "@/api/types";
+import { DutyGrid } from "@/components/DutyGrid";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { addDays, formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
@@ -151,12 +152,23 @@ function ClinicStatusList() {
  * happen before the Phase 0-12 pipeline actually runs (StagingPage's
  * "Complete and generate" action).
  */
-function StartStagingForm() {
+interface StartStagingFormProps {
+  upcomingMondays: string[];
+  startDate: string;
+  setStartDate: (date: string) => void;
+  numWeeks: 1 | 2 | 4;
+  setNumWeeks: (weeks: 1 | 2 | 4) => void;
+}
+
+function StartStagingForm({
+  upcomingMondays,
+  startDate,
+  setStartDate,
+  numWeeks,
+  setNumWeeks,
+}: StartStagingFormProps) {
   const navigate = useNavigate();
   const createStaging = useCreateStaging();
-  const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
-  const [startDate, setStartDate] = useState(upcomingMondays[0]);
-  const [numWeeks, setNumWeeks] = useState<1 | 2 | 4>(1);
   const [templateStartWeek, setTemplateStartWeek] = useState<1 | 2 | 3 | 4>(1);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -255,6 +267,13 @@ export function RotaPage() {
   const { data: activeStaging, isLoading: stagingLoading } = useActiveStaging();
   const [historyTab, setHistoryTab] = useState<HistoryTab>("committed");
 
+  // Lifted out of StartStagingForm so the duty preview sidebar can render
+  // the same start week / week count the form is currently set to, without
+  // needing to click into the Duty page to check or fix staffing.
+  const upcomingMondays = useMemo(() => getUpcomingMondays(UPCOMING_WEEK_COUNT), []);
+  const [startDate, setStartDate] = useState(upcomingMondays[0]);
+  const [numWeeks, setNumWeeks] = useState<1 | 2 | 4>(1);
+
   if (isLoading || stagingLoading) {
     return <p className="text-sm text-ink/70">Loading rotas...</p>;
   }
@@ -276,83 +295,111 @@ export function RotaPage() {
   const visibleHistory = historyTab === "committed" ? unarchived : archived;
   const emptyHistoryMessage = historyTab === "committed" ? "No committed rotas yet." : "No archived rotas.";
 
+  // No draft/staging in progress means the start-week form (and therefore
+  // a "selected week") is what's on screen - that's the only time the duty
+  // preview sidebar has a week to show.
+  const showDutyPreview = !activeDraft && !activeStaging;
+
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-lg font-semibold">Rota</h1>
+    <div className="flex flex-wrap items-start gap-6">
+      <div className="max-w-2xl flex-1">
+        <h1 className="text-lg font-semibold">Rota</h1>
 
-      {activeDraft ? (
-        <div className="mt-4 rounded border border-accent/40 bg-accent/5 p-4">
-          <p className="text-sm font-medium text-ink">
-            Draft in progress - started {formatDate(activeDraft.start_date)}, {activeDraft.num_weeks} week
-            {activeDraft.num_weeks > 1 ? "s" : ""}
-          </p>
-          <Link to={`/clinical/rota/${activeDraft.rota_id}`} className="mt-2 inline-block text-sm font-medium text-accent underline">
-            Open draft
-          </Link>
-        </div>
-      ) : activeStaging ? (
-        <div className="mt-4 rounded border border-accent/40 bg-accent/5 p-4">
-          <p className="text-sm font-medium text-ink">
-            Staging in progress - started {formatDate(activeStaging.start_date)}, {activeStaging.num_weeks} week
-            {activeStaging.num_weeks > 1 ? "s" : ""}
-          </p>
-          <Link to="/clinical/staging" className="mt-2 inline-block text-sm font-medium text-accent underline">
-            Resume staging
-          </Link>
-        </div>
-      ) : (
-        <div className="mt-4">
-          <StartStagingForm />
-        </div>
-      )}
-
-      <div className="mt-6">
-        <h2 className="text-base font-semibold">Committed history</h2>
-
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setHistoryTab("committed")}
-            aria-pressed={historyTab === "committed"}
-            className={`rounded border px-3 py-1 text-sm font-medium ${
-              historyTab === "committed"
-                ? "border-accent bg-accent/10 text-accent"
-                : "border-border text-ink/70 hover:text-ink"
-            }`}
-          >
-            Committed
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryTab("archived")}
-            aria-pressed={historyTab === "archived"}
-            className={`rounded border px-3 py-1 text-sm font-medium ${
-              historyTab === "archived"
-                ? "border-accent bg-accent/10 text-accent"
-                : "border-border text-ink/70 hover:text-ink"
-            }`}
-          >
-            Archived
-          </button>
-        </div>
-
-        {visibleHistory.length === 0 ? (
-          <p className="mt-2 text-sm text-ink/70">{emptyHistoryMessage}</p>
+        {activeDraft ? (
+          <div className="mt-4 rounded border border-accent/40 bg-accent/5 p-4">
+            <p className="text-sm font-medium text-ink">
+              Draft in progress - started {formatDate(activeDraft.start_date)}, {activeDraft.num_weeks} week
+              {activeDraft.num_weeks > 1 ? "s" : ""}
+            </p>
+            <Link to={`/clinical/rota/${activeDraft.rota_id}`} className="mt-2 inline-block text-sm font-medium text-accent underline">
+              Open draft
+            </Link>
+          </div>
+        ) : activeStaging ? (
+          <div className="mt-4 rounded border border-accent/40 bg-accent/5 p-4">
+            <p className="text-sm font-medium text-ink">
+              Staging in progress - started {formatDate(activeStaging.start_date)}, {activeStaging.num_weeks} week
+              {activeStaging.num_weeks > 1 ? "s" : ""}
+            </p>
+            <Link to="/clinical/staging" className="mt-2 inline-block text-sm font-medium text-accent underline">
+              Resume staging
+            </Link>
+          </div>
         ) : (
-          <ul className="mt-2 divide-y divide-border rounded border border-border">
-            {visibleHistory.map((rota) => (
-              <li key={rota.rota_id} className="px-3 py-2 text-sm">
-                <Link to={`/clinical/rota/${rota.rota_id}`} className="text-accent underline">
-                  {formatDate(rota.start_date)} - {rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""}
-                </Link>
-                <span className="ml-2 text-ink/50">
-                  committed {formatDateTime(rota.committed_at ?? rota.created_at)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-4">
+            <StartStagingForm
+              upcomingMondays={upcomingMondays}
+              startDate={startDate}
+              setStartDate={setStartDate}
+              numWeeks={numWeeks}
+              setNumWeeks={setNumWeeks}
+            />
+          </div>
         )}
+
+        <div className="mt-6">
+          <h2 className="text-base font-semibold">Committed history</h2>
+
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setHistoryTab("committed")}
+              aria-pressed={historyTab === "committed"}
+              className={`rounded border px-3 py-1 text-sm font-medium ${
+                historyTab === "committed"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border text-ink/70 hover:text-ink"
+              }`}
+            >
+              Committed
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistoryTab("archived")}
+              aria-pressed={historyTab === "archived"}
+              className={`rounded border px-3 py-1 text-sm font-medium ${
+                historyTab === "archived"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border text-ink/70 hover:text-ink"
+              }`}
+            >
+              Archived
+            </button>
+          </div>
+
+          {visibleHistory.length === 0 ? (
+            <p className="mt-2 text-sm text-ink/70">{emptyHistoryMessage}</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-border rounded border border-border">
+              {visibleHistory.map((rota) => (
+                <li key={rota.rota_id} className="px-3 py-2 text-sm">
+                  <Link to={`/clinical/rota/${rota.rota_id}`} className="text-accent underline">
+                    {formatDate(rota.start_date)} - {rota.num_weeks} week{rota.num_weeks > 1 ? "s" : ""}
+                  </Link>
+                  <span className="ml-2 text-ink/50">
+                    committed {formatDateTime(rota.committed_at ?? rota.created_at)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
+
+      {showDutyPreview ? (
+        <div className="mt-4 min-w-0 flex-1 rounded border border-border bg-surface p-4" data-testid="rota-duty-preview">
+          <h2 className="text-base font-semibold">
+            Duty for {formatWeekLabel(startDate)}
+            {numWeeks > 1 ? ` - ${numWeeks} weeks` : ""}
+          </h2>
+          <p className="mt-1 text-xs text-ink/50">
+            Adjust duty for the selected week(s) here without leaving this page.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <DutyGrid startWeekDate={startDate} weeks={numWeeks} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
