@@ -36,20 +36,28 @@ function findAssignment(
 
 interface DutyGridProps {
   startWeekDate: string;
+  /**
+   * Number of consecutive weeks to render from startWeekDate. Defaults to
+   * DUTY_PERIOD_WEEKS (the Duty page's period length). RotaPage's sidebar
+   * preview passes the number of weeks being generated instead, since that
+   * range - not the duty period - is what's relevant while picking a start
+   * week for a new rota.
+   */
+  weeks?: number;
 }
 
-export function DutyGrid({ startWeekDate }: DutyGridProps) {
+export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
   // Counters are deliberately period-scoped, not all-time: the 4-weekly
   // duty periods feature removed the all-time view rather than moving it
   // (see lib/date.ts and the implementation plan's Design Decision 5).
-  // The range is derived from the same startWeekDate and DUTY_PERIOD_WEEKS
-  // the grid itself renders, so the counters can never drift out of step
-  // with the weeks actually shown.
+  // The range is derived from the same startWeekDate and weeks the grid
+  // itself renders, so the counters can never drift out of step with the
+  // weeks actually shown.
   const countsRange = useMemo(
-    () => ({ from: startWeekDate, to: addDays(startWeekDate, DUTY_PERIOD_WEEKS * 7 - 1) }),
-    [startWeekDate],
+    () => ({ from: startWeekDate, to: addDays(startWeekDate, weeks * 7 - 1) }),
+    [startWeekDate, weeks],
   );
   const { data: countsData, isLoading: countsLoading } = useDutyCounts(countsRange);
   // Annual counter: a second, independent range covering the calendar
@@ -69,8 +77,8 @@ export function DutyGrid({ startWeekDate }: DutyGridProps) {
   const [activeDoctor, setActiveDoctor] = useState<DraggableDoctor | null>(null);
 
   const weekStartDates = useMemo(
-    () => Array.from({ length: DUTY_PERIOD_WEEKS }, (_, i) => addDays(startWeekDate, i * 7)),
-    [startWeekDate],
+    () => Array.from({ length: weeks }, (_, i) => addDays(startWeekDate, i * 7)),
+    [startWeekDate, weeks],
   );
 
   const windowAssignments = useMemo(() => {
