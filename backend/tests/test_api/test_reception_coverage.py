@@ -5,7 +5,7 @@ from app.models.reception import RECEPTION_HOURS
 class TestReceptionCoverage:
     def test_list_ordered_by_weekday_then_hour(self, client, seeded_reception):
         rules = client.get("/api/v1/reception/coverage-rules").json()
-        assert len(rules) == 20  # one per half-hour, 8.0..17.5, Monday only in the fixture
+        assert len(rules) == 22  # one per half-hour, 7.5..18.0, Monday only in the fixture
         assert all(r["day"] == "Monday" for r in rules)
         assert [r["hour"] for r in rules] == list(RECEPTION_HOURS)
 
