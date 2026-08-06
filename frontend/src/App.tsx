@@ -22,6 +22,7 @@ import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
 import { MasterRotaPage } from "@/routes/MasterRotaPage";
 import { ReceptionCoverageRulesPage } from "@/routes/ReceptionCoverageRulesPage";
 import { ReceptionDayPage } from "@/routes/ReceptionDayPage";
+import { ReceptionHoursPage } from "@/routes/ReceptionHoursPage";
 import { ReceptionLeavePage } from "@/routes/ReceptionLeavePage";
 import { ReceptionMasterPage } from "@/routes/ReceptionMasterPage";
 import { ReceptionStaffPage } from "@/routes/ReceptionStaffPage";
@@ -81,6 +82,7 @@ const RECEPTION_NAV_ITEMS = [
   { to: "/reception/leave", label: "Leave", end: false },
   { to: "/reception/staff", label: "Reception Staff", end: false },
   { to: "/reception/coverage-rules", label: "Coverage Rules", end: false },
+  { to: "/reception/hours", label: "Hours", end: false },
 ] as const;
 
 /**
@@ -257,6 +259,7 @@ function ReceptionShell() {
             <Route path="leave" element={<ReceptionLeavePage />} />
             <Route path="staff" element={<ReceptionStaffPage />} />
             <Route path="coverage-rules" element={<ReceptionCoverageRulesPage />} />
+            <Route path="hours" element={<ReceptionHoursPage />} />
           </Routes>
         </main>
       </div>
