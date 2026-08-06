@@ -1,5 +1,6 @@
 """Leave router (M3 Task 6; bulk add/remove added post-M4; draft room release
-added post-M4.3 - see M4.3 Task 3)."""
+added post-M4.3 - see M4.3 Task 3; GET /leave/chargeable-count added by the
+no-surgery leave exemption plan, Task 3)."""
 from __future__ import annotations
 
 import datetime
@@ -13,8 +14,9 @@ from sqlalchemy.orm import Session
 from ...doctor_window import is_within_window, window_error_detail
 from ...engine.generate import get_active_draft
 from ...engine.week_map import build_date_to_genslot, build_week_dates
-from ...master_template import WEEKDAY_MAX as _WEEKDAY_MAX
-from ...models import Doctor, ExtraSessionEntry, LeaveEntry, RotaSession
+from ...leave_charging import summarise_leave_charging
+from ...master_template import WEEKDAY_MAX as _WEEKDAY_MAX, load_week_one_template
+from ...models import Doctor, ExtraSessionEntry, LeaveEntry, PracticeClosure, RotaSession
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
@@ -24,9 +26,12 @@ from ..schemas import (
     LeaveBulkIn,
     LeaveBulkOut,
     LeaveBulkSkippedOut,
+    LeaveChargeableCountOut,
+    LeaveExemptionsOut,
     LeaveIn,
     LeaveOut,
 )
+from ..schemas.leave import MAX_BULK_RANGE_DAYS
 
 router = APIRouter(prefix="/leave", tags=["leave"])
 
@@ -293,6 +298,71 @@ def delete_leave_bulk(
     result = db.execute(stmt)
     db.commit()
     return LeaveBulkDeleteOut(deleted_count=result.rowcount or 0)
+
+
+@router.get("/chargeable-count", response_model=LeaveChargeableCountOut)
+def get_chargeable_count(
+    doctor_id: int,
+    from_date: datetime.date,
+    to_date: datetime.date,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> LeaveChargeableCountOut:
+    """How many of a doctor's booked leave sessions in range were actually
+    chargeable, versus exempt because the doctor was never due to work the
+    slot (no-surgery leave exemption plan).
+
+    `db.get` rather than a query filtered on `Doctor.active`: an inactive
+    doctor's historical leave is still historical leave (Design Decision 6),
+    and an active filter here would wrongly 404 it.
+    """
+    doctor = db.get(Doctor, doctor_id)
+    if doctor is None:
+        raise HTTPException(
+            status_code=404, detail=f"Doctor {doctor_id} not found"
+        )
+    if from_date > to_date:
+        raise HTTPException(
+            status_code=422, detail="from_date must not be after to_date"
+        )
+    if (to_date - from_date).days > MAX_BULK_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"range must not exceed {MAX_BULK_RANGE_DAYS} days",
+        )
+
+    entries = db.execute(
+        select(LeaveEntry)
+        .where(LeaveEntry.doctor_id == doctor_id)
+        .where(LeaveEntry.date >= from_date)
+        .where(LeaveEntry.date <= to_date)
+    ).scalars().all()
+    template = load_week_one_template(db)
+    closed = {
+        (c.date, c.period)
+        for c in db.execute(
+            select(PracticeClosure).where(
+                PracticeClosure.date >= from_date,
+                PracticeClosure.date <= to_date,
+            )
+        ).scalars()
+    }
+
+    summary = summarise_leave_charging(entries, template, closed)
+    return LeaveChargeableCountOut(
+        doctor_id=doctor_id,
+        from_date=from_date,
+        to_date=to_date,
+        total_entries=summary.total_entries,
+        chargeable_sessions=summary.chargeable_sessions,
+        exempt_sessions=summary.total_entries - summary.chargeable_sessions,
+        exempt_by_reason=LeaveExemptionsOut(
+            closed=summary.exempt_by_reason["closed"],
+            weekend=summary.exempt_by_reason["weekend"],
+            no_template_row=summary.exempt_by_reason["no_template_row"],
+            no_surgery=summary.exempt_by_reason["no_surgery"],
+        ),
+    )
 
 
 @router.delete("/{leave_id}", status_code=204)
