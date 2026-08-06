@@ -2,11 +2,11 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useActiveStaging, useCreateStaging } from "@/api/staging";
-import { useClinicTypes } from "@/api/clinicTypes";
+import { useClinicTypes, usePatchClinicType } from "@/api/clinicTypes";
 import { useClosures } from "@/api/closures";
 import { useDuty } from "@/api/duty";
 import { useRotaList } from "@/api/rota";
-import type { CreateStagingIn } from "@/api/types";
+import type { ClinicType, CreateStagingIn } from "@/api/types";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { addDays, formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
@@ -65,8 +65,9 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
 }
 
 /**
- * Advisory list of all clinic types, enabled and disabled - read-only,
- * purely informational (like DutyStatusList above, it blocks nothing).
+ * List of all clinic types, enabled and disabled, with an inline enable
+ * checkbox - so a clinic wrongly left enabled can be caught and disabled
+ * right before generating, without a round trip to the Clinic Types page.
  * Unlike duty status this isn't per-week: ClinicType.is_enabled is a
  * single global flag, not tied to a generation week, so there is one
  * list, not one per week. Sourced from the same GET /clinic-types the
@@ -75,10 +76,17 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
  * that ordering so the position is a stable reference point, even though
  * Phase 5 skips them). Disabled clinics are shown muted red alongside the
  * enabled (green) ones, rather than in a separate list, so it reads at a
- * glance as "this clinic exists but will not be generated".
+ * glance as "this clinic exists but will not be generated". The checkbox
+ * reuses usePatchClinicType (the same PATCH /clinic-types/{id} mutation
+ * ClinicTypesPage's inline toggle uses) - unlike that page, this list is
+ * never reordered, so there's no enabled-id-set race to guard against and
+ * every row's checkbox can stay independently enabled/disabled by its own
+ * pending state rather than one page-wide lock.
  */
 function ClinicStatusList() {
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
+  const patchClinicType = usePatchClinicType();
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   if (isLoading) {
     return <p className="mt-3 text-xs text-ink/50">Checking clinic status...</p>;
@@ -90,28 +98,48 @@ function ClinicStatusList() {
 
   const allClinics = (clinicTypes ?? []).slice().sort((a, b) => a.clinic_priority - b.clinic_priority);
 
+  function handleToggleEnabled(clinicType: ClinicType, checked: boolean) {
+    setToggleError(null);
+    patchClinicType.mutate(
+      { id: clinicType.id, payload: { is_enabled: checked } },
+      {
+        onError: (err) => {
+          setToggleError(typeof err.detail === "string" ? err.detail : "Could not update this clinic type.");
+        },
+      },
+    );
+  }
+
   return (
     <div className="mt-3">
       <p className="text-sm font-medium text-ink">Clinics</p>
       {allClinics.length === 0 ? (
         <p className="mt-1 text-xs text-ink/50">No clinic types have been configured.</p>
       ) : (
-        <ul className="mt-1 flex flex-wrap gap-1">
+        <ul className="mt-1 flex flex-wrap gap-2">
           {allClinics.map((clinicType) => (
             <li
               key={clinicType.id}
               data-testid={`generate-clinic-status-${clinicType.id}`}
               className={
                 clinicType.is_enabled
-                  ? "rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
-                  : "rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-400"
+                  ? "flex items-center gap-1 rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-900"
+                  : "flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-400"
               }
             >
+              <input
+                type="checkbox"
+                aria-label={`Enabled for ${clinicType.name}`}
+                checked={clinicType.is_enabled}
+                disabled={patchClinicType.isPending}
+                onChange={(e) => handleToggleEnabled(clinicType, e.target.checked)}
+              />
               {clinicType.name}
             </li>
           ))}
         </ul>
       )}
+      {toggleError ? <p className="mt-1 text-xs text-red-700">{toggleError}</p> : null}
     </div>
   );
 }
