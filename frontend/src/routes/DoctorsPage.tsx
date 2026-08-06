@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
+import { useLeaveEntitlements } from "@/api/leave";
 import type { Doctor, DoctorType, SupervisionPreference } from "@/api/types";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
 import { formatDate } from "@/lib/date";
@@ -72,6 +73,17 @@ export function DoctorsPage() {
   // recoverable from the UI until that toggle exists - a deliberate,
   // known limitation, not an oversight.
   const { data: doctors, isLoading, isError } = useDoctors(true);
+  // Only for the sessions/week mismatch flag below - this endpoint is the
+  // one place the week-1 master template is already summarised per doctor.
+  // The year is immaterial to `template_sessions_per_week` (the template is
+  // not year-scoped), so the current year keeps the cache key shared with
+  // the leave tab rather than adding a second one.
+  const { data: entitlement } = useLeaveEntitlements(new Date().getFullYear());
+  const templateSessionsByDoctor = new Map(
+    (entitlement?.doctors ?? [])
+      .filter((row) => row.sessions_mismatch)
+      .map((row) => [row.doctor_id, row.template_sessions_per_week]),
+  );
   const softDeleteDoctor = useSoftDeleteDoctor();
   const updateDoctor = useUpdateDoctor();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
@@ -198,6 +210,7 @@ export function DoctorsPage() {
               </tr>
               {group.doctors.map((d) => {
                 const sessionsVisible = showSessions(d.doctor_type);
+                const templateSessions = templateSessionsByDoctor.get(d.id);
                 const supervisionVisible = showSupervision(d.doctor_type);
                 return (
                   <tr key={d.id} className="border-t border-border">
@@ -227,6 +240,14 @@ export function DoctorsPage() {
                               ▼
                             </button>
                           </div>
+                          {templateSessions !== undefined ? (
+                            <span
+                              className="text-xs text-amber-700"
+                              data-testid={`sessions-mismatch-${d.code}`}
+                            >
+                              ⚠ Template implies {templateSessions}
+                            </span>
+                          ) : null}
                         </div>
                       ) : (
                         <span className="text-ink/40">—</span>
@@ -275,6 +296,15 @@ export function DoctorsPage() {
             </tbody>
           ))}
         </table>
+      ) : null}
+
+      {templateSessionsByDoctor.size > 0 ? (
+        <p className="mt-2 text-xs text-amber-700">
+          ⚠ Sessions/week disagrees with the doctor's week-1 master template for the doctors
+          flagged above. Leave entitlement is credited from this field but charged against the
+          template, so where the two disagree a leave balance accrues and is spent in different
+          units - correct whichever of the two is wrong.
+        </p>
       ) : null}
 
       {dialogState.open ? (
