@@ -44,6 +44,8 @@ from .leave import (
     LeaveBulkIn,
     LeaveBulkOut,
     LeaveBulkSkippedOut,
+    LeaveChargeableCountOut,
+    LeaveExemptionsOut,
     LeaveIn,
     LeaveOut,
 )
@@ -113,6 +115,7 @@ __all__ = [
     "LeaveIn", "LeaveOut",
     "LeaveBulkIn", "LeaveBulkOut", "LeaveBulkSkippedOut",
     "LeaveBulkDeleteIn", "LeaveBulkDeleteOut",
+    "LeaveChargeableCountOut", "LeaveExemptionsOut",
     "CoverageSlotOut", "PlanningActionIn", "PlanningBulkIn", "PlanningBulkOut",
     "PlanningSkippedOut",
     "DutyIn", "DutyOut", "DutyCountOut",
