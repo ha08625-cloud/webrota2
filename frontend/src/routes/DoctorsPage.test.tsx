@@ -60,6 +60,25 @@ describe("DoctorsPage", () => {
     expect(patchBody).toEqual({ supervision_preference: "less" });
   });
 
+  it("shows the sessions/week stepper for a Trainee but not the supervision dropdown", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "TR", doctor_type: "Trainee", sessions_per_week: "6.0" })],
+    });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("TR");
+    expect(screen.getByLabelText("Increase sessions per week for TR")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Supervision preference for TR")).not.toBeInTheDocument();
+  });
+
+  it("hides the sessions/week stepper for a Locum", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "LC", doctor_type: "Locum" })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("LC");
+    expect(screen.queryByLabelText("Increase sessions per week for LC")).not.toBeInTheDocument();
+  });
+
   it("shows a dash in the Works column for a doctor with no employment window", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", start_date: null, end_date: null })] });
     renderWithProviders(<DoctorsPage />);
