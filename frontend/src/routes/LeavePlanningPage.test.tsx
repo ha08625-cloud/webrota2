@@ -20,6 +20,7 @@ import {
   makeClosure,
   makeDoctor,
   makeExtraSessionEntry,
+  makeLeaveEntitlement,
   makeLeaveEntry,
   makeSchool,
   makeSchoolHoliday,
@@ -113,6 +114,25 @@ function captureBulkBodies(
 
 function cell(doctorId: number, date: string, period: "AM" | "PM") {
   return screen.getByTestId(`planning-cell-${doctorId}-${date}-${period}`);
+}
+
+/** Entitlement rows for the balance line, recording the years asked for so
+ * a test can prove the month stepper re-queries across a year boundary. */
+function stubEntitlement(rows: ReturnType<typeof makeLeaveEntitlement>[]) {
+  const years: string[] = [];
+  server.use(
+    http.get("/api/v1/leave/entitlement", ({ request }) => {
+      const year = new URL(request.url).searchParams.get("year") ?? "";
+      years.push(year);
+      return HttpResponse.json({
+        year: Number(year),
+        from_date: `${year}-01-01`,
+        to_date: `${year}-12-31`,
+        doctors: rows,
+      });
+    }),
+  );
+  return years;
 }
 
 async function findCell(doctorId: number, date: string, period: "AM" | "PM") {
@@ -717,5 +737,78 @@ describe("LeavePlanningPage", () => {
 
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(await screen.findByText("Somewhere else")).toBeInTheDocument();
+  });
+
+  describe("doctor selection", () => {
+    it("highlights the row and shows the doctor's leave balance", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      stubEntitlement([
+        makeLeaveEntitlement({
+          doctor_id: 2,
+          doctor_code: "BB",
+          entitlement_sessions: "49.0",
+          used_sessions: 0,
+          remaining_sessions: "49.0",
+        }),
+      ]);
+      renderWithProviders(<LeavePlanningPage />);
+
+      await user.click(await screen.findByTestId("planning-doctor-label-2"));
+
+      expect(screen.getByTestId("planning-row-2")).toHaveAttribute("data-row-selected", "true");
+      const panel = await screen.findByTestId("planning-selected-doctor");
+      expect(panel).toHaveTextContent("BB");
+      expect(panel).toHaveTextContent("Leave 2026:");
+      expect(panel).toHaveTextContent("0/49");
+      expect(panel).toHaveTextContent("49 remaining");
+    });
+
+    it("clears the highlight when the same doctor is clicked again", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
+      renderWithProviders(<LeavePlanningPage />);
+
+      const label = await screen.findByTestId("planning-doctor-label-2");
+      await user.click(label);
+      expect(await screen.findByTestId("planning-selected-doctor")).toBeInTheDocument();
+
+      await user.click(label);
+      expect(screen.queryByTestId("planning-selected-doctor")).not.toBeInTheDocument();
+      expect(screen.getByTestId("planning-row-2")).toHaveAttribute("data-row-selected", "false");
+    });
+
+    it("says so for a doctor with no tracked entitlement", async () => {
+      const user = userEvent.setup();
+      setUpServer({ doctors: [AA, LOCUM] });
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AA" })]);
+      renderWithProviders(<LeavePlanningPage />);
+
+      await user.click(await screen.findByTestId(`planning-doctor-label-${LOCUM.id}`));
+
+      const panel = await screen.findByTestId("planning-selected-doctor");
+      expect(panel).toHaveTextContent("No leave entitlement is tracked for this doctor.");
+    });
+
+    it("asks for the viewed month's leave year when the month steps into the next one", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      const years = stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
+      renderWithProviders(<LeavePlanningPage />);
+
+      await user.click(await screen.findByTestId("planning-doctor-label-2"));
+      await waitFor(() => expect(years).toContain("2026"));
+
+      // August 2026 -> five steps forward lands in January 2027.
+      for (let i = 0; i < 5; i += 1) {
+        await user.click(screen.getByRole("button", { name: "Next" }));
+      }
+
+      await waitFor(() => expect(years).toContain("2027"));
+      expect(await screen.findByTestId("planning-selected-doctor")).toHaveTextContent(
+        "Leave 2027:",
+      );
+    });
   });
 });
