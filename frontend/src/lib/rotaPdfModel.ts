@@ -6,11 +6,18 @@ import {
   buildSupervisedCounts,
   cellLines,
   compactDayHeaderText,
+  roomCellLines,
   supervisedCountKey,
   toIdMap,
 } from "@/lib/exportContent";
-import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX } from "@/lib/exportStyles";
+import {
+  BACKGROUND_HEX,
+  CLOSED_COLUMN_HEX,
+  FONT_HEX,
+  ROOM_OCCUPIED_HEX,
+} from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
+import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
 import { rotaDate } from "@/lib/weekDates";
 
 /**
@@ -38,6 +45,14 @@ import { rotaDate } from "@/lib/weekDates";
  * first row of a doctor's pair is AM, the second PM, implicit - Design
  * Decision 7), and day headers are compact ("MON 10th" - Design
  * Decision 8).
+ *
+ * Room-occupancy pages (Task 6) interleave with the doctor pages in the
+ * same order the Excel export's sheets use - Week 1, Room Week 1, Week 2,
+ * ... - and reuse every structure below unchanged: a room's AM/PM pair is
+ * a two-row block with the room code merged across it, exactly as a
+ * doctor's is. Only the row source and the cell content/fill logic
+ * differ. Note that the room pages have no paper precedent at all (Design
+ * Decision 10); they exist for parity with the Excel export.
  */
 
 export interface PdfCell {
@@ -60,30 +75,57 @@ export interface PdfCell {
 export interface PdfRow {
   period: Period | null;
   /**
-   * The doctor's code, set on the AM row only - the PM row carries null.
+   * The block's label - a doctor's code on a doctor page, a room's code
+   * on a room page - set on the AM row only, the PM row carrying null.
    * The PDF layer turns the AM row's label into a `rowSpan: 2` cell
    * covering both, the same merge the Excel export does.
    */
-  doctorLabel: string | null;
+  rowLabel: string | null;
   /** One per weekday, in DAYS order. */
   cells: PdfCell[];
 }
 
-export interface PdfPage {
+/**
+ * Which grid a page shows. Only used to group pages for the font-size
+ * fit (see `PdfPage.bodyFontSize`) - the two kinds draw identically.
+ */
+export type PdfPageKind = "doctor" | "room";
+
+/** A page before its font size has been fitted - see `assignFontSizes`. */
+export interface PdfPageContent {
+  kind: PdfPageKind;
   title: string;
   dayHeaders: { text: string; closed: boolean }[];
   rows: PdfRow[];
 }
 
-export interface RotaPdfDocument {
-  pages: PdfPage[];
+export interface PdfPage extends PdfPageContent {
   /**
-   * One body font size for the whole document, not one per page: a rota
-   * whose weeks differ slightly in content would otherwise print at
-   * different sizes page to page, which reads as a rendering fault. The
-   * document therefore takes the *smallest* size any of its pages needs.
+   * The fitted body font size, shared by every page of the same *kind*
+   * and set to the smallest size any of them needs.
+   *
+   * Not one size per page: two doctor weeks that differ slightly in
+   * content would otherwise print at different sizes, which reads as a
+   * rendering fault rather than as a fit. Not one size for the whole
+   * document either: a room page has one block per room instead of one
+   * per doctor and shorter cells in each, so it is usually much shorter
+   * than a doctor page, and sharing a size would shrink it to the doctor
+   * pages' fit for no reason (Task 6, note C).
    */
   bodyFontSize: number;
+}
+
+export interface RotaPdfDocument {
+  /**
+   * Doctor and room pages interleaved week by week - Week 1, Room Week 1,
+   * Week 2, ... - matching the Excel export's user-confirmed sheet order.
+   */
+  pages: PdfPage[];
+}
+
+export interface RotaPdfOptions {
+  /** Emit a room-occupancy page after each week's doctor page. */
+  includeRoomPages: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,7 +183,7 @@ function estimatedLineCount(cell: PdfCell, charsPerLine: number): number {
   return count;
 }
 
-function estimatedPageHeight(page: PdfPage, fontSize: number): number {
+function estimatedPageHeight(page: { rows: PdfRow[] }, fontSize: number): number {
   const charsPerLine = DAY_COL_WIDTH / (AVERAGE_CHAR_WIDTH_EM * fontSize);
   let total = 0;
   for (const row of page.rows) {
@@ -167,7 +209,7 @@ function estimatedPageHeight(page: PdfPage, fontSize: number): number {
  * that is very likely to fit and is the same on every machine and in
  * every test run.
  */
-export function chooseBodyFontSize(page: PdfPage): number {
+export function chooseBodyFontSize(page: { rows: PdfRow[] }): number {
   for (const fontSize of FONT_SIZE_CANDIDATES) {
     // The day-header row wraps to two lines whenever a day is closed, so
     // it is budgeted at two lines' worth throughout rather than measured.
@@ -198,8 +240,12 @@ function buildTitle(
   week: number,
   closedSlotSet: Set<string>,
   closureNameByDate: Map<string, string | null>,
+  /** Inserted directly after the week label, before any closure names, so
+   * a room page announces itself before the eye reaches the closures. */
+  suffix?: string,
 ): string {
-  const label = formatWeekLabel(rotaDate(rota.start_date, week, "Monday"));
+  const weekLabel = formatWeekLabel(rotaDate(rota.start_date, week, "Monday"));
+  const label = suffix === undefined ? weekLabel : `${weekLabel} — ${suffix}`;
 
   const names: string[] = [];
   for (const day of DAYS) {
@@ -214,10 +260,156 @@ function buildTitle(
   return names.length > 0 ? `${label} — ${names.join(", ")}` : label;
 }
 
+/** The compact day headers, identical on doctor and room pages. */
+function buildDayHeaders(
+  rota: Rota,
+  week: number,
+  closedSlotSet: Set<string>,
+  closureNameByDate: Map<string, string | null>,
+): PdfPageContent["dayHeaders"] {
+  return DAYS.map((day) => {
+    const date = rotaDate(rota.start_date, week, day);
+    return {
+      text: compactDayHeaderText(day, date, closedSlotSet, closureNameByDate),
+      closed: isDayFullyClosed(closedSlotSet, date),
+    };
+  });
+}
+
+/** One doctor page: rows in `pivotRota` order, two per doctor. */
+function buildDoctorPage(
+  rota: Rota,
+  week: number,
+  grid: PivotedGrid,
+  roomsById: Map<number, Room>,
+  clinicTypesById: Map<number, ClinicType>,
+  supervisedCounts: Map<string, number>,
+  closedSlotSet: Set<string>,
+  closureNameByDate: Map<string, string | null>,
+): PdfPageContent {
+  const rows: PdfRow[] = [];
+
+  for (const gridRow of grid.rows) {
+    const doctorLabel = gridRow.inactiveWithSessions
+      ? `${gridRow.doctor.code} (inactive)`
+      : gridRow.doctor.code;
+
+    for (const period of PERIODS) {
+      const cells = DAYS.map((day) => {
+        const date = rotaDate(rota.start_date, week, day);
+        const session = getCell(grid, gridRow.doctor.id, week, day, period);
+        const style = cellStyle(session, roomsById, clinicTypesById);
+
+        const supervisedCount = supervisedCounts.get(supervisedCountKey(week, day, period)) ?? 0;
+        const lines = session !== undefined ? cellLines(session, supervisedCount) : [];
+        const isNote =
+          session !== undefined && session.notes !== null && session.notes.trim().length > 0;
+
+        // Closed-slot fill overrides the style's own background, same
+        // precedence as the Excel export: a closed column is greyed
+        // full height regardless of what (if anything) sits in it.
+        const fillHex = isSlotClosed(closedSlotSet, date, period)
+          ? CLOSED_COLUMN_HEX
+          : BACKGROUND_HEX[style.background];
+
+        return { lines, fillHex, fontHex: FONT_HEX[style.fontColor], isNote };
+      });
+
+      rows.push({
+        period,
+        // AM carries the label; the PM row is covered by the AM cell's
+        // rowSpan downstream.
+        rowLabel: period === "AM" ? doctorLabel : null,
+        cells,
+      });
+    }
+  }
+
+  return {
+    kind: "doctor",
+    title: buildTitle(rota, week, closedSlotSet, closureNameByDate),
+    dayHeaders: buildDayHeaders(rota, week, closedSlotSet, closureNameByDate),
+    rows,
+  };
+}
+
 /**
- * Builds the whole document model: one page per generation week, rows in
- * `pivotRota` order (the same order the grid and the Excel export use),
- * two rows per doctor.
+ * One room-occupancy page: rows in `pivotRoomRota` order (D/C/W/SR, then
+ * code within type), two per room, mirroring `buildRoomWeekSheet` in the
+ * Excel export.
+ *
+ * Colour is the Excel room sheet's muted scheme rather than the on-screen
+ * room view's green/red (user-confirmed): occupied is a light grey one
+ * shade lighter than the closed grey, available is unfilled. Font colour
+ * is always black - `cellStyle`'s room-type red/blue would be pure noise
+ * here, since the room is the row.
+ *
+ * Closed is checked *before* the occupancy lookup, so a closed cell is
+ * blank rather than "Available" - matching both the on-screen room view
+ * and `buildRoomWeekSheet`, and avoiding a false claim that a room is
+ * bookable on a day the practice is shut.
+ */
+function buildRoomPage(
+  rota: Rota,
+  week: number,
+  grid: PivotedRoomGrid,
+  closedSlotSet: Set<string>,
+  closureNameByDate: Map<string, string | null>,
+): PdfPageContent {
+  const rows: PdfRow[] = [];
+
+  for (const room of grid.rows) {
+    for (const period of PERIODS) {
+      const cells = DAYS.map((day): PdfCell => {
+        const date = rotaDate(rota.start_date, week, day);
+        const base = { fontHex: FONT_HEX.black, isNote: false };
+
+        if (isSlotClosed(closedSlotSet, date, period)) {
+          return { lines: [], fillHex: CLOSED_COLUMN_HEX, ...base };
+        }
+
+        const session = getRoomCell(grid, room.id, week, day, period);
+        if (session === undefined) {
+          return { lines: ["Available"], fillHex: null, ...base };
+        }
+        return { lines: roomCellLines(session), fillHex: ROOM_OCCUPIED_HEX, ...base };
+      });
+
+      rows.push({ period, rowLabel: period === "AM" ? room.code : null, cells });
+    }
+  }
+
+  return {
+    kind: "room",
+    title: buildTitle(rota, week, closedSlotSet, closureNameByDate, "Rooms"),
+    dayHeaders: buildDayHeaders(rota, week, closedSlotSet, closureNameByDate),
+    rows,
+  };
+}
+
+/**
+ * Fits a font size to each page: every page of a kind gets the smallest
+ * size any page of that kind needs. See `PdfPage.bodyFontSize` for why
+ * the grouping is per kind rather than per page or per document.
+ */
+function assignFontSizes(pages: PdfPageContent[]): PdfPage[] {
+  const sizeByKind = new Map<PdfPageKind, number>();
+
+  for (const page of pages) {
+    const fitted = chooseBodyFontSize(page);
+    const current = sizeByKind.get(page.kind);
+    sizeByKind.set(page.kind, current === undefined ? fitted : Math.min(current, fitted));
+  }
+
+  return pages.map((page) => ({
+    ...page,
+    bodyFontSize: sizeByKind.get(page.kind) ?? FONT_SIZE_CANDIDATES[0],
+  }));
+}
+
+/**
+ * Builds the whole document model: one doctor page per generation week,
+ * each optionally followed by that week's room-occupancy page.
  *
  * `closureNameByDate` is the live closures lookup - see `buildTitle`.
  */
@@ -227,6 +419,7 @@ export function buildRotaPdfModel(
   rooms: Room[],
   clinicTypes: ClinicType[],
   closureNameByDate: Map<string, string | null>,
+  options: RotaPdfOptions = { includeRoomPages: false },
 ): RotaPdfDocument {
   const roomsById = toIdMap(rooms);
   const clinicTypesById = toIdMap(clinicTypes);
@@ -235,61 +428,30 @@ export function buildRotaPdfModel(
   const weeks = weekNumbers(rota.num_weeks);
   const grid: PivotedGrid = pivotRota(rota.sessions, doctors);
   const supervisedCounts = buildSupervisedCounts(rota.sessions, doctors, weeks);
+  // Both grids are week-independent, so they are pivoted once and read
+  // per week - but the room grid is not built at all unless it is wanted.
+  const roomGrid: PivotedRoomGrid | null = options.includeRoomPages
+    ? pivotRoomRota(rota.sessions, rooms)
+    : null;
 
-  const pages: PdfPage[] = weeks.map((week) => {
-    const dayHeaders = DAYS.map((day) => {
-      const date = rotaDate(rota.start_date, week, day);
-      return {
-        text: compactDayHeaderText(day, date, closedSlotSet, closureNameByDate),
-        closed: isDayFullyClosed(closedSlotSet, date),
-      };
-    });
-
-    const rows: PdfRow[] = [];
-    for (const gridRow of grid.rows) {
-      const doctorLabel = gridRow.inactiveWithSessions
-        ? `${gridRow.doctor.code} (inactive)`
-        : gridRow.doctor.code;
-
-      for (const period of PERIODS) {
-        const cells = DAYS.map((day) => {
-          const date = rotaDate(rota.start_date, week, day);
-          const session = getCell(grid, gridRow.doctor.id, week, day, period);
-          const style = cellStyle(session, roomsById, clinicTypesById);
-
-          const supervisedCount = supervisedCounts.get(supervisedCountKey(week, day, period)) ?? 0;
-          const lines = session !== undefined ? cellLines(session, supervisedCount) : [];
-          const isNote =
-            session !== undefined && session.notes !== null && session.notes.trim().length > 0;
-
-          // Closed-slot fill overrides the style's own background, same
-          // precedence as the Excel export: a closed column is greyed
-          // full height regardless of what (if anything) sits in it.
-          const fillHex = isSlotClosed(closedSlotSet, date, period)
-            ? CLOSED_COLUMN_HEX
-            : BACKGROUND_HEX[style.background];
-
-          return { lines, fillHex, fontHex: FONT_HEX[style.fontColor], isNote };
-        });
-
-        rows.push({
-          period,
-          // AM carries the label; the PM row is covered by the AM cell's
-          // rowSpan downstream.
-          doctorLabel: period === "AM" ? doctorLabel : null,
-          cells,
-        });
-      }
+  const pages: PdfPageContent[] = [];
+  for (const week of weeks) {
+    pages.push(
+      buildDoctorPage(
+        rota,
+        week,
+        grid,
+        roomsById,
+        clinicTypesById,
+        supervisedCounts,
+        closedSlotSet,
+        closureNameByDate,
+      ),
+    );
+    if (roomGrid !== null) {
+      pages.push(buildRoomPage(rota, week, roomGrid, closedSlotSet, closureNameByDate));
     }
+  }
 
-    return {
-      title: buildTitle(rota, week, closedSlotSet, closureNameByDate),
-      dayHeaders,
-      rows,
-    };
-  });
-
-  const bodyFontSize = pages.length > 0 ? Math.min(...pages.map(chooseBodyFontSize)) : FONT_SIZE_CANDIDATES[0];
-
-  return { pages, bodyFontSize };
+  return { pages: assignFontSizes(pages) };
 }
