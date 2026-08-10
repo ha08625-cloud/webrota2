@@ -1,11 +1,17 @@
-import type { ClinicType, Day, Doctor, Period, Room, Rota, RotaSession } from "@/api/types";
-import { formatDate } from "@/lib/date";
+import type { ClinicType, Day, Doctor, Period, Room, Rota } from "@/api/types";
 import { cellStyle } from "@/lib/cellStyle";
-import { isDayFullyClosed, isDayPartlyClosed, isSlotClosed, partlyClosedPeriod, toClosedSlotSet } from "@/lib/closedSlots";
+import { isDayFullyClosed, isSlotClosed, toClosedSlotSet } from "@/lib/closedSlots";
+import {
+  buildSupervisedCounts,
+  cellLines,
+  dayHeaderText,
+  roomCellLines,
+  supervisedCountKey,
+  toIdMap,
+} from "@/lib/exportContent";
 import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
-import { countSupervisableTrainees } from "@/lib/superviseeCount";
 import { rotaDate } from "@/lib/weekDates";
 
 /**
@@ -16,7 +22,10 @@ import { rotaDate } from "@/lib/weekDates";
  *
  * Reproduces the on-screen RotaGrid: same pivotRota row order, same
  * cellStyle() colour rules (via exportStyles.ts's hex maps), same
- * CellContent text/ordering. One doctor worksheet per generation week,
+ * CellContent text/ordering. Cell *content* itself lives in
+ * exportContent.ts - the shared, library-agnostic authority for what a
+ * cell says, consumed by this export and the PDF export alike; this file
+ * owns only the exceljs rendering of it. One doctor worksheet per generation week,
  * immediately followed by a room-occupancy worksheet for that same week
  * (M-export room-sheet plan, user-confirmed ordering: Week 1, Room Week 1,
  * Week 2, Room Week 2, ...) - reproducing the on-screen RoomRotaGrid, same
@@ -114,73 +123,6 @@ function dayColumn(day: Day): number {
   return FIRST_DAY_COL + DAYS.indexOf(day);
 }
 
-function supervisedCountKey(week: number, day: Day, period: Period): string {
-  return `${week}:${day}:${period}`;
-}
-
-/**
- * Mirrors RotaGrid.tsx's RoleLabel exactly: duty_primary -> "Duty",
- * duty_secondary -> "Duty (2nd)", clinic -> clinic name (or "Clinic"),
- * anything else (including null) -> nothing.
- */
-function roleLabelText(role: RotaSession["role"], clinicName: string | null): string | null {
-  if (role === "duty_primary") return "Duty";
-  if (role === "duty_secondary") return "Duty (2nd)";
-  if (role === "clinic") return clinicName ?? "Clinic";
-  return null;
-}
-
-/**
- * Mirrors RotaGrid.tsx's CellContent line-for-line (Design Decision 4):
- * LEAVE suppresses everything else except notes; otherwise WFH, then
- * Supervising, then No surgery/Admin, then the role label (shown
- * regardless of WFH, same as the UI), then the room code (suppressed by
- * WFH, same as the UI - is_on_leave already returned above by that
- * point). Notes, when present, are always the trailing line - shown
- * regardless of leave/WFH state, same as the grid's third-row note.
- */
-function cellLines(session: RotaSession, supervisedCount: number): string[] {
-  if (session.is_on_leave) {
-    const leaveLines = ["LEAVE"];
-    if (session.notes !== null && session.notes.trim().length > 0) {
-      leaveLines.push(session.notes);
-    }
-    return leaveLines;
-  }
-
-  const lines: string[] = [];
-
-  if (session.is_wfh) {
-    lines.push("WFH");
-  }
-
-  if (session.is_supervising) {
-    lines.push(supervisedCount > 0 ? `Supervising x ${supervisedCount}` : "Supervising");
-  }
-
-  if (session.role === null && session.template_type === "no_surgery") {
-    lines.push("No surgery");
-  }
-  if (session.role === null && session.template_type === "admin_time") {
-    lines.push("Admin");
-  }
-
-  const roleLabel = roleLabelText(session.role, session.clinic_type_name);
-  if (roleLabel !== null) {
-    lines.push(roleLabel);
-  }
-
-  if (!session.is_wfh && session.room_code) {
-    lines.push(session.room_code);
-  }
-
-  if (session.notes !== null && session.notes.trim().length > 0) {
-    lines.push(session.notes);
-  }
-
-  return lines;
-}
-
 /**
  * Builds rich-text runs for a cell so every line is bold except a
  * trailing note (ticket: "all fonts bold except notes"). `cellLines`
@@ -201,84 +143,6 @@ function buildRichText(
       font: { bold: !isNoteRun, color: { argb: colorArgb } },
     };
   });
-}
-
-/**
- * Mirrors RoomRotaGrid.tsx's RoomCell content for an occupied room
- * exactly (Design Decision, M-export room-sheet plan): occupying
- * doctor's code first, then LEAVE (suppressing the role label, same as
- * the on-screen LEAVE-badge branch - a leave holder still occupies the
- * room, it just isn't doing the role), otherwise the role label, then
- * "Supervising" if flagged. The on-screen view never shows a supervised
- * trainee count on the room sheet (unlike the doctor sheet's
- * cellLines/supervisedCounts), so neither does this.
- */
-function roomCellLines(session: RotaSession): string[] {
-  const lines = [session.doctor_code];
-
-  if (session.is_on_leave) {
-    lines.push("LEAVE");
-    return lines;
-  }
-
-  const roleLabel = roleLabelText(session.role, session.clinic_type_name);
-  if (roleLabel !== null) {
-    lines.push(roleLabel);
-  }
-
-  if (session.is_supervising) {
-    lines.push("Supervising");
-  }
-
-  return lines;
-}
-
-function dayHeaderText(
-  day: Day,
-  date: string,
-  closedSlotSet: Set<string>,
-  closureNameByDate: Map<string, string | null>,
-): string {
-  const base = `${day} ${formatDate(date)}`;
-  if (isDayFullyClosed(closedSlotSet, date)) {
-    return `${base}\n${closureNameByDate.get(date) ?? "closed"}`;
-  }
-  if (isDayPartlyClosed(closedSlotSet, date)) {
-    const period = partlyClosedPeriod(closedSlotSet, date);
-    return `${base}\n${closureNameByDate.get(date) ?? "closed"} (${period})`;
-  }
-  return base;
-}
-
-function toIdMap<T extends { id: number }>(items: T[]): Map<number, T> {
-  const map = new Map<number, T>();
-  for (const item of items) {
-    map.set(item.id, item);
-  }
-  return map;
-}
-
-/**
- * Replicates RotaGrid.tsx's supervisedCounts memo: one
- * countSupervisableTrainees call per (week, day, period), keyed for O(1)
- * lookup in the render loop below. Kept identical to the memo's own
- * iteration (weeks x DAYS x PERIODS) so a future change to that memo is
- * easy to spot as drift here too.
- */
-function buildSupervisedCounts(
-  sessions: RotaSession[],
-  doctors: Doctor[],
-  weeks: number[],
-): Map<string, number> {
-  const map = new Map<string, number>();
-  for (const week of weeks) {
-    for (const day of DAYS) {
-      for (const period of PERIODS) {
-        map.set(supervisedCountKey(week, day, period), countSupervisableTrainees(sessions, doctors, week, day, period));
-      }
-    }
-  }
-  return map;
 }
 
 /**
