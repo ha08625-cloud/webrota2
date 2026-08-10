@@ -80,12 +80,17 @@ describe("buildRotaPdf", () => {
       ],
     });
 
+    // Room pages are always on, so passing a room here also draws the
+    // occupied / available / closed room cells and the room pages' own
+    // fitted font size.
     const blob = await buildRotaPdf(rota, doctors, [room], [clinicType], CLOSURE_NAMES);
 
     expect(blob.size).toBeGreaterThan(0);
     await expect(readMagic(blob)).resolves.toBe("%PDF-");
   });
 
+  // Also the degenerate room page: no rooms means a table with nothing
+  // but its header row.
   it("renders a rota with no doctors and no sessions", async () => {
     const blob = await buildRotaPdf(makeRota({ num_weeks: 1 }), [], [], [], new Map());
 

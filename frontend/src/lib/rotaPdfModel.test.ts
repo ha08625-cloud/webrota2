@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Period } from "@/api/types";
 import { makeClinicType, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
-import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX } from "@/lib/exportStyles";
+import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX } from "@/lib/exportStyles";
 import { DAYS } from "@/lib/pivot";
 
 import {
@@ -12,6 +12,7 @@ import {
   FONT_SIZE_CANDIDATES,
   type PdfCell,
   type PdfPage,
+  type PdfPageContent,
   type PdfRow,
 } from "./rotaPdfModel";
 
@@ -65,7 +66,7 @@ describe("buildRotaPdfModel", () => {
 
     expect(page.rows).toHaveLength(2);
     expect(page.rows.map((row: PdfRow) => row.period)).toEqual(["AM", "PM"]);
-    expect(page.rows.map((row: PdfRow) => row.doctorLabel)).toEqual(["AA", null]);
+    expect(page.rows.map((row: PdfRow) => row.rowLabel)).toEqual(["AA", null]);
     expect(page.rows[0].cells).toHaveLength(DAYS.length);
   });
 
@@ -79,7 +80,7 @@ describe("buildRotaPdfModel", () => {
 
     const [page] = buildRotaPdfModel(oneWeekRota(), doctors, [], [], NO_CLOSURE_NAMES).pages;
 
-    expect(page.rows.filter((row: PdfRow) => row.doctorLabel !== null).map((row) => row.doctorLabel)).toEqual([
+    expect(page.rows.filter((row: PdfRow) => row.rowLabel !== null).map((row) => row.rowLabel)).toEqual([
       "AP",
       "ZP",
       "AS",
@@ -95,7 +96,7 @@ describe("buildRotaPdfModel", () => {
 
     const [page] = buildRotaPdfModel(rota, [inactive], [], [], NO_CLOSURE_NAMES).pages;
 
-    expect(page.rows[0].doctorLabel).toBe("XX (inactive)");
+    expect(page.rows[0].rowLabel).toBe("XX (inactive)");
   });
 
   it("takes cell text from the shared cellLines logic", () => {
@@ -254,11 +255,246 @@ describe("buildRotaPdfModel", () => {
     expect(doc.pages[0].title).toBe("w/c 6 Jul 2026");
   });
 
-  it("gives the whole document one body font size, the smallest any page needs", () => {
-    const doc = buildRotaPdfModel(oneWeekRota(), [makeDoctor({ code: "AA" })], [], [], NO_CLOSURE_NAMES);
+  it("gives every doctor page one body font size, the smallest any of them needs", () => {
+    // Week 2 is heavier than week 1, so the two pages would fit
+    // differently if each were sized alone.
+    const doctors = Array.from({ length: 18 }, (_, i) => makeDoctor({ code: `D${i}` }));
+    const rota = makeRota({
+      num_weeks: 2,
+      start_date: "2026-07-06",
+      sessions: doctors.flatMap((doctor) =>
+        DAYS.map((day) =>
+          makeRotaSession({
+            doctor_id: doctor.id,
+            doctor_code: doctor.code,
+            week: 2,
+            day,
+            period: "AM",
+            is_supervising: true,
+            notes: "a fairly long trailing note to force a wrap",
+          }),
+        ),
+      ),
+    });
 
-    expect(doc.bodyFontSize).toBe(Math.min(...doc.pages.map(chooseBodyFontSize)));
-    expect(FONT_SIZE_CANDIDATES).toContain(doc.bodyFontSize);
+    const { pages } = buildRotaPdfModel(rota, doctors, [], [], NO_CLOSURE_NAMES);
+
+    const expected = Math.min(...pages.map(chooseBodyFontSize));
+    expect(pages.map((page) => page.bodyFontSize)).toEqual([expected, expected]);
+    expect(FONT_SIZE_CANDIDATES).toContain(expected);
+    // The heavier week is what drove the shared size down.
+    expect(expected).toBeLessThan(chooseBodyFontSize(pages[0]));
+  });
+
+  it("emits no room pages unless asked", () => {
+    const doc = buildRotaPdfModel(oneWeekRota(), [], [makeRoom({ code: "D1" })], [], NO_CLOSURE_NAMES);
+
+    expect(doc.pages.map((page) => page.kind)).toEqual(["doctor"]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+
+describe("buildRotaPdfModel room pages", () => {
+  const WITH_ROOMS = { includeRoomPages: true };
+
+  it("interleaves a room page after each week's doctor page", () => {
+    const rota = makeRota({ num_weeks: 2, start_date: "2026-07-06" });
+
+    const { pages } = buildRotaPdfModel(rota, [], [makeRoom({ code: "D1" })], [], NO_CLOSURE_NAMES, WITH_ROOMS);
+
+    expect(pages.map((page) => page.kind)).toEqual(["doctor", "room", "doctor", "room"]);
+    expect(pages.map((page) => page.title)).toEqual([
+      "w/c 6 Jul 2026",
+      "w/c 6 Jul 2026 — Rooms",
+      "w/c 13 Jul 2026",
+      "w/c 13 Jul 2026 — Rooms",
+    ]);
+  });
+
+  it("names the week's closures after the Rooms marker", () => {
+    const rota = oneWeekRota({ closed_slots: fullDaySlots(["2026-07-08"]) });
+
+    const { pages } = buildRotaPdfModel(
+      rota,
+      [],
+      [makeRoom({ code: "D1" })],
+      [],
+      new Map([["2026-07-08", "Staff training"]]),
+      WITH_ROOMS,
+    );
+
+    expect(pages[1].title).toBe("w/c 6 Jul 2026 — Rooms — Staff training");
+  });
+
+  it("emits two rows per room in pivotRoomRota order, label on the AM row only", () => {
+    const rooms = [
+      makeRoom({ code: "SR", room_type: "SR" }),
+      makeRoom({ code: "C2", room_type: "C" }),
+      makeRoom({ code: "D10", room_type: "D" }),
+      makeRoom({ code: "D2", room_type: "D" }),
+      makeRoom({ code: "W1", room_type: "W" }),
+    ];
+
+    const roomPage = buildRotaPdfModel(oneWeekRota(), [], rooms, [], NO_CLOSURE_NAMES, WITH_ROOMS).pages[1];
+
+    expect(roomPage.rows).toHaveLength(rooms.length * 2);
+    expect(roomPage.rows.map((row: PdfRow) => row.period)).toEqual([
+      "AM",
+      "PM",
+      "AM",
+      "PM",
+      "AM",
+      "PM",
+      "AM",
+      "PM",
+      "AM",
+      "PM",
+    ]);
+    expect(roomPage.rows.map((row: PdfRow) => row.rowLabel)).toEqual([
+      "D2",
+      null,
+      "D10",
+      null,
+      "C2",
+      null,
+      "W1",
+      null,
+      "SR",
+      null,
+    ]);
+    expect(roomPage.rows[0].cells).toHaveLength(DAYS.length);
+  });
+
+  it("shares the doctor pages' day headers", () => {
+    const rota = oneWeekRota({ closed_slots: fullDaySlots(["2026-07-08"]) });
+
+    const { pages } = buildRotaPdfModel(rota, [], [makeRoom({ code: "D1" })], [], NO_CLOSURE_NAMES, WITH_ROOMS);
+
+    expect(pages[1].dayHeaders).toEqual(pages[0].dayHeaders);
+  });
+
+  it("fills an occupied cell and takes its text from the shared roomCellLines logic", () => {
+    const room = makeRoom({ code: "D1", room_type: "D" });
+    const clinicType = makeClinicType({ name: "Diabetic" });
+    const rota = oneWeekRota({
+      sessions: [
+        makeRotaSession({
+          doctor_code: "AA",
+          room_id: room.id,
+          room_code: "D1",
+          role: "clinic",
+          clinic_type_id: clinicType.id,
+          clinic_type_name: "Diabetic",
+          day: "Monday",
+          period: "AM",
+        }),
+      ],
+    });
+
+    const roomPage = buildRotaPdfModel(rota, [], [room], [clinicType], NO_CLOSURE_NAMES, WITH_ROOMS).pages[1];
+
+    expect(cellAt(roomPage, 0, "Monday")).toEqual({
+      lines: ["AA", "Diabetic"],
+      fillHex: ROOM_OCCUPIED_HEX,
+      fontHex: FONT_HEX.black,
+      isNote: false,
+    });
+  });
+
+  it("leaves a free room's cell unfilled and marked Available", () => {
+    const roomPage = buildRotaPdfModel(
+      oneWeekRota(),
+      [],
+      [makeRoom({ code: "D1" })],
+      [],
+      NO_CLOSURE_NAMES,
+      WITH_ROOMS,
+    ).pages[1];
+
+    expect(cellAt(roomPage, 0, "Monday")).toEqual({
+      lines: ["Available"],
+      fillHex: null,
+      fontHex: FONT_HEX.black,
+      isNote: false,
+    });
+  });
+
+  it("renders a closed cell blank and grey, not Available", () => {
+    const rota = oneWeekRota({ closed_slots: fullDaySlots(["2026-07-08"]) });
+
+    const roomPage = buildRotaPdfModel(
+      rota,
+      [],
+      [makeRoom({ code: "D1" })],
+      [],
+      NO_CLOSURE_NAMES,
+      WITH_ROOMS,
+    ).pages[1];
+
+    expect(cellAt(roomPage, 0, "Wednesday")).toEqual({
+      lines: [],
+      fillHex: CLOSED_COLUMN_HEX,
+      fontHex: FONT_HEX.black,
+      isNote: false,
+    });
+  });
+
+  it("greys a closed cell even when a session still holds the room", () => {
+    const room = makeRoom({ code: "D1" });
+    const rota = oneWeekRota({
+      closed_slots: fullDaySlots(["2026-07-08"]),
+      sessions: [
+        makeRotaSession({ doctor_code: "AA", room_id: room.id, room_code: "D1", day: "Wednesday", period: "AM" }),
+      ],
+    });
+
+    const roomPage = buildRotaPdfModel(rota, [], [room], [], NO_CLOSURE_NAMES, WITH_ROOMS).pages[1];
+
+    expect(cellAt(roomPage, 0, "Wednesday")).toMatchObject({ lines: [], fillHex: CLOSED_COLUMN_HEX });
+  });
+
+  it("sizes room pages independently of the doctor pages they sit between", () => {
+    // 21 doctors shrink the doctor pages; three rooms leave the room
+    // page with plenty of space, and it must not be dragged down with
+    // them.
+    const doctors = Array.from({ length: 21 }, (_, i) => makeDoctor({ code: `D${i}` }));
+    const rooms = [makeRoom({ code: "R1" }), makeRoom({ code: "R2" }), makeRoom({ code: "R3" })];
+    // Two-line doctor cells throughout; the rooms stay free, so the room
+    // page is 6 rows of one-line "Available".
+    const rota = oneWeekRota({
+      sessions: doctors.flatMap((doctor) =>
+        DAYS.flatMap((day) =>
+          (["AM", "PM"] as Period[]).map((period) =>
+            makeRotaSession({
+              doctor_id: doctor.id,
+              doctor_code: doctor.code,
+              day,
+              period,
+              role: "clinic",
+              clinic_type_name: "Diabetic",
+              notes: "back late",
+            }),
+          ),
+        ),
+      ),
+    });
+
+    const { pages } = buildRotaPdfModel(rota, doctors, rooms, [], NO_CLOSURE_NAMES, WITH_ROOMS);
+
+    expect(pages[1].bodyFontSize).toBe(FONT_SIZE_CANDIDATES[0]);
+    expect(pages[0].bodyFontSize).toBeLessThan(pages[1].bodyFontSize);
+  });
+
+  it("gives every room page the same size, the smallest any of them needs", () => {
+    const rooms = Array.from({ length: 24 }, (_, i) => makeRoom({ code: `D${i}` }));
+    const rota = makeRota({ num_weeks: 2, start_date: "2026-07-06" });
+
+    const { pages } = buildRotaPdfModel(rota, [], rooms, [], NO_CLOSURE_NAMES, WITH_ROOMS);
+
+    const roomPages = pages.filter((page) => page.kind === "room");
+    const expected = Math.min(...roomPages.map(chooseBodyFontSize));
+    expect(roomPages.map((page) => page.bodyFontSize)).toEqual([expected, expected]);
   });
 });
 
@@ -270,13 +506,13 @@ describe("buildRotaPdfModel", () => {
  * from raw geometry keeps these cases readable at the sizes that matter
  * (21 doctors is the real practice's size).
  */
-function pageWith(doctorCount: number, linesPerCell: string[]): PdfPage {
+function pageWith(doctorCount: number, linesPerCell: string[]): PdfPageContent {
   const rows: PdfRow[] = [];
   for (let i = 0; i < doctorCount; i++) {
     for (const period of ["AM", "PM"] as Period[]) {
       rows.push({
         period,
-        doctorLabel: period === "AM" ? `D${i}` : null,
+        rowLabel: period === "AM" ? `D${i}` : null,
         cells: DAYS.map(() => ({
           lines: linesPerCell,
           fillHex: null,
@@ -286,7 +522,7 @@ function pageWith(doctorCount: number, linesPerCell: string[]): PdfPage {
       });
     }
   }
-  return { title: "w/c 6 Jul 2026", dayHeaders: [], rows };
+  return { kind: "doctor", title: "w/c 6 Jul 2026", dayHeaders: [], rows };
 }
 
 describe("chooseBodyFontSize", () => {

@@ -2,7 +2,14 @@ import type { Content, TDocumentDefinitions, TableCell, TableLayout } from "pdfm
 
 import type { ClinicType, Doctor, Room, Rota } from "@/api/types";
 import { CLOSED_COLUMN_HEX } from "@/lib/exportStyles";
-import { DOCTOR_COL_WIDTH, buildRotaPdfModel, type PdfCell, type PdfPage, type RotaPdfDocument } from "@/lib/rotaPdfModel";
+import {
+  DOCTOR_COL_WIDTH,
+  FONT_SIZE_CANDIDATES,
+  buildRotaPdfModel,
+  type PdfCell,
+  type PdfPage,
+  type RotaPdfDocument,
+} from "@/lib/rotaPdfModel";
 
 /**
  * PDF export builder for a committed rota (PDF export plan, Task 4).
@@ -15,7 +22,13 @@ import { DOCTOR_COL_WIDTH, buildRotaPdfModel, type PdfCell, type PdfPage, type R
  * bytes is worth almost nothing, so the coverage lives one layer up.
  *
  * Same signature as `buildRotaWorkbook`, so the two are interchangeable
- * at the call site.
+ * at the call site, and the same page order: Week 1, Room Week 1,
+ * Week 2, ...
+ *
+ * Doctor and room pages draw identically - a room's AM/PM pair is the
+ * same two-row, merged-label block a doctor's is - so nothing below
+ * branches on page kind. The one place the distinction reaches this
+ * layer is font size, which the model fits per kind.
  *
  * ---
  *
@@ -177,7 +190,8 @@ function bodyCell(cell: PdfCell): TableCell {
   };
 }
 
-function buildTable(page: PdfPage, bodyFontSize: number): Content {
+function buildTable(page: PdfPage): Content {
+  const bodyFontSize = page.bodyFontSize;
   const header: TableCell[] = [
     { text: "" },
     ...page.dayHeaders.map((dayHeader) => ({
@@ -193,12 +207,12 @@ function buildTable(page: PdfPage, bodyFontSize: number): Content {
 
   const body: TableCell[][] = page.rows.map((row) => {
     const first: TableCell =
-      row.doctorLabel === null
+      row.rowLabel === null
         ? // The AM row's rowSpan covers this cell; pdfmake still needs a
           // placeholder object in the array for column alignment.
           {}
         : {
-            text: row.doctorLabel,
+            text: row.rowLabel,
             rowSpan: 2,
             bold: true,
             fontSize: bodyFontSize + 1,
@@ -209,8 +223,12 @@ function buildTable(page: PdfPage, bodyFontSize: number): Content {
   });
 
   return {
+    // Set on the table rather than in `defaultStyle` because the fitted
+    // size is per page kind, not per document - a room page prints
+    // larger than the doctor pages it sits between.
+    fontSize: bodyFontSize,
     table: {
-      // The doctor column is fixed at the width the fit estimate assumed;
+      // The label column is fixed at the width the fit estimate assumed;
       // the five day columns share whatever is left, which guarantees the
       // table cannot overflow the page however the margins are tuned.
       widths: [DOCTOR_COL_WIDTH - CELL_PADDING_X * 2, "*", "*", "*", "*", "*"],
@@ -236,7 +254,7 @@ function buildDocDefinition(model: RotaPdfDocument): TDocumentDefinitions {
       // One generation week per page.
       ...(index === 0 ? {} : { pageBreak: "before" as const }),
     });
-    content.push(buildTable(page, model.bodyFontSize));
+    content.push(buildTable(page));
   });
 
   return {
@@ -245,7 +263,10 @@ function buildDocDefinition(model: RotaPdfDocument): TDocumentDefinitions {
     pageMargins: PAGE_MARGINS,
     defaultStyle: {
       font: "Helvetica",
-      fontSize: model.bodyFontSize,
+      // Every content node above sets its own size; this is only the
+      // floor a stray unsized node would inherit, so it is the smallest
+      // size in play rather than pdfmake's 12pt default.
+      fontSize: Math.min(...model.pages.map((page) => page.bodyFontSize), FONT_SIZE_CANDIDATES[0]),
       lineHeight: LINE_HEIGHT,
     },
     content,
@@ -266,7 +287,12 @@ export async function buildRotaPdf(
   clinicTypes: ClinicType[],
   closureNameByDate: Map<string, string | null>,
 ): Promise<Blob> {
-  const model = buildRotaPdfModel(rota, doctors, rooms, clinicTypes, closureNameByDate);
+  // Room pages on, for parity with the Excel export's `Room Week N`
+  // sheets (Task 6). They roughly double the page count, and unlike the
+  // doctor grid they have no counterpart in the practice's paper rota.
+  const model = buildRotaPdfModel(rota, doctors, rooms, clinicTypes, closureNameByDate, {
+    includeRoomPages: true,
+  });
   const pdfMake = await loadPdfMake();
 
   return pdfMake.createPdf(buildDocDefinition(model)).getBlob();
