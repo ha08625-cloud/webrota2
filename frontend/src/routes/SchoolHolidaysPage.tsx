@@ -114,47 +114,54 @@ export function SchoolHolidaysPage() {
       {schools && schools.length === 0 ? <p className="mt-4 text-sm text-ink/50">No schools.</p> : null}
 
       {schools && schools.length > 0 ? (
-        <table aria-label="Schools" className="mt-4 min-w-full text-sm">
+        <table aria-label="Schools" className="mt-4 w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col className="w-48" />
+            <col />
+            <col className="w-32" />
+          </colgroup>
           <thead>
-            <tr className="text-left text-ink/70">
-              <th className="py-1 pr-4 font-medium">School</th>
-              <th className="py-1 pr-4 font-medium">Holidays</th>
-              <th className="py-1" />
+            <tr className="border-b border-border text-left text-ink/70">
+              <th className="py-2 pr-4 font-medium">School</th>
+              <th className="py-2 pr-4 font-medium">Holidays</th>
+              <th className="py-2 text-right font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-border">
             {schools.map((school) => {
               const holidays = visibleHolidays(school, showPast);
               return (
-                <tr key={school.id} className="border-t border-border align-top">
-                  <td className="py-2 pr-4">{school.name}</td>
-                  <td className="py-2 pr-4">
+                <tr key={school.id} className="align-top">
+                  <td className="py-3 pr-4 font-medium">{school.name}</td>
+                  <td className="py-3 pr-4">
                     {holidays.length === 0 ? (
-                      <span className="text-ink/50">None recorded</span>
+                      <p className="text-ink/50">None recorded</p>
                     ) : (
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {holidays.map((h) => (
-                          <li key={h.id} className="flex items-center gap-2">
+                          <li key={h.id} className="flex items-center justify-between gap-3">
                             <span>
                               {formatHolidayRange(h.start_date, h.end_date)}
                               {h.name ? ` (${h.name})` : ""}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setHolidayDialog({ schoolId: school.id, schoolName: school.name, holiday: h })
-                              }
-                              className="text-xs text-accent"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteHoliday(school.id, h.id)}
-                              className="text-xs text-red-700"
-                            >
-                              Delete
-                            </button>
+                            <span className="flex shrink-0 items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHolidayDialog({ schoolId: school.id, schoolName: school.name, holiday: h })
+                                }
+                                className="text-xs text-accent"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteHoliday(school.id, h.id)}
+                                className="text-xs text-red-700"
+                              >
+                                Delete
+                              </button>
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -167,7 +174,7 @@ export function SchoolHolidaysPage() {
                       Add holiday
                     </button>
                   </td>
-                  <td className="py-2">
+                  <td className="py-3 text-right">
                     <button
                       type="button"
                       onClick={() => handleDeleteSchool(school)}
