@@ -197,6 +197,87 @@ Deliverables:
 - Delete the spike file before committing; the knowledge moves into
   comments in Task 4.
 
+## Task 1 results — GATE PASSED (pdfmake 0.3.11)
+
+The spike file has been deleted as planned; these are its findings, to be
+folded into `exportRotaPdf.ts`'s docstring in Task 4.
+
+**1. Import shape — `.default` IS required, for both imports.**
+
+```ts
+const pdfMake = (await import("pdfmake/build/pdfmake")).default;
+const helvetica = (await import("pdfmake/build/standard-fonts/Helvetica")).default;
+```
+
+The pdfmake browser bundle is a webpack UMD build, and under Vite's CJS
+interop the namespace object is polluted with the bundle's *internal*
+exports (`Buffer`, `Deflate`, `Zlib`, `XmlDocument`, … ~200 keys),
+including a top-level `createPdf`. That top-level `createPdf` is a trap:
+it is unbound, so calling it works by accident today but is not the
+documented surface. `ns.default` is the real singleton pdfmake instance
+(`createPdf`, `addFontContainer`, `setFonts`, `addFonts`). **Use
+`.default` — this is the opposite of the exceljs export, so do not copy
+that file's import line.**
+
+The standard-fonts module reports `Object.keys(ns) === ["default"]`, so
+`.default` is unambiguous there.
+
+**2. Standard-14 fonts work; no `vfs_fonts` import needed.**
+
+pdfmake 0.3 exposes `addFontContainer({ vfs, fonts })` on the browser
+build, and ships prebuilt containers under `pdfmake/build/standard-fonts/`
+(Helvetica, Times, Courier, Symbol, ZapfDingbats). The Helvetica container
+carries the four AFM *metrics* files — not glyph outlines — and declares
+`{ Helvetica: { normal: "Helvetica", bold: "Helvetica-Bold", italics:
+"Helvetica-Oblique", bolditalics: "Helvetica-BoldOblique" } }`.
+
+```ts
+pdfMake.addFontContainer(helvetica);
+pdfMake.setFonts(helvetica.fonts); // drops the built-in Roboto default
+// docDefinition: defaultStyle: { font: "Helvetica", fontSize: 7 }
+```
+
+`setFonts` (not `addFonts`) matters: the browser build seeds
+`this.fonts = { Roboto: … }` in its constructor, and leaving that in place
+means a missing/mistyped `font:` silently falls back to Roboto and throws
+`File 'Roboto-Regular.ttf' not found in virtual file system` at render
+time. Replacing the map makes any such mistake fail loudly at the point of
+the mistake.
+
+Correction to Design Decision 2: the export ships **no glyph data**, but
+it does ship ~288 kB of AFM metrics (54 kB gzipped) — not literally "no
+font data at all". Still ~5× smaller than the Roboto VFS, and lazy.
+
+**3. Runs under jsdom.** `createPdf(doc).getBuffer()` returns a Node
+`Buffer` starting `%PDF-`; `getBase64()` starts `JVBERi0xLjMK` (i.e.
+`%PDF-1.3\n`). Verified with a document exercising `fillColor`, `rowSpan`,
+bold, per-cell `color` and an embedded `\n` — all the features the real
+builder needs.
+
+Two API notes for Task 4:
+- pdfmake 0.3's output API is **promise-based** (`getBlob()`,
+  `getBuffer()`, `getBase64()`). It is *not* the 0.2 callback style —
+  passing callbacks makes the call hang forever with no error. The 0.2
+  examples all over the internet are wrong for this version.
+- jsdom's `Blob` has **no `arrayBuffer()`/`text()`**. Irrelevant in
+  production (the Blob goes straight to `downloadBlob()`), but any Task 4
+  test that wants to inspect bytes must use `getBuffer()`, not `getBlob()`.
+
+**4. Lazy chunk size** (`npm run build`, dynamic import wired
+temporarily into `main.tsx`, then reverted):
+
+| Chunk | Raw | Gzip |
+|---|---|---|
+| `pdfmake` | 972.78 kB | 346.51 kB |
+| `Helvetica` (AFM metrics) | 287.95 kB | 54.41 kB |
+| **PDF export total** | **1260.73 kB** | **400.92 kB** |
+| *(for comparison)* `exceljs.min`, already shipping | 929.89 kB | 256.46 kB |
+
+Both chunks are split out of the main bundle and fetched only when the
+user clicks Export to PDF; `dist/assets/index-*.js` is unchanged at
+686.6 kB. The PDF path is therefore ~1.6× the Excel path's already-accepted
+lazy cost, and zero cost for users who never export.
+
 # Task 2: Extract the shared content module
 
 **A.** Task 1 has confirmed pdfmake works with standard fonts. No PDF code
