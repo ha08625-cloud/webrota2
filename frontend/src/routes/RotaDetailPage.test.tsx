@@ -829,6 +829,47 @@ describe("RotaDetailPage", () => {
       await screen.findByRole("button", { name: "Commit" });
       expect(screen.queryByRole("button", { name: "Export to Excel" })).not.toBeInTheDocument();
     });
+
+    // PDF export plan, Task 5: same gating as Excel, so the same three
+    // cases. buildRotaPdf's own artefact is covered by
+    // exportRotaPdf.test.ts / rotaPdfModel.test.ts.
+
+    it("shows Export to PDF for a committed rota", async () => {
+      setUpGridServer();
+      server.use(
+        http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 8, status: "committed" }))),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/read-only/);
+      expect(screen.getByRole("button", { name: "Export to PDF" })).toBeInTheDocument();
+    });
+
+    it("shows Export to PDF for an archived rota", async () => {
+      setUpGridServer();
+      server.use(
+        http.get("/api/v1/rota/:id", () =>
+          HttpResponse.json(
+            makeRota({ rota_id: 8, status: "committed", archived_at: "2026-07-11T09:00:00Z" }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/8", path: "/rota/:id" });
+
+      await screen.findByText(/archived and read-only/);
+      expect(screen.getByRole("button", { name: "Export to PDF" })).toBeInTheDocument();
+    });
+
+    it("hides Export to PDF for a draft rota", async () => {
+      server.use(http.get("/api/v1/rota/:id", () => HttpResponse.json(makeRota({ rota_id: 7, status: "draft" }))));
+
+      renderWithProviders(<RotaDetailPage />, { route: "/rota/7", path: "/rota/:id" });
+
+      await screen.findByRole("button", { name: "Commit" });
+      expect(screen.queryByRole("button", { name: "Export to PDF" })).not.toBeInTheDocument();
+    });
   });
 
   // --- Force delete (bug-recovery escape hatch) ---

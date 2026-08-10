@@ -27,7 +27,9 @@ import { RoomRotaGrid } from "@/components/RoomRotaGrid";
 import { RotaGrid } from "@/components/RotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { addDays, formatDate, formatDateTime } from "@/lib/date";
+import { downloadBlob } from "@/lib/downloadBlob";
 import { buildRotaWorkbook } from "@/lib/exportRota";
+import { buildRotaPdf } from "@/lib/exportRotaPdf";
 import { buildReplayRequest, type ReplayRequest } from "@/lib/replayUndo";
 import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
@@ -62,26 +64,19 @@ function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): b
 
 /**
  * Export filename (M-export plan, Design Decision 10):
- * rota-{start_date}-to-{last_friday}.xlsx, where last_friday is the
- * Friday of the final generation week - num_weeks * 7 days after
+ * rota-{start_date}-to-{last_friday}.{extension}, where last_friday is
+ * the Friday of the final generation week - num_weeks * 7 days after
  * start_date, minus 3 to land on Friday rather than the following
- * Monday.
+ * Monday. The extension is parameterised so the Excel and PDF exports
+ * share one naming rule (PDF export plan, Design Decision 12).
  */
-function exportFilename(startDate: string, numWeeks: number): string {
+function exportFilename(startDate: string, numWeeks: number, extension: "xlsx" | "pdf"): string {
   const lastFriday = addDays(startDate, numWeeks * 7 - 3);
-  return `rota-${startDate}-to-${lastFriday}.xlsx`;
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  return `rota-${startDate}-to-${lastFriday}.${extension}`;
 }
 
 type RotaView = "doctor" | "room";
+type ExportFormat = "excel" | "pdf";
 
 export function RotaDetailPage() {
   const params = useParams<{ id: string }>();
@@ -129,7 +124,9 @@ export function RotaDetailPage() {
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
   const { data: closures, isLoading: closuresLoading } = useClosures();
   const exportLookupsLoading = doctorsLoading || roomsLoading || clinicTypesLoading || closuresLoading;
-  const [exporting, setExporting] = useState(false);
+  // Which export (if any) is in flight. A boolean would disable *both*
+  // buttons and show "Exporting..." on both whichever one was clicked.
+  const [exporting, setExporting] = useState<ExportFormat | null>(null);
 
   if (isLoading) {
     return <p className="text-sm text-ink/70">Loading rota...</p>;
@@ -232,28 +229,36 @@ export function RotaDetailPage() {
   }
 
   /**
-   * M-export plan, Task 3. Builds closureNameByDate the same way
-   * RotaGrid's own memo does (live closures list, cosmetic name lookup
-   * only - see exportRota.ts's docstring on why this is never the
-   * source of closed-ness itself), calls buildRotaWorkbook, and triggers
-   * a browser download. rota/doctors/rooms/clinicTypes are all known
-   * non-null here because the button that calls this is only rendered
+   * M-export plan, Task 3; extended for PDF by the PDF export plan,
+   * Task 5. Builds closureNameByDate the same way RotaGrid's own memo
+   * does (live closures list, cosmetic name lookup only - see
+   * exportRota.ts's docstring on why this is never the source of
+   * closed-ness itself), calls the chosen builder, and triggers a
+   * browser download. rota/doctors/rooms/clinicTypes are all known
+   * non-null here because the buttons that call this are only rendered
    * once isCommitted is true and exportLookupsLoading is false.
+   *
+   * The two formats differ only in builder and extension, so they share
+   * this one handler rather than duplicating the guard and the lookup
+   * build.
    */
-  async function handleExport() {
+  async function handleExport(format: ExportFormat) {
     if (!rota || !doctors || !rooms || !clinicTypes) return;
 
     const closureNameByDate = new Map<string, string | null>();
     for (const c of closures ?? []) closureNameByDate.set(c.date, c.name);
 
-    setExporting(true);
+    const build = format === "pdf" ? buildRotaPdf : buildRotaWorkbook;
+    const extension = format === "pdf" ? "pdf" : "xlsx";
+
+    setExporting(format);
     try {
-      const blob = await buildRotaWorkbook(rota, doctors, rooms, clinicTypes, closureNameByDate);
-      downloadBlob(blob, exportFilename(rota.start_date, rota.num_weeks));
+      const blob = await build(rota, doctors, rooms, clinicTypes, closureNameByDate);
+      downloadBlob(blob, exportFilename(rota.start_date, rota.num_weeks, extension));
     } catch {
       showToast("Export failed");
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
 
@@ -397,11 +402,19 @@ export function RotaDetailPage() {
             ) : null}
             <button
               type="button"
-              onClick={handleExport}
-              disabled={exportLookupsLoading || exporting}
+              onClick={() => handleExport("excel")}
+              disabled={exportLookupsLoading || exporting !== null}
               className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
             >
-              {exporting ? "Exporting..." : "Export to Excel"}
+              {exporting === "excel" ? "Exporting..." : "Export to Excel"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleExport("pdf")}
+              disabled={exportLookupsLoading || exporting !== null}
+              className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            >
+              {exporting === "pdf" ? "Exporting..." : "Export to PDF"}
             </button>
           </div>
         </div>
