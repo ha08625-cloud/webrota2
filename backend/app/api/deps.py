@@ -14,6 +14,33 @@ X-API-Token handling have been removed entirely. Every router endpoint
 requires a valid session. /health, /docs, and /openapi.json live outside
 the routers (registered directly on the app in main.py) and stay open.
 
+Authentication is not the whole story any more: since the role-based auth
+plan (Task 2) a valid session also carries a permission tier, and this
+module owns the two gates that read it.
+
+`require_write_access` is method-aware and attached ONCE, in main.py's
+include_router loop, to every router except auth and users. It is not a
+per-endpoint dependency: with ~78 non-GET endpoints across 22 routers,
+per-endpoint gating would be default-OPEN -- the next POST anyone adds
+would be world-writable until somebody remembered the dependency, and no
+test would catch it. Attaching it at inclusion time makes a new router,
+and a new endpoint on an existing router, default-DENY for viewers
+(role-based auth plan, Design Decision 2). Router-level `dependencies=`
+on the APIRouter objects themselves would not work either: every router
+mixes reads and writes, so the discrimination has to happen inside the
+dependency, off request.method.
+
+`require_manager` is method-agnostic and applied per-endpoint in
+routers/users.py, which cannot take the global gate because PATCH
+/users/me has to stay open to every tier.
+
+Reads are open to all four tiers, preserving the pre-existing "everyone
+sees everything" behaviour (Design Decision 6). MANAGER and ADMIN both
+write; DOCTOR and NURSE are permission-identical viewer labels.
+
+Both gates raise 403, not 404: the resource plainly exists (the caller
+can GET it), so hiding its existence buys nothing.
+
 expires_at is normalized to aware UTC before comparison (auth plan, Task 4
 bugfix). SQLite's DateTime(timezone=True) does not round-trip tzinfo: a
 row written with an aware UTC datetime comes back naive after a fetch,
@@ -27,14 +54,36 @@ import datetime
 import hashlib
 from collections.abc import Generator
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import User, UserSession
+from ..models.enums import AccessLevel
 
 _UNAUTHORIZED_DETAIL = "Not authenticated"
+
+# Explicit tier ordering. DOCTOR and NURSE are deliberately equal: they are
+# labels, not distinct permission sets (role-based auth plan, Design
+# Decision 1). Comparing these ints, rather than the enum members, keeps
+# the ordering visible in one place instead of implied by declaration
+# order in AccessLevel.
+_TIER = {
+    AccessLevel.NURSE: 0,
+    AccessLevel.DOCTOR: 0,
+    AccessLevel.ADMIN: 1,
+    AccessLevel.MANAGER: 2,
+}
+_WRITE_TIER = 1
+_MANAGER_TIER = 2
+
+# OPTIONS is here for correctness rather than effect: CORSMiddleware answers
+# preflight before routing, so an OPTIONS request never reaches a gate.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+_FORBIDDEN_WRITE_DETAIL = "Your access level does not permit changes"
+_FORBIDDEN_MANAGER_DETAIL = "User management requires manager access"
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -76,4 +125,42 @@ def get_current_user(
     if user is None or not user.active:
         raise HTTPException(status_code=401, detail=_UNAUTHORIZED_DETAIL)
 
+    return user
+
+
+def _tier(user: User) -> int:
+    return _TIER.get(user.access_level, 0)
+
+
+def require_write_access(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> User:
+    """Allow reads for every tier; allow writes for admin and manager only.
+
+    Attached globally in main.py, so "write" here means "any request whose
+    method is not GET/HEAD/OPTIONS". That is a proxy, and it is exact
+    everywhere in this codebase bar one endpoint: POST
+    /signatures/{doctor_id}/apply mutates nothing -- it splices a stored
+    signature into an uploaded document and returns a PDF. It is gated as a
+    write anyway (Design Decision 3): producing an officially signed
+    document is not obviously a viewer action, and an exemption list is a
+    permanent hole in the default-deny property for the sake of one route.
+    If doctors turn out to need self-service signed certificates, the fix is
+    an exempt (method, path) set checked here -- one line, one place.
+    """
+    if request.method in _SAFE_METHODS:
+        return user
+    if _tier(user) < _WRITE_TIER:
+        raise HTTPException(status_code=403, detail=_FORBIDDEN_WRITE_DETAIL)
+    return user
+
+
+def require_manager(user: User = Depends(get_current_user)) -> User:
+    """Manager-only, regardless of method -- this gates reads too.
+
+    Used by routers/users.py, where even listing users is manager business.
+    """
+    if _tier(user) < _MANAGER_TIER:
+        raise HTTPException(status_code=403, detail=_FORBIDDEN_MANAGER_DETAIL)
     return user

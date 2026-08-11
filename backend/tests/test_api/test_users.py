@@ -1,8 +1,17 @@
-"""User management tests (auth plan, Task 4).
+"""User management tests (auth plan, Task 4; role-based auth, Task 2).
 
-CRUD happy paths use `client` (the overridden-auth fixture every other test
-file relies on) since the users router itself doesn't care who is calling --
-there is no admin tier.
+CRUD happy paths use `client`, whose stub user is a MANAGER -- the tier
+every one of these endpoints now requires. Tier enforcement itself
+(non-managers 403ing on /users) lives in test_authorization.py alongside
+the rest of the gating; what is tested here is the behaviour of the
+endpoints once you are allowed through: the lock-out guard and
+/users/me.
+
+The /users/me tests run through `client_no_auth` and real logins rather
+than the stub. PATCH /users/me is the one endpoint that looks its own
+caller up in the database, and its password path deletes the caller's
+sessions -- neither is observable against a stub user that was never
+persisted.
 
 `client` and `client_no_auth` are never combined in the same test.
 app.dependency_overrides is a single dict on the shared `app` object,
@@ -284,12 +293,17 @@ class TestPasswordReset:
 
 
 class TestLockOutGuard:
-    def test_deactivating_the_last_active_user_409s(self, client):
+    """The guard counts active MANAGERS, not active users (role-based auth,
+    Design Decision 5). Both routes to zero of them -- deactivation and
+    demotion -- are blocked, because guarding only the first would leave an
+    identical lock-out one PATCH away."""
+
+    def test_deactivating_the_last_active_manager_409s(self, client):
         created = _create_user(client, email="only@example.com")
         resp = client.patch(f"{USERS}/{created['id']}", json={"active": False})
         assert resp.status_code == 409
 
-    def test_deactivating_a_non_last_user_succeeds(self, client):
+    def test_deactivating_a_non_last_manager_succeeds(self, client):
         first = _create_user(client, email="first@example.com")
         _create_user(client, email="second@example.com")
         resp = client.patch(f"{USERS}/{first['id']}", json={"active": False})
@@ -305,7 +319,8 @@ class TestLockOutGuard:
 
         # second is already inactive; patching it again with active=False
         # is a no-op from the guard's point of view, not a second
-        # last-user deactivation -- first is still the sole active user.
+        # last-manager deactivation -- first is still the sole active
+        # manager.
         resp = client.patch(f"{USERS}/{second['id']}", json={"active": False})
         assert resp.status_code == 200, resp.text
 
@@ -318,3 +333,184 @@ class TestLockOutGuard:
         # Only `first` is active now -- deactivating it should 409.
         resp = client.patch(f"{USERS}/{first['id']}", json={"active": False})
         assert resp.status_code == 409
+
+    def test_other_active_non_managers_do_not_satisfy_the_guard(self, client):
+        """The case the old active-user count got wrong: plenty of active
+        users left, none of whom can administer anything."""
+        manager = _create_user(client, email="mgr@example.com", access_level="manager")
+        _create_user(client, email="adm@example.com", access_level="admin")
+        _create_user(client, email="doc@example.com", access_level="doctor")
+        resp = client.patch(f"{USERS}/{manager['id']}", json={"active": False})
+        assert resp.status_code == 409
+
+    def test_demoting_the_last_active_manager_409s(self, client):
+        manager = _create_user(client, email="mgr@example.com", access_level="manager")
+        _create_user(client, email="adm@example.com", access_level="admin")
+        resp = client.patch(
+            f"{USERS}/{manager['id']}", json={"access_level": "admin"}
+        )
+        assert resp.status_code == 409
+
+    def test_demoting_a_non_last_manager_succeeds(self, client, db_session):
+        first = _create_user(client, email="mgr1@example.com", access_level="manager")
+        _create_user(client, email="mgr2@example.com", access_level="manager")
+        resp = client.patch(
+            f"{USERS}/{first['id']}", json={"access_level": "nurse"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "nurse"
+        db_session.expire_all()
+        assert db_session.get(User, first["id"]).access_level == AccessLevel.NURSE
+
+    def test_demoting_an_inactive_manager_is_not_blocked(self, client):
+        """An inactive manager is not propping anything up, so demoting one
+        is not a lock-out even when they are the only manager left."""
+        _create_user(client, email="keeper@example.com")
+        spare = _create_user(client, email="spare@example.com")
+        assert client.patch(
+            f"{USERS}/{spare['id']}", json={"active": False}
+        ).status_code == 200
+        # keeper is the sole ACTIVE manager; spare is inactive.
+        resp = client.patch(f"{USERS}/{spare['id']}", json={"access_level": "nurse"})
+        assert resp.status_code == 200, resp.text
+
+    def test_promoting_is_never_blocked(self, client):
+        nurse = _create_user(client, email="nurse@example.com", access_level="nurse")
+        resp = client.patch(
+            f"{USERS}/{nurse['id']}", json={"access_level": "manager"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "manager"
+
+    def test_deactivate_and_demote_in_one_patch_is_still_guarded(self, client):
+        manager = _create_user(client, email="mgr@example.com")
+        resp = client.patch(
+            f"{USERS}/{manager['id']}",
+            json={"active": False, "access_level": "nurse"},
+        )
+        assert resp.status_code == 409
+
+
+class TestPatchMe:
+    """PATCH /users/me: the one write on this router open to every tier.
+
+    Run against real logins rather than the stub user -- the endpoint
+    fetches its own row and deletes its own sessions, neither of which a
+    non-persisted stub can show.
+    """
+
+    def _login(self, client, email, password):
+        resp = client.post(
+            "/api/v1/auth/login", json={"email": email, "password": password}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["token"]
+
+    def _nurse(self, client_no_auth, db_session):
+        _seed_user_directly(
+            db_session, "nurse@example.com", "old-password",
+            access_level=AccessLevel.NURSE,
+        )
+        token = self._login(client_no_auth, "nurse@example.com", "old-password")
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_viewer_can_rename_themselves(self, client_no_auth, db_session):
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers, json={"name": "Renamed"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "Renamed"
+        assert resp.json()["access_level"] == "nurse"
+        assert "password_hash" not in resp.json()
+
+    def test_me_wins_the_route_match_over_user_id(self, client_no_auth, db_session):
+        """PATCH /users/me is declared above PATCH /{user_id}; if that
+        ordering were reversed this would 422 on int("me")."""
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers, json={"name": "Renamed"}
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_password_change_signs_the_caller_out_everywhere(
+        self, client_no_auth, db_session
+    ):
+        headers = self._nurse(client_no_auth, db_session)
+        assert client_no_auth.get(
+            "/api/v1/rooms", headers=headers
+        ).status_code == 200
+
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers, json={"password": "new-password"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        # The caller's own token is among the sessions deleted -- a
+        # password change logs you out everywhere, this session included.
+        assert client_no_auth.get(
+            "/api/v1/rooms", headers=headers
+        ).status_code == 401
+        assert self._login(client_no_auth, "nurse@example.com", "new-password")
+        assert client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "nurse@example.com", "password": "old-password"},
+        ).status_code == 401
+
+    def test_cannot_self_promote(self, client_no_auth, db_session):
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers,
+            json={"name": "Sneaky", "access_level": "manager"},
+        )
+        # UserSelfPatch has no access_level field, so pydantic drops the key
+        # rather than 422ing. The name change lands; the promotion does not.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "Sneaky"
+        assert resp.json()["access_level"] == "nurse"
+        db_session.expire_all()
+        seeded_row = db_session.execute(
+            select(User).where(User.email == "nurse@example.com")
+        ).scalar_one()
+        assert seeded_row.access_level == AccessLevel.NURSE
+
+    def test_cannot_change_own_email_or_active_flag(self, client_no_auth, db_session):
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers,
+            json={"email": "elsewhere@example.com", "active": False},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["email"] == "nurse@example.com"
+        assert resp.json()["active"] is True
+
+    def test_empty_patch_is_a_no_op(self, client_no_auth, db_session):
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(f"{USERS}/me", headers=headers, json={})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["email"] == "nurse@example.com"
+        # Sessions untouched: the token still works.
+        assert client_no_auth.get(
+            "/api/v1/rooms", headers=headers
+        ).status_code == 200
+
+    def test_short_password_is_rejected(self, client_no_auth, db_session):
+        headers = self._nurse(client_no_auth, db_session)
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers, json={"password": "short"}
+        )
+        assert resp.status_code == 422
+
+    def test_manager_can_also_use_it(self, client_no_auth, db_session):
+        _seed_user_directly(db_session, "mgr@example.com", "old-password")
+        token = self._login(client_no_auth, "mgr@example.com", "old-password")
+        resp = client_no_auth.patch(
+            f"{USERS}/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "The Manager"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "The Manager"
+
+    def test_requires_authentication(self, client_no_auth):
+        assert client_no_auth.patch(f"{USERS}/me", json={"name": "X"}).status_code == 401
