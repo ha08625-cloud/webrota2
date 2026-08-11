@@ -22,8 +22,11 @@ import datetime
 
 from sqlalchemy import func, select
 
+import pytest
+
 from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import User, UserSession
+from app.models.enums import AccessLevel
 
 USERS = "/api/v1/users"
 
@@ -34,22 +37,35 @@ def _session_count(db_session, user_id):
     ).scalar_one()
 
 
-def _create_user(client, email="a@example.com", name="A User", password="password123"):
-    resp = client.post(USERS, json={"email": email, "name": name, "password": password})
+def _create_user(
+    client,
+    email="a@example.com",
+    name="A User",
+    password="password123",
+    access_level="manager",
+):
+    resp = client.post(USERS, json={
+        "email": email, "name": name, "password": password,
+        "access_level": access_level,
+    })
     assert resp.status_code == 201, resp.text
     return resp.json()
 
 
-def _seed_user_directly(db_session, email, password, active=True):
+def _seed_user_directly(
+    db_session, email, password, active=True, access_level=AccessLevel.MANAGER
+):
     """Insert a user row without going through the API -- used only to
     bootstrap the first real login session a test needs, since POST
     /users itself requires an existing authenticated user (by design,
-    auth plan Design Decision 8)."""
+    auth plan Design Decision 8). Defaults to MANAGER, matching what
+    seed/seed_users.py creates."""
     user = User(
         email=email,
         name="Seeded User",
         password_hash=hash_password(password),
         active=active,
+        access_level=access_level,
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add(user)
@@ -94,7 +110,10 @@ class TestCrudHappyPaths:
         _create_user(client, email="dupe@example.com")
         resp = client.post(
             USERS,
-            json={"email": "dupe@example.com", "name": "Someone Else", "password": "password123"},
+            json={
+                "email": "dupe@example.com", "name": "Someone Else",
+                "password": "password123", "access_level": "admin",
+            },
         )
         assert resp.status_code == 409
 
@@ -109,6 +128,58 @@ class TestCrudHappyPaths:
     def test_patch_unknown_user_404(self, client):
         resp = client.patch(f"{USERS}/999999", json={"name": "Nobody"})
         assert resp.status_code == 404
+
+
+class TestAccessLevel:
+    """Role-based auth plan, Task 1: the column is carried end to end.
+    Nothing is enforced yet -- that is Task 2."""
+
+    @pytest.mark.parametrize("level", ["manager", "admin", "doctor", "nurse"])
+    def test_create_persists_and_returns_access_level(
+        self, client, db_session, level
+    ):
+        created = _create_user(
+            client, email=f"{level}@example.com", access_level=level
+        )
+        assert created["access_level"] == level
+        assert db_session.get(User, created["id"]).access_level == AccessLevel(level)
+
+    def test_create_without_access_level_422s(self, client):
+        resp = client.post(USERS, json={
+            "email": "no-level@example.com", "name": "No Level",
+            "password": "password123",
+        })
+        assert resp.status_code == 422
+
+    def test_create_with_unknown_access_level_422s(self, client):
+        resp = client.post(USERS, json={
+            "email": "bogus@example.com", "name": "Bogus",
+            "password": "password123", "access_level": "superuser",
+        })
+        assert resp.status_code == 422
+
+    def test_patch_changes_access_level(self, client, db_session):
+        created = _create_user(client, email="promote@example.com", access_level="nurse")
+        resp = client.patch(
+            f"{USERS}/{created['id']}", json={"access_level": "admin"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "admin"
+        db_session.expire_all()
+        assert db_session.get(User, created["id"]).access_level == AccessLevel.ADMIN
+
+    def test_patch_leaves_access_level_alone_when_unset(self, client, db_session):
+        created = _create_user(client, email="keep@example.com", access_level="admin")
+        resp = client.patch(f"{USERS}/{created['id']}", json={"name": "Renamed"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "admin"
+
+    def test_list_includes_access_level(self, client):
+        _create_user(client, email="listed@example.com", access_level="doctor")
+        resp = client.get(USERS)
+        assert resp.status_code == 200
+        levels = {u["email"]: u["access_level"] for u in resp.json()}
+        assert levels["listed@example.com"] == "doctor"
 
 
 class TestPasswordReset:
@@ -130,7 +201,10 @@ class TestPasswordReset:
         create_resp = client_no_auth.post(
             USERS,
             headers=admin_headers,
-            json={"email": "reset@example.com", "name": "Reset Target", "password": "old-password"},
+            json={
+                "email": "reset@example.com", "name": "Reset Target",
+                "password": "old-password", "access_level": "doctor",
+            },
         )
         assert create_resp.status_code == 201, create_resp.text
         target_id = create_resp.json()["id"]

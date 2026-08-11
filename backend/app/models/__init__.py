@@ -4,6 +4,7 @@ Importing this package ensures all mappers are registered on Base.metadata,
 which Alembic autogenerate and the seed scripts rely on.
 """
 from .enums import (
+    AccessLevel,
     Day,
     DoctorType,
     DutyType,
@@ -54,7 +55,7 @@ __all__ = [
     # enums
     "DoctorType", "RoomType", "Site", "Day", "Period", "DutyType",
     "RotaStatus", "SystemCounterType", "MasterSessionType",
-    "SessionRole", "ReceptionRole",
+    "SessionRole", "ReceptionRole", "AccessLevel",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",

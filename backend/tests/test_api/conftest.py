@@ -42,6 +42,7 @@ from app.models import (
     SystemCounter,
 )
 from app.models.enums import (
+    AccessLevel,
     Day,
     DoctorType,
     MasterSessionType,
@@ -58,13 +59,18 @@ MONDAY = datetime.date(2026, 1, 5)
 class _StubUser:
     """Minimal stand-in for a User ORM row (auth plan, Task 4). Not
     persisted -- routers under test never look it up by id, they just read
-    attributes off whatever get_current_user returns."""
+    attributes off whatever get_current_user returns.
+
+    access_level is MANAGER so that every existing test file keeps
+    exercising the full API surface once the write gate reads this
+    attribute (role-based auth plan, Task 1)."""
 
     def __init__(self):
         self.id = 1
         self.email = "test@example.com"
         self.name = "Test User"
         self.active = True
+        self.access_level = AccessLevel.MANAGER
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
 
