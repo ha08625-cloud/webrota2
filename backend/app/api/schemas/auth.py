@@ -46,3 +46,19 @@ class UserPatch(BaseModel):
     active: bool | None = None
     access_level: AccessLevel | None = None
     password: str | None = Field(default=None, min_length=8, max_length=72)
+
+
+class UserSelfPatch(BaseModel):
+    """Body for PATCH /users/me (role-based auth plan, Design Decision 4).
+
+    Deliberately NOT a subset-by-inheritance of UserPatch: the fields it
+    omits are the point. `access_level` is absent so the endpoint cannot be
+    used for self-promotion, `active` so a user cannot deactivate
+    themselves past the lock-out guard, and `email` because changing your
+    own login identity is a manager action. Pydantic's default is to ignore
+    unknown keys, so sending access_level here is silently dropped rather
+    than applied -- that is the safe direction, and the tests pin it.
+    """
+
+    name: str | None = Field(default=None, min_length=1)
+    password: str | None = Field(default=None, min_length=8, max_length=72)

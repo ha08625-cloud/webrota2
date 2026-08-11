@@ -14,11 +14,22 @@ to a real row instead of widening the stub.
 `client_no_auth` is identical but WITHOUT the get_current_user override --
 it exercises the real auth path and is what test_auth.py uses.
 
+`client_at_tier` is a factory for the same thing at a chosen access level,
+plus the ready-made `viewer_client` / `admin_client` / `manager_client`
+built on it (role-based auth plan, Task 2). All of these share the
+single-client-per-test rule described under `client_no_auth` below: they
+write to the same `app.dependency_overrides` dict on the same shared `app`,
+so requesting two of them (or one of them plus `client` or
+`client_no_auth`) in one test means whichever ran last silently decides the
+identity for EVERY request through EITHER client. `client_at_tier` refuses
+a second call to make that failure loud rather than mysterious.
+
 `db_session` hands tests a session on the same engine for direct
 assertions against rows the API doesn't expose (e.g. snapshot tables).
 `seeded` layers base reference data on top: rooms, two doctors with system
 counters, and an active master template covering Monday AM/PM.
 """
+import contextlib
 import datetime
 
 import pytest
@@ -59,18 +70,20 @@ MONDAY = datetime.date(2026, 1, 5)
 class _StubUser:
     """Minimal stand-in for a User ORM row (auth plan, Task 4). Not
     persisted -- routers under test never look it up by id, they just read
-    attributes off whatever get_current_user returns.
+    attributes off whatever get_current_user returns. The one exception is
+    PATCH /users/me, which fetches its own row; tests for that endpoint use
+    `client_no_auth` and real logins instead of a stub.
 
-    access_level is MANAGER so that every existing test file keeps
-    exercising the full API surface once the write gate reads this
-    attribute (role-based auth plan, Task 1)."""
+    access_level defaults to MANAGER so that every existing test file keeps
+    exercising the full API surface now that the write gate reads this
+    attribute (role-based auth plan, Tasks 1 and 2)."""
 
-    def __init__(self):
+    def __init__(self, access_level=AccessLevel.MANAGER):
         self.id = 1
         self.email = "test@example.com"
         self.name = "Test User"
         self.active = True
-        self.access_level = AccessLevel.MANAGER
+        self.access_level = access_level
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
 
@@ -166,6 +179,64 @@ def client_no_auth(session_factory):
             yield c
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def client_at_tier(session_factory):
+    """Factory: `client_at_tier(AccessLevel.NURSE)` -> an authenticated
+    TestClient whose get_current_user stub sits at that access level
+    (role-based auth plan, Task 2).
+
+    Callable once per test, and mutually exclusive with `client` /
+    `client_no_auth`, for the reason spelled out in `client_no_auth`'s
+    docstring: `app.dependency_overrides` is one dict on one shared `app`,
+    read at request time. A second client would not get its own identity --
+    it would retarget the first one too, and the test would pass or fail
+    for reasons unrelated to what it says it checks. The second call raises
+    instead.
+    """
+    made = []
+
+    def _override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    with contextlib.ExitStack() as stack:
+        def _make(access_level):
+            if made:
+                raise RuntimeError(
+                    "client_at_tier is single-use per test: overrides live on "
+                    "one shared app, so a second client would change the "
+                    "identity of the first. Split the test."
+                )
+            made.append(access_level)
+            app.dependency_overrides[get_db] = _override_get_db
+            app.dependency_overrides[get_current_user] = lambda: _StubUser(access_level)
+            stack.callback(app.dependency_overrides.pop, get_current_user, None)
+            stack.callback(app.dependency_overrides.pop, get_db, None)
+            return stack.enter_context(TestClient(app))
+
+        yield _make
+
+
+@pytest.fixture
+def viewer_client(client_at_tier):
+    """Nurse tier. DOCTOR and NURSE are permission-identical, so the tier is
+    tested once here and the equivalence is pinned separately."""
+    return client_at_tier(AccessLevel.NURSE)
+
+
+@pytest.fixture
+def admin_client(client_at_tier):
+    return client_at_tier(AccessLevel.ADMIN)
+
+
+@pytest.fixture
+def manager_client(client_at_tier):
+    return client_at_tier(AccessLevel.MANAGER)
 
 
 @pytest.fixture

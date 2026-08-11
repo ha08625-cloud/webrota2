@@ -1,7 +1,17 @@
 """FastAPI app: CORS, router registration, health check, frontend mount.
 
 CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
-"*" for development. All routers are registered under /api/v1. 
+"*" for development. All routers are registered under /api/v1.
+
+Router registration is also where write authorization is enforced
+(role-based auth plan, Task 2). Every router except the two in _UNGATED is
+included with `dependencies=[Depends(require_write_access)]`, which 403s a
+viewer-tier user on any non-GET request. Attaching the gate here rather
+than per-endpoint is what makes the API default-DENY: a new router, or a
+new POST on an existing router, is gated the moment it is registered,
+without anyone having to remember a dependency. Adding a router to
+_UNGATED is the only way to opt out, and doing so needs a reason as
+specific as the two already there.
 
 If a built frontend exists (FRONTEND_DIST env var, defaulting
 to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
@@ -13,11 +23,12 @@ M4 produces a build, the backend runs exactly as before.
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from .deps import require_write_access
 from .routers import (
     auth,
     clinic_types,
@@ -58,8 +69,22 @@ app.add_middleware(
 )
 
 API_PREFIX = "/api/v1"
-for module in (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_coverage, reception_master, reception_rota, reception_leave):
-    app.include_router(module.router, prefix=API_PREFIX)
+
+_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_coverage, reception_master, reception_rota, reception_leave)
+
+# The ONLY two routers that do not get the global write gate. Do not extend
+# this without a reason as specific as these:
+#   auth  -- POST /auth/login has no authenticated user by definition, and
+#            POST /auth/logout must stay reachable at every tier.
+#   users -- gates itself per-endpoint (Depends(require_manager) on the
+#            three admin endpoints), because PATCH /users/me is a write
+#            that every tier must be able to make on their own row.
+# Everything else is gated. See routers/users.py and deps.py.
+_UNGATED = (auth, users)
+
+for module in _ALL_ROUTERS:
+    dependencies = [] if module in _UNGATED else [Depends(require_write_access)]
+    app.include_router(module.router, prefix=API_PREFIX, dependencies=dependencies)
 
 
 @app.get("/health")
