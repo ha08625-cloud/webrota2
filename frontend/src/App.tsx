@@ -4,7 +4,9 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { triggerUnauthorized } from "@/api/client";
 import { useLogout } from "@/api/auth";
+import { useIsManager } from "@/auth/AuthContext";
 import { clearToken } from "@/auth/tokenStore";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import {
   SESSION_MANAGEMENT_PATHS,
   SESSION_MANAGEMENT_TABS,
@@ -45,6 +47,14 @@ interface NavItem {
    * soon as you switched sub-tab.
    */
   groupPaths?: readonly string[];
+  /**
+   * Hidden from anyone below manager (role-based auth, Task 3). Set only
+   * on Users: every other page is worth *reading* at any access level, so
+   * the rest of the nav is identical for everyone and it is the controls
+   * inside each page that go quiet. The route stays registered either
+   * way - UsersPage renders its own no-access state for a deep link.
+   */
+  managerOnly?: boolean;
 }
 
 // Clinical rota nav. The five session-planning pages are grouped behind one
@@ -65,7 +75,7 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
-  { to: "/clinical/users", label: "Users", end: false },
+  { to: "/clinical/users", label: "Users", end: false, managerOnly: true },
 ];
 
 function navLinkClass(isActive: boolean) {
@@ -113,6 +123,8 @@ function useHandleLogout() {
 function ClinicalShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
   const { pathname } = useLocation();
+  const isManager = useIsManager();
+  const navItems = CLINICAL_NAV_ITEMS.filter((item) => isManager || !item.managerOnly);
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
@@ -122,6 +134,10 @@ function ClinicalShell() {
           <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
             Switch app
           </NavLink>
+          {/* Open to every access level - /users is manager-only, so this
+              is the only way a doctor or nurse can change their own
+              password (role-based auth, Design Decision 4). */}
+          <ChangePasswordDialog />
           <button
             type="button"
             onClick={handleLogout}
@@ -135,7 +151,7 @@ function ClinicalShell() {
       <div className="flex flex-1">
         <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
           <ul>
-            {CLINICAL_NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}
@@ -194,6 +210,10 @@ function SignaturesShell() {
           <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
             Switch app
           </NavLink>
+          {/* Open to every access level - /users is manager-only, so this
+              is the only way a doctor or nurse can change their own
+              password (role-based auth, Design Decision 4). */}
+          <ChangePasswordDialog />
           <button
             type="button"
             onClick={handleLogout}
@@ -222,6 +242,10 @@ function ReceptionShell() {
           <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
             Switch app
           </NavLink>
+          {/* Open to every access level - /users is manager-only, so this
+              is the only way a doctor or nurse can change their own
+              password (role-based auth, Design Decision 4). */}
+          <ChangePasswordDialog />
           <button
             type="button"
             onClick={handleLogout}

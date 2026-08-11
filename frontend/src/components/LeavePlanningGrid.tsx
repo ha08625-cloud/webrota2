@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, MutableRefObject } from "react";
 
 import type { Doctor, MasterSessionType, Period } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { PlanningCellPopover } from "@/components/PlanningCellPopover";
 import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
 import { formatHolidayRange, parseLocalDate } from "@/lib/date";
@@ -279,6 +280,7 @@ export function LeavePlanningGrid({
   onSelectDoctor,
   onApply,
 }: LeavePlanningGridProps) {
+  const writeGate = useWriteGate();
   const [selection, setSelection] = useState<GridSelection | null>(null);
   const [dragging, setDragging] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -365,7 +367,9 @@ export function LeavePlanningGrid({
     period: Period,
     event: MouseEvent,
   ) {
-    if (event.button !== 0) return;
+    // No selection at all for a read-only user: everything the editor
+    // could then do is a write (role-based auth, Task 3).
+    if (event.button !== 0 || writeGate.disabled) return;
     // Stops the browser's own text-selection drag from fighting ours.
     event.preventDefault();
 
@@ -394,7 +398,7 @@ export function LeavePlanningGrid({
     period: Period,
     event: KeyboardEvent,
   ) {
-    if (event.key !== "Enter" && event.key !== " ") return;
+    if ((event.key !== "Enter" && event.key !== " ") || writeGate.disabled) return;
     event.preventDefault();
     setSelection({ doctorId, anchor: { date, period }, focus: { date, period } });
     setDragging(false);

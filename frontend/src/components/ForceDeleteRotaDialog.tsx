@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 
 import { useForceDeleteRota } from "@/api/rota";
+import { useWriteGate } from "@/auth/AuthContext";
 
 interface ForceDeleteRotaDialogProps {
   rotaId: number;
@@ -25,6 +26,7 @@ const CONFIRM_TEXT = "DELETE";
  * the trigger button and the dialog are both scoped to this one rota.
  */
 export function ForceDeleteRotaDialog({ rotaId, onDeleted }: ForceDeleteRotaDialogProps) {
+  const writeGate = useWriteGate();
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const forceDeleteRota = useForceDeleteRota();
@@ -57,6 +59,7 @@ export function ForceDeleteRotaDialog({ rotaId, onDeleted }: ForceDeleteRotaDial
         <button
           type="button"
           className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           Force delete rota
         </button>

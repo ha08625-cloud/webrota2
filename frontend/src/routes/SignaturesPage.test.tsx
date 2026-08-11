@@ -297,3 +297,21 @@ describe("SignaturesPage", () => {
     expect(downloadBlob).not.toHaveBeenCalled();
   });
 });
+
+describe("SignaturesPage for a read-only user", () => {
+  // "Sign a document..." is disabled along with the upload controls: the
+  // backend gates POST /signatures/{id}/apply at admin tier even though
+  // it stores nothing (role-based auth, Design Decision 3).
+  it("disables uploading and signing alike", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
+      signatures: [makeSignatureMeta({ doctor_id: 1 })],
+    });
+    renderWithProviders(<SignaturesPage />, { accessLevel: "doctor" });
+
+    await screen.findByText("PA1");
+    expect(screen.getByRole("button", { name: "Replace" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign a document..." })).toBeDisabled();
+  });
+});

@@ -20,6 +20,7 @@ import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { RotaSummary } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ForceDeleteRotaDialog } from "@/components/ForceDeleteRotaDialog";
 import { IssuesPanel } from "@/components/IssuesPanel";
 import { GenerationLogPanel } from "@/components/GenerationLogPanel";
@@ -79,6 +80,9 @@ type RotaView = "doctor" | "room";
 type ExportFormat = "excel" | "pdf";
 
 export function RotaDetailPage() {
+  // Exporting to Excel/PDF is deliberately NOT gated below: both are built
+  // client-side from data already fetched, so they are reads.
+  const writeGate = useWriteGate();
   const params = useParams<{ id: string }>();
   const rotaId = Number(params.id);
   const navigate = useNavigate();
@@ -340,6 +344,7 @@ export function RotaDetailPage() {
             onClick={handleCommit}
             disabled={commitRota.isPending}
             className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            {...writeGate}
           >
             Commit
           </button>
@@ -348,6 +353,7 @@ export function RotaDetailPage() {
             onClick={handleScrap}
             disabled={scrapRota.isPending}
             className="rounded border border-red-300 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+            {...writeGate}
           >
             Scrap
           </button>
@@ -356,6 +362,7 @@ export function RotaDetailPage() {
             onClick={handleUndo}
             disabled={undoStack.current === null || undoPending}
             className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+            {...writeGate}
           >
             Undo
           </button>
@@ -374,6 +381,7 @@ export function RotaDetailPage() {
                 onClick={handleRollback}
                 disabled={rollbackCommit.isPending}
                 className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+                {...writeGate}
               >
                 Roll back commit
               </button>
@@ -384,6 +392,7 @@ export function RotaDetailPage() {
                 onClick={handleUnarchive}
                 disabled={unarchiveRota.isPending}
                 className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+                {...writeGate}
               >
                 Unarchive
               </button>
@@ -393,6 +402,7 @@ export function RotaDetailPage() {
                 onClick={handleArchive}
                 disabled={archiveRota.isPending}
                 className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+                {...writeGate}
               >
                 Archive
               </button>

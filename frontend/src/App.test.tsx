@@ -3,6 +3,9 @@ import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
+import type { AccessLevel } from "@/api/types";
+import { AuthProvider } from "@/auth/AuthContext";
+import { makeAuthUser } from "@/test/fixtures/reference";
 import { server } from "@/test/msw/server";
 
 import { App } from "./App";
@@ -13,8 +16,12 @@ import { App } from "./App";
  * These tests cover the clinical nav's structure only - the pages
  * themselves have their own suites, and their data fetches are stubbed
  * empty here.
+ *
+ * The auth provider is supplied here rather than by LoginGate, which
+ * wraps App in main.tsx but is not part of these tests. Manager by
+ * default; pass a level to check what a lower tier is offered.
  */
-function renderAt(path: string) {
+function renderAt(path: string, accessLevel: AccessLevel = "manager") {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json([])),
     http.get("/api/v1/leave", () => HttpResponse.json([])),
@@ -25,7 +32,9 @@ function renderAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AuthProvider user={makeAuthUser({ access_level: accessLevel })}>
+        <App />
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -67,5 +76,36 @@ describe("ClinicalShell nav", () => {
     renderAt("/clinical/counters");
 
     expect(screen.queryByRole("tablist", { name: "Session management" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ClinicalShell nav by access level", () => {
+  it("offers Users to a manager", () => {
+    renderAt("/clinical/counters");
+
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByRole("link", { name: "Users" })).toBeInTheDocument();
+  });
+
+  it.each(["admin", "doctor", "nurse"] as const)("hides Users from %s", (level) => {
+    renderAt("/clinical/counters", level);
+
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+  });
+
+  it("keeps every other entry, so a read-only user still sees the whole app", () => {
+    renderAt("/clinical/counters", "nurse");
+
+    const nav = screen.getByRole("navigation");
+    for (const label of ["Generate new rotas", "Staging", "Master Rota", "Staff", "Counters"]) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("offers Change password at every level, since /users is manager-only", () => {
+    renderAt("/clinical/counters", "nurse");
+
+    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
   });
 });

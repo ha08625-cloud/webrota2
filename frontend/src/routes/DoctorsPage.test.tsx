@@ -285,3 +285,30 @@ describe("DoctorsPage", () => {
     });
   });
 });
+
+describe("DoctorsPage for a read-only user", () => {
+  // Belt to the backend's braces (role-based auth, Design Decision 8):
+  // the 403 is the boundary, this just stops offering buttons that only
+  // ever fail.
+  it("disables every write control and says why", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
+    renderWithProviders(<DoctorsPage />, { accessLevel: "nurse" });
+    await screen.findByText("AB");
+
+    const newDoctor = screen.getByRole("button", { name: "New Doctor" });
+    expect(newDoctor).toBeDisabled();
+    expect(newDoctor).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByLabelText("Supervision preference for AB")).toBeDisabled();
+  });
+
+  it("leaves them enabled for an admin, who may write everything but users", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
+    renderWithProviders(<DoctorsPage />, { accessLevel: "admin" });
+    await screen.findByText("AB");
+
+    expect(screen.getByRole("button", { name: "New Doctor" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+  });
+});

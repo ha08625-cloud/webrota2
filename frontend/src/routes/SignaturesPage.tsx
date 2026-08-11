@@ -9,6 +9,7 @@ import {
   useUploadSignature,
 } from "@/api/signatures";
 import type { ApiError, Doctor, SignatureMeta } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { useDoctors } from "@/api/doctors";
@@ -40,6 +41,10 @@ interface SignatureRowProps {
 }
 
 function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
+  // "Sign a document..." is gated too, even though it stores nothing: the
+  // backend gates POST /signatures/{id}/apply at admin tier along with
+  // every other non-GET route (role-based auth, Design Decision 3).
+  const writeGate = useWriteGate();
   const hasSignature = meta !== undefined;
   const { data: imageDataUrl } = useSignatureImage(doctor.id, hasSignature);
   const uploadSignature = useUploadSignature();
@@ -162,6 +167,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
           onClick={() => imageInputRef.current?.click()}
           disabled={isPending}
           className="mr-3 text-xs text-accent disabled:opacity-50"
+          {...writeGate}
         >
           {hasSignature ? "Replace" : "Upload"}
         </button>
@@ -171,6 +177,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
             onClick={handleRemove}
             disabled={isPending}
             className="text-xs text-red-700 disabled:opacity-50"
+            {...writeGate}
           >
             Remove
           </button>
@@ -195,6 +202,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
           onClick={() => docInputRef.current?.click()}
           disabled={isPending || !hasSignature}
           className="text-xs text-accent disabled:opacity-50"
+          {...writeGate}
         >
           Sign a document...
         </button>

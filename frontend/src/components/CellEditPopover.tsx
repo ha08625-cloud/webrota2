@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ClinicType, MasterSessionType, Room, RotaSession, SessionRole } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { findRoleHolder, findRoomHolder } from "@/lib/slotConflict";
 
 export interface RoleTriple {
@@ -58,6 +59,7 @@ export function CellEditPopover({
   onSetRole,
   saving,
 }: CellEditPopoverProps) {
+  const writeGate = useWriteGate();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("main");
   const [isWfh, setIsWfh] = useState(session.is_wfh);
@@ -138,6 +140,14 @@ export function CellEditPopover({
     const returnView: View = pending?.type === "room" ? "rooms" : "roles";
     setPending(null);
     setView(returnView);
+  }
+
+  // Read-only users get the cell as plain content with no editor
+  // attached at all, rather than an editor whose every action 403s
+  // (role-based auth, Task 3). Placed after every hook above so the hook
+  // order is identical either way.
+  if (writeGate.disabled) {
+    return <span title={writeGate.title}>{children}</span>;
   }
 
   return (

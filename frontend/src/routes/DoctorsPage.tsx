@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDoctors, useSoftDeleteDoctor, useUpdateDoctor } from "@/api/doctors";
 import { useLeaveEntitlements } from "@/api/leave";
 import type { Doctor, DoctorType, SupervisionPreference } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
 import { formatDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
@@ -67,6 +68,7 @@ interface DeleteErrorState {
 }
 
 export function DoctorsPage() {
+  const writeGate = useWriteGate();
   // Active-only per the M4 Task 6 decision: no "show inactive" toggle or
   // reactivate path yet. A doctor deactivated here (directly, or via the
   // "Deactivate instead" action below) drops out of this list and is not
@@ -160,7 +162,8 @@ export function DoctorsPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           New Doctor
         </button>
@@ -175,6 +178,7 @@ export function DoctorsPage() {
               onClick={() => handleDeactivateInstead(deleteError.doctor)}
               disabled={updateDoctor.isPending}
               className="mt-1 text-xs font-medium underline disabled:opacity-50"
+              {...writeGate}
             >
               Deactivate instead
             </button>
@@ -227,6 +231,7 @@ export function DoctorsPage() {
                               disabled={updateDoctor.isPending}
                               aria-label={`Increase sessions per week for ${d.code}`}
                               className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                              {...writeGate}
                             >
                               ▲
                             </button>
@@ -236,6 +241,7 @@ export function DoctorsPage() {
                               disabled={updateDoctor.isPending}
                               aria-label={`Decrease sessions per week for ${d.code}`}
                               className="px-1 text-[10px] text-ink/70 hover:text-accent disabled:opacity-50"
+                              {...writeGate}
                             >
                               ▼
                             </button>
@@ -263,6 +269,7 @@ export function DoctorsPage() {
                             handleSupervisionPreferenceChange(d, e.target.value as SupervisionPreference)
                           }
                           className="rounded border border-border p-1 text-sm disabled:opacity-50"
+                          {...writeGate}
                         >
                           {SUPERVISION_PREFERENCES.map((p) => (
                             <option key={p.value} value={p.value}>
@@ -283,10 +290,20 @@ export function DoctorsPage() {
                       </span>
                     </td>
                     <td className="py-1">
-                      <button type="button" onClick={() => openEdit(d)} className="mr-3 text-xs text-accent">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(d)}
+                        className="mr-3 text-xs text-accent disabled:opacity-50"
+                        {...writeGate}
+                      >
                         Edit
                       </button>
-                      <button type="button" onClick={() => handleDelete(d)} className="text-xs text-red-700">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(d)}
+                        className="text-xs text-red-700 disabled:opacity-50"
+                        {...writeGate}
+                      >
                         Delete
                       </button>
                     </td>

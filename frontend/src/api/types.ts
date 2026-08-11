@@ -43,11 +43,21 @@ export interface FastApiValidationError {
 // api/users.ts imports it directly rather than duplicating an identical
 // interface under a second name.
 
+/**
+ * User.access_level (models/enums.py AccessLevel), mirroring the backend
+ * wire values exactly. Three permission tiers wearing four labels:
+ * manager (user management + writes), admin (writes), doctor and nurse
+ * (reads only, and permission-identical to each other - the distinction
+ * is a label for humans, not a rule). See documentation/role_based_auth.md.
+ */
+export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
+
 export interface AuthUser {
   id: number;
   email: string;
   name: string;
   active: boolean;
+  access_level: AccessLevel;
   created_at: string;
 }
 
@@ -61,11 +71,17 @@ export interface LoginOut {
   user: AuthUser;
 }
 
-/** POST /users body (UserIn in schemas/auth.py). Always creates an active user - `active` is not settable here. */
+/**
+ * POST /users body (UserIn in schemas/auth.py). Always creates an active
+ * user - `active` is not settable here. `access_level` is required, not
+ * defaulted: the backend deliberately makes granting a tier an explicit
+ * act (see that module's docstring).
+ */
 export interface UserIn {
   email: string;
   name: string;
   password: string;
+  access_level: AccessLevel;
 }
 
 /**
@@ -73,13 +89,29 @@ export interface UserIn {
  * optional, only supplied fields are applied (exclude_unset). A supplied
  * `password` re-hashes it and deletes every session belonging to that
  * user server-side (routers/users.py) - this is the password-reset
- * mechanism, there is no separate endpoint for it. A `active: false` that
- * would leave zero active users is rejected with 409.
+ * mechanism, there is no separate endpoint for it. A `active: false` or an
+ * `access_level` move off "manager" that would leave zero active managers
+ * is rejected with 409 (role-based auth, Design Decision 5).
  */
 export interface UserPatch {
   email?: string;
   name?: string;
   active?: boolean;
+  access_level?: AccessLevel;
+  password?: string;
+}
+
+/**
+ * PATCH /users/me body (UserSelfPatch in schemas/auth.py). Open to every
+ * tier, and deliberately not a subset of UserPatch: `access_level` is
+ * absent so it cannot be used for self-promotion, `active` so nobody can
+ * deactivate themselves past the lock-out guard, and `email` because
+ * changing your own login identity is a manager action. A supplied
+ * `password` signs the caller out everywhere, including the session making
+ * the request - the caller must handle the 401 that follows.
+ */
+export interface UserSelfPatch {
+  name?: string;
   password?: string;
 }
 

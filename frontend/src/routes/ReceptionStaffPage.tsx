@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useDeactivateReceptionStaff, useReceptionStaff, useUpdateReceptionStaff } from "@/api/reception";
 import type { ApiError, ReceptionStaff } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ReceptionStaffFormDialog } from "@/components/ReceptionStaffFormDialog";
 
 interface DialogState {
@@ -10,6 +11,7 @@ interface DialogState {
 }
 
 export function ReceptionStaffPage() {
+  const writeGate = useWriteGate();
   // Always includes inactive - unlike DoctorsPage (active-only), this is
   // the only management surface for reception staff (reception rota plan,
   // Task 6), so a deactivation must have a visible way back, the same
@@ -55,7 +57,8 @@ export function ReceptionStaffPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           New Reception Staff
         </button>
@@ -87,7 +90,12 @@ export function ReceptionStaffPage() {
                 <td className="py-1 pr-4">{s.name}</td>
                 <td className="py-1 pr-4">{s.active ? "Active" : "Inactive"}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => openEdit(s)} className="mr-3 text-xs text-accent">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(s)}
+                    className="mr-3 text-xs text-accent disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Edit
                   </button>
                   <button
@@ -95,6 +103,7 @@ export function ReceptionStaffPage() {
                     onClick={() => handleToggleActive(s)}
                     disabled={isToggling}
                     className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
                   >
                     {s.active ? "Deactivate" : "Reactivate"}
                   </button>

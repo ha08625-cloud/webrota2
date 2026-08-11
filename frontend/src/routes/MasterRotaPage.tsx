@@ -1,4 +1,5 @@
 import { useCreateMasterSession, useDeleteMasterSession, useUpdateMasterSession, useActiveMasterRota } from "@/api/masterRota";
+import { useWriteGate } from "@/auth/AuthContext";
 import { MasterRotaConflictsPanel } from "@/components/MasterRotaConflictsPanel";
 import { MasterRotaGrid } from "@/components/MasterRotaGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -6,6 +7,7 @@ import { buildMasterReplaySteps, type MasterUndoEntry } from "@/lib/masterUndo";
 import { useUndoStack } from "@/lib/undoStack";
 
 export function MasterRotaPage() {
+  const writeGate = useWriteGate();
   const { data: template, isLoading, isError, error } = useActiveMasterRota();
   const undoStack = useUndoStack<MasterUndoEntry>();
   const { toast, showToast } = useToast();
@@ -103,6 +105,7 @@ export function MasterRotaPage() {
           onClick={handleUndo}
           disabled={undoStack.current === null || undoing}
           className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+          {...writeGate}
         >
           Undo
         </button>

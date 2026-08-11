@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -117,12 +117,12 @@ describe("UsersPage", () => {
     expect(patchedActiveTrue).toBe(true);
   });
 
-  it("a 409 (last active user) surfaces as a toast", async () => {
+  it("a 409 (last active manager) surfaces as a toast", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     setUpServer([makeAuthUser({ id: 1, name: "Ann", active: true })]);
     server.use(
       http.patch("/api/v1/users/1", () =>
-        HttpResponse.json({ detail: "cannot deactivate the last active user" }, { status: 409 }),
+        HttpResponse.json({ detail: "cannot remove the last active manager" }, { status: 409 }),
       ),
     );
 
@@ -131,6 +131,73 @@ describe("UsersPage", () => {
     await screen.findByText("Ann");
     await user.click(screen.getByRole("button", { name: "Deactivate" }));
 
-    expect(await screen.findByText("cannot deactivate the last active user")).toBeInTheDocument();
+    expect(await screen.findByText("cannot remove the last active manager")).toBeInTheDocument();
+  });
+});
+
+describe("UsersPage access levels", () => {
+  it("shows each user's access level", async () => {
+    setUpServer([makeAuthUser({ id: 1, name: "Ann", access_level: "doctor" })]);
+    renderWithProviders(<UsersPage />);
+
+    expect(await screen.findByLabelText("Access level for Ann")).toHaveValue("doctor");
+  });
+
+  it("changing the row's access level PATCHes just that field", async () => {
+    setUpServer([makeAuthUser({ id: 1, name: "Ann", access_level: "nurse" })]);
+    let capturedBody: unknown;
+    server.use(
+      http.patch("/api/v1/users/1", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeAuthUser({ id: 1, name: "Ann", access_level: "admin" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UsersPage />);
+    await screen.findByText("Ann");
+
+    await user.selectOptions(screen.getByLabelText("Access level for Ann"), "admin");
+
+    await waitFor(() => expect(capturedBody).toEqual({ access_level: "admin" }));
+  });
+
+  it("a 409 on demoting the last active manager surfaces as a toast", async () => {
+    setUpServer([makeAuthUser({ id: 1, name: "Ann", access_level: "manager" })]);
+    server.use(
+      http.patch("/api/v1/users/1", () =>
+        HttpResponse.json({ detail: "cannot remove the last active manager" }, { status: 409 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UsersPage />);
+    await screen.findByText("Ann");
+
+    await user.selectOptions(screen.getByLabelText("Access level for Ann"), "nurse");
+
+    expect(await screen.findByText("cannot remove the last active manager")).toBeInTheDocument();
+  });
+});
+
+describe("UsersPage below manager", () => {
+  // The nav entry is hidden for these users (App.tsx), but the route stays
+  // registered, so a deep link has to land on something sane rather than
+  // on a list that just 403s.
+  it.each(["admin", "doctor", "nurse"] as const)("tells a %s they have no access", async (level) => {
+    let listed = false;
+    server.use(
+      http.get("/api/v1/users", () => {
+        listed = true;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<UsersPage />, { accessLevel: level });
+
+    expect(await screen.findByText(/do not have access to user management/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New User" })).not.toBeInTheDocument();
+    // Not even the list request goes out - the backend would 403 it.
+    expect(listed).toBe(false);
   });
 });

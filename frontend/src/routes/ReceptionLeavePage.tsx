@@ -9,6 +9,7 @@ import {
   useReceptionStaff,
 } from "@/api/reception";
 import type { ApiError } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 
 /** Mirrors MAX_RECEPTION_LEAVE_RANGE_DAYS in schemas/reception.py, so the server's 422 is never the first line of defence. */
@@ -40,6 +41,7 @@ function daysBetween(start: string, end: string): number {
  * on the day rota itself, by deleting or retagging those slots.
  */
 export function ReceptionLeavePage() {
+  const writeGate = useWriteGate();
   // The table filter reads all staff including inactive - a deactivated
   // staff member's existing entries are real rows that should stay
   // findable - while the range form offers active staff only, matching
@@ -235,6 +237,7 @@ export function ReceptionLeavePage() {
           className={`rounded px-4 py-1 text-sm font-medium text-white disabled:opacity-50 ${
             mode === "remove" ? "bg-red-700" : "bg-accent"
           }`}
+          {...writeGate}
         >
           {mode === "remove" ? "Remove leave" : "Add leave"}
         </button>
@@ -295,7 +298,8 @@ export function ReceptionLeavePage() {
                   <button
                     type="button"
                     onClick={() => handleDeleteEntry(entry.id)}
-                    className="text-xs text-red-700"
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
                   >
                     Delete
                   </button>

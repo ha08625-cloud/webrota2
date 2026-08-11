@@ -9,6 +9,7 @@ import { useLeave, useLeaveEntitlements } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
 import type { ApiError, PlanningBulkOut } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
@@ -106,6 +107,7 @@ function summariseSave(result: PlanningBulkOut): string {
 }
 
 export function LeavePlanningPage() {
+  const writeGate = useWriteGate();
   const today = new Date();
   const [{ year, month }, setMonth] = useState({
     year: today.getFullYear(),
@@ -428,6 +430,7 @@ export function LeavePlanningPage() {
             onClick={handleDiscard}
             disabled={unsavedCount === 0 || applyBulk.isPending}
             className="rounded border border-border px-3 py-1 text-sm disabled:opacity-50"
+            {...writeGate}
           >
             Discard
           </button>
@@ -436,6 +439,7 @@ export function LeavePlanningPage() {
             onClick={handleSave}
             disabled={unsavedCount === 0 || applyBulk.isPending}
             className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+            {...writeGate}
           >
             Save
           </button>

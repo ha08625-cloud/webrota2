@@ -253,6 +253,9 @@ export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
     email: "ann@example.com",
     name: "Ann",
     active: true,
+    // Manager by default so fixtures keep exercising the full UI; tests
+    // about a lower tier pass an override (role-based auth, Task 3).
+    access_level: "manager",
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };

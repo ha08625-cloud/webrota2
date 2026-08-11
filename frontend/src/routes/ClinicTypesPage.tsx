@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useClinicTypes, useDeleteClinicType, usePatchClinicType, useReorderClinicTypes } from "@/api/clinicTypes";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Room } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ClinicTypeFormDialog } from "@/components/ClinicTypeFormDialog";
 
 interface DialogState {
@@ -85,8 +86,12 @@ function SortableClinicTypeRow({
   onEdit: (ct: ClinicType) => void;
   onDelete: (ct: ClinicType) => void;
 } & ToggleHandlers) {
+  const writeGate = useWriteGate();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: clinicType.id,
+    // Reordering is a write, so a read-only user cannot drag at all -
+    // the handle below is disabled too, this stops the keyboard sensor.
+    disabled: writeGate.disabled === true,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -100,9 +105,10 @@ function SortableClinicTypeRow({
         <button
           type="button"
           aria-label={`Reorder ${clinicType.name}`}
-          className="cursor-grab px-1 text-ink/50"
+          className="cursor-grab px-1 text-ink/50 disabled:cursor-not-allowed disabled:opacity-50"
           {...attributes}
           {...listeners}
+          {...writeGate}
         >
           ::
         </button>
@@ -129,10 +135,20 @@ function SortableClinicTypeRow({
       </td>
       <td className="py-1 pr-4">{formatSchedules(clinicType.schedules)}</td>
       <td className="py-1">
-        <button type="button" onClick={() => onEdit(clinicType)} className="mr-3 text-xs text-accent">
+        <button
+          type="button"
+          onClick={() => onEdit(clinicType)}
+          className="mr-3 text-xs text-accent disabled:opacity-50"
+          {...writeGate}
+        >
           Edit
         </button>
-        <button type="button" onClick={() => onDelete(clinicType)} className="text-xs text-red-700">
+        <button
+          type="button"
+          onClick={() => onDelete(clinicType)}
+          className="text-xs text-red-700 disabled:opacity-50"
+          {...writeGate}
+        >
           Delete
         </button>
       </td>
@@ -141,6 +157,7 @@ function SortableClinicTypeRow({
 }
 
 export function ClinicTypesPage() {
+  const writeGate = useWriteGate();
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
   const { data: rooms } = useRooms();
   const roomsById = new Map((rooms ?? []).map((r) => [r.id, r]));
@@ -252,7 +269,7 @@ export function ClinicTypesPage() {
   const toggleHandlers: ToggleHandlers = {
     onToggleEnabled: handleToggleEnabled,
     onToggleRoomRequired: handleToggleRoomRequired,
-    togglesDisabled: patchClinicType.isPending,
+    togglesDisabled: patchClinicType.isPending || writeGate.disabled === true,
   };
 
   return (
@@ -262,7 +279,8 @@ export function ClinicTypesPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           New Clinic Type
         </button>
@@ -378,10 +396,20 @@ export function ClinicTypesPage() {
                       </td>
                       <td className="py-1 pr-4">{formatSchedules(ct.schedules)}</td>
                       <td className="py-1">
-                        <button type="button" onClick={() => openEdit(ct)} className="mr-3 text-xs text-accent">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(ct)}
+                          className="mr-3 text-xs text-accent disabled:opacity-50"
+                          {...writeGate}
+                        >
                           Edit
                         </button>
-                        <button type="button" onClick={() => handleDelete(ct)} className="text-xs text-red-700">
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(ct)}
+                          className="text-xs text-red-700 disabled:opacity-50"
+                          {...writeGate}
+                        >
                           Delete
                         </button>
                       </td>

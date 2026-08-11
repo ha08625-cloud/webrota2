@@ -15,6 +15,7 @@ import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts } from "@/api/duty
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { addDays, DUTY_PERIOD_WEEKS, formatWeekLabel, getYearRange } from "@/lib/date";
 import { isDutyWeekComplete } from "@/lib/dutyWeekComplete";
 import { buildColumns } from "@/lib/dutyWeekSlots";
@@ -353,9 +354,14 @@ function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRe
 }
 
 function DraggableDoctorChip({ doctorId, doctorCode }: { doctorId: number; doctorCode: string }) {
+  // Assigning duty is a write, so a read-only user cannot pick a chip up
+  // at all - dnd-kit's own `disabled` stops both pointer and keyboard
+  // sensors, which hiding the cursor style alone would not.
+  const writeGate = useWriteGate();
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `duty-doctor-${doctorId}`,
     data: { doctorId, doctorCode } satisfies DraggableDoctor,
+    disabled: writeGate.disabled === true,
   });
 
   return (
@@ -363,8 +369,11 @@ function DraggableDoctorChip({ doctorId, doctorCode }: { doctorId: number; docto
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      title={writeGate.title}
       data-testid={`duty-doctor-chip-${doctorId}`}
-      className={`cursor-grab select-none rounded border border-border bg-surface px-2 py-1 text-xs font-medium ${isDragging ? "opacity-40" : ""}`}
+      className={`select-none rounded border border-border bg-surface px-2 py-1 text-xs font-medium ${
+        writeGate.disabled ? "cursor-not-allowed opacity-50" : "cursor-grab"
+      } ${isDragging ? "opacity-40" : ""}`}
     >
       {doctorCode}
     </div>
@@ -381,6 +390,7 @@ interface DutyDropCellProps {
 }
 
 function DutyDropCell({ date, period, dutyType, assignment, doctorCode, onRemove }: DutyDropCellProps) {
+  const writeGate = useWriteGate();
   const { setNodeRef, isOver } = useDroppable({
     id: `duty-slot-${date}-${period}-${dutyType}`,
     data: { date, period, dutyType, assignment } satisfies DutySlot,
@@ -396,7 +406,8 @@ function DutyDropCell({ date, period, dutyType, assignment, doctorCode, onRemove
         <button
           type="button"
           onClick={() => onRemove(assignment.id)}
-          className="cursor-pointer select-none rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-900"
+          className="cursor-pointer select-none rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-900 disabled:cursor-not-allowed disabled:opacity-60"
+          {...writeGate}
         >
           {doctorCode}
         </button>

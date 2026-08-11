@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeAuthUser } from "@/test/fixtures/reference";
 
-import { useCreateUser, useUpdateUser, useUsers } from "./users";
+import { useCreateUser, useUpdateSelf, useUpdateUser, useUsers } from "./users";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -48,10 +48,38 @@ describe("useCreateUser", () => {
     );
 
     const { result } = renderHook(() => useCreateUser(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ email: "cara@example.com", name: "Cara", password: "password1" });
+    result.current.mutate({
+      email: "cara@example.com",
+      name: "Cara",
+      access_level: "admin",
+      password: "password1",
+    });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody).toEqual({ email: "cara@example.com", name: "Cara", password: "password1" });
+    expect(capturedBody).toEqual({
+      email: "cara@example.com",
+      name: "Cara",
+      access_level: "admin",
+      password: "password1",
+    });
+  });
+});
+
+describe("useUpdateSelf", () => {
+  it("PATCHes /users/me, never a user id", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.patch("/api/v1/users/me", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeAuthUser({ id: 3, name: "Cara" }));
+      }),
+    );
+
+    const { result } = renderHook(() => useUpdateSelf(), { wrapper: makeWrapper(freshClient()) });
+    result.current.mutate({ password: "password1" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedBody).toEqual({ password: "password1" });
   });
 });
 

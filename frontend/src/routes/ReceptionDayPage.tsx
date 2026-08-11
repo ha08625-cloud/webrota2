@@ -10,6 +10,7 @@ import {
   useReceptionStaff,
 } from "@/api/reception";
 import type { ApiError, ReceptionRotaSession, ReceptionStaff } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ReceptionCoveragePanel } from "@/components/ReceptionCoveragePanel";
 import { ReceptionGrid, type ReceptionSavePayload } from "@/components/ReceptionGrid";
 import { addDays, formatWeekLabel, getSurroundingMondays, parseLocalDate } from "@/lib/date";
@@ -45,6 +46,7 @@ function weekdayLabel(date: string): string {
  * rota; regenerating and editing both stay per-day, on the active tab.
  */
 export function ReceptionDayPage() {
+  const writeGate = useWriteGate();
   const weekOptions = useMemo(() => getSurroundingMondays(PAST_WEEKS, FUTURE_WEEKS), []);
   const [weekStart, setWeekStart] = useState(weekOptions[PAST_WEEKS]);
   const weekDates = useMemo(() => WEEKDAY_OFFSETS.map((n) => addDays(weekStart, n)), [weekStart]);
@@ -112,6 +114,7 @@ export function ReceptionDayPage() {
           onClick={handleGenerateWeek}
           disabled={generatingWeek}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           {generatingWeek ? "Generating..." : "Generate week from template"}
         </button>
@@ -155,6 +158,7 @@ interface ReceptionDayTabProps {
  * mounted once per active tab.
  */
 function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
+  const writeGate = useWriteGate();
   const [actionError, setActionError] = useState<string | null>(null);
   const [savingRange, setSavingRange] = useState(false);
 
@@ -248,6 +252,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
             onClick={handleGenerate}
             disabled={generateRota.isPending}
             className="mt-2 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            {...writeGate}
           >
             Generate from template
           </button>
@@ -267,6 +272,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
               onClick={handleRegenerate}
               disabled={saving}
               className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
+              {...writeGate}
             >
               Regenerate
             </button>

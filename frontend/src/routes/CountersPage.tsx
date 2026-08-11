@@ -12,6 +12,7 @@ import { useClinicTypes } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
 import { useRotaList } from "@/api/rota";
 import type { ClinicCounter, ClinicType, Doctor } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
 
 // Appended to a base confirm message whenever a draft rota is active.
@@ -29,6 +30,7 @@ function sortByClinicPriority(clinicTypes: ClinicType[]): ClinicType[] {
 }
 
 export function CountersPage() {
+  const writeGate = useWriteGate();
   // active_only=false: a counter row can reference a since-deactivated
   // doctor (counters are never deleted when a doctor is deactivated),
   // and the weighted-score lookup needs to find them too, not just
@@ -140,6 +142,7 @@ export function CountersPage() {
             onClick={handleResetAllClinic}
             disabled={resetAllClinicCounters.isPending}
             className="rounded border border-red-300 px-3 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
+            {...writeGate}
           >
             Reset all clinic counters
           </button>
@@ -204,6 +207,7 @@ export function CountersPage() {
                             onClick={() => handleResetClinic(c.id)}
                             disabled={resetClinicCounter.isPending}
                             className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-700 disabled:opacity-50"
+                            {...writeGate}
                           >
                             Reset
                           </button>
@@ -226,6 +230,7 @@ export function CountersPage() {
             onClick={handleResetAllSystem}
             disabled={resetAllSystemCounters.isPending}
             className="rounded border border-red-300 px-3 py-1 text-xs font-medium text-red-700 disabled:opacity-50"
+            {...writeGate}
           >
             Reset all system counters
           </button>
@@ -263,6 +268,7 @@ export function CountersPage() {
                     onClick={() => handleResetSystem(c.id)}
                     disabled={resetSystemCounter.isPending}
                     className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-700 disabled:opacity-50"
+                    {...writeGate}
                   >
                     Reset
                   </button>

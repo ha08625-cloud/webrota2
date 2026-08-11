@@ -9,6 +9,7 @@ import {
   useSetBankHoliday,
 } from "@/api/closures";
 import type { Closure, Period } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 
 type PeriodChoice = Period | "FULL";
 
@@ -56,6 +57,7 @@ function extractAddErrorMessage(err: unknown): string {
 /** The fixed, system-wide list of named bank holidays for one year: each
  * sets/clears its own full-day closure directly, no separate add form. */
 function BankHolidaysSection() {
+  const writeGate = useWriteGate();
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
   const { data: holidays, isLoading, isError } = useBankHolidays(year);
@@ -117,7 +119,8 @@ function BankHolidaysSection() {
                     onChange={(e) => handleChange(h.key, e.target.value)}
                     min={`${year}-01-01`}
                     max={`${year}-12-31`}
-                    className="rounded border border-border p-1 text-sm"
+                    className="rounded border border-border p-1 text-sm disabled:opacity-50"
+                    {...writeGate}
                   />
                 </td>
               </tr>
@@ -130,6 +133,7 @@ function BankHolidaysSection() {
 }
 
 export function ClosuresPage() {
+  const writeGate = useWriteGate();
   const { data: closures, isLoading, isError } = useClosures();
   const createClosure = useCreateClosure();
   const deleteClosure = useDeleteClosure();
@@ -244,6 +248,7 @@ export function ClosuresPage() {
           type="submit"
           disabled={createClosure.isPending}
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           Add
         </button>
@@ -272,7 +277,12 @@ export function ClosuresPage() {
                 <td className="py-1 pr-4">{row.periodLabel}</td>
                 <td className="py-1 pr-4">{row.name ?? ""}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => handleDelete(row)} className="text-xs text-red-700">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(row)}
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Delete
                   </button>
                 </td>

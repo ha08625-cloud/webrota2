@@ -11,7 +11,15 @@ import type { ApiError } from "./types";
  */
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
-type UnauthorizedListener = () => void;
+/**
+ * `reason` is an optional message to show on the login form explaining
+ * why the user landed back there. A real 401 passes nothing (the session
+ * simply expired); the deliberate callers below pass one when the sign-out
+ * was an expected consequence of something the user just did - notably a
+ * successful password change, which deletes every session including the
+ * current one (role-based auth, Task 3 instruction 6).
+ */
+type UnauthorizedListener = (reason?: string) => void;
 
 let unauthorizedListener: UnauthorizedListener | null = null;
 
@@ -27,10 +35,11 @@ export function onUnauthorized(listener: UnauthorizedListener | null): void {
  * Fires the same listener a real 401 would, without a request having
  * failed. Used by the logout flow (App.tsx) to drop back to the login
  * form immediately after clearing the token - logout is a 204, not a
- * 401, so it can't rely on the normal rawFetch path below to trigger it.
+ * 401, so it can't rely on the normal rawFetch path below to trigger it -
+ * and by the password-change flow, which passes a reason.
  */
-export function triggerUnauthorized(): void {
-  unauthorizedListener?.();
+export function triggerUnauthorized(reason?: string): void {
+  unauthorizedListener?.(reason);
 }
 
 /**

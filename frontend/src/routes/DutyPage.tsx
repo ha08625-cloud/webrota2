@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { useDoctors } from "@/api/doctors";
 import { useCreateDuty, useDeleteDuty, useDuty } from "@/api/duty";
 import type { DutyType, Period } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { DutyGrid } from "@/components/DutyGrid";
 import { formatPeriodLabel, getDutyPeriodStarts } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
@@ -12,6 +13,7 @@ const PAST_PERIOD_COUNT = 1;
 const FUTURE_PERIOD_COUNT = 5;
 
 export function DutyPage() {
+  const writeGate = useWriteGate();
   const periodStarts = useMemo(
     () => getDutyPeriodStarts(PAST_PERIOD_COUNT, FUTURE_PERIOD_COUNT),
     [],
@@ -153,6 +155,7 @@ export function DutyPage() {
           type="submit"
           disabled={createDuty.isPending}
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           Add
         </button>
@@ -187,7 +190,12 @@ export function DutyPage() {
                 <td className="py-1 pr-4">{doctorsById.get(a.doctor_id)?.code ?? a.doctor_id}</td>
                 <td className="py-1 pr-4">{a.duty_type}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => handleDelete(a.id)} className="text-xs text-red-700">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(a.id)}
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Delete
                   </button>
                 </td>

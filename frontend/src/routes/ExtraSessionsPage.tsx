@@ -5,6 +5,7 @@ import { useDoctors } from "@/api/doctors";
 import { useCreateExtraSession, useDeleteExtraSession, useExtraSessions } from "@/api/extraSessions";
 import { useActiveStaging } from "@/api/staging";
 import type { ApiError, ExtraSessionEntry, Period } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
@@ -28,6 +29,7 @@ function isWeekend(dateString: string): boolean {
 }
 
 export function ExtraSessionsPage() {
+  const writeGate = useWriteGate();
   // The filter reads against *all* doctors (including inactive), same
   // reasoning as LeavePage's filter: a deactivated doctor's historical
   // entries should still be findable here.
@@ -157,6 +159,7 @@ export function ExtraSessionsPage() {
           type="submit"
           disabled={pending}
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           Add extra session
         </button>
@@ -213,7 +216,12 @@ export function ExtraSessionsPage() {
                 <td className="py-1 pr-4">{doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}</td>
                 <td className="py-1 pr-4">{entry.period}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => handleDeleteRow(entry.id)} className="text-xs text-red-700">
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRow(entry.id)}
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Delete
                   </button>
                 </td>

@@ -6,9 +6,10 @@ import userEvent from "@testing-library/user-event";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { apiClient } from "@/api/client";
+import { apiClient, triggerUnauthorized } from "@/api/client";
 import { server } from "@/test/msw/server";
 
+import { useAuth } from "./AuthContext";
 import { clearToken, getToken, setToken } from "./tokenStore";
 import { LoginGate } from "./LoginGate";
 
@@ -17,8 +18,21 @@ const AUTH_USER = {
   email: "jo@example.com",
   name: "Jo Bloggs",
   active: true,
+  access_level: "admin",
   created_at: "2026-07-01T00:00:00Z",
 };
+
+/** Reads what LoginGate published to the auth context (role-based auth, Task 3). */
+function AccessProbe() {
+  const { user, canWrite } = useAuth();
+  return (
+    <div>
+      protected content
+      <span data-testid="probe-level">{user?.access_level ?? "none"}</span>
+      <span data-testid="probe-can-write">{String(canWrite)}</span>
+    </div>
+  );
+}
 
 function renderGate() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,7 +40,7 @@ function renderGate() {
   render(
     <QueryClientProvider client={queryClient}>
       <LoginGate>
-        <div>protected content</div>
+        <AccessProbe />
       </LoginGate>
     </QueryClientProvider>,
   );
@@ -112,6 +126,53 @@ describe("LoginGate", () => {
 
     expect(await screen.findByText("Invalid email or password.")).toBeInTheDocument();
     expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    expect(getToken()).toBeNull();
+  });
+
+  it("publishes the /auth/me user's access level to the auth context", async () => {
+    setToken("valid-token");
+    server.use(http.get("/api/v1/auth/me", () => HttpResponse.json(AUTH_USER)));
+
+    renderGate();
+
+    expect(await screen.findByTestId("probe-level")).toHaveTextContent("admin");
+    expect(screen.getByTestId("probe-can-write")).toHaveTextContent("true");
+  });
+
+  it("publishes the login response's user when there was no stored token to check", async () => {
+    server.use(
+      http.post("/api/v1/auth/login", () =>
+        HttpResponse.json({
+          token: "new-session-token",
+          user: { ...AUTH_USER, access_level: "nurse" },
+        }),
+      ),
+    );
+
+    renderGate();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Email"), "jo@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Log in" }));
+
+    expect(await screen.findByTestId("probe-level")).toHaveTextContent("nurse");
+    expect(screen.getByTestId("probe-can-write")).toHaveTextContent("false");
+  });
+
+  it("shows the reason on the login form when the sign-out was expected", async () => {
+    setToken("valid-token");
+    server.use(http.get("/api/v1/auth/me", () => HttpResponse.json(AUTH_USER)));
+
+    renderGate();
+    await screen.findByText("protected content");
+
+    // What ChangePasswordDialog does after a successful password change:
+    // the backend has just deleted every session, this one included.
+    triggerUnauthorized("Your password was changed. Please log in again.");
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your password was changed. Please log in again.",
+    );
     expect(getToken()).toBeNull();
   });
 

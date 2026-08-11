@@ -7,6 +7,7 @@ import { useClosures } from "@/api/closures";
 import { useDuty } from "@/api/duty";
 import { useRotaList } from "@/api/rota";
 import type { ClinicType, CreateStagingIn } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { DutyGrid } from "@/components/DutyGrid";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { addDays, formatDate, formatDateTime, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
@@ -86,6 +87,7 @@ function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: 
  * pending state rather than one page-wide lock.
  */
 function ClinicStatusList() {
+  const writeGate = useWriteGate();
   const { data: clinicTypes, isLoading, isError } = useClinicTypes();
   const patchClinicType = usePatchClinicType();
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -135,6 +137,7 @@ function ClinicStatusList() {
                 checked={clinicType.is_enabled}
                 disabled={patchClinicType.isPending}
                 onChange={(e) => handleToggleEnabled(clinicType, e.target.checked)}
+                {...writeGate}
               />
               {clinicType.name}
             </li>
@@ -168,6 +171,7 @@ function StartStagingForm({
   numWeeks,
   setNumWeeks,
 }: StartStagingFormProps) {
+  const writeGate = useWriteGate();
   const navigate = useNavigate();
   const createStaging = useCreateStaging();
   const [templateStartWeek, setTemplateStartWeek] = useState<1 | 2 | 3 | 4>(1);
@@ -251,6 +255,7 @@ function StartStagingForm({
         type="submit"
         disabled={createStaging.isPending}
         className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        {...writeGate}
       >
         {createStaging.isPending ? "Starting..." : "Start staging"}
       </button>
