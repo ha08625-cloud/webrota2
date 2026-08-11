@@ -66,6 +66,7 @@ def create_user(
         name=payload.name,
         password_hash=hash_password(payload.password),
         active=True,
+        access_level=payload.access_level,
     )
     db.add(new_user)
     try:

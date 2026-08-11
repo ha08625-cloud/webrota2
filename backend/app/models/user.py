@@ -22,6 +22,13 @@ password_hash stores a bcrypt hash. bcrypt silently truncates input at 72
 bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
 (auth plan, Design Decision 1) -- nothing about that truncation is visible
 from the model itself.
+
+access_level is the permission tier (role-based auth plan, Design Decision
+1). It defaults to NURSE -- the lowest tier -- both here and as the
+server_default in migration 028: an accidental viewer is recoverable, an
+accidental manager is a silent security hole. The API never relies on that
+default (UserIn requires access_level), so it only ever applies to rows
+inserted directly, e.g. by a script or a test.
 """
 import datetime
 
@@ -29,6 +36,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
+from .enums import AccessLevel, enum_col
 
 
 class User(Base):
@@ -39,6 +47,9 @@ class User(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    access_level: Mapped[AccessLevel] = mapped_column(
+        enum_col(AccessLevel), nullable=False, default=AccessLevel.NURSE
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

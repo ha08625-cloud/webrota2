@@ -2,6 +2,7 @@
 import csv
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.models import (
@@ -10,12 +11,21 @@ from app.models import (
     MasterRotaSession,
     Room,
     SystemCounter,
+    User,
 )
-from app.models.enums import DoctorType, MasterSessionType, Period, RoomType, Site
+from app.models.enums import (
+    AccessLevel,
+    DoctorType,
+    MasterSessionType,
+    Period,
+    RoomType,
+    Site,
+)
 from seed.seed_rooms import seed_rooms
 from seed.seed_doctors import seed_doctors
 from seed.seed_system_counters import seed_system_counters
 from seed.seed_master_rota import seed_master_rota
+from seed.seed_users import seed_users
 
 SETUP_HEADER = [
     "Doctor code", "Type", "Preferred Room", "Alt Room 1", "Alt Room 2",
@@ -194,3 +204,65 @@ def test_seed_master_rota(session, tmp_path):
     # full row count: 2 doctors x 4 weeks x 5 days x 2 periods
     total = session.execute(select(MasterRotaSession)).all()
     assert len(total) == 2 * 4 * 5 * 2
+
+# --- users ---
+
+@pytest.fixture
+def seed_user_env(monkeypatch):
+    """The three required vars set; SEED_USER_ACCESS_LEVEL deliberately
+    cleared so each test states its own expectation about the default."""
+    monkeypatch.setenv("SEED_USER_EMAIL", "boss@example.com")
+    monkeypatch.setenv("SEED_USER_NAME", "Boss Person")
+    monkeypatch.setenv("SEED_USER_PASSWORD", "bootstrap-password")
+    monkeypatch.delenv("SEED_USER_ACCESS_LEVEL", raising=False)
+    return monkeypatch
+
+
+def test_seed_users_defaults_to_manager(session, seed_user_env):
+    user = seed_users(session)
+    assert user is not None
+    assert user.email == "boss@example.com"
+    assert user.access_level == AccessLevel.MANAGER
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("manager", AccessLevel.MANAGER),
+        ("admin", AccessLevel.ADMIN),
+        ("doctor", AccessLevel.DOCTOR),
+        ("nurse", AccessLevel.NURSE),
+    ],
+)
+def test_seed_users_honours_explicit_access_level(
+    session, seed_user_env, raw, expected
+):
+    seed_user_env.setenv("SEED_USER_ACCESS_LEVEL", raw)
+    user = seed_users(session)
+    assert user.access_level == expected
+
+
+def test_seed_users_rejects_unknown_access_level(session, seed_user_env):
+    seed_user_env.setenv("SEED_USER_ACCESS_LEVEL", "superuser")
+    with pytest.raises(RuntimeError, match="SEED_USER_ACCESS_LEVEL"):
+        seed_users(session)
+    assert session.execute(select(User)).first() is None
+
+
+def test_seed_users_is_idempotent_on_existing_email(session, seed_user_env):
+    first = seed_users(session)
+    session.flush()
+    seed_user_env.setenv("SEED_USER_ACCESS_LEVEL", "nurse")
+
+    assert seed_users(session) is None
+    # The existing row is left exactly as it was -- re-running the script
+    # is a no-op, not a demotion.
+    session.refresh(first)
+    assert first.access_level == AccessLevel.MANAGER
+
+
+def test_seed_users_requires_credentials(session, monkeypatch):
+    for var in ("SEED_USER_EMAIL", "SEED_USER_NAME", "SEED_USER_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(RuntimeError, match="missing required env var"):
+        seed_users(session)

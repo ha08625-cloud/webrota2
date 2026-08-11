@@ -94,6 +94,21 @@ class ReceptionRole(str, enum.Enum):
     OTHER = "other"
 
 
+class AccessLevel(str, enum.Enum):
+    """Permission tier on User (role-based auth plan, Design Decision 1).
+
+    Named access_level rather than role because the rota domain already owns
+    "role" (session roles, /rota/{id}/swap-roles, SetRoleOut). MANAGER and
+    ADMIN are distinct tiers; DOCTOR and NURSE are permission-identical
+    labels and are not linked to any Doctor or ReceptionStaff row.
+    """
+
+    MANAGER = "manager"
+    ADMIN = "admin"
+    DOCTOR = "doctor"
+    NURSE = "nurse"
+
+
 def _snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 

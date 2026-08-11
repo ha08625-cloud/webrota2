@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models import User, UserSession
+from app.models.enums import AccessLevel
 
 
 def _user(session, email="a@example.com", name="Ada", active=True):
@@ -125,3 +126,26 @@ def test_user_active_defaults_true(session):
 def test_user_can_be_deactivated(session):
     u = _user(session, active=False)
     assert u.active is False
+
+
+def test_user_access_level_defaults_to_nurse(session):
+    """Least privilege by default (role-based auth plan, Design Decision 7):
+    a row inserted without an explicit access_level -- a script, a test, a
+    manual INSERT -- is a viewer, never a manager. The API never relies on
+    this: UserIn requires access_level."""
+    u = User(
+        email="tier-default@example.com", name="Default Tier",
+        password_hash="x", created_at=datetime.datetime.now(datetime.timezone.utc),
+    )
+    session.add(u)
+    session.flush()
+    session.refresh(u)
+    assert u.access_level == AccessLevel.NURSE
+
+
+def test_user_access_level_round_trips(session):
+    u = _user(session, email="tier@example.com")
+    u.access_level = AccessLevel.MANAGER
+    session.flush()
+    session.expire_all()
+    assert session.get(User, u.id).access_level == AccessLevel.MANAGER

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import User, UserSession
+from app.models.enums import AccessLevel
 
 PROTECTED = "/api/v1/rooms"  # any get_current_user-gated GET works here
 
@@ -25,12 +26,16 @@ def _as_aware(dt: datetime.datetime) -> datetime.datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=datetime.timezone.utc)
 
 
-def _make_user(db_session, email="a@example.com", password="password123", active=True):
+def _make_user(
+    db_session, email="a@example.com", password="password123", active=True,
+    access_level=AccessLevel.MANAGER,
+):
     user = User(
         email=email,
         name="A User",
         password_hash=hash_password(password),
         active=active,
+        access_level=access_level,
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add(user)
@@ -89,6 +94,7 @@ class TestLogin:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["user"]["email"] == "a@example.com"
+        assert body["user"]["access_level"] == "manager"
         assert "password" not in body["user"]
         assert "password_hash" not in body["user"]
         token = body["token"]
@@ -179,3 +185,16 @@ class TestSessionLifecycle:
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["email"] == "me@example.com"
+
+    def test_me_returns_access_level(self, client_no_auth, db_session):
+        """The frontend reads its permission tier off /auth/me
+        (role-based auth plan, Task 3)."""
+        user = _make_user(
+            db_session, email="tier@example.com", access_level=AccessLevel.DOCTOR
+        )
+        token = _make_session(db_session, user)
+        resp = client_no_auth.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "doctor"

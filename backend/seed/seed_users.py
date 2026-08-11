@@ -11,11 +11,20 @@ Reads SEED_USER_EMAIL, SEED_USER_NAME, SEED_USER_PASSWORD from the
 environment and fails loudly (raises) if any is unset -- there is no
 hardcoded fallback credential in this codebase, on purpose.
 
+SEED_USER_ACCESS_LEVEL is optional and defaults to "manager" (role-based
+auth plan, Task 1). It is deliberately NOT in _REQUIRED_VARS: this script
+exists to bootstrap the account that administers everyone else, and that
+account is a manager in essentially every case. It is also the recovery
+path when migration 028's "nurse" backfill (Design Decision 7) has left a
+database with no manager in it -- so defaulting it to anything lower would
+defeat the point.
+
 Usage (from backend/), against Railway:
     DATABASE_URL=<DATABASE_PUBLIC_URL> \
     SEED_USER_EMAIL=you@example.com \
     SEED_USER_NAME="Your Name" \
     SEED_USER_PASSWORD=<choose one> \
+    SEED_USER_ACCESS_LEVEL=manager \
     uv run python -m seed.seed_users
 """
 import datetime
@@ -27,11 +36,27 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import User
+from app.models.enums import AccessLevel
 
 _REQUIRED_VARS = ("SEED_USER_EMAIL", "SEED_USER_NAME", "SEED_USER_PASSWORD")
+_DEFAULT_ACCESS_LEVEL = AccessLevel.MANAGER
 
 
-def _read_env() -> tuple[str, str, str]:
+def _read_access_level() -> AccessLevel:
+    raw = os.environ.get("SEED_USER_ACCESS_LEVEL")
+    if not raw:
+        return _DEFAULT_ACCESS_LEVEL
+    try:
+        return AccessLevel(raw)
+    except ValueError:
+        valid = ", ".join(member.value for member in AccessLevel)
+        raise RuntimeError(
+            f"SEED_USER_ACCESS_LEVEL={raw!r} is not a valid access level -- "
+            f"expected one of: {valid}"
+        ) from None
+
+
+def _read_env() -> tuple[str, str, str, AccessLevel]:
     missing = [v for v in _REQUIRED_VARS if not os.environ.get(v)]
     if missing:
         raise RuntimeError(
@@ -42,13 +67,14 @@ def _read_env() -> tuple[str, str, str]:
         os.environ["SEED_USER_EMAIL"],
         os.environ["SEED_USER_NAME"],
         os.environ["SEED_USER_PASSWORD"],
+        _read_access_level(),
     )
 
 
 def seed_users(session: Session) -> User | None:
     """Create the first user from env vars. Returns None if a user with
     that email already exists (idempotent no-op), else the new User."""
-    email, name, password = _read_env()
+    email, name, password, access_level = _read_env()
 
     existing = session.execute(
         select(User).where(User.email == email)
@@ -66,6 +92,7 @@ def seed_users(session: Session) -> User | None:
         name=name,
         password_hash=password_hash,
         active=True,
+        access_level=access_level,
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     session.add(user)
@@ -79,7 +106,10 @@ def main() -> None:
         user = seed_users(session)
         session.commit()
         if user is not None:
-            print(f"Created user {user.email!r} (id={user.id}).")
+            print(
+                f"Created user {user.email!r} (id={user.id}, "
+                f"access_level={user.access_level.value})."
+            )
     except Exception:
         session.rollback()
         raise
