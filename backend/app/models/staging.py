@@ -52,10 +52,13 @@ from .enums import Day, MasterSessionType, Period, enum_col
 
 class RotaStaging(Base):
     __tablename__ = "rota_stagings"
+    __table_args__ = (
+        UniqueConstraint("config_id", name="uq_rota_stagings_config_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     config_id: Mapped[int] = mapped_column(
-        ForeignKey("rota_configs.id"), nullable=False, unique=True
+        ForeignKey("rota_configs.id"), nullable=False
     )
     source_template_id: Mapped[int] = mapped_column(
         ForeignKey("master_rota_templates.id"), nullable=False

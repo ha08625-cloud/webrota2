@@ -13,20 +13,20 @@ frontend both treat as "normal session" - the same fallback the original
 re-derivation design would have produced for any legacy data anyway.
 is_on_leave is not stored; it is derived from LeaveEntry at query time.
 
-GeneratedRota.committed_at (added by migration 006, nullable, no backfill)
-records when a rota was committed and is what rollback_commit() uses to
-find "the most recently committed rota" and to enforce strict reverse-
-chronological rollback order. It is set in commit_rota() and cleared in
+GeneratedRota.committed_at (nullable, no backfill) records when a rota was
+committed and is what rollback_commit() uses to find "the most recently
+committed rota" and to enforce strict reverse-chronological rollback
+order. It is set in commit_rota() and cleared in
 rollback_commit(). Rows committed before this feature shipped read as
 NULL, which rollback_commit() treats as "not rollbackable" (their
 snapshots were already deleted at commit time under the old lifecycle,
 so restoring them would be unsafe) -- see the rollback plan for the full
 reasoning.
 
-GeneratedRota.archived_at (added by migration 008, nullable, no backfill)
-is a pure visibility flag on committed rotas -- it hides a rota from the
-default "Committed" list on RotaPage without touching counters,
-sessions, or rollback eligibility. It is set/cleared via the archive and
+GeneratedRota.archived_at (nullable, no backfill) is a pure visibility flag
+on committed rotas -- it hides a rota from the default "Committed" list on
+RotaPage without touching counters, sessions, or rollback eligibility. It
+is set/cleared via the archive and
 unarchive endpoints, and is also cleared by rollback_commit() when a
 rota flips back to draft (commit_rota() self-heals committed_at on
 re-commit, so a surviving archived_at would silently re-archive a

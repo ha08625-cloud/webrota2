@@ -36,10 +36,11 @@ class ClinicType(Base):
             sqlite_where=text("is_enabled"),
             postgresql_where=text("is_enabled"),
         ),
+        UniqueConstraint("name", name="uq_clinic_types_name"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
     clinic_priority: Mapped[int] = mapped_column(Integer, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     category: Mapped[str | None] = mapped_column(String, nullable=True)
