@@ -21,7 +21,7 @@ A rota generator for a medical practice: generates a working rota from a master 
 |---|---|---|---|
 | Master rota bulk row operations | Python + React | Low | "Remove all of a leaver's sessions", "copy week 1 to weeks 2–4", "populate a new doctor's full week". Single-slot create/delete covers the common case; revisit only if the per-slot workflow proves too slow in practice |
 | Master rota multi-template management | Python + React | Low | Create/activate/rename templates. Currently the single seeded active template (`MasterRotaTemplate.is_active`, resolved deterministically by the GET) |
-| Add role information to room rota cells | Python | Medium | Room-centric view is a deferred frontend transformation; cells should display doctor role alongside code |
+| Add doctor type to room rota cells | Python + React | Medium | The room view (`RoomRotaGrid`) is built and shipped; its cells show `doctor_code`, a LEAVE badge, the *session* role (Duty/clinic name) and a Supervising badge, but not the doctor's *type*. `RotaSessionOut` carries `doctor_code` and not `doctor_type`, so this needs the field added to the session payload as well as the cell |
 
 All three of these are clinical-rota tasks — see `documentation/architecture-clinical.md`.
 
