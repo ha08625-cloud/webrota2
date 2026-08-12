@@ -43,6 +43,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,7 +58,9 @@ class RecurringNote(Base):
     text: Mapped[str] = mapped_column(String(200), nullable=False)
     day: Mapped[Day] = mapped_column(enum_col(Day), nullable=False)
     period: Mapped[Period] = mapped_column(enum_col(Period), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
     doctors: Mapped[list["RecurringNoteDoctor"]] = relationship(
         back_populates="note", cascade="all, delete-orphan"
