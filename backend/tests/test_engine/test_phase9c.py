@@ -42,10 +42,9 @@ def _pre_assigned(session, template, doctor, room, week=1, day=Day.MONDAY, perio
 
 
 class TestSrSwap:
-    """There is no SR-priority fast path any more (see phase9c.py Decision
-    2): selection is always by weighted SUPERVISION score across the whole
+    """There is no SR-priority fast path any more: selection is always by weighted SUPERVISION score across the whole
     D/SR pool. These tests cover the post-selection swap-into-SR step that
-    replaced it (Decision 3), including its excluded edge case.
+    replaced it, including its excluded edge case.
     """
 
     def test_only_candidate_already_in_sr_no_swap_entry(self, session, config_1wk):

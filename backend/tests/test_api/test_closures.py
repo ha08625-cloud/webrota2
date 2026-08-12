@@ -53,7 +53,7 @@ class TestClosures:
         assert len(listed) == 2
 
     def test_full_day_closure_is_two_rows(self, client, seeded):
-        """No 'FULL' period sentinel exists (Decision 2) -- a full-day
+        """No 'FULL' period sentinel exists -- a full-day
         closure is two POSTs, one per period, for the same date."""
         am = client.post("/api/v1/closures", json={"date": "2026-01-05", "period": "AM"})
         pm = client.post("/api/v1/closures", json={"date": "2026-01-05", "period": "PM"})
@@ -181,7 +181,7 @@ class TestClosures:
     def test_delete_does_not_affect_a_generated_rota(
         self, client, db_session, seeded
     ):
-        """M5 Decision 4: deleting a PracticeClosure must not change how an
+        """deleting a PracticeClosure must not change how an
         already-generated rota renders or validates -- it reads its own
         RotaClosure snapshot instead. End-to-end coverage of the snapshot
         mechanism lives in test_rota.py; this only confirms the delete

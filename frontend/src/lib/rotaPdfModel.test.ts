@@ -22,8 +22,7 @@ import {
  * content logic should fail in both suites rather than in one.
  *
  * There is no `import("pdfmake")` anywhere in this file or in the module
- * under test - this suite passes with pdfmake uninstalled (Design
- * Decision 5).
+ * under test - this suite passes with pdfmake uninstalled.
  */
 
 /** Full-day closed slots (both AM and PM) for the given dates. */

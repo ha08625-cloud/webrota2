@@ -95,7 +95,7 @@ class ReceptionRole(str, enum.Enum):
 
 
 class AccessLevel(str, enum.Enum):
-    """Permission tier on User (role-based auth plan, Design Decision 1).
+    """Permission tier on User.
 
     Named access_level rather than role because the rota domain already owns
     "role" (session roles, /rota/{id}/swap-roles, SetRoleOut). MANAGER and

@@ -81,7 +81,7 @@ class TestConvertToPdf:
         assert abs(len(as_docx) - len(as_rtf)) < 100
 
     def test_concurrent_conversions_both_succeed(self, sample_rtf):
-        """Regression test for the isolated LibreOffice profile (Decision 7).
+        """Regression test for the isolated LibreOffice profile.
         Sharing the default profile, one of these two exits 1 and silently
         writes no output file."""
         with ThreadPoolExecutor(max_workers=2) as pool:

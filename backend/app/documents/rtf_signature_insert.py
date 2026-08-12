@@ -1,23 +1,23 @@
 """Splices a signature image into an RTF certificate under the "Signature" label.
 
-The RTF path (rtf/pdf plan, Decision 1) is splice-then-convert: this module
-returns modified RTF, which only LibreOffice ever reads before it becomes a
-PDF. The intermediate is never the deliverable, so the generated \\pict group
-only has to satisfy LibreOffice's RTF reader, not Word's.
+The RTF path is splice-then-convert: this module returns modified RTF, which
+only LibreOffice ever reads before it becomes a PDF. The intermediate is
+never the deliverable, so the generated \\pict group only has to satisfy
+LibreOffice's RTF reader, not Word's.
 
 Two deliberate constraints:
 
-Bytes throughout, never str (Decision 1). RTF is nominally 7-bit ASCII with
-escapes, but real EMIS exports carry raw high bytes, and a decode/encode round
-trip risks corrupting them.
+Bytes throughout, never str. RTF is nominally 7-bit ASCII with escapes, but
+real EMIS exports carry raw high bytes, and a decode/encode round trip risks
+corrupting them.
 
-Splice, do not parse (Decision 4). The insertion is a pure string operation
-between two already-balanced groups; an RTF group-tree parser would be
-disproportionate for an edit this narrow. Every assumption is asserted and a
-violation raises DocumentFormatError with a message aimed at a non-technical
-admin -- the same loud-failure philosophy as signature_insert.py's
-column-count check, on the view that a wrong-but-silent insertion into a
-medico-legal document is worse than a visible failure.
+Splice, do not parse. The insertion is a pure string operation between two
+already-balanced groups; an RTF group-tree parser would be disproportionate
+for an edit this narrow. Every assumption is asserted and a violation raises
+DocumentFormatError with a message aimed at a non-technical admin -- the
+same loud-failure philosophy as signature_insert.py's column-count check, on
+the view that a wrong-but-silent insertion into a medico-legal document is
+worse than a visible failure.
 """
 import re
 
@@ -31,12 +31,12 @@ from docx.image.image import Image
 from .errors import DocumentFormatError
 
 # The anchor is the "Signature" label *plus* its paragraph break, and that
-# \par is load-bearing (Decision 3). A bare search for "Signature" matches
-# three times in a real export, and the first two hits are the built-in style
-# names "Signature;" and "E-mail Signature;" in the RTF stylesheet and latent
-# style table -- splicing at the first hit would inject the image into the
-# style definitions, not the document body. Those entries are followed by
-# ";" and the next style's \lsd* flags, never by \par.
+# \par is load-bearing. A bare search for "Signature" matches three times in
+# a real export, and the first two hits are the built-in style names
+# "Signature;" and "E-mail Signature;" in the RTF stylesheet and latent style
+# table -- splicing at the first hit would inject the image into the style
+# definitions, not the document body. Those entries are followed by ";" and
+# the next style's \lsd* flags, never by \par.
 #
 # The [\s]* tolerances matter because RTF line breaks are cosmetic: Word wraps
 # its output at roughly 255 characters, so the exact position of the \r\n
@@ -73,15 +73,15 @@ _DATE_ANCHOR_RE = re.compile(rb"\{([^{}]*?)Date[\s]*(\\par|\\cell)[\s]*\}")
 _BOLD_RE = re.compile(rb"\\a?b(?![a-zA-Z0-9])")
 
 # Signature images are validated as JPEG or PNG at upload time, so no
-# re-encoding is needed (Decision 5) -- the stored bytes are hex-encoded as-is
-# under the matching blip keyword.
+# re-encoding is needed -- the stored bytes are hex-encoded as-is under the
+# matching blip keyword.
 _BLIP_BY_CONTENT_TYPE = {
     "image/png": b"pngblip",
     "image/jpeg": b"jpegblip",
 }
 
 # Rendered width, mirroring the docx module's fixed Cm(4): 4 cm x 567
-# twips/cm (Decision 6).
+# twips/cm.
 _TARGET_WIDTH_TWIPS = 2268
 
 # Fallback for images whose header declares no (or a zero) DPI, so the
@@ -236,7 +236,7 @@ def _build_picture_group(image_bytes: bytes, content_type: str) -> bytes:
 
     # picw/pich are the image's *native* size in hundredths of a millimetre,
     # from the header's real DPI; picwgoal/pichgoal are the rendered size in
-    # twips, scaled to a fixed 4 cm width (Decision 6).
+    # twips, scaled to a fixed 4 cm width.
     picw = round(px_width / horz_dpi * _HUNDREDTHS_MM_PER_INCH)
     pich = round(px_height / vert_dpi * _HUNDREDTHS_MM_PER_INCH)
     picwgoal = _TARGET_WIDTH_TWIPS

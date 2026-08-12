@@ -22,10 +22,9 @@ export function useExtraSessions(doctorId: number | null) {
 /**
  * Unlike useCreateLeave/useDeleteLeave, neither mutation here invalidates
  * rotaKeys. An extra session is only ever read once, at POST /staging
- * creation time (extra sessions plan, Task 2, Design Decision 2) - it
- * never mutates a draft or the active staging directly, so there is
- * nothing for an open rota or staging view to refetch as a result of
- * this mutation.
+ * creation time - it never mutates a draft or the active staging
+ * directly, so there is nothing for an open rota or staging view to
+ * refetch as a result of this mutation.
  */
 export function useCreateExtraSession() {
   const queryClient = useQueryClient();

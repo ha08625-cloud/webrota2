@@ -224,7 +224,7 @@ def test_unpopulated_template_is_not_reported_as_a_mismatch(
     client, db_session, seeded
 ):
     """An empty template is reported through no_template_row instead, which
-    is the more precise complaint (no-surgery plan, Decision 6b)."""
+    is the more precise complaint."""
     from app.models import MasterRotaSession
 
     db_session.query(MasterRotaSession).delete()

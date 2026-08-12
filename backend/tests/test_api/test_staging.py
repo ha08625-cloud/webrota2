@@ -276,7 +276,7 @@ def test_override_wfh_becomes_requires_room(client, db_session, seeded):
 def test_missing_template_row_creates_new_requires_room_session(
     client, db_session, seeded
 ):
-    # No MasterRotaSession row at all for AA/Wednesday/AM (Design Decision 5).
+    # No MasterRotaSession row at all for AA/Wednesday/AM.
     _plan_extra_session(client, seeded["doctor_aa"], WEDNESDAY)
 
     resp = _create_staging(client)
@@ -327,8 +327,7 @@ def test_extra_session_on_leave_slot_leaves_row_untouched(client, db_session, se
     ))
     db_session.commit()
     # Extra session planned first, leave added afterwards -- the ordering
-    # case the /extra-sessions POST's own leave check cannot catch
-    # (Design Decision 6).
+    # case the /extra-sessions POST's own leave check cannot catch.
     _plan_extra_session(client, seeded["doctor_aa"], TUESDAY)
     db_session.add(LeaveEntry(
         doctor_id=seeded["doctor_aa"], date=TUESDAY, period=Period.AM,
@@ -345,7 +344,7 @@ def test_extra_session_on_leave_slot_leaves_row_untouched(client, db_session, se
 def test_extra_session_with_no_template_row_skipped_when_on_leave(
     client, db_session, seeded
 ):
-    # Design Decision 5 + 6 together: no template row, and leave supersedes
+    # No template row, and leave supersedes
     # the planned extra session -- no staged row should be created at all.
     _plan_extra_session(client, seeded["doctor_aa"], WEDNESDAY)
     db_session.add(LeaveEntry(
@@ -454,9 +453,9 @@ def test_is_extra_session_survives_patch_editing_cell_back(client, db_session, s
     )
     assert patch.status_code == 200, patch.text
     # Looks wrong at a glance -- is_extra_session means "a planned extra
-    # session exists here", not "the override produced this row" (Design
-    # Decision 8), so it stays True even though the admin edited the cell
-    # back to NO_SURGERY.
+    # session exists here", not "the override produced this row", so it
+    # stays True even though the admin edited the cell back to
+    # NO_SURGERY.
     assert patch.json()["session"]["is_extra_session"] is True
 
     active = client.get("/api/v1/staging/active").json()

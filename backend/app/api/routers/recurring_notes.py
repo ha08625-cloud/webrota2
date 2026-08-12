@@ -13,7 +13,7 @@ constraint (note_id, doctor_id) / (note_id, template_week) spuriously.
 There is no IntegrityError guard here, unlike clinic_types.py: doctor_ids
 and template_weeks are deduplicated by RecurringNoteIn's validators before
 this ever runs, doctors are soft-deleted only (see models/recurring_note.py),
-and there is no cross-note uniqueness rule at all (Design Decision 9 --
+and there is no cross-note uniqueness rule at all (
 overlapping notes are legal and concatenate at generation time). The only
 write-time rejection is the doctor existence/active check below, which is a
 DB-backed 422, not a constraint violation.

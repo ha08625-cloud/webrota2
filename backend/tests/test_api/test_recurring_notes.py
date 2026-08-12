@@ -110,7 +110,7 @@ class TestRecurringNotesCrud:
         assert resp.json()["doctor_ids"] == [seeded["doctor_aa"]]
 
     def test_overlapping_notes_both_persist(self, client, seeded):
-        """No uniqueness rule across notes (Design Decision 9) -- two notes
+        """No uniqueness rule across notes -- two notes
         matching the same doctor/week/day/period are both legal."""
         first = _make_note(client, seeded, text="Meeting A")
         second = _make_note(client, seeded, text="Meeting B")

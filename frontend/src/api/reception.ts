@@ -244,7 +244,7 @@ export interface DeleteReceptionRotaPayload {
   date: string;
 }
 
-/** Backs the delete-then-generate "Regenerate" flow (Decision 6) - the date becomes generatable again. */
+/** Backs the delete-then-generate "Regenerate" flow - the date becomes generatable again. */
 export function useDeleteReceptionRota() {
   const queryClient = useQueryClient();
   return useMutation({

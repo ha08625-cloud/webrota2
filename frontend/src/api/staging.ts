@@ -20,9 +20,9 @@ export const stagingKeys = {
 };
 
 /**
- * The active staging, if any. At most one staging exists globally
- * (staging plan, Design Decision 7), so this is the only read hook this
- * module needs - there is no list or detail-by-id query.
+ * The active staging, if any. At most one staging exists globally, so
+ * this is the only read hook this module needs - there is no list or
+ * detail-by-id query.
  *
  * GET /staging/active 404s when nothing is active; that is a normal,
  * expected state here (not an error condition), so it resolves to null
@@ -171,10 +171,10 @@ export function useDeleteStagingSession() {
 // --- Lifecycle: abandon / complete ---
 
 /**
- * Hard-deletes the active staging and its RotaConfig (staging plan,
- * Design Decision 3). The active-staging cache is set to null directly
- * rather than invalidated - there is nothing left on the server to
- * refetch that would produce a different result.
+ * Hard-deletes the active staging and its RotaConfig. The
+ * active-staging cache is set to null directly rather than invalidated
+ * - there is nothing left on the server to refetch that would produce
+ * a different result.
  */
 export function useAbandonStaging() {
   const queryClient = useQueryClient();

@@ -4,7 +4,7 @@ import type { ReceptionMasterSession, ReceptionStaff } from "@/api/types";
 /**
  * Weekly working hours per staff member, derived from the master template:
  * every template row is a scheduled half-hour slot, and a `not_working`
- * role tags a slot as scheduled-but-not-working (Decision 13 in
+ * role tags a slot as scheduled-but-not-working (see
  * architecture-reception.md) without deleting it. Working hours are
  * therefore (all rows - not_working rows) * 0.5h. Rows the staff member
  * has no session for at all are already excluded, since only rows exist

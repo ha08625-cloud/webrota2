@@ -16,8 +16,7 @@ class SchoolHolidayIn(BaseModel):
     def _check_range(self) -> "SchoolHolidayIn":
         # Unlike ClosureIn, no weekday check: a school holiday routinely
         # starts/ends on weekend-adjacent boundaries and spans weekends
-        # throughout (Design Decision 4). This is deliberate, not an
-        # oversight.
+        # throughout. This is deliberate, not an oversight.
         if self.end_date < self.start_date:
             raise ValueError("end_date must not be before start_date")
         if (self.end_date - self.start_date).days > MAX_SCHOOL_HOLIDAY_SPAN_DAYS:

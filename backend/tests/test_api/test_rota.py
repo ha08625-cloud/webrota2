@@ -250,7 +250,7 @@ class TestRollbackCommit:
     def test_rollback_clears_archived_at_and_stays_clear_on_recommit(
         self, client, seeded
     ):
-        """M6, Decision 5: a surviving archived_at would silently
+        """a surviving archived_at would silently
         re-archive a freshly re-committed rota with no UI action
         explaining it -- rollback must clear it, and it must stay clear
         through a subsequent commit."""
@@ -269,7 +269,7 @@ class TestRollbackCommit:
         assert resp.json()["archived_at"] is None
 
     def test_rollback_eligibility_ignores_archiving(self, client, seeded):
-        """M6, Decision 4: an archived rota that is still the most recent
+        """an archived rota that is still the most recent
         commit remains rollback-eligible under the existing chain-order
         rule."""
         out_a = generate_rota(client)
@@ -336,7 +336,7 @@ class TestArchive:
     def test_archive_legacy_rota_with_null_committed_at(
         self, client, db_session, seeded
     ):
-        """M6, Decision 10: a rota committed before rollback support
+        """a rota committed before rollback support
         (committed_at NULL) is still archivable -- archiving checks
         status, not committed_at."""
         out = generate_rota(client)
@@ -442,7 +442,7 @@ class TestForceDelete:
         assert resp.status_code == 404
 
     def test_force_delete_archived_committed_rota(self, client, seeded):
-        """Decision 7: archived_at is ignored server-side -- an archived
+        """archived_at is ignored server-side -- an archived
         committed rota is still force-deletable via the API, even though
         the frontend only surfaces the button on non-archived rotas."""
         out = generate_rota(client)

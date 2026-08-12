@@ -241,10 +241,9 @@ function buildRoomWeekSheet(
         }
 
         // Full-column-height closed override, same rationale as the
-        // doctor sheet (Design Decision 7): applies regardless of
-        // whatever was set above, though in practice a closed date has
-        // no sessions and gets no "Available" text either, per the
-        // isClosed guard above.
+        // doctor sheet: applies regardless of whatever was set above,
+        // though in practice a closed date has no sessions and gets no
+        // "Available" text either, per the isClosed guard above.
         if (isClosed) {
           cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
         }
@@ -368,14 +367,14 @@ export async function buildRotaWorkbook(
             }
           }
 
-          // Full-column-height closed override (Design Decision 7) -
-          // applies regardless of session presence, and regardless of
-          // whatever fill was just set above for a populated cell (in
-          // practice closed dates have no sessions per the pivot
-          // invariant, so this is normally greying an absent cell, but
-          // the override ordering keeps the intent explicit either way).
-          // Border is left as already set above (rowBorder), preserving
-          // the thick/thin doctor-block scheme through a closed column.
+          // Full-column-height closed override - applies regardless of
+          // session presence, and regardless of whatever fill was just
+          // set above for a populated cell (in practice closed dates
+          // have no sessions per the pivot invariant, so this is
+          // normally greying an absent cell, but the override ordering
+          // keeps the intent explicit either way). Border is left as
+          // already set above (rowBorder), preserving the thick/thin
+          // doctor-block scheme through a closed column.
           if (isClosed) {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(CLOSED_COLUMN_HEX) } };
           }

@@ -8,12 +8,12 @@ Additive only. `users` has rows in every deployed environment, so a
 non-nullable column needs a server_default at add-column time -- same
 reasoning as migrations 003 and 012.
 
-The default is "nurse", the *lowest* tier, not "manager" (role-based auth
-plan, Design Decision 7). Backfilling every existing user as a manager
-would be a silent security hole that nothing in the app makes visible; an
-accidental viewer, by contrast, announces itself the first time someone
-tries to write and is fixed with one PATCH. The bootstrap manager comes
-from re-running seed/seed_users.py, which sets access_level explicitly.
+The default is "nurse", the *lowest* tier, not "manager". Backfilling
+every existing user as a manager would be a silent security hole that
+nothing in the app makes visible; an accidental viewer, by contrast,
+announces itself the first time someone tries to write and is fixed with
+one PATCH. The bootstrap manager comes from re-running
+seed/seed_users.py, which sets access_level explicitly.
 
 The server_default stays in place after the backfill rather than being
 dropped: it costs nothing and means a direct INSERT (a script, a manual

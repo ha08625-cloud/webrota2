@@ -14,12 +14,12 @@ import {
 /**
  * PDF export builder for a committed rota (PDF export plan, Task 4).
  * Deliberately thin: every decision worth testing - row order, cell text,
- * colour, and the fitted font size - was already made by
- * rotaPdfModel.ts, which is exhaustively unit tested against plain
- * objects. This file only draws the model with pdfmake, and its own
- * suite asserts little more than "a PDF came out" (Design Decision 5).
- * That asymmetry is intentional, not an oversight: asserting against PDF
- * bytes is worth almost nothing, so the coverage lives one layer up.
+ * colour, and the fitted font size - was already made by rotaPdfModel.ts,
+ * which is exhaustively unit tested against plain objects. This file only
+ * draws the model with pdfmake, and its own suite asserts little more
+ * than "a PDF came out". That asymmetry is intentional, not an oversight:
+ * asserting against PDF bytes is worth almost nothing, so the coverage
+ * lives one layer up.
  *
  * Same signature as `buildRotaWorkbook`, so the two are interchangeable
  * at the call site, and the same page order: Week 1, Room Week 1,
@@ -57,8 +57,8 @@ import {
  * mistyped `font:` silently falls back to Roboto and throws
  * `File 'Roboto-Regular.ttf' not found in virtual file system` at render
  * time. Replacing the map makes any such mistake fail loudly at the
- * point of the mistake. Correcting Design Decision 2's "no font data at
- * all": no glyphs, but ~288 kB of AFM metrics (54 kB gzipped), lazily
+ * point of the mistake. This supersedes the earlier "no font data
+ * at all" approach: no glyphs, but ~288 kB of AFM metrics (54 kB gzipped), lazily
  * loaded alongside the ~973 kB pdfmake chunk on first export only.
  *
  * *3. pdfmake 0.3's output API is promise-based* (`getBlob()`,
@@ -233,7 +233,7 @@ function buildTable(page: PdfPage): Content {
       // table cannot overflow the page however the margins are tuned.
       widths: [DOCTOR_COL_WIDTH - CELL_PADDING_X * 2, "*", "*", "*", "*", "*"],
       // Repeat the day headers if a week does spill onto a second page
-      // (Design Decision 3 - user-confirmed as acceptable).
+      // (user-confirmed as acceptable).
       headerRows: 1,
       body: [header, ...body],
     },

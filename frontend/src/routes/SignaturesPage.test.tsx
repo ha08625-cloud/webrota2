@@ -301,7 +301,7 @@ describe("SignaturesPage", () => {
 describe("SignaturesPage for a read-only user", () => {
   // "Sign a document..." is disabled along with the upload controls: the
   // backend gates POST /signatures/{id}/apply at admin tier even though
-  // it stores nothing (role-based auth, Design Decision 3).
+  // it stores nothing.
   it("disables uploading and signing alike", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],

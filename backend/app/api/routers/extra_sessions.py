@@ -6,12 +6,11 @@ slot happens once, at `POST /staging` creation time (extra sessions plan,
 Task 2) - this router only owns the CRUD record of intent, not the
 override itself.
 
-Weekday-only (Design Decision 3) and blocked by existing leave (Design
-Decision 6) are both checked here rather than in the schema, since both
-need request context - the leave check needs the DB - beyond what a bare
-Pydantic model can see. No bulk endpoints (Design Decision 10): unlike
-leave's "every weekday in the range" semantics, a single date plus period
-covers the real workflow here.
+Weekday-only and blocked by existing leave are both checked here rather
+than in the schema, since both need request context - the leave check
+needs the DB - beyond what a bare Pydantic model can see. No bulk
+endpoints: unlike leave's "every weekday in the range" semantics, a
+single date plus period covers the real workflow here.
 """
 from __future__ import annotations
 
@@ -73,10 +72,10 @@ def create_extra_session(
             ),
         )
 
-    # Outside the doctor's employment window (annual leave planning, Design
-    # Decision 8): 422 here, since a single-entry POST has nothing to
-    # partially succeed at. Ordered after the weekend check so a date that
-    # is both reports the more specific fact, matching /leave/bulk.
+    # Outside the doctor's employment window: 422 here, since a
+    # single-entry POST has nothing to partially succeed at. Ordered after
+    # the weekend check so a date that is both reports the more specific
+    # fact, matching /leave/bulk.
     if not is_within_window(doctor, payload.date):
         raise HTTPException(
             status_code=422, detail=window_error_detail(doctor, payload.date)

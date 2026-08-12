@@ -48,9 +48,9 @@ function showSupervision(doctorType: DoctorType): boolean {
  * open-ended "from"/"until" where only one bound exists.
  *
  * Note this is independent of `active`: a doctor whose end_date has
- * passed is still active and still listed here (Design Decision 6). The
- * page has no show-inactive toggle, so a leaver stays visible until
- * separately deactivated - deliberate, not an oversight.
+ * passed is still active and still listed here. The page has no
+ * show-inactive toggle, so a leaver stays visible until separately
+ * deactivated - deliberate, not an oversight.
  */
 function formatWindow(doctor: Doctor): string {
   const { start_date: start, end_date: end } = doctor;

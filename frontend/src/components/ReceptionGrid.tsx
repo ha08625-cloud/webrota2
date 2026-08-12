@@ -41,9 +41,9 @@ interface ReceptionGridProps<T extends ReceptionCellData> {
    * headcount to fall short of), present on the day rota page (Task 8).
    * Matched to a column by message prefix: compute_coverage_issues
    * (backend/app/api/routers/reception_rota.py) puts formatHour(hour) at
-   * the start of every message for exactly this purpose (Decision 9) -
-   * there is no `hour` field on ValidationIssue to key off instead, since
-   * it's the same shape the clinical rota's week/day/period issues use.
+   * the start of every message for exactly this purpose - there is no
+   * `hour` field on ValidationIssue to key off instead, since it's the
+   * same shape the clinical rota's week/day/period issues use.
    */
   issues?: ValidationIssue[];
   /**
@@ -182,8 +182,8 @@ export function ReceptionGrid<T extends ReceptionCellData>({
         </thead>
         <tbody>
           {grid.rows.map(({ staff: member, inactiveWithSessions }) => {
-            // Decision 9: on an inactive row, a range only ever covers hours that already have a session -
-            // no new rows get created for a leaver.
+            // on an inactive row, a range only ever covers hours that already have a session - no new rows
+            // get created for a leaver.
             const memberRange = selectedRangeHours(selection, member.id).filter(
               (hour) => member.active || getReceptionCell(grid, member.id, hour) !== undefined,
             );
@@ -282,13 +282,13 @@ function runLengthFrom(continuations: boolean[], startIndex: number): number {
 
 /**
  * `runLength` is the number of slots the visible chip's cell heads up (1 for a lone
- * slot). For a multi-slot run the chip is centred across the whole run rather than
- * the run's first cell alone: the normal in-flow copy stays (invisible) to keep the
- * popover trigger's box its usual size (Design Decision 4), and a second,
- * pointer-events-none copy is absolutely positioned across the run's full width so
- * it reads as centred on the merged run instead of pinned to its left edge. The `<td>`
- * carries `position: relative` (via `runOriginClassName` in ReceptionGrid) so that
- * width is measured against the run's own first column, not the whole table.
+ * slot). For a multi-slot run the chip is centred across the whole run rather than the
+ * run's first cell alone: the normal in-flow copy stays (invisible) to keep the
+ * popover trigger's box its usual size, and a second, pointer-events-none copy is
+ * absolutely positioned across the run's full width so it reads as centred on the
+ * merged run instead of pinned to its left edge. The `<td>` carries `position:
+ * relative` (via `runOriginClassName` in ReceptionGrid) so that width is measured
+ * against the run's own first column, not the whole table.
  */
 function CellContent<T extends ReceptionCellData>({
   session,

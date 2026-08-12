@@ -6,7 +6,7 @@ import type { Day, Doctor, Period, RotaSession } from "@/api/types";
  * one (week, day, period) session who need supervision: doctor_type ===
  * "Trainee", not on leave, not WFH, and template_type not in
  * ("no_surgery", "admin_time"). No room criterion - an off-site trainee
- * still counts (Decision 4, confirmed).
+ * still counts.
  *
  * Null template_type counts as a normal session (countable). This is a
  * frontend-only case: the backend helper never sees null, because

@@ -64,12 +64,11 @@ function isMostRecentRollbackableCommit(rotas: RotaSummary[], rotaId: number): b
 }
 
 /**
- * Export filename (M-export plan, Design Decision 10):
- * rota-{start_date}-to-{last_friday}.{extension}, where last_friday is
- * the Friday of the final generation week - num_weeks * 7 days after
- * start_date, minus 3 to land on Friday rather than the following
- * Monday. The extension is parameterised so the Excel and PDF exports
- * share one naming rule (PDF export plan, Design Decision 12).
+ * Export filename: rota-{start_date}-to-{last_friday}.{extension},
+ * where last_friday is the Friday of the final generation week -
+ * num_weeks * 7 days after start_date, minus 3 to land on Friday
+ * rather than the following Monday. The extension is parameterised so
+ * the Excel and PDF exports share one naming rule.
  */
 function exportFilename(startDate: string, numWeeks: number, extension: "xlsx" | "pdf"): string {
   const lastFriday = addDays(startDate, numWeeks * 7 - 3);
@@ -112,10 +111,10 @@ export function RotaDetailPage() {
   const [activeWeek, setActiveWeek] = useState(1);
 
   // Task 4: page-level view toggle. The room view is read-only regardless
-  // of rota status (Design Decision 10), so it needs no editable prop and
-  // no mutation callbacks - unlike RotaGrid it is structurally incapable
-  // of an edit. The toggle deliberately does not persist across
-  // navigation; every visit starts on the doctor view.
+  // of rota status, so it needs no editable prop and no mutation
+  // callbacks - unlike RotaGrid it is structurally incapable of an edit.
+  // The toggle deliberately does not persist across navigation; every
+  // visit starts on the doctor view.
   const [view, setView] = useState<RotaView>("doctor");
 
   // M-export plan, Task 3: same four lookups RotaGrid already fetches for

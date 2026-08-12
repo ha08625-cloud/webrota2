@@ -255,7 +255,7 @@ def test_rota_closure_cascades_on_rota_delete(session):
 
 
 def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session):
-    """Decision 4 / plan review item 1: PracticeClosure and RotaClosure are
+    """PracticeClosure and RotaClosure are
     independent tables at the model layer -- there is no FK between them, so
     deleting a PracticeClosure can never cascade into or orphan a
     RotaClosure snapshot row."""
@@ -549,7 +549,7 @@ def test_recurring_note_doctor_unique_per_note(session):
 
 
 def test_recurring_notes_may_overlap_on_same_day_and_period(session):
-    """Design Decision 9: no uniqueness rule across notes. Two notes for the
+    """no uniqueness rule across notes. Two notes for the
     same doctor, week, day and period are legal at the data layer -- Phase 2
     concatenates them by note id ascending rather than rejecting either."""
     d = _doctor(session)
@@ -571,7 +571,7 @@ def test_recurring_note_doctor_fk_enforced(session):
         session.flush()
 
 
-# --- RotaStaging.source_template_start_week (recurring notes plan, Decision 5) ---
+# --- RotaStaging.source_template_start_week ---
 
 def test_staging_source_template_start_week_defaults_to_one(session):
     staging = _staging(session)

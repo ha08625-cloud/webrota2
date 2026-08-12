@@ -129,7 +129,7 @@ def test_user_can_be_deactivated(session):
 
 
 def test_user_access_level_defaults_to_nurse(session):
-    """Least privilege by default (role-based auth plan, Design Decision 7):
+    """Least privilege by default:
     a row inserted without an explicit access_level -- a script, a test, a
     manual INSERT -- is a viewer, never a manager. The API never relies on
     this: UserIn requires access_level."""

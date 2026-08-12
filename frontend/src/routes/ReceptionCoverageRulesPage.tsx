@@ -14,7 +14,7 @@ function ruleKey(day: Day, hour: number): string {
 export function ReceptionCoverageRulesPage() {
   const writeGate = useWriteGate();
   // No add/delete - the (day, hour) row set is fixed by the seed (50
-  // rows), only min_phones_staff is editable (Decision 8; backend's
+  // rows), only min_phones_staff is editable (backend's
   // reception_coverage router has no POST/DELETE). A missing row for a
   // slot reads as "no minimum", rendered as a dash below.
   const { data: rules, isLoading, isError } = useReceptionCoverageRules();

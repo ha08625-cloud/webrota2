@@ -17,7 +17,7 @@ pydantic validator cannot see:
   that case at generation time; this is the API-level line of defence for
   it before that.
 - Secondary duty must land on the week's first *fully open* weekday --
-  neither AM nor PM closed (closures plan, Design Decision 4; mirrors
+  neither AM nor PM closed (mirrors
   engine.week_map.build_first_open_weekday). With no closures in effect
   that is always Monday - the pre-M5 rule this generalises - and degrades
   to "no secondary duty assignable" for a week with no fully open weekday.
@@ -26,11 +26,10 @@ pydantic validator cannot see:
   no fully open weekday even though an open AM/PM slot exists on several
   of those days.
 
-Annual leave planning (Task 2, Design Decision 7) adds a third check in the
-same place and for the same reason - it needs the `Doctor` row, which a
-stateless validator cannot see: a duty on a date outside the doctor's
-employment window is rejected (422), mirroring Phase 0's new
-duty_outside_doctor_dates hard error.
+Annual leave planning adds a third check in the same place and for the same
+reason - it needs the `Doctor` row, which a stateless validator cannot see:
+a duty on a date outside the doctor's employment window is rejected (422),
+mirroring Phase 0's new duty_outside_doctor_dates hard error.
 
 All three checks return a plain string `detail` (an HTTPException, not a
 pydantic validation error), consistent with this router's existing 404/409

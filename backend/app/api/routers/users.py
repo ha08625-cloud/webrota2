@@ -33,8 +33,7 @@ including the request's own session, so the very next call 401s. That is
 the correct behaviour for a password change, and the frontend handles the
 401 by sending the user back to the login screen.
 
-Lock-out guard (auth plan, Design Decision 9; widened by role-based auth,
-Design Decision 5): a PATCH that would leave zero active MANAGERS is
+Lock-out guard: a PATCH that would leave zero active MANAGERS is
 rejected with 409. There are two ways to get there and both are guarded --
 deactivating the last active manager, and demoting them off `manager`.
 Guarding only the first would leave an identical lock-out reachable with a

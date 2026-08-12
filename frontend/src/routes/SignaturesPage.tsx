@@ -43,7 +43,7 @@ interface SignatureRowProps {
 function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
   // "Sign a document..." is gated too, even though it stores nothing: the
   // backend gates POST /signatures/{id}/apply at admin tier along with
-  // every other non-GET route (role-based auth, Design Decision 3).
+  // every other non-GET route.
   const writeGate = useWriteGate();
   const hasSignature = meta !== undefined;
   const { data: imageDataUrl } = useSignatureImage(doctor.id, hasSignature);
@@ -59,8 +59,7 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
 
   function handleImageFileChosen(file: File) {
     // Client-side pre-check mirrors the server limits for a faster
-    // message; the server response remains authoritative (Design
-    // Decision 8 / Task 5 point 2).
+    // message; the server response remains authoritative.
     if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
       showToast("Signature image must be a JPEG or PNG file");
       return;
@@ -213,8 +212,8 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
 
 /**
  * Lists Partner/Salaried active doctors (client-side filter only - the
- * signatures endpoints stay unscoped by doctor_type by design, Decision
- * 9) and lets admin staff upload a signature image per doctor and drop a
+ * signatures endpoints stay unscoped by doctor_type by design)
+ * and lets admin staff upload a signature image per doctor and drop a
  * document onto a row to receive a signed copy back as an immediate
  * download. The server decides the returned format from the upload: a
  * .docx comes back as a read-only .docx, a .rtf as a PDF.

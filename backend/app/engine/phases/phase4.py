@@ -24,9 +24,8 @@ Per duty row, in order:
      free in the current period only (code descending). Failing that,
      evict the lowest-weighted-room-move-score Salaried occupant of any D
      room (Trainees are never sweep victims). The all-day-first
-     preference does not apply to the preferred-D-room step above (Design
-     Decision: duty consolidation ticket) -- a doctor's stated preference
-     is tried as-is; consolidation into a single room for the whole day is
+     preference does not apply to the preferred-D-room step above -- a
+     doctor's stated preference is tried as-is; consolidation into a single room for the whole day is
      handled separately, by the second pass below.
   6. Total failure: warn and leave any existing (non-D) room the doctor
      already held untouched -- this phase never frees a duty doctor's own
@@ -290,8 +289,8 @@ def _resolve_duty_room(
         return issues
 
     # Fallback sweep: evict the lowest-weighted-score Salaried D-room
-    # occupant. Trainees and Locums are never sweep victims (Design
-    # Decision 12c) -- the sweep selects Salaried occupants only, so this
+    # occupant. Trainees and Locums are never sweep victims -- the
+    # sweep selects Salaried occupants only, so this
     # was already true for Locum by construction.
     sweep_candidates: list[tuple[int, int]] = []
     for room_id in d_room_ids_desc:

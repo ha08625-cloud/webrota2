@@ -1,8 +1,8 @@
 """Exception types for the documents package.
 
-Two types, and the split is deliberate (rtf/pdf plan, Decision 10): they
-answer "whose fault is it?" and the router maps them to different statuses,
-so a broken converter is never reported to an admin as a bad upload.
+Two types, and the split is deliberate: they answer "whose fault is it?"
+and the router maps them to different statuses, so a broken converter is
+never reported to an admin as a bad upload.
 
   DocumentFormatError  the file is wrong          -> 422
   ConversionError      our converter failed       -> 502

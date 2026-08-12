@@ -6,7 +6,7 @@ documents" section and a `/signatures` router row). Task 5 points 1–3 — the
 live Railway conversion of two or three real EMIS exports, the timing figure on
 Railway, and the first-conversion-after-deploy check — **have not been done**;
 they need a deployment and real patient-facing exports, neither of which is
-available from a chat container. This file moves to `documentation/completed/`
+available from a chat container. This file is deleted
 once those three are ticked off.
 
 Extend the existing Signatures feature to accept `.rtf` certificates (EMIS Web
@@ -509,8 +509,8 @@ pipeline. This task closes both.
 Deliverables:
 1. `documentation/architecture-clinical.md` — Signatures/documents section
    updated
-2. `documentation/completed/rtf_signature_pdf.md` — this plan, moved on
-   completion with the review corrections folded in
+2. This plan file — deleted on completion, once anything worth keeping
+   from it has been folded into the architecture doc above
 3. No code changes expected; any that emerge from verification are fixes, not
    new scope
 

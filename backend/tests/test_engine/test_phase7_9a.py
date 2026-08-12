@@ -61,8 +61,8 @@ class TestPass1FreeRoom:
         assert "pass 1" in entries[0].message
 
     def test_locum_free_d_room_assigned_both_sessions(self, session, config_1wk):
-        """Locum behaves as Trainee-minus-supervision (Locum ticket, Design
-        Decision 1) -- it joins the same D-room candidate pool as
+        """Locum behaves as Trainee-minus-supervision -- it
+        joins the same D-room candidate pool as
         Trainee/AHP in both Pass 1 and Pass 2.
         """
         t = make_template(session, is_active=True)
@@ -496,7 +496,7 @@ class TestPass2SingleSession:
 
     def test_locum_single_session_displacement(self, session, config_1wk):
         """Locum joins the Pass 2 single-session D-room candidate pool on
-        the same footing as Trainee/AHP (Locum ticket, Design Decision 1).
+        the same footing as Trainee/AHP.
         """
         t = make_template(session, is_active=True)
         locum = make_doctor(session, code="LL", doctor_type=DoctorType.LOCUM)
@@ -726,8 +726,7 @@ class TestPass2DisplacementPriorityFunction:
 
 
 class TestPass2TierOrderingBeatsFairness:
-    """Tier ranking is checked before the weighted fairness score -- tests
-    Design Decisions 4 and 5.
+    """Tier ranking is checked before the weighted fairness score.
     """
 
     def test_tier1_wins_over_tier3_despite_worse_score(self, session, config_1wk):
@@ -763,7 +762,7 @@ class TestPass2TierOrderingBeatsFairness:
         assert grid.get(tier3_doc.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d1.id
 
         # The trainee receives d2 -- the room whose occupant was cheaper to
-        # move (Design Decision 4: tier steers which room the trainee gets).
+        # move (tier steers which room the trainee gets).
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
 
         entry = next(e for e in log.entries if e.action == "displace_room")
@@ -809,7 +808,7 @@ class TestPass2TierOrderingBeatsFairness:
 
 class TestPass2FairnessTiebreakWithinTier:
     """Within a single tier, the existing weighted-score/code tiebreak still
-    governs -- Design Decision 5.
+    governs.
     """
 
     def test_lower_weighted_score_displaced_within_same_tier(self, session, config_1wk):
@@ -868,7 +867,7 @@ class TestPass2FairnessTiebreakWithinTier:
 
 
 class TestPass2DoubleBump:
-    """Design Decision 3: a doctor bumped in AM reclassifies from tier 3 to
+    """a doctor bumped in AM reclassifies from tier 3 to
     tier 2 for PM (their AM room no longer matches the D room), so the same
     doctor can be selected again rather than fragmenting a second intact
     tier-3 doctor. This test pins that accepted behaviour.

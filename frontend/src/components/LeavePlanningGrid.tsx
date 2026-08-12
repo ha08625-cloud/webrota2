@@ -57,10 +57,10 @@ import {
  *
  * Two kinds of inert cell, deliberately given different treatments
  * because confusing them would mislead:
- *  - closed: the practice is shut, so Phase 2 creates no slot at all.
- *    Black-hatched (`.closed-hatch`, index.css) rather than a flat grey so
- *    it can't be mistaken for the "no surgery" grey, and the total shows
- *    "-" rather than 0 (Design Decision 5).
+ * closed: the practice is shut, so Phase 2 creates no slot at all.
+ * Black-hatched (`.closed-hatch`, index.css) rather than a flat grey so it
+ * can't be mistaken for the "no surgery" grey, and the total shows "-"
+ * rather than 0.
  *  - out of window: the doctor is not employed on that date. Plain absent
  *    grey - there is nothing to plan, but the practice is open.
  *
@@ -222,8 +222,8 @@ export interface LeavePlanningGridProps {
   month: number;
   /** Rows, already filtered to Partner/Salaried/Locum and ordered canonically. */
   doctors: Doctor[];
-  /** Informational rows, one per school with a holiday in view (Design
-   * Decision 9) - rendered above the doctor rows, not editable. */
+  /** Informational rows, one per school with a holiday in view -
+   * rendered above the doctor rows, not editable. */
   schoolRows: SchoolPlannerRow[];
   /** Unsaved edits, keyed by `planningCellKey`. */
   pending: Map<string, PendingEdit>;

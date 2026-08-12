@@ -16,7 +16,7 @@ interface StagingGridProps {
   startDate: string;
   numWeeks: number;
   /** Live PracticeClosure (date, period) slots in the staging's range
-   * (staging plan, Design Decision 10 - not a snapshot). Greys the day
+   * (not a snapshot). Greys the day
    * header and, per Task 5, the closed period's own cells - the staging
    * grid is the pre-generation preview of RotaGrid, so it gets the same
    * per-cell closed treatment rather than staying editable underneath. */
@@ -28,7 +28,7 @@ interface StagingGridProps {
  * Doctor x (day, period) grid for an in-progress staging run. Clone of
  * MasterRotaGrid (staging plan, Task 6), not a generalisation of it -
  * kept separate to avoid destabilising the existing component and its
- * tests, matching Design Decision 12's stated trade-off.
+ * tests - an accepted trade-off.
  *
  * Three differences from MasterRotaGrid:
  *  - day headers show the real calendar date (staging rows have one,

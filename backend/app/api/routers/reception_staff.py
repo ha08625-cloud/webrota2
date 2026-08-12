@@ -4,7 +4,7 @@ DELETE is unconditionally a soft delete -- unlike doctors, there is no
 committed-rota concept here to 409 against, so the blocking logic in
 routers/doctors.py has no analogue. A deactivated staff member's existing
 template and day rows are left untouched; the only effect is that future
-template copies (Decision 6) skip inactive staff.
+template copies skip inactive staff.
 
 GET defaults to active-only but, unlike DoctorsPage, exposes an
 include_inactive flag -- the reception staff list is the only management

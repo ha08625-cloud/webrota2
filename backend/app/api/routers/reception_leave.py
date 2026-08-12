@@ -19,7 +19,7 @@ POST) put on a weekend.
 Leave changes nothing about generation or row editing. It is read in
 exactly one place -- compute_coverage_issues in reception_rota.py -- where
 it filters the phones headcount, resolving the absence limitation that
-router documented (Decision 10).
+router documented.
 """
 from __future__ import annotations
 

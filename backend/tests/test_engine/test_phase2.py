@@ -62,8 +62,8 @@ class TestGridCoverage:
 
 
 class TestDoctorDateWindow:
-    """Employment window enforcement in _build_grid (annual leave planning,
-    Task 2, Design Decision 7): an out-of-window (doctor, date) gets no slot
+    """Employment window enforcement in _build_grid: an out-of-window
+    (doctor, date) gets no slot
     at all, the same "cell absence is data" mechanism as a missing template
     row or a closed slot."""
 

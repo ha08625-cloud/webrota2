@@ -208,7 +208,7 @@ class TestStaging:
     def test_staging_resolves_source_template_even_if_deactivated(self, session, monday):
         """source_template_id is loaded by id, not via the is_active query,
         so deactivating the template between staging create and generate
-        cannot brick an in-progress staging (Design Decision 5).
+        cannot brick an in-progress staging.
         """
         t = make_template(session, is_active=True)
         d = make_doctor(session, code="AA")
@@ -250,7 +250,7 @@ class TestStaging:
         assert ctx.template_sessions[key] == (MasterSessionType.NO_SURGERY, None)
 
     def test_completed_staging_still_used(self, session, monday):
-        """The branch does not check completed_at (Design Decision 6): a
+        """The branch does not check completed_at: a
         rebuild_rota_grid() call against a staging-born rota after the
         staging is completed must still read the staged sessions.
         """

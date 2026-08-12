@@ -551,7 +551,7 @@ class TestForceDelete:
         assert session.get(GeneratedRota, result_b.rota_id).status == RotaStatus.COMMITTED
 
     def test_force_delete_then_rollback_discards_contribution(self, session, monday):
-        """Decision 4's stated caveat, proven rather than just documented:
+        """The stated caveat, proven rather than just documented:
         force-deleting the most recent commit (B) makes A the new most
         recent commit. Rolling A back restores counters to A's own
         snapshot -- silently discarding B's baked-in contribution along

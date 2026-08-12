@@ -131,7 +131,7 @@ export const handlers: HttpHandler[] = [
     new HttpResponse(null, { status: 204 }),
   ),
   // Staging (Task 5). No active staging by default - the expected steady
-  // state (staging plan, Design Decision 7: at most one exists globally)
+  // state (at most one exists globally)
   // - so RotaPage's default-path tests never need to stub this
   // individually; per-test server.use() supplies an active staging where
   // needed, mirroring the auth/me 401 default's convention above.

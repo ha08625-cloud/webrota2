@@ -391,8 +391,8 @@ class TestEviction:
     def test_preferred_room_occupied_by_salaried_on_admin_time_still_evicted(
         self, session, config_1wk, monday
     ):
-        # Decision 7: expendability is by doctor_type only -- an ADMIN_TIME
-        # slot does not protect a Salaried occupant.
+        # expendability is by doctor_type only -- an ADMIN_TIME slot does
+        # not protect a Salaried occupant.
         t = make_template(session, is_active=True)
         duty_doc = make_doctor(session, code="AA")
         salaried = make_doctor(session, code="SS", doctor_type=DoctorType.SALARIED)
@@ -441,7 +441,7 @@ class TestEviction:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         preferred = make_room(session, code="D3", room_type=RoomType.D)
         # No other D room, and no C/W/SR room either -- Trainees never get
-        # relocated outside D rooms (Decision 8).
+        # relocated outside D rooms.
         make_preferred_room(session, duty_doc, preference_order=1, room=preferred)
         _pre_assigned(session, t, trainee, preferred)
         _requires_room(session, t, duty_doc)
@@ -461,8 +461,8 @@ class TestEviction:
     def test_preferred_room_occupied_by_locum_evicted_to_free_d_room(
         self, session, config_1wk, monday
     ):
-        """Locum behaves as Trainee-minus-supervision (Locum ticket, Design
-        Decision 1): an evicted Locum is relocated within D rooms only,
+        """Locum behaves as Trainee-minus-supervision: an
+        evicted Locum is relocated within D rooms only,
         never into C/W/SR, same as Trainee.
         """
         t = make_template(session, is_active=True)
@@ -485,8 +485,8 @@ class TestEviction:
         assert not any(i.check == "duty_evictee_not_relocated" for i in issues)
 
     def test_locum_never_a_fallback_sweep_victim(self, session, config_1wk, monday):
-        """The fallback sweep selects Salaried occupants only (Design
-        Decision 12c); a Locum sitting in a D room must never be chosen
+        """The fallback sweep selects Salaried occupants only;
+        a Locum sitting in a D room must never be chosen
         even when it has the lowest weighted room-move score in the
         practice.
         """
@@ -515,7 +515,7 @@ class TestEviction:
     ):
         # No C/W/SR room in the practice at all, and no preference list for
         # the evictee, so relocation fails outright -- ROOM_MOVE must still
-        # increment (Decision 9), the easiest rule to lose.
+        # increment, the easiest rule to lose.
         t = make_template(session, is_active=True)
         duty_doc = make_doctor(session, code="AA")
         salaried = make_doctor(session, code="SS", doctor_type=DoctorType.SALARIED)
@@ -589,7 +589,7 @@ class TestEviction:
 
 
 # ---------------------------------------------------------------------------
-# Total-failure paths (Design Decision 13)
+# Total-failure paths
 # ---------------------------------------------------------------------------
 
 class TestTotalFailure:

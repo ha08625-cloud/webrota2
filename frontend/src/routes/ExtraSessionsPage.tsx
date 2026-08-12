@@ -19,9 +19,8 @@ function errorDetail(err: unknown, fallback: string): string {
 
 /**
  * True for a Saturday or Sunday. Mirrors the server's weekday-only rule
- * (extra sessions plan, Design Decision 3) client-side, so the server's
- * own 422 is never the first line of defence - same reasoning as
- * MAX_RANGE_DAYS in LeavePage.tsx.
+ * client-side, so the server's own 422 is never the first line of
+ * defence - same reasoning as MAX_RANGE_DAYS in LeavePage.tsx.
  */
 function isWeekend(dateString: string): boolean {
   const day = parseLocalDate(dateString).getDay();
@@ -42,10 +41,9 @@ export function ExtraSessionsPage() {
   const createExtraSession = useCreateExtraSession();
   const deleteExtraSession = useDeleteExtraSession();
 
-  // Design Decision 9: the override runs once at staging-create time, so
-  // changes made here never affect a staging already in progress. This
-  // banner states that plainly rather than leaving the admin to discover
-  // it the hard way.
+  // the override runs once at staging-create time, so changes made here
+  // never affect a staging already in progress. This banner states that
+  // plainly rather than leaving the admin to discover it the hard way.
   const { data: activeStaging } = useActiveStaging();
 
   const [formDoctorId, setFormDoctorId] = useState<number | "">("");
@@ -76,9 +74,8 @@ export function ExtraSessionsPage() {
       setFormSummary("Extra session added.");
       setDate("");
     } catch (err) {
-      // Surfaces the server's 409 leave-conflict message verbatim (extra
-      // sessions plan, Design Decision 6) alongside any other server-side
-      // rejection.
+      // Surfaces the server's 409 leave-conflict message verbatim
+      // alongside any other server-side rejection.
       setFormError(errorDetail(err, "Could not add this extra session."));
     }
   }

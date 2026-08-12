@@ -124,7 +124,7 @@ class TestDutyOnLeave:
 
 
 class TestDutyOutsideDoctorDates:
-    """Annual leave planning, Task 2, Design Decision 7. Phase 2 builds no
+    """Phase 2 builds no
     slot for an out-of-window (doctor, date), so a duty there has nothing to
     attach to -- same tier as duty-on-leave and duty-on-closed-date, not
     Phase 4's duty_no_session_slot warning."""

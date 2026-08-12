@@ -102,8 +102,7 @@ class LeaveEntitlementOut(BaseModel):
     # disagrees with `sessions_per_week` *and* the template has been
     # populated at all -- an empty template is reported by
     # `exempt_by_reason.no_template_row` instead, which is the more precise
-    # complaint and the one the no-surgery plan's Decision 6b requires be
-    # shown distinctly.
+    # complaint, and the one that must be shown distinctly.
     template_sessions_per_week: int
     sessions_mismatch: bool
 

@@ -52,11 +52,11 @@ const WEEKDAY_NAMES: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 const OVERRIDABLE_TYPES = new Set<MasterSessionType>(["no_surgery", "admin_time", "wfh"]);
 
 /**
- * The two types that mean "this doctor is clinically working this slot"
- * (Design Decision 3). no_surgery / admin_time / wfh / no template row all
- * count as zero - exactly the set OVERRIDABLE_TYPES (plus absence)
- * converts into requires_room, so the two halves of the grid agree with
- * each other by construction.
+ * The two types that mean "this doctor is clinically working this slot".
+ * no_surgery / admin_time / wfh / no template row all count as zero -
+ * exactly the set OVERRIDABLE_TYPES (plus absence) converts into
+ * requires_room, so the two halves of the grid agree with each other by
+ * construction.
  */
 const COUNTED_TYPES = new Set<MasterSessionType>(["requires_room", "pre_assigned"]);
 
@@ -259,9 +259,8 @@ export function serverRows(
   };
 }
 
-/** Leave > blocked > extra_session where more than one row exists (extra
- * sessions plan, Design Decision 6, extended to blocked - see
- * leave_planning.py's module docstring). Matches the coverage endpoint's
+/** Leave > blocked > extra_session where more than one row exists (extended to
+ * blocked - see leave_planning.py's module docstring). Matches the coverage endpoint's
  * own precedence, and the bulk endpoint's skip-reason ordering
  * (leave_exists / blocked_exists) that keeps a stale-grid batch from
  * producing more than one row on a cell in normal use. */
@@ -354,14 +353,14 @@ export function overlapsRange(doctor: DoctorWindow, from: string, to: string): b
 /**
  * Which of `dates` (the grid's Mon-Fri columns) fall inside one of a
  * school's holidays, each mapped to the covering holiday - a school with
- * an empty result gets no planner row (Design Decision 9).
+ * an empty result gets no planner row.
  *
- * Reuses `overlapsRange` rather than a near-duplicate range comparison:
- * a holiday's start/end are never null (unlike a doctor's window), so
+ * Reuses `overlapsRange` rather than a near-duplicate range comparison: a
+ * holiday's start/end are never null (unlike a doctor's window), so
  * `overlapsRange(holiday, date, date)` is exactly the "date falls inside
  * this holiday" test. First matching holiday wins where two overlap for
  * the same school - there is no ordering guarantee to pick between them,
- * and the plan treats overlapping ranges as harmless (Design Decision 5).
+ * and the plan treats overlapping ranges as harmless.
  */
 export function schoolHolidayDatesInRange(
   dates: string[],
@@ -376,8 +375,8 @@ export function schoolHolidayDatesInRange(
 }
 
 /** One informational row on the Annual Planner. `dates` maps each
- * in-holiday grid column to the holiday covering it, for the cell title -
- * a school with no dates in view gets no row at all (Design Decision 9). */
+ * in-holiday grid column to the holiday covering it, for the cell title - a
+ * school with no dates in view gets no row at all. */
 export interface SchoolPlannerRow {
   id: number;
   name: string;
@@ -390,7 +389,7 @@ export function templateKey(doctorId: number, day: Day, period: Period): string 
 
 /**
  * (doctor, day, period) -> session type over the template's **week 1
- * rows only** (Design Decision 1).
+ * rows only**.
  *
  * Mapping a calendar date onto the 4-week cycle would need a
  * `start_week`, and the only source of one is `RotaConfig.template_start_week`
@@ -413,12 +412,12 @@ export function buildTemplateIndex(sessions: MasterRotaSession[]): Map<string, M
  * Whether this doctor counts toward the headcount for one slot, given
  * their week-1 template type and what the cell says.
  *
- * The extra-session branch is conditional, not a flat +1 (Design Decision
- * 4): a slot already requires_room or pre_assigned is untouched by the
- * override - the doctor was already working it - so counting it again
- * would over-count. The copy loop demotes an admin_time row holding a
- * room to pre_assigned rather than requires_room; both count, so that
- * branch needs no reproduction here.
+ * The extra-session branch is conditional, not a flat +1: a slot already
+ * requires_room or pre_assigned is untouched by the override - the doctor
+ * was already working it - so counting it again would over-count. The
+ * copy loop demotes an admin_time row holding a room to pre_assigned
+ * rather than requires_room; both count, so that branch needs no
+ * reproduction here.
  */
 /** True when the template type is one that puts the doctor in surgery -
  * the same COUNTED_TYPES test the coverage total uses, reused here purely
@@ -544,8 +543,8 @@ export interface PlanningActionsInput {
  * Usually one action per cell, but switching to a *different*
  * leave/extra/blocked state emits a `clear` first whenever another row is
  * still present. The bulk endpoint applies clears, then leave, then
- * blocked, then extra sessions (Design Decision 9, extended for blocked -
- * see leave_planning.py's module docstring), so a `clear` paired with the
+ * blocked, then extra sessions (extended for blocked - see
+ * leave_planning.py's module docstring), so a `clear` paired with the
  * new state in the same batch removes the old row before the new one is
  * written. Without the clear the endpoint would skip the action -
  * `leave_exists`/`blocked_exists` in one direction, a surviving

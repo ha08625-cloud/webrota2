@@ -604,7 +604,7 @@ class TestGenerateFromStaging:
     reads the staged rows, not the template's, proving the pipeline
     consumes the copy end to end. `template_start_week` is left at the
     config default of 1 -- staging rows are keyed by generation week and
-    template_week() is the identity there (Design Decision 4).
+    template_week() is the identity there.
     """
 
     def test_full_pipeline_reflects_staged_pattern_not_template(self, session, monday):

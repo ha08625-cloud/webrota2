@@ -35,7 +35,7 @@ def test_unknown_doctor_404(client, seeded):
 
 
 def test_inactive_doctor_is_not_404d(client, db_session, seeded):
-    """Design Decision 6: an inactive doctor's historical leave is still
+    """an inactive doctor's historical leave is still
     historical leave, so this endpoint must use db.get, not a query
     filtered on Doctor.active."""
     from app.models import Doctor

@@ -41,7 +41,7 @@ describe("UserFormDialog - create mode", () => {
       email: "cara@example.com",
       name: "Cara",
       // Not touched by the test, so this is the form's own default - the
-      // least privileged level (role-based auth, Design Decision 7).
+      // least privileged level.
       access_level: "nurse",
       password: "password1",
     });

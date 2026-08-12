@@ -33,7 +33,7 @@ header exists solely so "never generated" (no header) is distinguishable from
 "generated, then every row deleted" (header with no sessions); there is no
 status/lifecycle column because none is needed with no draft/commit concept.
 
-Absence (Decision 10, resolved): ReceptionLeaveEntry now records whole-day
+Absence: ReceptionLeaveEntry records whole-day
 absence, and coverage validation excludes anyone on leave from the phones
 headcount. That is the *only* thing leave changes -- generation still copies
 every active staff member's template rows onto a day, and their rows stay on
@@ -188,8 +188,8 @@ class ReceptionLeaveEntry(Base):
     and no `notes`. Reception's day is twenty half-hourly slots, so an
     AM/PM split would be an arbitrary line through the middle of it, and
     the finer-grained "off from 2pm" case is already expressible -- and
-    more precisely -- by deleting the slots or tagging them `not_working`
-    (Decision 13). This table answers exactly one question, "is this
+    more precisely -- by deleting the slots or tagging them
+    `not_working`. This table answers exactly one question, "is this
     person off on this date", which is the question coverage needs.
 
     Absence of a row is not "present": a staff member with no row here is
