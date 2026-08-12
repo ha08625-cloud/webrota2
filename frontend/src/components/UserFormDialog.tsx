@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { useCreateUser, useUpdateUser } from "@/api/users";
-import type { ApiError, AuthUser } from "@/api/types";
+import type { AccessLevel, ApiError, AuthUser } from "@/api/types";
+import { ACCESS_LEVELS, accessLevelDescription, accessLevelLabel } from "@/lib/accessLevels";
 import {
   type UserFormValues,
   emptyFormValues,
@@ -102,6 +103,32 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
                 className="mt-1 w-full rounded border border-border p-1 text-sm"
               />
               {fieldErrors.name ? <p className="mt-1 text-xs text-red-700">{fieldErrors.name}</p> : null}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="user-access-level">
+                Access level
+              </label>
+              <select
+                id="user-access-level"
+                value={values.access_level}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, access_level: e.target.value as AccessLevel }))
+                }
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              >
+                {ACCESS_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {accessLevelLabel(level)} - {accessLevelDescription(level)}
+                  </option>
+                ))}
+              </select>
+              {/* Demoting the last active manager is a 409 from the
+                  server, surfaced as formError like any other save
+                  failure (role-based auth, Design Decision 5). */}
+              {fieldErrors.access_level ? (
+                <p className="mt-1 text-xs text-red-700">{fieldErrors.access_level}</p>
+              ) : null}
             </div>
 
             <div>

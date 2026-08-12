@@ -9,6 +9,7 @@ import {
   useLeaveEntitlements,
 } from "@/api/leave";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
@@ -71,6 +72,7 @@ function describeSpan(span: {
 }
 
 export function LeavePage() {
+  const writeGate = useWriteGate();
   // The filter reads against *all* doctors (including inactive) - a
   // deactivated doctor's historical leave entries are still real rows
   // that should be findable here, not hidden because they're no longer
@@ -497,6 +499,7 @@ export function LeavePage() {
           className={`rounded px-4 py-1 text-sm font-medium text-white disabled:opacity-50 ${
             mode === "remove" ? "bg-red-700" : "bg-accent"
           }`}
+          {...writeGate}
         >
           {mode === "remove" ? "Remove leave" : "Add leave"}
         </button>
@@ -579,7 +582,8 @@ export function LeavePage() {
                   <button
                     type="button"
                     onClick={() => handleDeleteBlock(block)}
-                    className="text-xs text-red-700"
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
                   >
                     Delete
                   </button>

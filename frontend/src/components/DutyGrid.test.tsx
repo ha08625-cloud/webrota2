@@ -357,3 +357,19 @@ describe("DutyGrid closures (M5)", () => {
     expect(screen.queryByTestId("duty-cell-2026-07-13-PM-primary")).not.toBeInTheDocument();
   });
 });
+
+describe("DutyGrid for a read-only user", () => {
+  it("shows the grid but makes no chip draggable and no assignment removable", async () => {
+    setUpServer({
+      duty: [makeDutyAssignment({ id: 5, doctor_id: 1, date: MONDAY, period: "AM", duty_type: "primary" })],
+    });
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />, { accessLevel: "doctor" });
+
+    const chip = await screen.findByTestId("duty-doctor-chip-1");
+    expect(chip.className).toContain("cursor-not-allowed");
+    expect(chip).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+
+    const cell = screen.getByTestId(`duty-cell-${MONDAY}-AM-primary`);
+    expect(within(cell).getByRole("button")).toBeDisabled();
+  });
+});

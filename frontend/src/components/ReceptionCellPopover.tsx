@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ReceptionRole } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import type { ReceptionCellData } from "@/lib/pivotReception";
 import { RECEPTION_ROLE_LABELS, RECEPTION_ROLE_ORDER } from "@/lib/receptionRoles";
 
@@ -56,6 +57,7 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
   hourCount = 1,
   saving,
 }: ReceptionCellPopoverProps<T>) {
+  const writeGate = useWriteGate();
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<ReceptionRole>(session?.role ?? "phones");
   const [note, setNote] = useState(session?.note ?? "");
@@ -80,6 +82,14 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
   function handleDelete() {
     onDelete?.();
     setOpen(false);
+  }
+
+  // Read-only users get the cell as plain content with no editor
+  // attached at all, rather than an editor whose every action 403s
+  // (role-based auth, Task 3). Placed after every hook above so the hook
+  // order is identical either way.
+  if (writeGate.disabled) {
+    return <span title={writeGate.title}>{children}</span>;
   }
 
   return (

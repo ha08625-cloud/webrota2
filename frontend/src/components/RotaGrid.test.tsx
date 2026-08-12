@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import { useRota } from "@/api/rota";
-import type { ClosedSlot, Rota } from "@/api/types";
+import type { AccessLevel, ClosedSlot, Rota } from "@/api/types";
 import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -52,12 +52,15 @@ function RotaGridHarness({
   );
 }
 
-function renderRotaGrid(props: {
-  rota: Rota;
-  onMutationApplied?: (entry: UndoEntry, message: string) => void;
-  onMutationError?: () => void;
-}) {
-  return renderWithProviders(<RotaGridHarness {...props} />);
+function renderRotaGrid(
+  props: {
+    rota: Rota;
+    onMutationApplied?: (entry: UndoEntry, message: string) => void;
+    onMutationError?: () => void;
+  },
+  accessLevel: AccessLevel = "manager",
+) {
+  return renderWithProviders(<RotaGridHarness {...props} />, { accessLevel });
 }
 
 function setUpServer({
@@ -630,5 +633,51 @@ describe("RotaGrid closures (M5)", () => {
     expect(mondayHeader.textContent).toContain("closed");
     expect(mondayHeader.textContent).not.toContain("(AM)");
     expect(mondayHeader.textContent).not.toContain("(PM)");
+  });
+});
+
+describe("RotaGrid for a read-only user", () => {
+  it("gives a draft rota the same read-only treatment as a committed one", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderRotaGrid({ rota }, "nurse");
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    // Everything still displays - reads are open to every tier.
+    expect(within(cell).getByText("Duty")).toBeInTheDocument();
+    expect(within(cell).getByText("D1")).toBeInTheDocument();
+    // ...but nothing is drag-registered and the editor never opens.
+    expect(cell.querySelector(".cursor-grab")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
+  });
+
+  it("still edits a draft rota for an admin", async () => {
+    setUpServer();
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderRotaGrid({ rota }, "admin");
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    expect(await screen.findByLabelText("Working from home")).toBeInTheDocument();
   });
 });

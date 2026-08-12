@@ -4,11 +4,12 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { SchoolHoliday } from "@/api/types";
+import type { AccessLevel, SchoolHoliday } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import { formatHolidayRange } from "@/lib/date";
 import { type PendingEdit, planningCellKey } from "@/lib/planningMonth";
 import { makeDoctor, makeSchoolHoliday } from "@/test/fixtures/reference";
+import { authWrapper } from "@/test/renderWithProviders";
 
 import { LeavePlanningGrid } from "./LeavePlanningGrid";
 
@@ -18,7 +19,10 @@ const TUESDAY = "2026-08-04";
 const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
 const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
 
-function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> = {}) {
+function renderGrid(
+  overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> = {},
+  accessLevel: AccessLevel = "manager",
+) {
   const onApply = vi.fn();
   const onSelectDoctor = vi.fn();
   render(
@@ -43,6 +47,7 @@ function renderGrid(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> 
       onApply={onApply}
       {...overrides}
     />,
+    { wrapper: authWrapper(accessLevel) },
   );
   return { onApply, onSelectDoctor };
 }
@@ -199,7 +204,7 @@ describe("LeavePlanningGrid", () => {
   it("moves a cell through every state via the popover, without firing a request", async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    render(<EditHarness />);
+    render(<EditHarness />, { wrapper: authWrapper() });
 
     const target = () => cell(1, MONDAY, "AM");
     expect(target()).toHaveAttribute("data-state", "normal");
@@ -480,7 +485,7 @@ describe("LeavePlanningGrid", () => {
 
     it("shows every cell of an applied range as edited", async () => {
       const user = userEvent.setup();
-      render(<EditHarness />);
+      render(<EditHarness />, { wrapper: authWrapper() });
 
       drag(cell(1, MONDAY, "AM"), cell(1, MONDAY, "PM"), cell(1, TUESDAY, "AM"));
       await applyFromPopover(user, "leave");
@@ -680,5 +685,18 @@ describe("LeavePlanningGrid", () => {
 
       expect(cell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
     });
+  });
+});
+
+describe("LeavePlanningGrid for a read-only user", () => {
+  it("renders the month but starts no selection, so the editor never opens", async () => {
+    renderGrid({}, "nurse");
+
+    const cell = screen.getByTestId(`planning-cell-1-${MONDAY}-AM`);
+    fireEvent.mouseDown(cell, { button: 0 });
+    fireEvent.mouseUp(window);
+
+    expect(cell).toHaveAttribute("data-selected", "false");
+    expect(screen.queryByTestId("planning-cell-popover")).not.toBeInTheDocument();
   });
 });

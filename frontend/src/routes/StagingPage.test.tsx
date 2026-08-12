@@ -162,3 +162,19 @@ describe("StagingPage", () => {
     });
   });
 });
+
+describe("StagingPage for a read-only user", () => {
+  it("shows the staging read-only, with its two actions disabled", async () => {
+    setUpServer();
+    server.use(
+      http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 3 }))),
+    );
+
+    renderWithProviders(<StagingPage />, { accessLevel: "doctor" });
+
+    const complete = await screen.findByRole("button", { name: "Complete and generate" });
+    expect(complete).toBeDisabled();
+    expect(complete).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(screen.getByRole("button", { name: "Abandon" })).toBeDisabled();
+  });
+});

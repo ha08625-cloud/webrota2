@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAbandonStaging, useActiveStaging, useCompleteStaging } from "@/api/staging";
+import { useWriteGate } from "@/auth/AuthContext";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { StagingGrid } from "@/components/StagingGrid";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -13,6 +14,7 @@ import { formatDate } from "@/lib/date";
  * whatever GET /staging/active returns.
  */
 export function StagingPage() {
+  const writeGate = useWriteGate();
   const navigate = useNavigate();
   const { data: staging, isLoading, isError } = useActiveStaging();
   const completeStaging = useCompleteStaging();
@@ -74,6 +76,7 @@ export function StagingPage() {
           onClick={handleComplete}
           disabled={busy}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           {completeStaging.isPending ? "Generating..." : "Complete and generate"}
         </button>
@@ -82,6 +85,7 @@ export function StagingPage() {
           onClick={handleAbandon}
           disabled={busy}
           className="rounded border border-border px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+          {...writeGate}
         >
           {abandonStaging.isPending ? "Abandoning..." : "Abandon"}
         </button>

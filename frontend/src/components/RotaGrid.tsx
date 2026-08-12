@@ -17,6 +17,7 @@ import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
+import { useCanWrite } from "@/auth/AuthContext";
 import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { WeekTabs } from "@/components/WeekTabs";
@@ -77,7 +78,13 @@ function supervisedCountKey(week: number, day: Day, period: Period): string {
  * separate read-only component variant to keep in sync.
  */
 export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, onMutationError }: RotaGridProps) {
-  const editable = rota.status === "draft";
+  // A read-only user gets exactly the committed-rota treatment: the
+  // existing read-only path already renders no drag sources and no
+  // popover, so folding the access check into `editable` reuses it
+  // wholesale rather than adding a second way to be non-editable
+  // (role-based auth, Task 3).
+  const canWrite = useCanWrite();
+  const editable = rota.status === "draft" && canWrite;
 
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();

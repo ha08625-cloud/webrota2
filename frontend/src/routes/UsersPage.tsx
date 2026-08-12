@@ -1,9 +1,11 @@
 import { useState } from "react";
 
 import { useUpdateUser, useUsers } from "@/api/users";
-import type { ApiError, AuthUser } from "@/api/types";
+import type { AccessLevel, ApiError, AuthUser } from "@/api/types";
+import { useIsManager } from "@/auth/AuthContext";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { ToastDisplay, useToast } from "@/components/Toast";
+import { ACCESS_LEVELS, accessLevelLabel } from "@/lib/accessLevels";
 
 interface DialogState {
   open: boolean;
@@ -11,10 +13,36 @@ interface DialogState {
 }
 
 export function UsersPage() {
+  // Manager-only, matching the backend: GET /users itself 403s below that
+  // tier, so a non-manager would otherwise get a bare "Could not load
+  // users". The nav entry is hidden for them too (App.tsx), but the route
+  // stays registered, so a bookmarked link has to land somewhere sane
+  // rather than on a broken list.
+  const isManager = useIsManager();
+
+  if (!isManager) {
+    return (
+      <div>
+        <h1 className="text-lg font-semibold">Users</h1>
+        <p className="mt-4 text-sm text-ink/70">
+          You do not have access to user management. Ask a manager if you need an account changed.
+        </p>
+        <p className="mt-2 text-sm text-ink/70">
+          You can change your own password from "Change password" in the header.
+        </p>
+      </div>
+    );
+  }
+
+  return <UsersTable />;
+}
+
+function UsersTable() {
   // Unlike DoctorsPage (active-only), this list always includes inactive
-  // users - deactivation must be reversible from here, since there is no
-  // other recovery path once a user is locked out (auth plan, Design
-  // Decision 8: a teammate resets you via this page).
+  // users - deactivation must be reversible from here. Recovery from
+  // locking every manager out is not a UI path at all: the backend
+  // refuses to remove the last active manager (409), and a database that
+  // has somehow lost them all is recovered by re-running seed_users.py.
   const { data: users, isLoading, isError } = useUsers();
   const updateUser = useUpdateUser();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
@@ -28,24 +56,36 @@ export function UsersPage() {
     setDialogState({ open: true, user });
   }
 
-  function handleToggleActive(user: AuthUser) {
-    const nextActive = !user.active;
-    if (!nextActive && !window.confirm(`Deactivate "${user.name}"? They will be signed out immediately.`)) {
-      return;
-    }
+  // Shared by both row-level controls: each PATCHes one field and has no
+  // form of its own, so a rejection has nowhere to go but a toast.
+  function patchUser(user: AuthUser, payload: Parameters<typeof updateUser.mutate>[0]["payload"]) {
     updateUser.mutate(
-      { id: user.id, payload: { active: nextActive } },
+      { id: user.id, payload },
       {
         onError: (err: ApiError) => {
-          // Surfaces the backend's 409 here (auth plan, Design Decision
-          // 9: deactivating the last remaining active user is rejected)
-          // as a toast rather than a form error, since this action has
-          // no form of its own.
+          // The 409 here is the lock-out guard: neither deactivating nor
+          // demoting the last active manager is allowed (role-based auth,
+          // Design Decision 5).
           const message = typeof err.detail === "string" ? err.detail : "Could not update this user.";
           showToast(message);
         },
       },
     );
+  }
+
+  function handleToggleActive(user: AuthUser) {
+    const nextActive = !user.active;
+    if (!nextActive && !window.confirm(`Deactivate "${user.name}"? They will be signed out immediately.`)) {
+      return;
+    }
+    patchUser(user, { active: nextActive });
+  }
+
+  function handleAccessLevelChange(user: AuthUser, level: AccessLevel) {
+    if (level === user.access_level) {
+      return;
+    }
+    patchUser(user, { access_level: level });
   }
 
   return (
@@ -72,6 +112,7 @@ export function UsersPage() {
             <tr className="text-left text-ink/70">
               <th className="py-1 pr-4 font-medium">Name</th>
               <th className="py-1 pr-4 font-medium">Email</th>
+              <th className="py-1 pr-4 font-medium">Access level</th>
               <th className="py-1" />
             </tr>
           </thead>
@@ -83,6 +124,21 @@ export function UsersPage() {
                   {!u.active ? <span className="text-ink/50"> (inactive)</span> : null}
                 </td>
                 <td className="py-1 pr-4">{u.email}</td>
+                <td className="py-1 pr-4">
+                  <select
+                    aria-label={`Access level for ${u.name}`}
+                    value={u.access_level}
+                    disabled={updateUser.isPending}
+                    onChange={(e) => handleAccessLevelChange(u, e.target.value as AccessLevel)}
+                    className="rounded border border-border p-1 text-xs disabled:opacity-50"
+                  >
+                    {ACCESS_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {accessLevelLabel(level)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 <td className="py-1">
                   <button type="button" onClick={() => openEdit(u)} className="mr-3 text-xs text-accent">
                     Edit

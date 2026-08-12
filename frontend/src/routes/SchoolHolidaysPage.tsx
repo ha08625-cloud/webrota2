@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 
 import { useCreateSchool, useDeleteHoliday, useDeleteSchool, useSchools } from "@/api/schools";
 import type { ApiError, School, SchoolHoliday } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { formatHolidayRange } from "@/lib/date";
 import { SchoolHolidayFormDialog } from "@/components/SchoolHolidayFormDialog";
 
@@ -29,6 +30,7 @@ interface HolidayDialogState {
 }
 
 export function SchoolHolidaysPage() {
+  const writeGate = useWriteGate();
   const { data: schools, isLoading, isError } = useSchools();
   const createSchool = useCreateSchool();
   const deleteSchool = useDeleteSchool();
@@ -102,6 +104,7 @@ export function SchoolHolidaysPage() {
           type="submit"
           disabled={createSchool.isPending}
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           Add school
         </button>
@@ -150,14 +153,16 @@ export function SchoolHolidaysPage() {
                                 onClick={() =>
                                   setHolidayDialog({ schoolId: school.id, schoolName: school.name, holiday: h })
                                 }
-                                className="text-xs text-accent"
+                                className="text-xs text-accent disabled:opacity-50"
+                                {...writeGate}
                               >
                                 Edit
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteHoliday(school.id, h.id)}
-                                className="text-xs text-red-700"
+                                className="text-xs text-red-700 disabled:opacity-50"
+                                {...writeGate}
                               >
                                 Delete
                               </button>
@@ -169,7 +174,8 @@ export function SchoolHolidaysPage() {
                     <button
                       type="button"
                       onClick={() => setHolidayDialog({ schoolId: school.id, schoolName: school.name })}
-                      className="mt-2 text-xs text-accent"
+                      className="mt-2 text-xs text-accent disabled:opacity-50"
+                      {...writeGate}
                     >
                       Add holiday
                     </button>
@@ -178,7 +184,8 @@ export function SchoolHolidaysPage() {
                     <button
                       type="button"
                       onClick={() => handleDeleteSchool(school)}
-                      className="text-xs text-red-700"
+                      className="text-xs text-red-700 disabled:opacity-50"
+                      {...writeGate}
                     >
                       Delete school
                     </button>

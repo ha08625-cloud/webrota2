@@ -10,6 +10,7 @@ import {
 } from "@/api/recurringNotes";
 import { useDoctors } from "@/api/doctors";
 import type { Day, Doctor, Period, RecurringNote, RecurringNoteIn } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const PERIODS: Period[] = ["AM", "PM"];
@@ -52,6 +53,7 @@ interface RecurringNoteFormDialogProps {
 }
 
 function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: RecurringNoteFormDialogProps) {
+  const writeGate = useWriteGate();
   const createNote = useCreateRecurringNote();
   const updateNote = useUpdateRecurringNote();
 
@@ -202,6 +204,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
                 type="submit"
                 disabled={isSaving || !canSave}
                 className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
+                {...writeGate}
               >
                 Save
               </button>
@@ -214,6 +217,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
 }
 
 export function RecurringNotesPage() {
+  const writeGate = useWriteGate();
   const { data: notes, isLoading, isError } = useRecurringNotes();
   const { data: doctors } = useDoctors(true);
   const deleteNote = useDeleteRecurringNote();
@@ -257,7 +261,8 @@ export function RecurringNotesPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
         >
           New Recurring Note
         </button>
@@ -297,10 +302,20 @@ export function RecurringNotesPage() {
                 <td className="py-1 pr-4">{formatWeeks(n.template_weeks)}</td>
                 <td className="py-1 pr-4">{n.is_active ? "Yes" : "No"}</td>
                 <td className="py-1">
-                  <button type="button" onClick={() => openEdit(n)} className="mr-3 text-xs text-accent">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(n)}
+                    className="mr-3 text-xs text-accent disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Edit
                   </button>
-                  <button type="button" onClick={() => handleDelete(n)} className="text-xs text-red-700">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(n)}
+                    className="text-xs text-red-700 disabled:opacity-50"
+                    {...writeGate}
+                  >
                     Delete
                   </button>
                 </td>

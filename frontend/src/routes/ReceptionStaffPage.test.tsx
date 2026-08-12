@@ -124,3 +124,19 @@ describe("ReceptionStaffPage", () => {
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
 });
+
+describe("ReceptionStaffPage for a read-only user", () => {
+  // Same treatment as the clinical pages - the reception side is gated
+  // the same way, since the backend gate is one global dependency.
+  it("disables the write controls and says why", async () => {
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+    renderWithProviders(<ReceptionStaffPage />, { accessLevel: "nurse" });
+    await screen.findByText("Ann Brown");
+
+    const create = screen.getByRole("button", { name: "New Reception Staff" });
+    expect(create).toBeDisabled();
+    expect(create).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
+  });
+});

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useReceptionCoverageRules, useUpdateReceptionCoverageRule } from "@/api/reception";
 import type { ApiError, Day, ReceptionCoverageRule } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { RECEPTION_HOURS, formatHour } from "@/lib/receptionHours";
 
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -11,6 +12,7 @@ function ruleKey(day: Day, hour: number): string {
 }
 
 export function ReceptionCoverageRulesPage() {
+  const writeGate = useWriteGate();
   // No add/delete - the (day, hour) row set is fixed by the seed (50
   // rows), only min_phones_staff is editable (Decision 8; backend's
   // reception_coverage router has no POST/DELETE). A missing row for a
@@ -76,7 +78,8 @@ export function ReceptionCoverageRulesPage() {
                           aria-label={`Minimum phones staff, ${day} ${formatHour(hour)}`}
                           defaultValue={rule.min_phones_staff}
                           onBlur={(e) => handleBlur(rule, e.target.value)}
-                          className="w-16 rounded border border-border p-1 text-sm"
+                          className="w-16 rounded border border-border p-1 text-sm disabled:opacity-50"
+                          {...writeGate}
                         />
                       ) : (
                         <span className="text-ink/40">—</span>

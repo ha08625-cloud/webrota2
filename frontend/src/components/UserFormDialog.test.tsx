@@ -37,7 +37,34 @@ describe("UserFormDialog - create mode", () => {
     await user.type(screen.getByLabelText("Password"), "password1");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(capturedBody).toEqual({ email: "cara@example.com", name: "Cara", password: "password1" });
+    expect(capturedBody).toEqual({
+      email: "cara@example.com",
+      name: "Cara",
+      // Not touched by the test, so this is the form's own default - the
+      // least privileged level (role-based auth, Design Decision 7).
+      access_level: "nurse",
+      password: "password1",
+    });
+  });
+
+  it("sends the chosen access level", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/users", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeAuthUser({ id: 9 }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+    await user.type(screen.getByLabelText("Email"), "cara@example.com");
+    await user.type(screen.getByLabelText("Name"), "Cara");
+    await user.selectOptions(screen.getByLabelText("Access level"), "manager");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({ access_level: "manager" });
   });
 
   it("does not submit with a too-short password - shows a client-side field error", async () => {
@@ -80,12 +107,18 @@ describe("UserFormDialog - create mode", () => {
 
 describe("UserFormDialog - edit mode", () => {
   it("pre-fills email/name, leaves password blank, and labels it 'New password'", async () => {
-    const existingUser = makeAuthUser({ id: 5, email: "ann@example.com", name: "Ann" });
+    const existingUser = makeAuthUser({
+      id: 5,
+      email: "ann@example.com",
+      name: "Ann",
+      access_level: "doctor",
+    });
 
     renderWithProviders(<UserFormDialog user={existingUser} open onOpenChange={() => {}} />);
 
     expect(await screen.findByRole("heading", { name: "Edit Ann" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveValue("ann@example.com");
+    expect(screen.getByLabelText("Access level")).toHaveValue("doctor");
     expect(screen.getByLabelText("New password")).toHaveValue("");
     expect(screen.getByText(/Leave blank to keep the current password/)).toBeInTheDocument();
   });
@@ -105,7 +138,11 @@ describe("UserFormDialog - edit mode", () => {
     await screen.findByLabelText("Email");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(capturedBody).toEqual({ email: "ann@example.com", name: "Ann" });
+    expect(capturedBody).toEqual({
+      email: "ann@example.com",
+      name: "Ann",
+      access_level: "manager",
+    });
   });
 
   it("submits PATCH with a new password when one is entered", async () => {
@@ -126,6 +163,7 @@ describe("UserFormDialog - edit mode", () => {
     expect(capturedBody).toEqual({
       email: "ann@example.com",
       name: "Ann",
+      access_level: "manager",
       password: "newpassword1",
     });
   });

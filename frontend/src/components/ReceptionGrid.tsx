@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
 import { formatHour, RECEPTION_HOURS } from "@/lib/receptionHours";
 import { getReceptionCell, pivotReception, type ReceptionCellData } from "@/lib/pivotReception";
@@ -88,6 +89,7 @@ export function ReceptionGrid<T extends ReceptionCellData>({
   onDelete,
   saving,
 }: ReceptionGridProps<T>) {
+  const writeGate = useWriteGate();
   const grid = useMemo(() => pivotReception(sessions, staff), [sessions, staff]);
   const issuesByHour = useMemo(() => groupIssuesByHour(issues ?? []), [issues]);
   const onLeaveIds = useMemo(() => new Set(staffOnLeave ?? []), [staffOnLeave]);
@@ -249,7 +251,8 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                             <button
                               type="button"
                               aria-label={`Add session for ${member.code} ${formatHour(hour)}`}
-                              className="flex h-full w-full items-center justify-center text-ink/30 hover:text-ink/50"
+                              className="flex h-full w-full items-center justify-center text-ink/30 hover:text-ink/50 disabled:opacity-50"
+                              {...writeGate}
                             >
                               +
                             </button>

@@ -394,3 +394,24 @@ describe("MasterRotaGrid: delete (M4.4 Task 3)", () => {
     await waitFor(() => expect(capturedUrl).toContain("/api/v1/master-rota/templates/5/sessions/42"));
   });
 });
+
+describe("MasterRotaGrid for a read-only user", () => {
+  it("renders the template but never opens the edit popover", async () => {
+    setUpServer();
+    const session = makeMasterRotaSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "pre_assigned", room_id: 5, room_code: "D1",
+    });
+    renderWithProviders(<MasterRotaGrid sessions={[session]} templateId={5} />, {
+      accessLevel: "nurse",
+    });
+
+    const cell = await screen.findByTestId("master-cell-1-1-Monday-AM");
+    expect(within(cell).getByText("D1")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("D1"));
+
+    expect(screen.queryByText("Normal clinic")).not.toBeInTheDocument();
+  });
+});

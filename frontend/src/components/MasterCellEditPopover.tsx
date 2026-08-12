@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { Day, MasterRotaSession, MasterSessionType, Period, Room } from "@/api/types";
+import { useWriteGate } from "@/auth/AuthContext";
 import { findMasterRoomHolder } from "@/lib/slotConflict";
 
 interface MasterCellEditPopoverProps {
@@ -83,6 +84,7 @@ export function MasterCellEditPopover({
   onDelete,
   saving,
 }: MasterCellEditPopoverProps) {
+  const writeGate = useWriteGate();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("main");
   const [pending, setPending] = useState<PendingRoomPick | null>(null);
@@ -138,6 +140,14 @@ export function MasterCellEditPopover({
   function handleDelete() {
     onDelete?.();
     setOpen(false);
+  }
+
+  // Read-only users get the cell as plain content with no editor
+  // attached at all, rather than an editor whose every action 403s
+  // (role-based auth, Task 3). Placed after every hook above so the hook
+  // order is identical either way.
+  if (writeGate.disabled) {
+    return <span title={writeGate.title}>{children}</span>;
   }
 
   return (

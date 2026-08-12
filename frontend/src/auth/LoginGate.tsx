@@ -4,7 +4,9 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { onUnauthorized } from "@/api/client";
 import { useLogin, useMe } from "@/api/auth";
+import type { AuthUser } from "@/api/types";
 
+import { AuthProvider } from "./AuthContext";
 import { clearToken, getToken, setToken } from "./tokenStore";
 
 interface LoginGateProps {
@@ -34,6 +36,13 @@ interface LoginGateProps {
  * because of how this component happens to be structured, and would
  * silently break if LoginGate were ever restructured to keep children
  * mounted underneath the form.
+ *
+ * It also owns the app-wide AuthProvider (role-based auth, Task 3): it
+ * already has the current user from /auth/me or the login response, so
+ * nothing else has to re-fetch it to find out what the user may do. The
+ * user is held in state rather than read straight off meQuery.data
+ * because that query is only ever enabled during the stored-token check -
+ * after a fresh login there is no /auth/me result to read.
  */
 export function LoginGate({ children }: LoginGateProps) {
   const queryClient = useQueryClient();
@@ -44,6 +53,8 @@ export function LoginGate({ children }: LoginGateProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginFailed, setLoginFailed] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
 
   const meQuery = useMe(checkingToken);
 
@@ -52,6 +63,7 @@ export function LoginGate({ children }: LoginGateProps) {
       return;
     }
     if (meQuery.isSuccess) {
+      setUser(meQuery.data);
       setCheckingToken(false);
       setShowLoginForm(false);
     } else if (meQuery.isError) {
@@ -59,11 +71,13 @@ export function LoginGate({ children }: LoginGateProps) {
       setCheckingToken(false);
       setShowLoginForm(true);
     }
-  }, [checkingToken, meQuery.isSuccess, meQuery.isError]);
+  }, [checkingToken, meQuery.isSuccess, meQuery.isError, meQuery.data]);
 
   useEffect(() => {
-    onUnauthorized(() => {
+    onUnauthorized((reason) => {
       clearToken();
+      setUser(null);
+      setSignedOutReason(reason ?? null);
       setShowLoginForm(true);
     });
     return () => onUnauthorized(null);
@@ -77,6 +91,8 @@ export function LoginGate({ children }: LoginGateProps) {
       {
         onSuccess: (data) => {
           setToken(data.token);
+          setUser(data.user);
+          setSignedOutReason(null);
           setEmail("");
           setPassword("");
           setShowLoginForm(false);
@@ -94,7 +110,7 @@ export function LoginGate({ children }: LoginGateProps) {
   }
 
   if (!showLoginForm) {
-    return <>{children}</>;
+    return <AuthProvider user={user}>{children}</AuthProvider>;
   }
 
   return (
@@ -105,6 +121,16 @@ export function LoginGate({ children }: LoginGateProps) {
       >
         <h1 className="text-lg font-semibold text-ink">Log in</h1>
         <p className="mt-1 text-sm text-ink/70">Enter your email and password to continue.</p>
+
+        {/* Why the user is back here, when it was the expected result of
+            something they just did - a password change signs out every
+            session including this one. A plain expired session passes no
+            reason and shows nothing extra. */}
+        {signedOutReason ? (
+          <p className="mt-3 rounded bg-accent/10 p-2 text-sm text-ink" role="status">
+            {signedOutReason}
+          </p>
+        ) : null}
 
         <label className="mt-4 block text-sm text-ink" htmlFor="login-email">
           Email

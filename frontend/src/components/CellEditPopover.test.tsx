@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { makeClinicType, makeRoom } from "@/test/fixtures/reference";
+import { authWrapper } from "@/test/renderWithProviders";
 import { makeRotaSession } from "@/test/fixtures/rota";
 import type { RotaSession } from "@/api/types";
 
@@ -36,6 +37,10 @@ function renderPopover(overrides: {
     >
       <div>Cell content</div>
     </CellEditPopover>,
+    // The popover consults the auth context: a read-only user gets the
+    // cell with no editor at all (role-based auth, Task 3), which every
+    // test below would otherwise hit.
+    { wrapper: authWrapper() },
   );
 
   return { session, onSave, onSetRoom, onSetRole };
