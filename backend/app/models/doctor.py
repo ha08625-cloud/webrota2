@@ -32,6 +32,7 @@ class Doctor(Base):
         enum_col(SupervisionPreference),
         nullable=False,
         default=SupervisionPreference.NORMAL,
+        server_default=SupervisionPreference.NORMAL.value,
     )
     # Employment window: the doctor works only on dates within it. Null at
     # either end means unbounded, which is every pre-existing row and the
