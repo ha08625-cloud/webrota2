@@ -75,12 +75,11 @@ class LeaveBulkDeleteOut(BaseModel):
 class LeaveExemptionsOut(BaseModel):
     """Exempt-session breakdown for `GET /leave/chargeable-count`.
 
-    Field order here is *display* order, not computation order (no-surgery
-    leave exemption plan, Design Decision 1): the rule checks closure
-    **last**, after weekend / no-template-row / no-surgery, so that
-    `closed` means "the doctor would otherwise have worked this slot, but
-    the practice was shut" rather than merely "this slot fell on a
-    closure". Reordering these fields to match computation order would
+    Field order here is *display* order, not computation order: the rule
+    checks closure **last**, after weekend / no-template-row / no-surgery,
+    so that `closed` means "the doctor would otherwise have worked this
+    slot, but the practice was shut" rather than merely "this slot fell on
+    a closure". Reordering these fields to match computation order would
     silently destroy that distinction -- don't.
     """
 
@@ -96,7 +95,7 @@ class LeaveChargeableCountOut(BaseModel):
     to_date: datetime.date
     total_entries: int
     # Counts are in sessions (one LeaveEntry row = one half-day), not days
-    # (Design Decision 8) -- the `_sessions` suffixes are load-bearing.
+    # -- the `_sessions` suffixes are load-bearing.
     chargeable_sessions: int
     exempt_sessions: int
     exempt_by_reason: LeaveExemptionsOut

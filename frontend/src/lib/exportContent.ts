@@ -5,9 +5,9 @@ import { DAYS, PERIODS } from "@/lib/pivot";
 import { countSupervisableTrainees } from "@/lib/superviseeCount";
 
 /**
- * Shared, library-agnostic cell-content logic for the rota exports (PDF
- * export plan, Design Decision 4). Everything here is pure text/data: no
- * exceljs, no pdfmake, no React, no DOM.
+ * Shared, library-agnostic cell-content logic for the rota exports.
+ * Everything here is pure text/data: no exceljs, no pdfmake, no React,
+ * no DOM.
  *
  * This module is the single authority for *what a cell says*; each export
  * module owns only *how it is drawn*. The functions below were originally
@@ -36,13 +36,13 @@ export function roleLabelText(role: RotaSession["role"], clinicName: string | nu
 }
 
 /**
- * Mirrors RotaGrid.tsx's CellContent line-for-line (Design Decision 4):
- * LEAVE suppresses everything else except notes; otherwise WFH, then
- * Supervising, then No surgery/Admin, then the role label (shown
- * regardless of WFH, same as the UI), then the room code (suppressed by
- * WFH, same as the UI - is_on_leave already returned above by that
- * point). Notes, when present, are always the trailing line - shown
- * regardless of leave/WFH state, same as the grid's third-row note.
+ * Mirrors RotaGrid.tsx's CellContent line-for-line: LEAVE suppresses
+ * everything else except notes; otherwise WFH, then Supervising, then
+ * No surgery/Admin, then the role label (shown regardless of WFH, same
+ * as the UI), then the room code (suppressed by WFH, same as the UI -
+ * is_on_leave already returned above by that point). Notes, when
+ * present, are always the trailing line - shown regardless of leave/WFH
+ * state, same as the grid's third-row note.
  */
 export function cellLines(session: RotaSession, supervisedCount: number): string[] {
   if (session.is_on_leave) {
@@ -88,7 +88,7 @@ export function cellLines(session: RotaSession, supervisedCount: number): string
 
 /**
  * Mirrors RoomRotaGrid.tsx's RoomCell content for an occupied room
- * exactly (Design Decision, M-export room-sheet plan): occupying
+ * exactly: occupying
  * doctor's code first, then LEAVE (suppressing the role label, same as
  * the on-screen LEAVE-badge branch - a leave holder still occupies the
  * room, it just isn't doing the role), otherwise the role label, then
@@ -162,9 +162,9 @@ function ordinalSuffix(dayOfMonth: number): string {
 /**
  * The compact day header used by the PDF export only: "MON 10th" - an
  * uppercase day abbreviation plus the ordinal day of month, matching the
- * practice's printed rota (PDF export plan, Design Decision 8) and saving
- * horizontal space on a very tight A4 portrait page. The closure suffix
- * behaviour is identical to dayHeaderText's.
+ * practice's printed rota and saving horizontal space on a very tight A4
+ * portrait page. The closure suffix behaviour is identical to
+ * dayHeaderText's.
  *
  * The abbreviation is sliced from the `day` name rather than derived from
  * `date` via a locale, so the header can never disagree with the column it

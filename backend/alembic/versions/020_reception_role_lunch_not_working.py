@@ -10,14 +10,14 @@ a plain tag on a reception_master_sessions/reception_rota_sessions row,
 with no minimum-staffing concept and no effect on compute_coverage_issues
 (phones-only, unchanged).
 
-`not_working` is a tag, not a replacement for row deletion -- Decision 10
-in documentation/architecture-reception.md still holds: absence from a
+`not_working` is a tag, not a replacement for row deletion, as
+documentation/architecture-reception.md records: absence from a
 day rota is expressed by deleting the row, and coverage still counts
 "anyone holding a phones row for an hour, full stop". Tagging a *master
 template* cell `not_working` only records "this staff member does not
 work this slot in the template" for display purposes; generating a day
-still copies the row as-is (Decision 3/5), so the day-rota row exists and
-must still be deleted there to be read as absent.
+still copies the row as-is, so the day-rota row exists and must still be
+deleted there to be read as absent.
 
 Same ADD VALUE IF NOT EXISTS pattern as 013/019: guarded to Postgres only
 (SQLite regenerates reception_role as VARCHAR + CHECK from the live

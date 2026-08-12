@@ -33,16 +33,15 @@ function weekdayDate(weekStartDate: string, offset: number): string {
  * is *fully* open - neither its AM nor its PM slot is closed - or null if
  * no weekday qualifies.
  *
- * Frontend mirror of the backend's week_map.build_first_open_weekday
- * (half-day closures plan, Design Decision 4) - deliberately reimplemented
- * rather than shared, since the two run in different languages; see
- * dutyWeekSlots.test.ts for the matching case matrix (open week, closed
- * Monday, closed Mon+Tue, fully closed week, partly closed Monday) that
- * keeps the two from drifting apart. A day is required to be fully open,
- * not merely partly, because secondary duty needs both periods of its day
- * (Phase 12's `_expected_duty_counts` is period-independent for
- * `expected_secondary`, and the `(1st)`/`(2nd)` column split below assumes
- * both AM and PM exist).
+ * Frontend mirror of the backend's week_map.build_first_open_weekday -
+ * deliberately reimplemented rather than shared, since the two run in
+ * different languages; see dutyWeekSlots.test.ts for the matching case
+ * matrix (open week, closed Monday, closed Mon+Tue, fully closed week,
+ * partly closed Monday) that keeps the two from drifting apart. A day is
+ * required to be fully open, not merely partly, because secondary duty
+ * needs both periods of its day (Phase 12's `_expected_duty_counts` is
+ * period-independent for `expected_secondary`, and the `(1st)`/`(2nd)`
+ * column split below assumes both AM and PM exist).
  */
 export function firstOpenWeekday(weekStartDate: string, closedSet: Set<string>): string | null {
   for (const offset of WEEKDAY_OFFSETS) {
@@ -61,9 +60,9 @@ export function firstOpenWeekday(weekStartDate: string, closedSet: Set<string>):
  * week's first *fully open* weekday instead of always Monday. A weekday
  * closed on only one period is an ordinary primary-only column, exactly
  * like an open day - it can never be the first fully-open weekday, so it
- * never needs the `(1st)`/`(2nd)` split (Design Decision 4). With no
- * closures this reduces exactly to the pre-M5 behaviour: firstOpenWeekday
- * is always Monday, so labels and columns are unchanged.
+ * never needs the `(1st)`/`(2nd)` split. With no closures this reduces
+ * exactly to the pre-M5 behaviour: firstOpenWeekday is always Monday, so
+ * labels and columns are unchanged.
  */
 export function buildColumns(weekStartDate: string, closures: Closure[] = []): Column[] {
   const closedSet = toClosedSlotSet(closures);

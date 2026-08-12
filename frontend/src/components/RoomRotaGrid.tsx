@@ -21,7 +21,7 @@ interface RoomRotaGridProps {
  * free this session, and who is in the occupied ones. Pure frontend
  * transformation of data already fetched by the caller via useRota - no
  * mutation callbacks, no dnd-kit, no popover. See M4.x room-view plan,
- * Design Decision 10: structurally closer to RotaGrid's ReadOnlyGridCell
+ * structurally closer to RotaGrid's ReadOnlyGridCell
  * than to its editable counterpart, and that holds regardless of
  * rota.status.
  */
@@ -35,11 +35,11 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
   /**
    * (date, period) closed-slot lookup for this rota - authoritative from
    * rota.closed_slots, the RotaClosure snapshot taken at generation time.
-   * Copied verbatim from RotaGrid (Design Decision 6): a closure added or
-   * removed afterwards must not change how an already-generated rota
-   * renders, and a closed-slot check must run before the occupancy lookup
-   * below - otherwise a closed day, which has no sessions at all, renders
-   * as a full column of false "Available" cells.
+   * Copied verbatim from RotaGrid: a closure added or removed afterwards
+   * must not change how an already-generated rota renders, and a
+   * closed-slot check must run before the occupancy lookup below -
+   * otherwise a closed day, which has no sessions at all, renders as a
+   * full column of false "Available" cells.
    */
   const closedSlotSet = useMemo(() => toClosedSlotSet(rota.closed_slots), [rota.closed_slots]);
 
@@ -208,7 +208,7 @@ function RoomCell({ roomId, week, day, period, closed, grid, dividerClassName }:
     >
       <div className="text-xs font-medium">{session.doctor_code}</div>
       {/* Leave holders render as occupants with a LEAVE badge rather than
-          as available (Design Decision 4): reachable on committed rotas
+          as available: reachable on committed rotas
           where leave was added post-commit, since nothing can be
           reassigned there anyway, so "available" would be a false
           promise. WFH-with-room is unreachable by construction (PATCH

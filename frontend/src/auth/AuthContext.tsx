@@ -11,9 +11,9 @@ import type { AccessLevel, AuthUser } from "@/api/types";
  * `user.access_level === "manager"` themselves, so adding or renaming a
  * level is a one-file change.
  *
- * This gating is UX only (role-based auth, Design Decision 8). The 403
- * from the API is the security boundary; hiding and disabling controls
- * here just stops a viewer being offered buttons that can only fail.
+ * This gating is UX only. The 403 from the API is the security
+ * boundary; hiding and disabling controls here just stops a viewer
+ * being offered buttons that can only fail.
  */
 export interface AuthState {
   user: AuthUser | null;

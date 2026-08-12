@@ -6,12 +6,12 @@ import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { buildRotaPdf } from "./exportRotaPdf";
 
 /**
- * **This suite is deliberately thin, and that is not an oversight**
- * (Design Decision 5). `exportRota.test.ts` can round-trip its Blob back
- * through ExcelJS and assert on real cell values, fills and merges;
- * there is no equivalent for PDF. The honest ceiling on asserting
- * against PDF bytes is "non-empty, starts with %PDF", which is worth
- * almost nothing on its own.
+ * **This suite is deliberately thin, and that is not an oversight**.
+ * `exportRota.test.ts` can round-trip its Blob back through ExcelJS and
+ * assert on real cell values, fills and merges; there is no equivalent
+ * for PDF. The honest ceiling on asserting against PDF bytes is
+ * "non-empty, starts with %PDF", which is worth almost nothing on its
+ * own.
  *
  * So the real coverage of this feature lives in `rotaPdfModel.test.ts`,
  * which tests row order, cell text, colour and the fitted font size

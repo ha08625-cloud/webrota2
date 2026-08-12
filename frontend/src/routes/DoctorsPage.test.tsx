@@ -287,9 +287,8 @@ describe("DoctorsPage", () => {
 });
 
 describe("DoctorsPage for a read-only user", () => {
-  // Belt to the backend's braces (role-based auth, Design Decision 8):
-  // the 403 is the boundary, this just stops offering buttons that only
-  // ever fail.
+  // Belt to the backend's braces: the 403 is the boundary, this just
+  // stops offering buttons that only ever fail.
   it("disables every write control and says why", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
     renderWithProviders(<DoctorsPage />, { accessLevel: "nurse" });

@@ -71,7 +71,7 @@ function groupByWeekDay(entries: GenerationLogEntry[]): EntryGroup[] {
  * ticket, Task 5). Unlike IssuesPanel, which is small enough to show
  * unfiltered, a full 4-week run produces several hundred entries, so
  * phase and doctor filtering are functional requirements, not
- * conveniences - see the plan's Design Decision 8.
+ * conveniences.
  */
 export function GenerationLogPanel({ rotaId }: GenerationLogPanelProps) {
   const { data: entries, isLoading, isError } = useRotaLog(rotaId);

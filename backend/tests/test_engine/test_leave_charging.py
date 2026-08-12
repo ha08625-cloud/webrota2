@@ -1,6 +1,6 @@
 """Unit tests for the leave chargeability rule (no-surgery leave exemption
 plan, Task 2). Pure-function tests over plain dicts/sets and unsaved
-`LeaveEntry` instances -- no `client`, no `seeded`, no DB (Design Decision 3).
+`LeaveEntry` instances -- no `client`, no `seeded`, no DB.
 """
 import datetime
 
@@ -35,7 +35,7 @@ def test_pre_assigned_is_chargeable():
 
 
 def test_admin_time_is_chargeable():
-    """Design Decision 2: charging asks whether the doctor was due at work,
+    """charging asks whether the doctor was due at work,
     not whether they counted as clinical cover. ADMIN_TIME counts as zero
     for `_COUNTED_TYPES` coverage but is chargeable here -- the case most
     likely to be "fixed" into agreement with coverage later."""
@@ -155,7 +155,7 @@ def test_summary_empty_iterable_is_all_zeros_no_keyerror():
 
 
 def test_summary_mixed_doctor_list_uses_each_entrys_own_doctor_id():
-    """Decision 8's property: a mixed-doctor iterable summarises correctly
+    """A mixed-doctor iterable summarises correctly
     with no change, since summarise_leave_charging reads doctor_id off each
     entry rather than taking one doctor_id parameter."""
     template = {

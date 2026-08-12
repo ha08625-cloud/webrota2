@@ -20,15 +20,14 @@ GeneratedRota already uses for RotaSession/RotaClosure/generation_log.
 
 password_hash stores a bcrypt hash. bcrypt silently truncates input at 72
 bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
-(auth plan, Design Decision 1) -- nothing about that truncation is visible
-from the model itself.
+-- nothing about that truncation is visible from the model itself.
 
-access_level is the permission tier (role-based auth plan, Design Decision
-1). It defaults to NURSE -- the lowest tier -- both here and as the
-server_default in migration 028: an accidental viewer is recoverable, an
-accidental manager is a silent security hole. The API never relies on that
-default (UserIn requires access_level), so it only ever applies to rows
-inserted directly, e.g. by a script or a test.
+access_level is the permission tier. It defaults to NURSE -- the lowest
+tier -- both here and as the server_default in migration 028: an
+accidental viewer is recoverable, an accidental manager is a silent
+security hole. The API never relies on that default (UserIn requires
+access_level), so it only ever applies to rows inserted directly, e.g. by
+a script or a test.
 """
 import datetime
 

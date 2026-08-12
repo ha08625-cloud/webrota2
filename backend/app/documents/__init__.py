@@ -28,7 +28,7 @@ Usage (the router, Task 3, composes these calls in order):
 
 The .rtf path is separate and does not use protection -- the deliverable
 there is a PDF, which is a stronger "do not edit this" than the Word
-password (rtf/pdf plan, Decision 11):
+password:
 
     rtf_bytes = insert_signature_rtf(rtf_bytes, image_bytes, content_type)
     rtf_bytes = insert_date_rtf(rtf_bytes, date_text)

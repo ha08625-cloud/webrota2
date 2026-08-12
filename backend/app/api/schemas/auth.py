@@ -49,7 +49,7 @@ class UserPatch(BaseModel):
 
 
 class UserSelfPatch(BaseModel):
-    """Body for PATCH /users/me (role-based auth plan, Design Decision 4).
+    """Body for PATCH /users/me.
 
     Deliberately NOT a subset-by-inheritance of UserPatch: the fields it
     omits are the point. `access_level` is absent so the endpoint cannot be

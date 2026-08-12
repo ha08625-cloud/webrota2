@@ -27,14 +27,13 @@ slot only when the doctor has a week-1 template row for it that is not
 `NO_SURGERY` (`ADMIN_TIME` and `WFH` are working sessions and are charged).
 Those two figures need not agree, and when they don't a doctor burns their
 allowance at a different rate from the one it accrues at -- credited in one
-unit, charged in another. That was flagged as an open question by the
-no-surgery exemption plan (its Design Decision 7.2) and is resolved here by
-**keeping `sessions_per_week` authoritative for entitlement and reporting the
-disagreement** rather than silently picking a side: `template_sessions_per_week`
-is returned alongside every balance so the UI can surface it. Making the
-template authoritative was rejected because a doctor whose template has not
-been populated yet would read zero entitlement, which is worse than reading a
-warning.
+unit, charged in another. That was flagged as an open question by the no-surgery
+exemption plan and is resolved here by **keeping `sessions_per_week`
+authoritative for entitlement and reporting the disagreement** rather than
+silently picking a side: `template_sessions_per_week` is returned alongside
+every balance so the UI can surface it. Making the template authoritative was
+rejected because a doctor whose template has not been populated yet would read
+zero entitlement, which is worse than reading a warning.
 """
 from __future__ import annotations
 

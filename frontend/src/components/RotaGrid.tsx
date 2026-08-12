@@ -115,7 +115,7 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
    * closure added or removed afterwards must not change how an
    * already-generated rota renders. A fully closed day greys the header;
    * a partly closed day keeps it ungreyed with a qualified label, and
-   * greys only the closed period's cells (Design Decision 7).
+   * greys only the closed period's cells.
    */
   const closedSlotSet = useMemo(() => toClosedSlotSet(rota.closed_slots), [rota.closed_slots]);
 

@@ -59,11 +59,10 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
   // Counters are deliberately period-scoped, not all-time: the 4-weekly
-  // duty periods feature removed the all-time view rather than moving it
-  // (see lib/date.ts and the implementation plan's Design Decision 5).
-  // The range is derived from the same startWeekDate and weeks the grid
-  // itself renders, so the counters can never drift out of step with the
-  // weeks actually shown.
+  // duty periods feature removed the all-time view rather than moving
+  // it. The range is derived from the same startWeekDate and weeks the
+  // grid itself renders, so the counters can never drift out of step
+  // with the weeks actually shown.
   const countsRange = useMemo(
     () => ({ from: startWeekDate, to: addDays(startWeekDate, weeks * 7 - 1) }),
     [startWeekDate, weeks],

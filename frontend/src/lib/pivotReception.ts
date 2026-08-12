@@ -37,9 +37,9 @@ export interface PivotedReceptionGrid<T extends ReceptionCellData> {
   /**
    * Cell lookup, keyed by (staff, hour). A missing key is the expected
    * "not expected this hour" state, distinct from an empty/falsy value -
-   * the same absent-cell-is-data invariant as pivotMasterRota's `cells`,
-   * and the whole of Decision 3 (a template row's existence, not its
-   * content, is what "expected to work this hour" means).
+   * the same absent-cell-is-data invariant as pivotMasterRota's `cells`:
+   * a template row's existence, not its content, is what "expected to
+   * work this hour" means.
    */
   cells: Map<string, T>;
 }

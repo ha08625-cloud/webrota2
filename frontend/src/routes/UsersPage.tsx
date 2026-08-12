@@ -64,8 +64,7 @@ function UsersTable() {
       {
         onError: (err: ApiError) => {
           // The 409 here is the lock-out guard: neither deactivating nor
-          // demoting the last active manager is allowed (role-based auth,
-          // Design Decision 5).
+          // demoting the last active manager is allowed.
           const message = typeof err.detail === "string" ? err.detail : "Could not update this user.";
           showToast(message);
         },

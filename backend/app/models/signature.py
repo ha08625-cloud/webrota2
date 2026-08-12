@@ -3,7 +3,7 @@
 One signature image per Partner/Salaried doctor (though the schema itself
 does not restrict doctor_type -- the UI filters to Partner/Salaried, but the
 endpoints stay unscoped so an unusual case remains possible without a schema
-change; see the signatures feature plan, Decision 9). Image bytes live in
+change). Image bytes live in
 Postgres as bytea (SQLAlchemy LargeBinary); there is no object storage,
 since volumes are small -- one small JPG/PNG per doctor.
 

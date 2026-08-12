@@ -71,9 +71,9 @@ function shiftMonth(year: number, month: number, delta: number): { year: number;
 
 /**
  * The save summary. Skips and supersedes are worded as information, not
- * error - the save succeeded (Design Decision 8); a skip means the server
- * found the cell already in the requested state, or the doctor's dates
- * moved under a grid that was loaded before the change.
+ * error - the save succeeded; a skip means the server found the cell
+ * already in the requested state, or the doctor's dates moved under a
+ * grid that was loaded before the change.
  */
 function summariseSave(result: PlanningBulkOut): string {
   const parts = [`${result.applied} change${result.applied === 1 ? "" : "s"} saved`];
@@ -95,7 +95,7 @@ function summariseSave(result: PlanningBulkOut): string {
   const superseded = result.superseded_extra_sessions;
   if (superseded.length > 0) {
     // Reported, never deleted - the same warning LeavePage shows for the
-    // same reason (extra sessions plan, Design Decision 6).
+    // same reason.
     summary += ` Note: ${superseded.length} existing extra session${
       superseded.length === 1 ? "" : "s"
     } (${superseded.map((e) => e.date).join(", ")}) ${

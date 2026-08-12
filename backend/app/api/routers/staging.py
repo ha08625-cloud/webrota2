@@ -5,33 +5,30 @@ copy of the active template's rows for a date range (staging plan, Tasks
 Editing mirrors the master rota template's contract verbatim (see
 routers/master_rota.py) -- pair setter, same-slot room displacement
 including the PRE_ASSIGNED -> REQUIRES_ROOM demotion, permissive verbatim
-writer with no eligibility checks. The staging plan's Design Decision 9
-covers the one addition: session create 422s when week exceeds this
+writer with no eligibility checks. The one addition: session create 422s when week exceeds this
 staging's own num_weeks.
 
 Complete (POST /staging/{staging_id}/complete) runs the existing Phase
 0-12 pipeline against the staged copy's config, exactly as
-routers/rota.py's generate_rota does against a directly-submitted config
-(staging plan, Task 4, Design Decision 8).
+routers/rota.py's generate_rota does against a directly-submitted
+config.
 
 `create_staging`'s copy loop is no longer a pure copy, for two reasons.
 
-First (extra sessions plan, Task 2): a template row that lands on a
-planned `ExtraSessionEntry` is written to the staged copy per the override
-table (extra sessions plan's Design Decisions 3-6, 12), and a planned
-extra session with no template row at all creates a new staged row (Design
-Decision 5). The override is skipped wherever leave already exists for the
-slot (Decision 6). `is_extra_session` on `StagingSessionOut` is derived the
-same way as `is_on_leave` -- it means "a planned extra session exists for
-this slot", not "the override fired here" (Decision 8); see
-`_extra_session_lookup`.
+First (extra sessions plan, Task 2): a template row that lands on a planned
+`ExtraSessionEntry` is written to the staged copy per the override table,
+and a planned extra session with no template row at all creates a new
+staged row. The override is skipped wherever leave already exists for the
+slot. `is_extra_session` on `StagingSessionOut` is derived the same way as
+`is_on_leave` -- it means "a planned extra session exists for this slot",
+not "the override fired here"; see `_extra_session_lookup`.
 
-Second (annual leave planning, Task 2, Design Decision 7): a row is not
-copied at all when its doctor is outside their employment window on that
-date, and the extra-session new-row branch skips the same cases. Phase 2
-enforces the window too and is the authority, but without the skip here
-the admin would see and edit cells in `StagingGrid` that then silently
-vanish at Complete, with nothing on screen explaining why.
+Second: a row is not copied at all when its doctor is outside their
+employment window on that date, and the extra-session new-row branch
+skips the same cases. Phase 2 enforces the window too and is the
+authority, but without the skip here the admin would see and edit cells
+in `StagingGrid` that then silently vanish at Complete, with nothing on
+screen explaining why.
 """
 from __future__ import annotations
 
@@ -131,7 +128,7 @@ def _extra_session_lookup(
 
 
 # Template types a planned extra session can override (extra sessions
-# plan, override table). WFH is included per Design Decision 12 -- remove
+# plan, override table). WFH is included deliberately -- remove
 # it from this set to leave WFH template rows untouched by the override.
 _OVERRIDABLE_TYPES = frozenset({
     MasterSessionType.NO_SURGERY,
@@ -183,7 +180,7 @@ def _closed_slots_out(
     db: Session, config: RotaConfig
 ) -> list[ClosedSlotOut]:
     """Live PracticeClosure data in the config's range -- no snapshot exists
-    for a staging (Design Decision 10), so this is the current table, not a
+    for a staging, so this is the current table, not a
     frozen copy."""
     range_start = config.start_date
     range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
@@ -257,8 +254,7 @@ def create_staging(
     user: dict = Depends(get_current_user),
 ) -> StagingOut:
     """Copy the active template's rows for [start_date, start_date +
-    num_weeks) into a new run-scoped editable staging (staging plan,
-    Design Decisions 1, 4, 5, 7, 10).
+    num_weeks) into a new run-scoped editable staging.
 
     Checks, in order, each a 409 with a distinct message:
     - no active draft (a draft must be resolved before starting a
@@ -308,9 +304,9 @@ def create_staging(
         )
     template = active_templates[0]
 
-    # template_start_week=1 always on the persisted config (Design Decision
-    # 4): staging rows are keyed by generation week, so the pipeline must
-    # see template_week() as the identity when it later runs against this
+    # template_start_week=1 always on the persisted config: staging rows
+    # are keyed by generation week, so the pipeline must see
+    # template_week() as the identity when it later runs against this
     # config. payload.template_start_week is applied once below, to select
     # which template weeks get copied, then discarded -- it is not stored.
     config = RotaConfig(
@@ -333,7 +329,7 @@ def create_staging(
         rows_by_week.setdefault(row.week, []).append(row)
 
     # extra sessions plan, Task 2: the copy loop applies the override
-    # table (Design Decisions 3-6, 12) instead of copying verbatim.
+    # table instead of copying verbatim.
     extra = _extra_session_lookup(db, config)
     leave = _leave_lookup(db, config)
     week_dates = build_week_dates(payload.start_date, payload.num_weeks)
@@ -352,10 +348,10 @@ def create_staging(
             # reinstating a slot this loop deliberately dropped.
             covered_slots.add((row.doctor_id, gen_week, row.day, row.period))
 
-            # Annual leave planning, Design Decision 7: no staged row for a
-            # doctor outside their employment window on this date. Phase 2
-            # would drop it at Complete anyway; skipping here keeps the grid
-            # the admin edits and the rota they get in agreement.
+            # no staged row for a doctor outside their employment window on
+            # this date. Phase 2 would drop it at Complete anyway; skipping
+            # here keeps the grid the admin edits and the rota they get in
+            # agreement.
             doctor = doctors_by_id.get(row.doctor_id)
             if doctor is not None and not is_within_window(doctor, session_date):
                 continue
@@ -375,8 +371,8 @@ def create_staging(
                     session_type = MasterSessionType.REQUIRES_ROOM
                     room_id = None
 
-            # Copied regardless of closures (Design Decision 10) -- Phase
-            # 2's closed-date skip remains the single closure authority.
+            # Copied regardless of closures -- Phase 2's closed-date skip
+            # remains the single closure authority.
             db.add(RotaStagingSession(
                 staging_id=staging.id,
                 doctor_id=row.doctor_id,
@@ -387,8 +383,8 @@ def create_staging(
                 room_id=room_id,
             ))
 
-    # Extra sessions with no corresponding template row (Design Decision
-    # 5): the part-timer-working-an-extra-day case. Created as a new
+    # Extra sessions with no corresponding template row: the
+    # part-timer-working-an-extra-day case. Created as a new
     # REQUIRES_ROOM row unless leave supersedes it.
     date_to_genslot = build_date_to_genslot(week_dates)
     extra_rows = db.execute(
@@ -406,11 +402,11 @@ def create_staging(
         if (entry.doctor_id, gen_week, day, entry.period) in covered_slots:
             continue  # a template row already exists for this slot
         if (entry.doctor_id, entry.date, entry.period) in leave:
-            continue  # leave wins (Design Decision 6)
+            continue  # leave wins
         entry_doctor = doctors_by_id.get(entry.doctor_id)
         if entry_doctor is not None and not is_within_window(entry_doctor, entry.date):
             # An extra session planned outside the doctor's window must not
-            # conjure a staged row (annual leave planning, Design Decision 7).
+            # conjure a staged row.
             continue
         db.add(RotaStagingSession(
             staging_id=staging.id,
@@ -445,7 +441,7 @@ def complete_staging(
     user: dict = Depends(get_current_user),
 ) -> GenerateRotaOut:
     """Run the Phase 0-12 pipeline against the staged copy and mark the
-    staging completed (staging plan, Task 4, Design Decisions 3, 6, 8).
+    staging completed.
 
     Re-checks the two locks that could have changed since create time:
     - no active draft (rollback_commit can produce one mid-staging even
@@ -568,7 +564,7 @@ def create_session(
 ) -> StagingSessionWriteOut:
     """Create a new slot in the staging, mirroring master_rota.create_session
     (see its docstring). Additionally 422s when week exceeds this staging's
-    own num_weeks (Design Decision 9)."""
+    own num_weeks."""
     staging = _staging_or_404(db, staging_id)
     _require_active(staging)
     config = db.get(RotaConfig, staging.config_id)
@@ -673,7 +669,7 @@ def abandon_staging(
     user: dict = Depends(get_current_user),
 ) -> None:
     """Abandon an active staging: hard-delete the staging (sessions cascade)
-    and its RotaConfig (staging plan, Design Decision 3).
+    and its RotaConfig.
 
     409 on a completed staging -- that is a retained record of the run, not
     something this endpoint discards. Deleting the RotaConfig explicitly

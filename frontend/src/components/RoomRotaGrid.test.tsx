@@ -37,7 +37,7 @@ function noop() {
 }
 
 /**
- * Design Decision 7 has both the Morning and Afternoon blocks repeat the
+ * Both the Morning and Afternoon blocks repeat the
  * day header row and the room-code label column, so "Monday" and "D1"
  * legitimately appear twice in the DOM - once per block. Tests that care
  * about header/label content scope to a single table (via getAllByRole

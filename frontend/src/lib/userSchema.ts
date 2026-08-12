@@ -42,7 +42,7 @@ export function userFormSchema(mode: "create" | "edit") {
 
 export type UserFormValues = z.infer<ReturnType<typeof userFormSchema>>;
 
-/** New users start as "nurse" for the same reason the migration defaults to it (Design Decision 7): an accidental viewer is recoverable, an accidental manager is a silent hole. */
+/** New users start as "nurse" for the same reason the migration defaults to it: an accidental viewer is recoverable, an accidental manager is a silent hole. */
 export function emptyFormValues(): UserFormValues {
   return { email: "", name: "", access_level: "nurse", password: "" };
 }

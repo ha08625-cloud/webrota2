@@ -4,8 +4,7 @@ Split out from routers/auth.py so the seed script (seed/seed_users.py) and
 the test suite can hash a password or a token identically to the router
 without importing FastAPI route code. bcrypt truncates input silently at
 72 bytes; the max-length-72 rule is enforced separately, at the Pydantic
-schema layer (auth plan, Design Decision 1) -- these functions do not
-re-check length themselves.
+schema layer -- these functions do not re-check length themselves.
 """
 import hashlib
 import secrets

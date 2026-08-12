@@ -2,12 +2,12 @@ import type { ValidationIssue } from "@/api/types";
 
 interface ReceptionCoveragePanelProps {
   /**
-   * The day rota's current coverage shortfall warnings (Decision 9) -
-   * passed in from the page's current GET/mutation response, never
-   * fetched separately here. Every mutating day-rota endpoint already
-   * returns freshly recomputed issues alongside the written session
-   * (reception rota plan, Task 8), which is what lets the page splice a
-   * mutation response straight into this panel with no second request.
+   * The day rota's current coverage shortfall warnings - passed in from
+   * the page's current GET/mutation response, never fetched separately
+   * here. Every mutating day-rota endpoint already returns freshly
+   * recomputed issues alongside the written session (reception rota
+   * plan, Task 8), which is what lets the page splice a mutation
+   * response straight into this panel with no second request.
    */
   issues: ValidationIssue[];
 }
@@ -16,7 +16,7 @@ interface ReceptionCoveragePanelProps {
  * Lists the day rota's coverage warnings. Sibling of IssuesPanel in
  * presentation only (a grouped list of messages) - not a generalisation
  * of it, since every issue here is severity="warning" and none can block
- * a save (Decision 9: coverage is a read-time derivation, never an
+ * a save (coverage is a read-time derivation, never an
  * error). Deliberately avoids IssuesPanel's error-adjacent styling and
  * wording (red backgrounds, "issues") in favour of amber and "coverage",
  * so a shortfall reads as a heads-up, not a failure.

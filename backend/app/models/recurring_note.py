@@ -7,25 +7,23 @@ while it builds the grid; nothing else in the pipeline reads it.
 
 Three things about this feature are deliberate and easy to get wrong:
 
-1. **Annotation only -- no effect on availability** (Design Decision 2).
-   Phase 4 still applies duty and Phase 5 still assigns a clinic to a
-   doctor whose slot carries a note. A partners meeting occupies the tail
-   of a session, not the session. Blocking a session entirely is done
-   through the master template (ADMIN_TIME / NO_SURGERY), as it is today.
+1. **Annotation only -- no effect on availability**. Phase 4 still
+applies duty and Phase 5 still assigns a clinic to a doctor whose slot
+carries a note. A partners meeting occupies the tail of a session, not
+the session. Blocking a session entirely is done through the master
+template (ADMIN_TIME / NO_SURGERY), as it is today.
 
-2. **Overlapping notes concatenate; they do not collide** (Design
-   Decision 9). There is no uniqueness rule across notes -- two notes
-   matching the same doctor/week/day/period are sorted by note id
-   ascending and joined with a newline. Duplicates are visible in the grid
-   and self-correcting, rather than a write-time 409 naming a note the
-   user then has to go and find.
+2. **Overlapping notes concatenate; they do not collide**. There is no
+uniqueness rule across notes -- two notes matching the same
+doctor/week/day/period are sorted by note id ascending and joined with a
+newline. Duplicates are visible in the grid and self-correcting, rather
+than a write-time 409 naming a note the user then has to go and find.
 
-3. **No template row means no note, silently** (Design Decision 10).
-   Phase 2 creates no SessionSlot where the doctor has no master template
-   entry for that slot, and none at all on a closed date. A part-time
-   doctor with no Tuesday PM row gets no note and no warning. Likewise an
-   association to a deactivated doctor is a silent no-op, since Phase 2
-   iterates active doctors only (Design Decision 12).
+3. **No template row means no note, silently**. Phase 2 creates no
+SessionSlot where the doctor has no master template entry for that slot,
+and none at all on a closed date. A part-time doctor with no Tuesday PM
+row gets no note and no warning. Likewise an association to a deactivated
+doctor is a silent no-op, since Phase 2 iterates active doctors only.
 
 The stamp is a default, not a derived value: grid_utils.rebuild_rota_grid()
 reads notes back off the persisted RotaSession row and never re-derives it,
@@ -75,8 +73,8 @@ class RecurringNote(Base):
 class RecurringNoteDoctor(Base):
     """One doctor the note applies to.
 
-    Scope is an explicit, editable list, not role-based (Design Decision 3):
-    a new partner requires a manual tick.
+    Scope is an explicit, editable list, not role-based: a new partner
+    requires a manual tick.
     """
 
     __tablename__ = "recurring_note_doctors"
@@ -99,10 +97,10 @@ class RecurringNoteWeek(Base):
 
     Anchoring on template week rather than generation week means a
     fortnightly note lands on the same real-world fortnight as the master
-    rota's own cycle, whatever week a run starts on (Design Decision 4).
-    There is deliberately no "no rows means every week" shorthand -- at
-    least one row is required, and "every week" is all four rows -- which
-    keeps the engine lookup branchless and the UI unambiguous.
+    rota's own cycle, whatever week a run starts on. There is
+    deliberately no "no rows means every week" shorthand -- at least one
+    row is required, and "every week" is all four rows -- which keeps the
+    engine lookup branchless and the UI unambiguous.
     """
 
     __tablename__ = "recurring_note_weeks"

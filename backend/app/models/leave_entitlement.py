@@ -22,7 +22,7 @@ zero:
 No `used` or `remaining` column. Used leave is counted at read time from
 `LeaveEntry` against the master template (`app/leave_charging.py`), and the
 cost of that -- a historical total moves when the template is edited -- is
-recorded in the no-surgery exemption plan's Design Decision 4. Storing an
+accepted. Storing an
 override here does not change that; it is the *entitlement* side that is now
 pinnable, which is what an admin needs to correct a wrong figure.
 """
@@ -45,8 +45,8 @@ class LeaveEntitlement(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     doctor_id: Mapped[int] = mapped_column(ForeignKey("doctors.id"), nullable=False)
     # Calendar year the entitlement applies to. The leave year is 1 Jan to
-    # 31 Dec (plan Design Decision 2), so a bare year is a complete key --
-    # no start/end columns to keep consistent with each other.
+    # 31 Dec, so a bare year is a complete key -- no start/end columns to
+    # keep consistent with each other.
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     entitlement_sessions: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 1), nullable=True

@@ -1,5 +1,5 @@
 """Reception leave router tests, plus its one effect on the day rota's
-coverage count (Decision 10)."""
+coverage count."""
 import datetime
 
 from .conftest import MONDAY

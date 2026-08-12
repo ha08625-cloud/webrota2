@@ -11,20 +11,20 @@ leave) when any of the following holds, checked in this precedence order:
 
 Otherwise the slot is chargeable. ``REQUIRES_ROOM``, ``PRE_ASSIGNED``,
 ``ADMIN_TIME`` and ``WFH`` are all chargeable -- the doctor was due to be at
-work, whatever they were doing that session (Design Decision 1).
+work, whatever they were doing that session.
 
 This is a *different* question from `leave_planning.get_coverage`'s
 headcount, which only counts `REQUIRES_ROOM` / `PRE_ASSIGNED` as covering
 (`_COUNTED_TYPES`, `app/api/routers/leave_planning.py`) -- coverage asks
 whether a clinician is available to see patients, charging asks whether the
 doctor was due to be at work at all. The two predicates are not shared and
-must not be merged (Design Decision 2); only the week-1 template map
-(`app/master_template.py`) is shared between them.
+must not be merged; only the week-1 template map (`app/master_template.py`)
+is shared between them.
 
 Chargeability is computed at read time from the live template and closure
-tables, never stored on `LeaveEntry` (Design Decision 4): both tables are
-editable, and baking the answer in at booking time would leave rows
-asserting a pattern the practice no longer works.
+tables, never stored on `LeaveEntry`: both tables are editable, and
+baking the answer in at booking time would leave rows asserting a pattern
+the practice no longer works.
 """
 from __future__ import annotations
 
@@ -35,10 +35,10 @@ from dataclasses import dataclass, field
 from .master_template import WEEKDAY_MAX, DAY_BY_WEEKDAY
 from .models.enums import Day, MasterSessionType, Period
 
-# Declared in computation-precedence order (Decision 1). `LeaveExemptionsOut`
-# deliberately orders its fields differently for display (closure first, as
-# the most legible reason to an admin) -- that mismatch between computation
-# order and display order is intentional, not a bug to "fix".
+# Declared in computation-precedence order. `LeaveExemptionsOut` deliberately
+# orders its fields differently for display (closure first, as the most
+# legible reason to an admin) -- that mismatch between computation order and
+# display order is intentional, not a bug to "fix".
 EXEMPT_WEEKEND = "weekend"
 EXEMPT_NO_TEMPLATE_ROW = "no_template_row"
 EXEMPT_NO_SURGERY = "no_surgery"
@@ -89,7 +89,7 @@ def summarise_leave_charging(
 
     Reads `doctor_id` off each entry rather than taking one as a parameter,
     so a mixed-doctor iterable summarises correctly with no change -- the
-    property the later multi-doctor register view relies on (Decision 8).
+    property the later multi-doctor register view relies on.
     """
     exempt_by_reason = {reason: 0 for reason in _ALL_REASONS}
     total = 0

@@ -1,13 +1,13 @@
 """Applies Word's Restrict Editing (read-only, password-protected) to a
 loaded python-docx Document by inserting a w:documentProtection element
-directly into the settings part (signatures feature plan, Decision 5).
+directly into the settings part.
 
 python-docx exposes document.settings.element as the w:settings lxml root,
 so this is a single in-place mutation before one document.save() call --
 no re-zipping, no [Content_Types].xml handling.
 
 Password hashing follows the modern ISO/IEC 29500 password verifier (the
-form current Word itself writes), not the legacy 32-bit hash (Decision 6):
+form current Word itself writes), not the legacy 32-bit hash:
 
     salt = os.urandom(16)
     h = sha512(salt + password.encode("utf-16-le"))
@@ -16,10 +16,10 @@ form current Word itself writes), not the legacy 32-bit hash (Decision 6):
 
 w:hash and w:salt are base64 of that digest and salt respectively. This is
 a deterrent matching the previously-unprotected baseline, not real
-document security -- the node can be stripped by unzipping the docx
-(Decision 7). The password itself is supplied by the caller (the router
-reads it from an env var); this module stays configuration-free, only
-holding the fallback default.
+document security -- the node can be stripped by unzipping the docx. The
+password itself is supplied by the caller (the router reads it from an env
+var); this module stays configuration-free, only holding the fallback
+default.
 """
 import base64
 import hashlib
@@ -32,7 +32,7 @@ from docx.oxml.ns import qn
 
 # Fallback only -- the router (Task 3) reads DOC_LOCK_PASSWORD from the
 # environment and passes it in; this constant is not read from env here,
-# keeping this module configuration-free (Decision 7 / Task 2 instructions).
+# keeping this module configuration-free.
 DEFAULT_LOCK_PASSWORD = "rota-signatures"
 
 _SPIN_COUNT = 100_000

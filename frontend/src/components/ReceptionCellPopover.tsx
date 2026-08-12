@@ -17,7 +17,7 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
   session: T | null;
   children: ReactNode;
   onSave: (role: ReceptionRole, note: string | null) => void;
-  /** Shown and wired only when canDelete is true. Direct action, no confirm dialog - there is no steal/displacement concept here (Decision 6: several staff can share an hour), unlike MasterCellEditPopover's room picks. */
+  /** Shown and wired only when canDelete is true. Direct action, no confirm dialog - there is no steal/displacement concept here (several staff can share an hour), unlike MasterCellEditPopover's room picks. */
   onDelete?: () => void;
   /**
    * True when any hour in the edited range has a session to remove - drives the Remove

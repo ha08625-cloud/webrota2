@@ -284,7 +284,7 @@ describe("schoolHolidayDatesInRange", () => {
 });
 
 describe("buildTemplateIndex", () => {
-  it("keeps week 1 rows only (Design Decision 1)", () => {
+  it("keeps week 1 rows only", () => {
     const index = buildTemplateIndex([
       templateRow(1, "Monday", "AM", "requires_room"),
       makeMasterRotaSession({ doctor_id: 1, week: 2, day: "Tuesday", period: "AM", session_type: "requires_room" }),
@@ -342,8 +342,8 @@ describe("applyPendingToCoverage", () => {
   });
 
   it("does not double-count an extra session on a slot already requires_room", () => {
-    // Design Decision 4: the override is conditional, so a flat +1 would
-    // over-count a doctor who was already working the slot.
+    // the override is conditional, so a flat +1 would over-count a
+    // doctor who was already working the slot.
     expect(
       totalFor(MONDAY, "AM", {
         pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "extra_session"]]),

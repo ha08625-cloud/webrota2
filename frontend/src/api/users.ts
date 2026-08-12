@@ -10,9 +10,8 @@ export const userKeys = {
 
 /**
  * PATCH /users/me - the one user-management call open to every access
- * level (role-based auth, Design Decision 4). Without it a doctor or
- * nurse could not change their own password at all, since /users is
- * manager-only.
+ * level. Without it a doctor or nurse could not change their own
+ * password at all, since /users is manager-only.
  *
  * No cache invalidation on success, deliberately: a password change
  * deletes every session for the caller, including this one, so the next

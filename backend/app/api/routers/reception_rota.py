@@ -10,7 +10,7 @@ enough to distinguish "never generated" from "generated, then emptied".
 
 Regenerating over an edited day is refused (409) rather than silently
 overwritten -- DELETE /{id} then POST "" again is the only path back to a
-fresh copy (Decision 6). The frontend puts a confirm dialog on that
+fresh copy. The frontend puts a confirm dialog on that
 delete-then-generate sequence; the server enforces no part of the confirm
 itself.
 
@@ -100,12 +100,11 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     """One issue per (day, hour) where the rota's phones headcount falls
     short of the coverage rule. The rule map is loaded once for the rota's
     weekday; counts come off `rota.sessions` (already loaded, not re-queried
-    per hour). A (day, hour) with no rule row emits nothing (Decision 8).
-    Always severity="warning" -- nothing in this feature blocks.
+    per hour). A (day, hour) with no rule row emits nothing. Always
+    severity="warning" -- nothing in this feature blocks.
 
     Staff on leave for the rota's date are excluded from the headcount,
-    which is the whole of what reception leave does (Decision 10, formerly
-    a documented limitation). Their session rows are untouched and still
+    which is the whole of what reception leave does. Their session rows are untouched and still
     returned by every read -- ReceptionRotaOut.staff_on_leave carries the
     same ids so the grid can dim them, since a warning counting fewer
     staff than the grid visibly shows would otherwise read as a bug."""
@@ -164,7 +163,7 @@ def generate_rota(
     Weekend dates are rejected by ReceptionRotaGenerateIn's validator
     (422) before this runs. An existing header for the date is a 409
     naming it -- regenerating never silently overwrites hand-edited rows;
-    DELETE the existing rota first (Decision 6)."""
+    DELETE the existing rota first."""
     existing = db.execute(
         select(ReceptionRota).where(ReceptionRota.date == payload.date)
     ).scalars().first()
@@ -307,12 +306,12 @@ def delete_session(
     user: dict = Depends(get_current_user),
 ) -> None:
     """Remove a staff member from an hour -- still the per-slot absence
-    mechanism (Decision 10), and the only one with half-hour precision:
-    reception leave is whole-day, so "off from 2pm" is expressed here (or
-    by tagging the slots `not_working`), not on the leave page. Coverage
-    counts anyone with a remaining `phones` row unless they are on leave
-    for the whole date. 204 with no body; the frontend refetches the day
-    rather than splicing the response, since issues need recomputing too
+    mechanism, and the only one with half-hour precision: reception leave
+    is whole-day, so "off from 2pm" is expressed here (or by tagging the
+    slots `not_working`), not on the leave page. Coverage counts anyone
+    with a remaining `phones` row unless they are on leave for the whole
+    date. 204 with no body; the frontend refetches the day rather than
+    splicing the response, since issues need recomputing too
     and this is an infrequent action."""
     _get_rota_or_404(db, rota_id)
     session = _get_session_or_404(db, rota_id, session_id)
@@ -330,7 +329,7 @@ def delete_rota(
     cascade="all, delete-orphan" on ReceptionRota.sessions). Backs the
     UI's regenerate-behind-a-confirm -- there is no force/regenerate flag,
     just delete-then-POST, and the confirm dialog is where the user is
-    told edits will be lost (Decision 6)."""
+    told edits will be lost."""
     rota = _get_rota_or_404(db, rota_id)
     db.delete(rota)
     db.commit()

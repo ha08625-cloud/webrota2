@@ -5,9 +5,9 @@ clinical headcount, and a batched write applying leave / extra-session /
 blocked / clear actions in one transaction.
 
 Deliberately a separate module from `leave.py` rather than an extension of
-it (annual leave planning, Design Decision 11) -- `/leave` remains the
-ad-hoc, one-off path during the year, and its range-shaped schemas have
-nothing in common with the cell-shaped ones here.
+it -- `/leave` remains the ad-hoc, one-off path during the year, and its
+range-shaped schemas have nothing in common with the cell-shaped ones
+here.
 """
 import datetime
 from typing import Literal
@@ -42,11 +42,10 @@ PlanningSkipReason = Literal[
 class CoverageSlotOut(BaseModel):
     """Clinical headcount for one (date, period).
 
-    `headcount` counts Partner and Salaried doctors only (Design Decision
-    2) whose effective session type is REQUIRES_ROOM or PRE_ASSIGNED
-    (Design Decision 3). A closed slot always reports `headcount=0`
-    alongside `is_closed=True` (Design Decision 5) -- the grid renders that
-    as "-", not as "uncovered".
+    `headcount` counts Partner and Salaried doctors only whose
+    effective session type is REQUIRES_ROOM or PRE_ASSIGNED. A
+    closed slot always reports `headcount=0` alongside `is_closed=True` --
+    the grid renders that as "-", not as "uncovered".
     """
 
     date: datetime.date
@@ -73,8 +72,8 @@ class PlanningBulkIn(BaseModel):
 class PlanningSkippedOut(BaseModel):
     """One action the batch declined to apply, and why.
 
-    Skipping rather than failing is the whole point (Design Decision 8):
-    one stale cell must not 422 a 200-cell save.
+    Skipping rather than failing is the whole point: one stale cell must
+    not 422 a 200-cell save.
     """
 
     doctor_id: int

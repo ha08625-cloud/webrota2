@@ -170,8 +170,8 @@ export function makeClosure(overrides: Partial<Closure> = {}): Closure {
   };
 }
 
-/** A full-day closure: two rows sharing a date, per the half-day closures
- * plan's Decision 1 (no "full day" special case in the data model). */
+/** A full-day closure: two rows sharing a date - there is no
+ * "full day" special case in the data model. */
 export function makeFullDayClosure(overrides: Partial<Omit<Closure, "id" | "period">> = {}): Closure[] {
   return [
     makeClosure({ ...overrides, period: "AM" }),

@@ -8,9 +8,8 @@ Adds a single non-nullable boolean column, default False. Unlike 002's
 template_type (nullable, no backfill needed), this table already has rows
 in any deployed environment, so a server_default is required at add-column
 time -- existing rows backfill to False, which is the correct reading:
-pre-migration rotas genuinely have no supervision recorded (Phase 9C
-implementation plan, Decision 7 -- this is accepted as correct, not a
-migration artifact to paper over).
+pre-migration rotas genuinely have no supervision recorded -- this is accepted as
+correct, not a migration artifact to paper over.
 
 No enum involved, so none of 001/002's enum-type-reuse handling applies.
 """

@@ -136,7 +136,7 @@ function ClinicalShell() {
           </NavLink>
           {/* Open to every access level - /users is manager-only, so this
               is the only way a doctor or nurse can change their own
-              password (role-based auth, Design Decision 4). */}
+              password. */}
           <ChangePasswordDialog />
           <button
             type="button"
@@ -212,7 +212,7 @@ function SignaturesShell() {
           </NavLink>
           {/* Open to every access level - /users is manager-only, so this
               is the only way a doctor or nurse can change their own
-              password (role-based auth, Design Decision 4). */}
+              password. */}
           <ChangePasswordDialog />
           <button
             type="button"
@@ -244,7 +244,7 @@ function ReceptionShell() {
           </NavLink>
           {/* Open to every access level - /users is manager-only, so this
               is the only way a doctor or nurse can change their own
-              password (role-based auth, Design Decision 4). */}
+              password. */}
           <ChangePasswordDialog />
           <button
             type="button"

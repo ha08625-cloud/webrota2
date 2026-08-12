@@ -1,15 +1,15 @@
 """Inserts a signature image into a docx's signature table cell.
 
-Table targeting is positional and deliberately brittle (signatures feature
-plan, Decision 2): document.tables[0], last row, cell index 0. Every
-assumption is asserted explicitly and a violation raises DocumentFormatError
-with a message aimed at a non-technical admin -- there is no content
-scanning or heuristic fallback, on the view that a wrong-but-silent
-insertion into an unrelated cell is worse than a loud failure.
+Table targeting is positional and deliberately brittle: document.tables[0],
+last row, cell index 0. Every assumption is asserted explicitly and a
+violation raises DocumentFormatError with a message aimed at a non-technical
+admin -- there is no content scanning or heuristic fallback, on the view
+that a wrong-but-silent insertion into an unrelated cell is worse than a
+loud failure.
 
-The target cell is confirmed empty in the real documents (Decision 3): the
-image is added to the cell's existing first paragraph via add_run(), with
-no clearing or paragraph creation.
+The target cell is confirmed empty in the real documents: the image is
+added to the cell's existing first paragraph via add_run(), with no
+clearing or paragraph creation.
 """
 import io
 import zipfile

@@ -82,7 +82,7 @@ class TestBuildFirstOpenWeekday:
 
     def test_half_closed_monday_is_not_fully_open_first_open_is_tuesday(self):
         """A day with only one period closed cannot host secondary duty
-        (Decision 4) -- it is skipped just like a fully closed day."""
+ -- it is skipped just like a fully closed day."""
         start = datetime.date(2026, 1, 5)
         week_dates = build_week_dates(start, 1)
         closed = frozenset({(start, Period.PM)})
@@ -329,7 +329,7 @@ class TestPhase12ClosureAwareDutyCoverage:
     def test_pm_only_closure_on_monday_still_moves_secondary_to_tuesday(
         self, session, config_1wk, monday
     ):
-        """A half-closed Monday is not fully open (Decision 4), so
+        """A half-closed Monday is not fully open, so
         secondary duty still relocates to Tuesday even though Monday AM is
         available."""
         t = make_template(session, is_active=True)

@@ -5,10 +5,10 @@ Revises: 026
 Create Date: 2026-08-06 00:00:00
 
 Widens RECEPTION_FIRST_HOUR/RECEPTION_LAST_HOUR from 8.0/17.5 to 7.5/18.0 --
-see "Hour model (Decision 2)" in documentation/architecture-reception.md:
-"widening the practice's opening hours is a migration (widening the check
-constraint) plus inserting new reception_coverage_rules rows for the added
-hours, not a configuration change."
+see "Hour model" in documentation/architecture-reception.md: "widening the
+practice's opening hours is a migration (widening the check constraint) plus
+inserting new reception_coverage_rules rows for the added hours, not a
+configuration change."
 
 Only the check constraint on reception_master_sessions/reception_rota_sessions/
 reception_coverage_rules widens -- the column type (Float) and half-hour-step
@@ -20,7 +20,7 @@ reception_coverage_rules is additionally seeded with a row per weekday for
 each of the two new slots (7.5 and 18.0), min_phones_staff=2, matching
 seed_reception_coverage.py's default for a non-busy slot -- without this, the
 two new slots would silently have no coverage minimum (a missing (day, hour)
-row reads as "no minimum", per Decision 8) rather than the same baseline
+row reads as "no minimum") rather than the same baseline
 staffing floor as every other quiet slot in the day.
 """
 from typing import Sequence, Union

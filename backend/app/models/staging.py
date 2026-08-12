@@ -9,8 +9,7 @@ template itself is never touched.
 `completed_at` (nullable, matching GeneratedRota.committed_at/archived_at)
 is the lifecycle marker: null means active, set means completed. "Active
 staging exists" is a direct query against this column, independent of
-whatever later happens to the GeneratedRota produced from it (Design
-Decision 2 in the plan).
+whatever later happens to the GeneratedRota produced from it.
 
 `config_id` is unique: at most one staging per RotaConfig, and in practice
 at most one active staging globally (enforced in app logic via
@@ -18,8 +17,7 @@ get_active_staging(), not the schema).
 
 `source_template_id` is stored so the staging branch in load_context() can
 load the template by id (ignoring is_active), so deactivating or adding
-templates after staging create cannot brick an in-progress staging
-(Design Decision 5).
+templates after staging create cannot brick an in-progress staging.
 
 `source_template_start_week` records the template week the copy started
 from. routers/staging.py applies the requested start week at copy time and
@@ -28,9 +26,9 @@ the invariant that makes week_map.template_week() the identity for a staged
 run and lets Phases 0-12 run unchanged. That normalisation destroys the only
 other record of the real anchor, so this column is it. Recurring-note week
 resolution depends on it: a note scoped to template weeks {1,3} must fire on
-the correct real-world fortnight, not on staging *generation* weeks 1 and 3
-(recurring notes plan, Design Decision 5). Set at staging create; read by
-engine/context.py, which is the only staging-aware code in the engine.
+the correct real-world fortnight, not on staging *generation* weeks 1 and 3.
+Set at staging create; read by engine/context.py, which is the only
+staging-aware code in the engine.
 
 RotaStagingSession mirrors MasterRotaSession's shape exactly, replacing
 template_id with staging_id. Real dates are not stored here - week/day/

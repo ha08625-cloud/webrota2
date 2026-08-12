@@ -11,8 +11,8 @@ doctor_signatures holds one signature image per doctor: image bytes as
 LargeBinary (bytea on Postgres), content_type ("image/jpeg" or
 "image/png"), and uploaded_at (set by the router at write time, no
 server_default -- see the model docstring). unique(doctor_id) enforces one
-signature per doctor at the schema level, not just in the router -- see the
-signatures feature plan, Decision 1. The unique constraint also serves as
+signature per doctor at the schema level, not just in the router.
+The unique constraint also serves as
 the lookup index, so no separate op.create_index call is needed.
 """
 from typing import Sequence, Union

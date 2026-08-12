@@ -12,9 +12,9 @@ SUNDAY = datetime.date(2026, 1, 11)
 
 
 class TestLeaveDoctorWindow:
-    """Employment window enforcement on the leave entry endpoints (annual
-    leave planning, Task 1, Design Decision 8): the single-entry POST 422s,
-    the bulk POST reports a skip and still inserts the rest."""
+    """Employment window enforcement on the leave entry endpoints: the
+    single-entry POST 422s, the bulk POST reports a skip and still inserts
+    the rest."""
 
     def _set_window(self, client, doctor_id, **dates):
         resp = client.patch(f"/api/v1/doctors/{doctor_id}", json={
@@ -221,7 +221,7 @@ class TestDuty:
     ):
         """A primary duty on the open half of a half-closed day is accepted
         -- only the assignment's own (date, period) is checked, not the
-        whole date (closures plan, Design Decision 5)."""
+        whole date."""
         from app.models import PracticeClosure
         db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
         db_session.commit()
@@ -257,7 +257,7 @@ class TestDuty:
         """Monday is half-closed (PM only) -- Monday AM is itself an open
         slot, but Monday is not a *fully* open weekday, so secondary duty
         must move to Tuesday (the first day with neither period closed),
-        not stay on Monday (closures plan, Design Decision 4)."""
+        not stay on Monday."""
         from app.models import PracticeClosure
         db_session.add(PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.PM))
         db_session.commit()
@@ -292,8 +292,8 @@ class TestDuty:
 
 
 class TestDutyDoctorWindow:
-    """Employment window enforcement on POST /duty (annual leave planning,
-    Task 2, Design Decision 7): a DB-backed 422 in the router, mirroring
+    """Employment window enforcement on POST /duty: a DB-backed 422
+    in the router, mirroring
     Phase 0's duty_outside_doctor_dates hard error."""
 
     def _set_window(self, client, doctor_id, **dates):

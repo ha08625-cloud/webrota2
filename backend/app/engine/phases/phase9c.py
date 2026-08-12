@@ -90,7 +90,7 @@ def count_supervisable_trainees(
 
     A trainee counts iff their slot exists, doctor_type == TRAINEE, not on
     leave, not WFH, and template_type is not NO_SURGERY/ADMIN_TIME. No room
-    criterion (Decision 5, confirmed): holding a role, or sitting in a C/W
+    criterion: holding a role, or sitting in a C/W
     room, does not remove the need for supervision.
     """
     count = 0
@@ -108,8 +108,8 @@ def count_supervisable_trainees(
 
 def is_eligible_supervisor(context: GenerationContext, grid: RotaGrid, slot: SessionSlot) -> bool:
     """True iff `slot` may supervise: Partner/Salaried, unclaimed by any
-    role (this excludes duty doctors, clinics, and -- per Decision 1 --
-    duty helpers, since a duty helper holds role=CLINIC), not on leave, not
+    role (this excludes duty doctors, clinics, and duty
+    helpers, since a duty helper holds role=CLINIC), not on leave, not
     WFH, not NO_SURGERY/ADMIN_TIME, and on-site in a D or SR room.
     """
     doctor = context.doctor_by_id.get(slot.doctor_id)

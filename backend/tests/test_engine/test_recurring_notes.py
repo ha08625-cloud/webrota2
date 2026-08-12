@@ -1,10 +1,9 @@
 """Recurring notes: engine-level tests for the Task 3 wiring.
 
-Covers context.load_context()'s week resolution (including the staging
-anchor fix, Design Decision 5) and multi-note concatenation, Phase 2's
-stamping of SessionSlot.notes, and the full pipeline through generate()/
-rebuild_rota_grid(), proving a stamped note is a default value only --
-never re-derived on rebuild (recurring notes plan, Design Decisions 6-10).
+Covers context.load_context()'s week resolution and multi-note
+concatenation, Phase 2's stamping of SessionSlot.notes, and the full
+pipeline through generate()/ rebuild_rota_grid(), proving a stamped note
+is a default value only -- never re-derived on rebuild.
 
 Tasks 1 and 2 (models, schemas, API) are covered by
 test_api/test_recurring_notes.py; this file is engine-only.
@@ -106,10 +105,10 @@ class TestContextWeekResolution:
     def test_staged_run_resolves_weeks_against_source_template_start_week(
         self, session, monday
     ):
-        """A staged config always persists template_start_week=1 (staging
-        plan, Design Decision 4), so week resolution must use
-        RotaStaging.source_template_start_week instead (recurring notes
-        plan, Design Decision 5) -- otherwise a fortnightly note would land
+        """A staged config always persists template_start_week=1, so week
+        resolution must use
+        RotaStaging.source_template_start_week instead -- otherwise a
+        fortnightly note would land
         on the wrong real-world fortnight during holiday cover."""
         d = make_doctor(session, code="AA")
         make_recurring_note(session, doctor_ids=[d.id], template_weeks=[1, 3])
@@ -235,7 +234,7 @@ class TestEndToEndPersistence:
 
         # Clearing the note on the draft grid and rebuilding must not
         # restore it -- rebuild_rota_grid() trusts the persisted value and
-        # never re-derives it from recurring notes (Design Decision 7).
+        # never re-derives it from recurring notes.
         row.notes = None
         session.flush()
 

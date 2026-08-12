@@ -8,21 +8,20 @@ Two endpoints backing the month-at-a-time planning grid:
 * `POST /leave-planning/bulk` -- one transaction applying a batch of
   leave / extra-session / clear actions.
 
-A new router rather than an extension of `/leave` (Design Decision 11):
-`/leave` and `/extra-sessions` remain the ad-hoc, one-off path during the
-year and are untouched by this file.
+A new router rather than an extension of `/leave`: `/leave` and
+`/extra-sessions` remain the ad-hoc, one-off path during the year and are
+untouched by this file.
 
 Two asymmetries this module inherits and must not paper over:
 
 * Leave and extra sessions are not equivalent. Leave is read live by the
-  engine on every run; an extra session is applied *once*, in the
-  `POST /staging` copy loop, and is conditional on the template row being
-  overridable (Design Decision 4). So the coverage calculation applies the
-  same override table `routers/staging.py` does -- importing its
-  `_OVERRIDABLE_TYPES` rather than redeclaring it -- instead of a flat +1.
-* Adding leave releases draft rooms; clearing it does not restore them
-  (Design Decision 10), matching both `/leave/bulk-delete` and the WFH
-  behaviour.
+engine on every run; an extra session is applied *once*, in the `POST
+/staging` copy loop, and is conditional on the template row being
+overridable. So the coverage calculation applies the same override table
+`routers/staging.py` does -- importing its `_OVERRIDABLE_TYPES` rather
+than redeclaring it -- instead of a flat +1.
+* Adding leave releases draft rooms; clearing it does not restore
+them, matching both `/leave/bulk-delete` and the WFH behaviour.
 
 Blocked (clinical rota, "Blocked" annual planner option) is a third,
 independent cell state for things like a whole-day training session: the
@@ -74,20 +73,20 @@ from .staging import _OVERRIDABLE_TYPES
 router = APIRouter(prefix="/leave-planning", tags=["leave-planning"])
 
 # The two template types that mean "this doctor is clinically working this
-# slot" (Design Decision 3). NO_SURGERY / ADMIN_TIME / WFH / no template
-# row all count as zero -- exactly the set `_OVERRIDABLE_TYPES` (plus
-# absence) converts *into* REQUIRES_ROOM, so the two halves of the grid
-# agree with each other by construction.
+# slot". NO_SURGERY / ADMIN_TIME / WFH / no template row all count as zero
+# -- exactly the set `_OVERRIDABLE_TYPES` (plus absence) converts *into*
+# REQUIRES_ROOM, so the two halves of the grid agree with each other by
+# construction.
 _COUNTED_TYPES = frozenset({
     MasterSessionType.REQUIRES_ROOM,
     MasterSessionType.PRE_ASSIGNED,
 })
 
-# Rows the planning grid renders and totals (Design Decision 2). Applied
-# server-side here and client-side in the row build, so the on-screen
-# total always equals the sum of the visible rows. Deliberately NOT
-# applied to the bulk write endpoint below, which is a generic write path
-# with no reason to refuse a Trainee.
+# Rows the planning grid renders and totals. Applied server-side here and
+# client-side in the row build, so the on-screen total always equals the
+# sum of the visible rows. Deliberately NOT applied to the bulk write
+# endpoint below, which is a generic write path with no reason to refuse
+# a Trainee.
 _PLANNING_DOCTOR_TYPES = frozenset({DoctorType.PARTNER, DoctorType.SALARIED, DoctorType.LOCUM})
 
 
@@ -129,7 +128,7 @@ def get_coverage(
     Read-only, and deliberately live: closures, leave, extra sessions and
     the employment window are all read from their current tables. This is
     forward planning, not the rendering of an existing rota, so there is no
-    snapshot to prefer (Design Decision 5).
+    snapshot to prefer.
     """
     if from_date > to_date:
         raise HTTPException(
@@ -184,9 +183,8 @@ def get_coverage(
                 slot = (doctor.id, day, period)
                 if slot in leave or slot in blocked:
                     # Leave and blocked both mean "not covering" and skip
-                    # the extra-session override entirely (extra sessions
-                    # plan, Design Decision 6; blocked is treated the same
-                    # way for coverage purposes only -- see module
+                    # the extra-session override entirely (blocked is
+                    # treated the same way for coverage purposes only -- see module
                     # docstring).
                     continue
                 if not is_within_window(doctor, day):
@@ -242,9 +240,9 @@ def apply_planning_bulk(
     """Apply a batch of planning-grid edits in one transaction.
 
     Actions are applied in a fixed order -- **clears, then leave, then
-    blocked, then extra sessions** (Design Decision 9) -- so a batch
-    touching more than one side of a slot resolves deterministically along
-    the leave > blocked > extra_session precedence (see module docstring).
+    blocked, then extra sessions** -- so a batch touching more than one
+    side of a slot resolves deterministically along the leave > blocked >
+    extra_session precedence (see module docstring).
 
     Nothing here 409s on a state that already matches: the grid sends the
     state it wants, so setting leave where leave already exists is a
@@ -255,8 +253,7 @@ def apply_planning_bulk(
     -- never deleted, never blocked -- exactly as `create_leave_bulk` does.
 
     Unlike the single-entry endpoints, an out-of-window action is a skip
-    rather than a 422 (Design Decision 8): one stale cell must not fail a
-    200-cell save.
+    rather than a 422: one stale cell must not fail a 200-cell save.
     """
     if not payload.actions:
         return PlanningBulkOut(applied=0, skipped=[], superseded_extra_sessions=[])
@@ -338,8 +335,7 @@ def apply_planning_bulk(
     # --- 1. Clears -----------------------------------------------------
     # All three row types are keyed on the same (doctor_id, date, period)
     # triple, so a clear removes whichever of them exists with nothing to
-    # disambiguate. Draft rooms are deliberately not restored (Design
-    # Decision 10).
+    # disambiguate. Draft rooms are deliberately not restored.
     for action in (a for a in payload.actions if a.action == "clear"):
         key = (action.doctor_id, action.date, action.period)
         removed = False

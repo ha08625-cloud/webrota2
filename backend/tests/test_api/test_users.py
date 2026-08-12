@@ -66,8 +66,8 @@ def _seed_user_directly(
 ):
     """Insert a user row without going through the API -- used only to
     bootstrap the first real login session a test needs, since POST
-    /users itself requires an existing authenticated user (by design,
-    auth plan Design Decision 8). Defaults to MANAGER, matching what
+    /users itself requires an existing authenticated user. Defaults
+    to MANAGER, matching what
     seed/seed_users.py creates."""
     user = User(
         email=email,
@@ -293,8 +293,8 @@ class TestPasswordReset:
 
 
 class TestLockOutGuard:
-    """The guard counts active MANAGERS, not active users (role-based auth,
-    Design Decision 5). Both routes to zero of them -- deactivation and
+    """The guard counts active MANAGERS, not active users. Both
+    routes to zero of them -- deactivation and
     demotion -- are blocked, because guarding only the first would leave an
     identical lock-out one PATCH away."""
 

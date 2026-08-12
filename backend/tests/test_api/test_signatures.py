@@ -247,7 +247,7 @@ class TestApply:
 
     def test_apply_pdf_upload_422(self, client, db_session):
         """A PDF is neither a zip nor RTF, so it never reaches either
-        transform -- the sniff rejects it (rtf/pdf plan, Decision 2)."""
+        transform -- the sniff rejects it."""
         doctor_id = _make_doctor(db_session)
         client.post(
             f"/api/v1/signatures/{doctor_id}",
@@ -352,7 +352,7 @@ class TestApplyRtf:
         assert resp.json()["detail"] == "No signature stored for this doctor"
 
     def test_conversion_failure_502(self, client, db_session, monkeypatch):
-        """A converter failure is ours, not the admin's (Decision 10), and
+        """A converter failure is ours, not the admin's, and
         the converter's own text stays in the log."""
         doctor_id = self._prepare(client, db_session)
 

@@ -940,11 +940,11 @@ describe("RotaDetailPage", () => {
       expect(await screen.findByTestId("home-probe")).toBeInTheDocument();
     });
 
-    // The rollback-eligibility shift onto the previous commit once this
-    // one is force-deleted is covered at the hook level (list invalidation,
+    // The rollback-eligibility shift onto the previous commit once this one
+    // is force-deleted is covered at the hook level (list invalidation,
     // useForceDeleteRota's own test) and at the
-    // isMostRecentRollbackableCommit unit level (Design Decision 10) -
-    // recreating the full MSW handler swap here would mostly duplicate
-    // those without adding coverage of anything specific to this page.
+    // isMostRecentRollbackableCommit unit level - recreating the full MSW
+    // handler swap here would mostly duplicate those without adding
+    // coverage of anything specific to this page.
   });
 });

@@ -4,9 +4,8 @@ ClinicType is the configurable unit for all assignment slots: school clinics,
 college clinics, care homes, duty helpers, and any future type. Children are
 seeded empty in M1 and populated via the API (M3) / frontend (M4).
 
-Clinic counters are shared-only (one counter per doctor per clinic type) — see
-python_roadmap_updated.md Design Decisions for the reversal of the earlier
-per_slot counter design considered in M1.
+Clinic counters are shared-only (one counter per doctor per clinic type). The
+per_slot counter design considered in M1 was reversed before M2.
 """
 from sqlalchemy import (
     Boolean,

@@ -43,7 +43,7 @@ def login(body: LoginIn, db: Session = Depends(get_db)) -> LoginOut:
         raise HTTPException(status_code=401, detail=_INVALID_CREDENTIALS_DETAIL)
 
     # Lazily sweep this user's expired sessions rather than running a cron
-    # job (auth plan, Design Decision 4).
+    # job.
     now = datetime.datetime.now(datetime.timezone.utc)
     db.execute(
         delete(UserSession).where(

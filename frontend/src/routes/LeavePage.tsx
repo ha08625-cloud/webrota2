@@ -234,10 +234,9 @@ export function LeavePage() {
     if (weekends > 0) parts.push(`${weekends} weekend slots skipped`);
     let summary = `${parts.join(", ")}.`;
     if (supersededDates.length > 0) {
-      // Warning, not an error - the leave was created successfully
-      // (extra sessions plan, Design Decision 7). Nothing is deleted
-      // automatically; the admin decides whether to remove the planned
-      // extra sessions on the Extra Sessions page.
+      // Warning, not an error - the leave was created successfully.
+      // Nothing is deleted automatically; the admin decides whether to
+      // remove the planned extra sessions on the Extra Sessions page.
       summary += ` Warning: this leave supersedes ${supersededDates.length} planned extra session${
         supersededDates.length === 1 ? "" : "s"
       } (${supersededDates.join(", ")}) - review them on the Extra Sessions page.`;

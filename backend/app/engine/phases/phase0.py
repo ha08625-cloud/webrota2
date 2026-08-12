@@ -210,7 +210,7 @@ def _check_duty_on_closed_date(context: GenerationContext) -> list[ValidationIss
 
 def _check_duty_within_doctor_dates(context: GenerationContext) -> list[ValidationIssue]:
     """Error if a pre-planned duty falls outside the doctor's employment
-    window (annual leave planning, Design Decision 7).
+    window.
 
     Same tier as duty-on-leave and duty-on-closed-date: Phase 2 builds no
     slot for an out-of-window (doctor, date), so the duty has nothing to

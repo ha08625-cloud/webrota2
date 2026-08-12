@@ -2,8 +2,8 @@
 
 A planned extra session for a doctor on a specific weekday date/period,
 applied once at staging-creation time to override the master template row
-for that slot (extra sessions plan, Design Decisions 1-2). Structurally
-identical to LeaveEntry -- see that model for the pattern this mirrors.
+for that slot. Structurally identical to LeaveEntry -- see that model for
+the pattern this mirrors.
 """
 from sqlalchemy import Date, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column

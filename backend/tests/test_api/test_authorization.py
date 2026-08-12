@@ -181,7 +181,7 @@ class TestManagerTier:
 
 
 class TestSignatureApplyIsGated:
-    """Design Decision 3: POST /signatures/{doctor_id}/apply writes nothing
+    """POST /signatures/{doctor_id}/apply writes nothing
     -- it returns a generated PDF -- but is gated as a write anyway, because
     an exemption list is a permanent hole in default-deny for one route.
     Pinned explicitly so that reversing the decision is a deliberate edit to

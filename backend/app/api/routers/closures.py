@@ -10,9 +10,9 @@ closure on one period of a date does not block the other period, and the
 duplicate-slot rule (409) is keyed on (date, period), not date alone.
 
 Deleting a closure here never touches RotaClosure: that table is a
-per-rota snapshot taken at generation time (M5 Decision 4), independent by
-design, so removing a PracticeClosure has no effect on any rota already
-generated over it -- see grid_utils.rebuild_rota_grid().
+per-rota snapshot taken at generation time, independent by design, so
+removing a PracticeClosure has no effect on any rota already generated
+over it -- see grid_utils.rebuild_rota_grid().
 """
 from __future__ import annotations
 

@@ -6,8 +6,8 @@
  * `TFontContainer` (`{ vfs, fonts }`), so declaring that here is exact,
  * not a convenience `any`.
  *
- * Only Helvetica is declared: it is the one the rota PDF export uses
- * (Design Decision 2). Add the others here if a future export needs them.
+ * Only Helvetica is declared: it is the one the rota PDF export uses. Add
+ * the others here if a future export needs them.
  */
 declare module "pdfmake/build/standard-fonts/Helvetica" {
   import type { TFontContainer } from "pdfmake/interfaces";

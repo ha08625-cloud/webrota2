@@ -72,8 +72,8 @@ describe("RotaPage", () => {
 
   it("prefers the draft banner over the staging banner when both somehow exist", async () => {
     // A rollback_commit can produce a draft while a staging is still
-    // active (staging plan, Design Decision 7) - the draft banner takes
-    // precedence since a draft is the more immediately actionable state.
+    // active - the draft banner takes precedence since a draft is the
+    // more immediately actionable state.
     server.use(
       http.get("/api/v1/rota", () => HttpResponse.json([makeRotaSummary({ rota_id: 5, status: "draft" })])),
       http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 9 }))),

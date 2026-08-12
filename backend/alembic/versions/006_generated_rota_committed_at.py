@@ -10,13 +10,12 @@ pattern, because null has a defined, permanent meaning here rather than
 being a temporary backfill gap.
 
 Existing committed rotas (any environment) read as committed_at = NULL.
-Per the rollback-of-committed-rotas plan (Decision 3), NULL is a hard
-block on rollback, not "rollback from the beginning of time": those rows
-had their counter snapshots deleted at commit time under the pre-006
-lifecycle, so there is nothing to restore from and rollback_commit() must
-refuse them. This is intentional and requires no data migration --
-correctness comes from rollback_commit()'s guard, not from backfilling a
-value here.
+Per the rollback-of-committed-rotas plan, NULL is a hard block on
+rollback, not "rollback from the beginning of time": those rows had their
+counter snapshots deleted at commit time under the pre-006 lifecycle, so
+there is nothing to restore from and rollback_commit() must refuse them.
+This is intentional and requires no data migration -- correctness comes
+from rollback_commit()'s guard, not from backfilling a value here.
 
 No enum involved, so none of 001/002's enum-type-reuse handling applies.
 """

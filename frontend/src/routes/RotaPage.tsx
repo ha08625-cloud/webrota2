@@ -180,9 +180,8 @@ function StartStagingForm({
     event.preventDefault();
 
     // Staging create applies template_start_week once at copy time, to
-    // pick which template weeks get copied, then discards it (staging
-    // plan, Design Decision 4) - the persisted RotaConfig always stores
-    // template_start_week=1.
+    // pick which template weeks get copied, then discards it - the
+    // persisted RotaConfig always stores template_start_week=1.
     const payload: CreateStagingIn = {
       start_date: startDate,
       num_weeks: numWeeks,
@@ -294,7 +293,7 @@ export function RotaPage() {
 
   // Purely client-side split on archived_at - the API returns committed
   // and archived rotas in the same list (architecture decision: no query
-  // param, no server-side filtering - see the archive plan's Decision 8).
+  // param, no server-side filtering).
   const unarchived = committed.filter((r) => r.archived_at === null);
   const archived = committed.filter((r) => r.archived_at !== null);
   const visibleHistory = historyTab === "committed" ? unarchived : archived;

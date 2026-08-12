@@ -108,7 +108,7 @@ class TestInsertSignatureRtf:
         assert result.index(b"{{\\pict") == anchor_end
 
     def test_insertion_is_in_the_body_not_the_stylesheet(self, sample_rtf):
-        """Regression test for the anchor's \\par (Decision 3): a bare
+        """Regression test for the anchor's \\par: a bare
         "Signature" search hits the stylesheet's "Signature;" and
         "E-mail Signature;" style names first. This is what stops a future
         simplification of the anchor regex from splicing into the style

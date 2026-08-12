@@ -125,7 +125,7 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
               </select>
               {/* Demoting the last active manager is a 409 from the
                   server, surfaced as formError like any other save
-                  failure (role-based auth, Design Decision 5). */}
+                  failure. */}
               {fieldErrors.access_level ? (
                 <p className="mt-1 text-xs text-red-700">{fieldErrors.access_level}</p>
               ) : null}

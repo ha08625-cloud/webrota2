@@ -33,10 +33,10 @@ export function useBlockedEntries() {
  *
  * Read-only and deliberately live - closures, leave, extra sessions and
  * the employment window are all read from their current tables, since
- * this is forward planning rather than the rendering of an existing rota
- * (Design Decision 5). The planning page recomputes the same numbers
- * client-side for unsaved edits (see lib/planningMonth.ts), so this
- * query is the baseline, not the whole answer on screen.
+ * this is forward planning rather than the rendering of an existing
+ * rota. The planning page recomputes the same numbers client-side for
+ * unsaved edits (see lib/planningMonth.ts), so this query is the
+ * baseline, not the whole answer on screen.
  */
 export function useCoverage(fromDate: string, toDate: string) {
   return useQuery({

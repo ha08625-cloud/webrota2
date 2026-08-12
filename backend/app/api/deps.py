@@ -24,19 +24,18 @@ per-endpoint dependency: with ~78 non-GET endpoints across 22 routers,
 per-endpoint gating would be default-OPEN -- the next POST anyone adds
 would be world-writable until somebody remembered the dependency, and no
 test would catch it. Attaching it at inclusion time makes a new router,
-and a new endpoint on an existing router, default-DENY for viewers
-(role-based auth plan, Design Decision 2). Router-level `dependencies=`
-on the APIRouter objects themselves would not work either: every router
-mixes reads and writes, so the discrimination has to happen inside the
-dependency, off request.method.
+and a new endpoint on an existing router, default-DENY for viewers.
+Router-level `dependencies=` on the APIRouter objects themselves would
+not work either: every router mixes reads and writes, so the
+discrimination has to happen inside the dependency, off request.method.
 
 `require_manager` is method-agnostic and applied per-endpoint in
 routers/users.py, which cannot take the global gate because PATCH
 /users/me has to stay open to every tier.
 
 Reads are open to all four tiers, preserving the pre-existing "everyone
-sees everything" behaviour (Design Decision 6). MANAGER and ADMIN both
-write; DOCTOR and NURSE are permission-identical viewer labels.
+sees everything" behaviour. MANAGER and ADMIN both write; DOCTOR and
+NURSE are permission-identical viewer labels.
 
 Both gates raise 403, not 404: the resource plainly exists (the caller
 can GET it), so hiding its existence buys nothing.
@@ -65,10 +64,9 @@ from ..models.enums import AccessLevel
 _UNAUTHORIZED_DETAIL = "Not authenticated"
 
 # Explicit tier ordering. DOCTOR and NURSE are deliberately equal: they are
-# labels, not distinct permission sets (role-based auth plan, Design
-# Decision 1). Comparing these ints, rather than the enum members, keeps
-# the ordering visible in one place instead of implied by declaration
-# order in AccessLevel.
+# labels, not distinct permission sets. Comparing these ints, rather than
+# the enum members, keeps the ordering visible in one place instead of
+# implied by declaration order in AccessLevel.
 _TIER = {
     AccessLevel.NURSE: 0,
     AccessLevel.DOCTOR: 0,
@@ -143,11 +141,11 @@ def require_write_access(
     everywhere in this codebase bar one endpoint: POST
     /signatures/{doctor_id}/apply mutates nothing -- it splices a stored
     signature into an uploaded document and returns a PDF. It is gated as a
-    write anyway (Design Decision 3): producing an officially signed
-    document is not obviously a viewer action, and an exemption list is a
-    permanent hole in the default-deny property for the sake of one route.
-    If doctors turn out to need self-service signed certificates, the fix is
-    an exempt (method, path) set checked here -- one line, one place.
+    write anyway: producing an officially signed document is not obviously a
+    viewer action, and an exemption list is a permanent hole in the
+    default-deny property for the sake of one route. If doctors turn out to
+    need self-service signed certificates, the fix is an exempt (method,
+    path) set checked here -- one line, one place.
     """
     if request.method in _SAFE_METHODS:
         return user

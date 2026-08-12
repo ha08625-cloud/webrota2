@@ -87,11 +87,11 @@ export interface UserIn {
 /**
  * PATCH /users/{id} body (UserPatch in schemas/auth.py) - every field
  * optional, only supplied fields are applied (exclude_unset). A supplied
- * `password` re-hashes it and deletes every session belonging to that
- * user server-side (routers/users.py) - this is the password-reset
- * mechanism, there is no separate endpoint for it. A `active: false` or an
+ * `password` re-hashes it and deletes every session belonging to that user
+ * server-side (routers/users.py) - this is the password-reset mechanism,
+ * there is no separate endpoint for it. A `active: false` or an
  * `access_level` move off "manager" that would leave zero active managers
- * is rejected with 409 (role-based auth, Design Decision 5).
+ * is rejected with 409.
  */
 export interface UserPatch {
   email?: string;
@@ -285,10 +285,10 @@ export interface Doctor {
    * feature. This is an *additional*, independent gate alongside
    * `active`, not a replacement for it: `active` is the soft-delete flag,
    * the window is a real employment fact, and a doctor only counts as
-   * working on a date when both hold (Design Decision 6). Enforced
-   * server-side at Phase 2, the POST /staging copy loop, and Phase 0 -
-   * the frontend reads these fields to avoid *offering* an out-of-window
-   * cell, never as the enforcement itself.
+   * working on a date when both hold. Enforced server-side at Phase 2,
+   * the POST /staging copy loop, and Phase 0 - the frontend reads these
+   * fields to avoid *offering* an out-of-window cell, never as the
+   * enforcement itself.
    */
   start_date: string | null;
   end_date: string | null;
@@ -384,10 +384,10 @@ export interface LeaveBulkSkipped {
 }
 
 /**
- * Extra sessions superseded by this bulk-add call (extra sessions plan,
- * Task 1, Design Decision 7). Leave is created regardless - nothing here
- * is deleted automatically - this is reporting only, so LeavePage can
- * warn the admin which planned extra sessions may now be stale.
+ * Extra sessions superseded by this bulk-add call. Leave is created
+ * regardless - nothing here is deleted automatically - this is reporting
+ * only, so LeavePage can warn the admin which planned extra sessions may
+ * now be stale.
  */
 export interface LeaveBulkOut {
   created: LeaveEntry[];
@@ -486,9 +486,9 @@ export interface LeaveEntitlementYear {
 }
 
 // --- Extra sessions (schemas/extra_session.py, extra sessions plan) ---
-// Plans a doctor working a session they would not normally work
-// (Task 1). No bulk endpoints (Design Decision 10) - a single date plus
-// period covers the real workflow, unlike leave's date-range semantics.
+// Plans a doctor working a session they would not normally work (Task
+// 1). No bulk endpoints - a single date plus period covers the real
+// workflow, unlike leave's date-range semantics.
 
 export interface ExtraSessionEntry {
   id: number;
@@ -523,17 +523,17 @@ export interface BlockedEntry {
 // --- Leave planning (schemas/leave_planning.py, annual leave planning) ---
 // Backs the month-at-a-time planning grid. Deliberately a separate set of
 // shapes from the range-based leave ones above: /leave stays the ad-hoc,
-// one-off path during the year (Design Decision 11), and these are
-// cell-shaped, not range-shaped.
+// one-off path during the year, and these are cell-shaped, not
+// range-shaped.
 
 /**
  * One (date, period)'s clinical headcount. Counts Partner and Salaried
- * doctors only (Design Decision 2) whose effective session type is
- * requires_room or pre_assigned (Design Decision 3).
+ * doctors only whose effective session type is requires_room or
+ * pre_assigned.
  *
  * A closed slot always reports `headcount: 0` alongside `is_closed: true`
- * (Design Decision 5) - Phase 2 creates no slot on a closed
- * (date, period), so the grid renders that as "-", never as "uncovered".
+ * - Phase 2 creates no slot on a closed (date, period), so the grid
+ * renders that as "-", never as "uncovered".
  */
 export interface CoverageSlot {
   date: string;
@@ -554,8 +554,8 @@ export type PlanningAction = "leave" | "extra_session" | "blocked" | "clear";
 
 /**
  * Why the batch declined one action. Skipping rather than failing is the
- * point (Design Decision 8): one stale cell must not fail a 200-cell
- * save, so none of these are errors - the save succeeded.
+ * point: one stale cell must not fail a 200-cell save, so none of these
+ * are errors - the save succeeded.
  */
 export type PlanningSkipReason =
   | "duplicate"
@@ -657,7 +657,7 @@ export interface ClosedSlot {
 
 // --- Schools and school holidays (schemas/school.py, school holidays plan) ---
 // Global planning data, purely informational - no engine coupling of any
-// kind (Design Decision in school_holidays.md's implementation plan). A
+// kind. A
 // school holiday never suppresses a slot, changes a coverage total, or is
 // snapshotted per-rota; it exists only so the School Holidays page and the
 // Annual Planner's shading can show it. Date ranges, not per-slot rows,
@@ -928,14 +928,13 @@ export interface MasterRotaTemplate {
 // config's start_date), so leave is something the editor can and should
 // show, unlike the dateless master template.
 //
-// is_extra_session (extra sessions plan, Task 2, Design Decision 8) is
-// derived the same way, from ExtraSessionEntry, and means "a planned
-// extra session exists for this doctor/date/period" - not "this row was
-// produced by the override". Those diverge whenever the override did not
-// fire (the template row was already working, leave blocked it, the
-// entry was added after staging started, or the cell was edited back),
-// so the StagingGrid badge is labelled "Extra planned" rather than
-// implying the row's origin.
+// is_extra_session is derived the same way, from ExtraSessionEntry, and
+// means "a planned extra session exists for this doctor/date/period" -
+// not "this row was produced by the override". Those diverge whenever
+// the override did not fire (the template row was already working, leave
+// blocked it, the entry was added after staging started, or the cell was
+// edited back), so the StagingGrid badge is labelled "Extra planned"
+// rather than implying the row's origin.
 
 export interface StagingSession {
   session_id: number;
@@ -955,9 +954,9 @@ export interface StagingSession {
 /**
  * GET /staging/active and the response of every staging write endpoint's
  * underlying staging. completed_at null means active; set means
- * completed (staging plan, Design Decision 2). closed_slots is live
- * PracticeClosure data in the create-to-complete range, not a snapshot
- * (Design Decision 10), period-granular since the half-day closures plan.
+ * completed. closed_slots is live PracticeClosure data in the
+ * create-to-complete range, not a snapshot, period-granular since the
+ * half-day closures plan.
  */
 export interface Staging {
   staging_id: number;

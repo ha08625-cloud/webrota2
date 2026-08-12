@@ -160,7 +160,7 @@ class TestCoverage:
     def test_extra_session_on_requires_room_does_not_double_count(
         self, client, db_session, seeded
     ):
-        """Design Decision 4: the override is conditional. A slot already
+        """the override is conditional. A slot already
         REQUIRES_ROOM is untouched by the extra session -- the doctor was
         already working it -- so a flat +1 would over-count."""
         db_session.add(ExtraSessionEntry(
@@ -629,7 +629,7 @@ class TestBulk:
         assert resp.status_code == 422
 
     def test_trainee_is_a_legal_bulk_target(self, client, db_session, seeded):
-        """The write path is generic (Design Decision 2) -- only the
+        """The write path is generic -- only the
         coverage read is doctor-type filtered."""
         trainee_id = _add_doctor(db_session, "TT", DoctorType.TRAINEE)
 
@@ -701,7 +701,7 @@ class TestBulkReleasesDraftRooms:
         assert self._draft_session(db_session, seeded).room_id is None
 
     def test_clear_does_not_restore_the_room(self, client, db_session, seeded):
-        """Asymmetric by design (Design Decision 10), matching
+        """Asymmetric by design, matching
         /leave/bulk-delete and the WFH behaviour."""
         generate_rota(client)
         db_session.add(LeaveEntry(

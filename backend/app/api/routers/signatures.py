@@ -1,19 +1,16 @@
 """Signatures router (signatures feature, Task 3).
 
 Endpoints are deliberately unscoped by doctor_type -- any doctor_id is
-accepted; the Partner/Salaried filter is frontend-only (signatures feature
-plan, Decision 9). No processed document is ever persisted: /apply reads
-the upload, transforms it in memory via app.documents, and returns bytes
-(Decision 13).
+accepted; the Partner/Salaried filter is frontend-only. No processed
+document is ever persisted: /apply reads the upload, transforms it in
+memory via app.documents, and returns bytes.
 
 /apply serves two document formats, distinguished by sniffing the uploaded
-bytes rather than the extension or the declared MIME type (rtf/pdf plan,
-Decision 2):
+bytes rather than the extension or the declared MIME type:
 
-  .docx  ->  signed .docx, Restrict Editing applied
-  .rtf   ->  signed .pdf; the spliced RTF is an intermediate LibreOffice
-             reads and nobody else sees, and the PDF is a stronger "do not
-             edit this" than the Word password (Decision 11)
+  .docx -> signed .docx, Restrict Editing applied .rtf -> signed .pdf; the
+  spliced RTF is an intermediate LibreOffice reads and nobody else sees,
+  and the PDF is a stronger "do not edit this" than the Word password
 """
 from __future__ import annotations
 
@@ -85,8 +82,7 @@ def _get_signature_or_404(db: Session, doctor_id: int) -> DoctorSignature:
 
 
 def _sniff_format(data: bytes) -> str:
-    """Return "rtf" or "docx" from the leading bytes (rtf/pdf plan,
-    Decision 2).
+    """Return "rtf" or "docx" from the leading bytes.
 
     Neither the extension nor the declared content type is consulted:
     browsers are inconsistent about both, and a renamed file would sail past
@@ -223,7 +219,7 @@ def apply_signature(
 
     # The size cap applies to the upload only. The spliced RTF is larger --
     # hex encoding doubles the image's contribution -- but it is never
-    # returned or stored, so it only affects peak memory (Decision 13).
+    # returned or stored, so it only affects peak memory.
     try:
         if _sniff_format(document_bytes) == "rtf":
             spliced = insert_signature_rtf(
@@ -243,8 +239,8 @@ def apply_signature(
     except DocumentFormatError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ConversionError as exc:
-        # Ours, not theirs (Decision 10): 502, and the detail from the
-        # converter goes to the log rather than the response.
+        # Ours, not theirs: 502, and the detail from the converter
+        # goes to the log rather than the response.
         logger.exception("PDF conversion failed for doctor %s", doctor_id)
         raise HTTPException(status_code=502, detail=_CONVERSION_FAILED_MESSAGE) from exc
 

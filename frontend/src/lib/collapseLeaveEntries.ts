@@ -10,8 +10,7 @@ import { addDays, parseLocalDate } from "./date";
  * Invariants on the returned blocks:
  * - `start_date <= end_date`.
  * - `half_start` / `half_end` are only ever true when `period === "BOTH"`.
- * - Delete-exactness (see LeaveBlock.period doc and Decision 4 of the
- *   implementation plan): for every block, the set of input entries for
+ * Delete-exactness (see the LeaveBlock.period doc): for every block, the set of input entries for
  *   that doctor with `start_date <= date <= end_date` and period matching
  *   the block's expanded periods is exactly the set of entries the block
  *   was built from - never more, never fewer. This holds because a block
@@ -138,7 +137,7 @@ function absorbTrailingAm(
   return { end_date: runs[index - 1].end_date, half_end: false, consumed: 0 };
 }
 
-/** Folds one date run's sub-runs into blocks, per Decision 3. */
+/** Folds one date run's sub-runs into blocks. */
 function foldRunsIntoBlocks(doctorId: number, runs: SubRun[]): LeaveBlock[] {
   const blocks: LeaveBlock[] = [];
   let i = 0;
@@ -208,8 +207,8 @@ function foldRunsIntoBlocks(doctorId: number, runs: SubRun[]): LeaveBlock[] {
 /**
  * Collapses a doctor's leave entries into blocks - see the module
  * docstring for the invariants every returned block satisfies. Sorts
- * defensively rather than trusting the caller's ordering (Decision, plan
- * Task 1 step 4b); does not sort or group by anything other than
+ * defensively rather than trusting the caller's ordering; does not
+ * sort or group by anything other than
  * doctor_id/date, since display ordering (e.g. by doctor display order) is
  * the caller's job.
  */

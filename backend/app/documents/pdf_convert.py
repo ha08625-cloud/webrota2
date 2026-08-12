@@ -1,31 +1,31 @@
 """Converts a document (RTF or DOCX bytes) to PDF via headless LibreOffice.
 
-The RTF path (rtf/pdf plan, Decision 1) is splice-then-convert: the modified
-RTF produced by rtf_signature_insert is a temp artifact that only LibreOffice
-ever reads, and this module is the step that turns it into the deliverable.
+The RTF path is splice-then-convert: the modified RTF produced by
+rtf_signature_insert is a temp artifact that only LibreOffice ever reads, and
+this module is the step that turns it into the deliverable.
 
 Two things here are load-bearing rather than tuning:
 
-Every invocation gets its own LibreOffice profile (Decision 7). Two concurrent
-soffice processes sharing the default profile were measured to collide, and
-the loser exited 1 having *silently written no output file* -- so a request
-would have failed with no diagnosis. -env:UserInstallation gives each run a
-private profile in the same temp directory as its input, which costs about
-1.2 s and 550 KB and removes the need for any mutex. tests/test_documents/
+Every invocation gets its own LibreOffice profile. Two concurrent soffice
+processes sharing the default profile were measured to collide, and the loser
+exited 1 having *silently written no output file* -- so a request would have
+failed with no diagnosis. -env:UserInstallation gives each run a private
+profile in the same temp directory as its input, which costs about 1.2 s and
+550 KB and removes the need for any mutex. tests/test_documents/
 test_pdf_convert.py::test_concurrent_conversions_both_succeed is the
 regression test for this and fails without it.
 
 Spawning a whole soffice process per document is the worst case for latency
-and it is still cheap enough not to need a resident instance (Decision 9):
-measured on the real certificate sample, 1.5 s with a fresh profile and 1.3 s
-after, peaking around 215 MB of transient RSS. unoserver would cut that to
-roughly 0.3-0.8 s at the cost of a second long-running process to supervise;
-revisit only if volume changes.
+and it is still cheap enough not to need a resident instance: measured on the
+real certificate sample, 1.5 s with a fresh profile and 1.3 s after, peaking
+around 215 MB of transient RSS. unoserver would cut that to roughly 0.3-0.8 s
+at the cost of a second long-running process to supervise; revisit only if
+volume changes.
 
-A converter failure is ours, not the user's (Decision 10). DocumentFormatError
-means "your file is wrong" and the router maps it to 422; everything raised
-here is ConversionError, mapped to 502, so a broken or missing LibreOffice is
-never reported to an admin as a bad upload.
+A converter failure is ours, not the user's. DocumentFormatError means "your
+file is wrong" and the router maps it to 422; everything raised here is
+ConversionError, mapped to 502, so a broken or missing LibreOffice is never
+reported to an admin as a bad upload.
 """
 import os
 import subprocess
@@ -109,7 +109,7 @@ def convert_to_pdf(
             )
 
         # A zero exit with no output file is a real shape, not a defensive
-        # branch -- it is exactly what the profile collision in Decision 7
+        # branch -- it is exactly what the profile collision
         # produced. soffice also reports some load failures this way.
         outputs = list(out_dir.glob("*.pdf"))
         if not outputs:

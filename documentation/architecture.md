@@ -96,7 +96,7 @@ Auth has no env var of its own. Every router endpoint requires a valid session a
 
 **Seeding.** `seed/run_all.py` (rooms, doctors, system counters, master template) is run manually from a local machine against Railway's public Postgres URL (`DATABASE_PUBLIC_URL`). There is deliberately no clinic-type seed — clinic types are entered via the frontend. `setup.csv` remains in the repo as reference data only.
 
-`seed/seed_users.py` bootstraps the first login and is deliberately separate from `run_all.py` — a one-off, run manually the same way, reading `SEED_USER_EMAIL`/`SEED_USER_NAME`/`SEED_USER_PASSWORD` from the environment with no hardcoded fallback, plus optional `SEED_USER_ACCESS_LEVEL` (defaults to `manager`). Idempotent: re-running it against an email that already exists is a safe no-op. This is also the recovery path if every user is somehow deactivated (auth plan, Design Decision 9), and — since migration 028 backfills every existing user as `nurse` (role-based auth plan, Design Decision 7) — the way a database ends up with a manager in it at all — every other user is managed from the Users page instead once at least one active login exists.
+`seed/seed_users.py` bootstraps the first login and is deliberately separate from `run_all.py` — a one-off, run manually the same way, reading `SEED_USER_EMAIL`/`SEED_USER_NAME`/`SEED_USER_PASSWORD` from the environment with no hardcoded fallback, plus optional `SEED_USER_ACCESS_LEVEL` (defaults to `manager`). Idempotent: re-running it against an email that already exists is a safe no-op. This is also the recovery path if every user is somehow deactivated, and — since migration 028 backfills every existing user as `nurse` — the way a database ends up with a manager in it at all; every other user is managed from the Users page instead once at least one active login exists.
 
 ## Document Index
 
@@ -108,4 +108,4 @@ Auth has no env var of its own. Every router endpoint requires a valid session a
 
 The other files in `documentation/` are plans for work that is in progress or not yet started, not descriptions of the current system. Plans for shipped work are not kept — once a feature lands, whatever is worth remembering about it belongs in one of the three architecture docs above, and the rest is in git history.
 
-Note that many code comments cite design decisions by number (e.g. "staging plan, Design Decision 4"). Those plan documents have been deleted; the numbers are only resolvable through `git log -- documentation/completed/`.
+**Do not cite plan documents from code comments.** Comments used to carry ~250 references of the form "staging plan, Design Decision 4"; every one has been removed, and each comment now states its reasoning directly. A citation by number is a pointer to something a reader cannot open and that will not survive the plan being deleted — if a decision is worth recording next to the code, write the decision itself.

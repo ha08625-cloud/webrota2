@@ -154,15 +154,13 @@ def create_leave_bulk(
     added before this feature shipped). See M4.3 Task 3, design decision 4.
 
     Any planned extra session covered by this range is reported in
-    `superseded_extra_sessions` - never deleted, never blocked (extra
-    sessions plan, Design Decision 7).
+    `superseded_extra_sessions` - never deleted, never blocked.
 
     Dates outside the doctor's employment window are reported as
-    "outside_doctor_dates" skips rather than 422ing the call (annual leave
-    planning, Design Decision 8) - one out-of-window date at the end of a
-    long range must not fail the whole request. The weekend check runs
-    first, so a date that is both reports "weekend", the more specific
-    fact.
+    "outside_doctor_dates" skips rather than 422ing the call - one
+    out-of-window date at the end of a long range must not fail the whole
+    request. The weekend check runs first, so a date that is both reports
+    "weekend", the more specific fact.
     """
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -222,13 +220,12 @@ def create_leave_bulk(
 
     # Report (never delete or block on) any planned extra session this
     # range covers - leave is the more authoritative fact, but the admin
-    # should see what it superseded (extra sessions plan, Design
-    # Decision 7). Queried by date range over the whole candidate set,
-    # duplicates included, same shape as the `existing` duplicate check
-    # above, then intersected with the candidate pairs in Python: the
-    # range alone is no longer equivalent now that out-of-window dates are
-    # dropped from the candidate list, and no leave was written on those,
-    # so nothing there was superseded.
+    # should see what it superseded. Queried by date range over the whole
+    # candidate set, duplicates included, same shape as the `existing`
+    # duplicate check above, then intersected with the candidate pairs in
+    # Python: the range alone is no longer equivalent now that
+    # out-of-window dates are dropped from the candidate list, and no
+    # leave was written on those, so nothing there was superseded.
     superseded: list[ExtraSessionEntry] = []
     if candidates:
         candidate_set = set(candidates)
@@ -313,8 +310,8 @@ def get_chargeable_count(
     slot (no-surgery leave exemption plan).
 
     `db.get` rather than a query filtered on `Doctor.active`: an inactive
-    doctor's historical leave is still historical leave (Design Decision 6),
-    and an active filter here would wrongly 404 it.
+    doctor's historical leave is still historical leave, and an active
+    filter here would wrongly 404 it.
     """
     doctor = db.get(Doctor, doctor_id)
     if doctor is None:

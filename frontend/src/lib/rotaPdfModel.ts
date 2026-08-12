@@ -28,31 +28,29 @@ import { rotaDate } from "@/lib/weekDates";
  * drawing.
  *
  * The split exists because a PDF Blob is close to untestable: the honest
- * ceiling on asserting against one is "non-empty, starts with %PDF"
- * (Design Decision 5). So every decision worth testing - which rows exist
- * and in what order, what each cell says, what colour it is, and what font
- * size the page has to shrink to in order to fit - is made here, against
- * plain objects, and the pdfmake call downstream stays a thin shell.
+ * ceiling on asserting against one is "non-empty, starts with %PDF". So
+ * every decision worth testing - which rows exist and in what order, what
+ * each cell says, what colour it is, and what font size the page has to
+ * shrink to in order to fit - is made here, against plain objects, and the
+ * pdfmake call downstream stays a thin shell.
  *
  * Content comes wholesale from exportContent.ts, shared with the Excel
- * export (Design Decision 4); colour comes from cellStyle() via
- * exportStyles.ts's hex maps, exactly as the Excel export and the
- * on-screen grid do. **This module decides structure and geometry, never
- * content or palette.**
+ * export; colour comes from cellStyle() via exportStyles.ts's hex maps,
+ * exactly as the Excel export and the on-screen grid do. **This module
+ * decides structure and geometry, never content or palette.**
  *
  * Two deliberate divergences from the Excel export, both matching the
  * practice's real printed rota: there is no AM/PM session column (the
- * first row of a doctor's pair is AM, the second PM, implicit - Design
- * Decision 7), and day headers are compact ("MON 10th" - Design
- * Decision 8).
+ * first row of a doctor's pair is AM, the second PM, implicit), and day headers
+ * are compact ("MON 10th").
  *
  * Room-occupancy pages (Task 6) interleave with the doctor pages in the
  * same order the Excel export's sheets use - Week 1, Room Week 1, Week 2,
  * ... - and reuse every structure below unchanged: a room's AM/PM pair is
  * a two-row block with the room code merged across it, exactly as a
  * doctor's is. Only the row source and the cell content/fill logic
- * differ. Note that the room pages have no paper precedent at all (Design
- * Decision 10); they exist for parity with the Excel export.
+ * differ. Note that the room pages have no paper precedent at all; they
+ * exist for parity with the Excel export.
  */
 
 export interface PdfCell {
@@ -129,7 +127,7 @@ export interface RotaPdfOptions {
 }
 
 /* ------------------------------------------------------------------ */
-/* Page geometry (A4 portrait, Design Decision 3)                      */
+/* Page geometry                      */
 /* ------------------------------------------------------------------ */
 
 /** A4 portrait in PDF points. */
@@ -163,10 +161,10 @@ const AVERAGE_CHAR_WIDTH_EM = 0.5;
 /**
  * Candidate body font sizes, largest first. pdfmake has no shrink-to-fit,
  * so the fit is achieved by choosing a size rather than scaling a fixed
- * one (Design Decision 3). The floor is 5.5pt because the status quo -
- * the practice's current spreadsheet printout - lands at roughly 5.4pt
- * after its fit-to-page scaling, so nothing below that is a regression
- * worth chasing; a page that still doesn't fit at 5.5 paginates instead.
+ * one. The floor is 5.5pt because the status quo - the practice's current
+ * spreadsheet printout - lands at roughly 5.4pt after its fit-to-page
+ * scaling, so nothing below that is a regression worth chasing; a page
+ * that still doesn't fit at 5.5 paginates instead.
  */
 export const FONT_SIZE_CANDIDATES = [9, 8, 7, 6, 5.5];
 
@@ -202,7 +200,7 @@ function estimatedPageHeight(page: { rows: PdfRow[] }, fontSize: number): number
  * The largest candidate size at which this page's estimated content
  * height fits one A4 portrait page, or the smallest candidate if none
  * does (the page then paginates with the day-header row repeated, which
- * the user has confirmed is acceptable - Design Decision 3).
+ * the user has confirmed is acceptable).
  *
  * The estimate is deliberately crude and deterministic. It is not trying
  * to predict pdfmake's layout to the point; it is trying to pick a size
