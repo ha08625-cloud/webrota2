@@ -5,7 +5,8 @@ Revises:
 Create Date: 2026-08-12 00:00:00
 
 The single baseline for the whole schema: 40 tables, 13 Postgres enum types,
-82 indexes. It replaces the 28-migration chain that accumulated while the
+81 indexes (82 in pg_indexes, which also counts alembic_version's own primary
+key). It replaces the 28-migration chain that accumulated while the
 system was still pre-live; that chain built the same schema in 28 steps, six
 of which existed only to backfill rows in a database that no longer exists.
 Consolidating before go-live cost a reseed; after go-live it would have cost
