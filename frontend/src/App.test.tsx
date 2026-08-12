@@ -98,7 +98,7 @@ describe("ClinicalShell nav by access level", () => {
     renderAt("/clinical/counters", "nurse");
 
     const nav = screen.getByRole("navigation");
-    for (const label of ["Generate new rotas", "Staging", "Master Rota", "Staff", "Counters"]) {
+    for (const label of ["Generate new rotas", "Staging", "Master Rota", "Staff", "Counters", "How This Works"]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
   });
@@ -107,5 +107,15 @@ describe("ClinicalShell nav by access level", () => {
     renderAt("/clinical/counters", "nurse");
 
     expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+  });
+});
+
+describe("How This Works page", () => {
+  it("renders the plain-English pipeline explanation", () => {
+    renderAt("/clinical/how-it-works", "nurse");
+
+    expect(screen.getByRole("heading", { name: "How rota generation works" })).toBeInTheDocument();
+    expect(screen.getAllByText(/Step 1 — Sanity checks/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/exactly one active master rota template/)).toBeInTheDocument();
   });
 });
