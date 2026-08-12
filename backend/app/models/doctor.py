@@ -20,9 +20,10 @@ from .enums import DoctorType, RoomType, SupervisionPreference, enum_col
 
 class Doctor(Base):
     __tablename__ = "doctors"
+    __table_args__ = (UniqueConstraint("code", name="uq_doctors_code"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    code: Mapped[str] = mapped_column(String, nullable=False)
     doctor_type: Mapped[DoctorType] = mapped_column(enum_col(DoctorType), nullable=False)
     sessions_per_week: Mapped[Decimal] = mapped_column(
         Numeric(4, 1), nullable=False, default=Decimal("10.0")

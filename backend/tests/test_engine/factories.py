@@ -42,8 +42,8 @@ from app.models.enums import (
     SupervisionPreference,
 )
 
-# clinic_types.clinic_priority now has a partial unique index over enabled
-# rows (migration 005). Tests that don't care about a specific priority
+# clinic_types.clinic_priority has a partial unique index over enabled
+# rows. Tests that don't care about a specific priority
 # value should not all default to the same number -- this counter hands out
 # a fresh value each call so multiple enabled ClinicType rows in one test
 # never collide. Tests asserting priority-dependent behaviour still pass an

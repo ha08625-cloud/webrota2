@@ -13,8 +13,8 @@ router) is persisted in token_hash, so a database leak does not leak
 usable bearer tokens. The raw token is returned to the client exactly
 once, at login.
 
-No DB-level ON DELETE CASCADE exists anywhere in this schema (see
-architecture.md's note on migration 004); User -> UserSession cascade is
+School holidays aside, no DB-level ON DELETE CASCADE exists anywhere in
+this schema (see architecture.md); User -> UserSession cascade is
 ORM-level (relationship(cascade="all, delete-orphan")), the same pattern
 GeneratedRota already uses for RotaSession/RotaClosure/generation_log.
 
@@ -31,7 +31,7 @@ by direct SQL, e.g. by a script or a manual psql session.
 """
 import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -40,9 +40,10 @@ from .enums import AccessLevel, enum_col
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -68,9 +69,10 @@ class User(Base):
 
 class UserSession(Base):
     __tablename__ = "sessions"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_sessions_token_hash"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )

@@ -15,9 +15,10 @@ SEED_USER_ACCESS_LEVEL is optional and defaults to "manager" (role-based
 auth plan, Task 1). It is deliberately NOT in _REQUIRED_VARS: this script
 exists to bootstrap the account that administers everyone else, and that
 account is a manager in essentially every case. It is also the recovery
-path when migration 028's "nurse" backfill has left a database with no
-manager in it -- so defaulting it to anything lower would defeat the
-point.
+path for a database with no manager in it -- access_level defaults to
+"nurse" at both the model and schema level, so a database populated any
+other way has no manager until this script makes one. Defaulting it to
+anything lower would defeat the point.
 
 Usage (from backend/), against Railway:
     DATABASE_URL=<DATABASE_PUBLIC_URL> \
