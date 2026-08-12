@@ -20,10 +20,9 @@ interface RoomRotaGridProps {
  * Read-only room-occupancy view of a generated rota: which rooms are
  * free this session, and who is in the occupied ones. Pure frontend
  * transformation of data already fetched by the caller via useRota - no
- * mutation callbacks, no dnd-kit, no popover. See M4.x room-view plan,
- * structurally closer to RotaGrid's ReadOnlyGridCell
- * than to its editable counterpart, and that holds regardless of
- * rota.status.
+ * mutation callbacks, no dnd-kit, no popover. Structurally closer to
+ * RotaGrid's ReadOnlyGridCell than to its editable counterpart, and that
+ * holds regardless of rota.status.
  */
 export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridProps) {
   const { data: rooms, isLoading: roomsLoading } = useRooms();
