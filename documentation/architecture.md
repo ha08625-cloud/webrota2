@@ -104,7 +104,8 @@ Auth has no env var of its own. Every router endpoint requires a valid session a
 |---|---|
 | documentation/architecture-clinical.md | Clinical rota: generation engine, data layer, REST API, rota lifecycle, editing endpoints, staging, leave planning, and the clinical frontend (master rota, staging, generated rota grid) |
 | documentation/architecture-reception.md | Reception rota: schema, `/reception/*` API, and frontend design decisions |
-| documentation/completed/reception_rota.md | Full design-decision record for the reception rota, including provisional-plan corrections |
 | documentation/phase_pipeline.md | Phase sequence 0–12 as implemented: purpose, reads/writes, execution order, including Phase 9C's supervision assignment and Phase 12's six validation checks |
 
-`documentation/completed/` holds the implementation plans for shipped work. They are historical records of *why* a thing was built the way it was, not descriptions of the current system — read them for design rationale, never as a statement of how the code behaves today.
+The other files in `documentation/` are plans for work that is in progress or not yet started, not descriptions of the current system. Plans for shipped work are not kept — once a feature lands, whatever is worth remembering about it belongs in one of the three architecture docs above, and the rest is in git history.
+
+Note that many code comments cite design decisions by number (e.g. "staging plan, Design Decision 4"). Those plan documents have been deleted; the numbers are only resolvable through `git log -- documentation/completed/`.
