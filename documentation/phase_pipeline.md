@@ -206,7 +206,7 @@ The multiplier never changes what the `SUPERVISION` counter counts, only who get
 
 **Manual-edit escape hatch:** `is_supervising` is included in the session PATCH (`SessionPatchIn`), applied verbatim with no eligibility check - consistent with the rest of the editing API's apply-then-warn model. Phase 12 Check 4 prong 2 (`supervision_on_incompatible_slot`) surfaces misuse on the re-run every edit endpoint already triggers. Edits never touch the `SUPERVISION` system counter, matching the existing rule that counters are written only at generation time.
 
-**Historical rotas:** pre-migration `RotaSession` rows read as `is_supervising=False` (migration 003's `server_default`), so `/issues` on any rota generated before this feature deployed will report `supervision_missing` for its sessions - correct, since those rotas genuinely have no supervision recorded, not a migration artifact to suppress.
+**Rotas with no supervision recorded:** `RotaSession.is_supervising` has a `server_default` of false, so a row that was never set reads as unsupervised and `/issues` reports `supervision_missing` for it - correct, since such a rota genuinely has no supervision recorded, not an artifact to suppress.
 
 ---
 

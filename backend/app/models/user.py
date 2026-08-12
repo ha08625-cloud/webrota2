@@ -13,8 +13,8 @@ router) is persisted in token_hash, so a database leak does not leak
 usable bearer tokens. The raw token is returned to the client exactly
 once, at login.
 
-No DB-level ON DELETE CASCADE exists anywhere in this schema (see
-architecture.md's note on migration 004); User -> UserSession cascade is
+The only DB-level ON DELETE CASCADE in this schema is on
+school_holidays.school_id; User -> UserSession cascade is
 ORM-level (relationship(cascade="all, delete-orphan")), the same pattern
 GeneratedRota already uses for RotaSession/RotaClosure/generation_log.
 
@@ -23,7 +23,7 @@ bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
 -- nothing about that truncation is visible from the model itself.
 
 access_level is the permission tier. It defaults to NURSE -- the lowest
-tier -- both here and as the server_default in migration 028: an
+tier -- both as a Python-side default and as a server_default: an
 accidental viewer is recoverable, an accidental manager is a silent
 security hole. The API never relies on that default (UserIn requires
 access_level), so it only ever applies to rows inserted directly, e.g. by
@@ -47,7 +47,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     access_level: Mapped[AccessLevel] = mapped_column(
-        enum_col(AccessLevel), nullable=False, default=AccessLevel.NURSE
+        enum_col(AccessLevel),
+        nullable=False,
+        default=AccessLevel.NURSE,
+        server_default=AccessLevel.NURSE.value,
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),

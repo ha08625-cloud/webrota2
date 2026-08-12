@@ -52,10 +52,10 @@ class LeaveEntitlement(Base):
         Numeric(5, 1), nullable=True
     )
     carry_over_sessions: Mapped[Decimal] = mapped_column(
-        Numeric(5, 1), nullable=False, default=Decimal("0.0")
+        Numeric(5, 1), nullable=False, default=Decimal("0.0"), server_default="0"
     )
     adjustment_sessions: Mapped[Decimal] = mapped_column(
-        Numeric(5, 1), nullable=False, default=Decimal("0.0")
+        Numeric(5, 1), nullable=False, default=Decimal("0.0"), server_default="0"
     )
     notes: Mapped[str | None] = mapped_column(String(NOTES_MAX_LENGTH), nullable=True)
 

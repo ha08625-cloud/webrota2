@@ -74,7 +74,7 @@ Enforcement is server-side (`get_current_user()` for authentication, `require_wr
 Three independent jobs on every push and pull request:
 
 1. **Backend test suite** — `uv sync --extra dev`, then the full pytest suite (engine + API) on in-memory SQLite. API tests run `TestClient` with `get_db` dependency-overridden to a fresh SQLite engine per test, and with authentication stubbed out by default so most tests can exercise a route without logging in. The trap worth knowing before writing an API test: every client fixture writes to the one `app.dependency_overrides` dict on the one shared `app`, so a test may use **exactly one** client. `backend/tests/test_api/conftest.py`'s module docstring lists the fixtures and which tier each one authenticates as.
-2. **Postgres migration validation** — upgrade/downgrade/upgrade round trip against a `postgres:16` service container, proving both migration directions and native enum type cleanup against a real Postgres before Railway ever runs a migration.
+2. **Postgres migration validation** — upgrade/downgrade/upgrade round trip against a `postgres:16` service container, proving both directions of the `001` baseline and its native enum type cleanup against a real Postgres before Railway ever runs a migration.
 3. **Frontend gate** — Node 24, `npm ci` (requires `frontend/package-lock.json` committed), then typecheck / vitest / build, in that order so a fast typecheck failure doesn't wait on the slower build.
 
 ## Deployment
@@ -96,7 +96,7 @@ Auth has no env var of its own. Every router endpoint requires a valid session a
 
 **Seeding.** `seed/run_all.py` (rooms, doctors, system counters, master template) is run manually from a local machine against Railway's public Postgres URL (`DATABASE_PUBLIC_URL`). There is deliberately no clinic-type seed — clinic types are entered via the frontend. `setup.csv` remains in the repo as reference data only.
 
-`seed/seed_users.py` bootstraps the first login and is deliberately separate from `run_all.py` — a one-off, run manually the same way, reading `SEED_USER_EMAIL`/`SEED_USER_NAME`/`SEED_USER_PASSWORD` from the environment with no hardcoded fallback, plus optional `SEED_USER_ACCESS_LEVEL` (defaults to `manager`). Idempotent: re-running it against an email that already exists is a safe no-op. This is also the recovery path if every user is somehow deactivated, and — since migration 028 backfills every existing user as `nurse` — the way a database ends up with a manager in it at all; every other user is managed from the Users page instead once at least one active login exists.
+`seed/seed_users.py` bootstraps the first login and is deliberately separate from `run_all.py` — a one-off, run manually the same way, reading `SEED_USER_EMAIL`/`SEED_USER_NAME`/`SEED_USER_PASSWORD` from the environment with no hardcoded fallback, plus optional `SEED_USER_ACCESS_LEVEL` (defaults to `manager`). Idempotent: re-running it against an email that already exists is a safe no-op. This is also the recovery path if every user is somehow deactivated, and — since `users.access_level` defaults to `nurse` — the way a database ends up with a manager in it at all; every other user is managed from the Users page instead once at least one active login exists.
 
 ## Document Index
 

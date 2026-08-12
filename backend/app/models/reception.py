@@ -67,7 +67,7 @@ RECEPTION_HOURS = [RECEPTION_FIRST_HOUR + 0.5 * i for i in range(_RECEPTION_SLOT
 
 # Every valid `hour` value is exactly n * 0.5 for an integer n -- (hour * 2)
 # is then a whole number, and this expression (used by both the model's
-# CheckConstraints below and migration 024) is how the DB rejects anything
+# CheckConstraints below and the Alembic baseline) is how the DB rejects anything
 # that isn't a clean half-hour, e.g. 8.25.
 HOUR_HALF_STEP_SQL = "(hour * 2) = CAST(hour * 2 AS INTEGER)"
 
