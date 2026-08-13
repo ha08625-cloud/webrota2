@@ -29,7 +29,7 @@ const PHASES: Phase[] = [
     title: "Step 2 — Build the empty week from the template",
     summary: "The rota's basic shape comes from the master template, and fairness counters are loaded ready for later steps.",
     body: [
-      "The system reads the active master rota template and, for every doctor, lays out the sessions they're due to work over the weeks being generated. A doctor's working pattern repeats on a 4-week cycle in the template, so this step maps each generation week onto the right template week.",
+      "The system copies the master rota.  You can choose how many weeks you want to generate and which week template to use.",
       "If a doctor simply has no entry in the template for a given day and period, they get nothing there in the generated rota — that's not a bug, it's how part-time working, and days a doctor doesn't normally work, are represented. The same thing happens for a closed session (a bank holiday, say) or a date outside a doctor's employment window: no session is created there at all, so nothing downstream needs to treat it as a special case.",
       "At the same time, the system loads the current fairness counters — running totals of how many clinics, room moves, and supervision sessions each doctor has done — which the later steps use to keep things fair. Any recurring notes (like \"Partners meeting\") that apply to a slot are also stamped on at this point, purely as a label — they never affect who gets assigned where.",
     ],
