@@ -7,21 +7,36 @@ interface Phase {
 
 /**
  * Plain-English narrative of backend/app/engine/'s pipeline, for clinical
- * staff rather than developers
+ * staff rather than developers - see documentation/phase_pipeline.md for
+ * the precise technical spec this is translated from. Content only; kept
+ * out of the architecture docs deliberately; see that file's own header
+ * for why a plain-English page and a developer reference are not the
+ * same document and should not be merged.
  */
 const PHASES: Phase[] = [
   {
-    id: "phase-1",
-    title: "Step 1 — Build the empty week from the template",
+    id: "phase-0",
+    title: "Step 1 — Sanity checks",
+    summary: "Before anything is built, the system checks the basics make sense. If they don't, nothing is generated.",
+    body: [
+      "The very first thing the system does is check that the request makes sense and that the underlying data isn't broken in some way that would make the rest of the process meaningless. This includes things like: there being exactly one active master rota template to build from, the start date being a Monday, the number of weeks being 1, 2 or 4, and every doctor named in the template still being an active member of staff.",
+      "It also checks duty assignments specifically: a duty doctor can't be on leave for a session they're assigned to, can't be assigned to a session that's closed (a bank holiday, for example), and can't be assigned duty on a slot that doesn't exist for them (no surgery, admin time, or a date outside their employment dates).",
+      "If any of these checks fail, generation stops immediately. Nothing is created, nothing is saved. You'll see the list of problems and need to fix the underlying data — for example, correcting the master template or removing a clashing duty assignment — before trying again.",
+    ],
+  },
+  {
+    id: "phase-2",
+    title: "Step 2 — Build the empty week from the template",
     summary: "The rota's basic shape comes from the master template, and fairness counters are loaded ready for later steps.",
     body: [
-      "The master rota template is copied. You can pick how many weeks to generate and you can pick which weekto use as a template.",
-      "You then see a staging screen where you can add things like unexpected sick leave or extra cover before the rota generator runs.",
+      "The system reads the active master rota template and, for every doctor, lays out the sessions they're due to work over the weeks being generated. A doctor's working pattern repeats on a 4-week cycle in the template, so this step maps each generation week onto the right template week.",
+      "If a doctor simply has no entry in the template for a given day and period, they get nothing there in the generated rota — that's not a bug, it's how part-time working, and days a doctor doesn't normally work, are represented. The same thing happens for a closed session (a bank holiday, say) or a date outside a doctor's employment window: no session is created there at all, so nothing downstream needs to treat it as a special case.",
+      "At the same time, the system loads the current fairness counters — running totals of how many clinics, room moves, and supervision sessions each doctor has done — which the later steps use to keep things fair. Any recurring notes (like \"Partners meeting\") that apply to a slot are also stamped on at this point, purely as a label — they never affect who gets assigned where.",
     ],
   },
   {
     id: "phase-4",
-    title: "Step 2 — Place duty doctors",
+    title: "Step 3 — Place duty doctors",
     summary: "Pre-planned duty doctors are put in and given a room, with the system trying to keep them in one room for the whole day.",
     body: [
       "Duty is planned in advance — the system isn't choosing who's on duty, it's applying assignments that were already entered on the Duty page. This step's job is to put those assignments onto the rota and, importantly, to find each duty doctor a proper D room for their duty session, since duty always needs to be based from a D room.",
