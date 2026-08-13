@@ -1,0 +1,185 @@
+name: DB baseline stamp (one-off)
+
+# TEMPORARY OPERATIONAL TOOL -- delete this file once the Railway database
+# has been stamped.
+#
+# Why it exists: consolidating the Alembic chain into a single 001 baseline
+# left Railway's alembic_version holding '028', a revision that no longer
+# exists, so every deploy dies with "Can't locate revision identified by
+# '028'" before uvicorn starts.
+#
+# Because the new 001 builds a schema identical to what the old 28-step
+# chain built, the live database already HAS the schema 001 describes -- it
+# just carries the wrong label. Correcting the label is enough; no drop and
+# no reseed. This workflow proves that premise against the live database
+# before it changes anything.
+#
+# It does NOT trust a hardcoded fingerprint. It builds a reference schema
+# from this repo's own 001 against a throwaway Postgres 16, then compares
+# the live schema against it column by column, index by index, constraint by
+# constraint, enum label by enum label. The stamp step refuses to run if
+# that comparison is not empty.
+#
+# Setup: add the Railway DATABASE_PUBLIC_URL as a repository secret named
+# RAILWAY_DATABASE_URL (Settings > Secrets and variables > Actions > New
+# repository secret). Use the plain postgresql:// form -- psql does not
+# understand the postgresql+psycopg2:// form Alembic uses.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "inspect = report only (safe). stamp = apply the fix if, and only if, the schemas match."
+        type: choice
+        required: true
+        default: inspect
+        options: [inspect, stamp]
+
+permissions: {}
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # The reference database. Same image CI's migrations-postgres job uses.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rota
+          POSTGRES_PASSWORD: rota
+          POSTGRES_DB: rota_ref
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rota"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://rota:rota@localhost:5432/rota_ref
+      REF_URL: postgresql://rota:rota@localhost:5432/rota_ref
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build the reference schema from this repo's 001
+        run: uv run alembic upgrade head
+
+      # One query, run against both databases. Emits one line per schema
+      # fact so the two can be diffed directly -- a hash alone would say
+      # "different" without saying how, and a Postgres major-version
+      # difference in how indexdef is rendered would look identical to a
+      # real schema difference.
+      - name: Write the schema-signature query
+        run: |
+          cat > /tmp/schema_sig.sql <<'SQL'
+          SELECT sig FROM (
+            SELECT 'COL|'||table_name||'|'||column_name||'|'||udt_name||'|'||is_nullable||'|'
+                   ||coalesce(column_default,'-')||'|'||coalesce(character_maximum_length::text,'-')||'|'
+                   ||coalesce(numeric_precision::text,'-')||'|'||coalesce(numeric_scale::text,'-') AS sig
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name <> 'alembic_version'
+            UNION ALL
+            SELECT 'IDX|'||indexdef FROM pg_indexes
+            WHERE schemaname='public' AND tablename <> 'alembic_version'
+            UNION ALL
+            SELECT 'ENUM|'||t.typname||'|'||e.enumlabel||'|'||e.enumsortorder
+            FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
+            JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'
+            UNION ALL
+            SELECT 'CON|'||c.conrelid::regclass::text||'|'||c.conname||'|'||pg_get_constraintdef(c.oid)
+            FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
+            WHERE n.nspname='public' AND c.conrelid::regclass::text <> 'alembic_version'
+          ) s ORDER BY sig;
+          SQL
+
+      - name: Report the live database's current state
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LIVE_URL:-}" ]; then
+            echo "::error::RAILWAY_DATABASE_URL secret is not set. See this file's header for how to add it."
+            exit 1
+          fi
+          echo "--- Postgres versions (a major-version gap can cause cosmetic diffs below) ---"
+          echo -n "reference: "; psql "$REF_URL"  -tAc "show server_version;"
+          echo -n "live:      "; psql "$LIVE_URL" -tAc "show server_version;"
+          echo
+          echo "--- live alembic_version ---"
+          psql "$LIVE_URL" -c "SELECT * FROM alembic_version;"
+          echo "--- live table row counts (non-empty only) ---"
+          psql "$LIVE_URL" -c "
+            SELECT table_name, (xpath('/row/cnt/text()', xml_count))[1]::text::bigint AS rows
+            FROM (SELECT table_name,
+                         query_to_xml(format('select count(*) as cnt from %I.%I', table_schema, table_name),
+                                      false, true, '') AS xml_count
+                  FROM information_schema.tables
+                  WHERE table_schema='public' AND table_type='BASE TABLE') t
+            WHERE (xpath('/row/cnt/text()', xml_count))[1]::text::bigint > 0
+            ORDER BY rows DESC;"
+
+      - name: Compare the live schema against the reference
+        id: compare
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$REF_URL"  -tAf /tmp/schema_sig.sql > /tmp/ref.txt
+          psql "$LIVE_URL" -tAf /tmp/schema_sig.sql > /tmp/live.txt
+          echo "reference facts: $(wc -l < /tmp/ref.txt)"
+          echo "live facts:      $(wc -l < /tmp/live.txt)"
+          echo
+          if diff -u /tmp/ref.txt /tmp/live.txt > /tmp/diff.txt; then
+            echo "MATCH: the live schema is identical to what this repo's 001 builds."
+            echo "match=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "MISMATCH: the live schema differs from what this repo's 001 builds."
+            echo "  '-' lines are in the reference but missing live; '+' lines are live-only."
+            echo
+            cat /tmp/diff.txt
+            echo "match=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp alembic_version to 001
+        if: inputs.action == 'stamp'
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          MATCH: ${{ steps.compare.outputs.match }}
+        run: |
+          set -euo pipefail
+          if [ "$MATCH" != "true" ]; then
+            echo "::error::Refusing to stamp: the live schema does not match this repo's 001."
+            echo "Read the diff above. A real difference means the reset path (drop schema, redeploy, reseed) is the correct fix, not a stamp."
+            exit 1
+          fi
+          rows=$(psql "$LIVE_URL" -tAc "SELECT count(*) FROM alembic_version;")
+          if [ "$rows" != "1" ]; then
+            echo "::error::Expected exactly one alembic_version row, found $rows. Stopping."
+            exit 1
+          fi
+          psql "$LIVE_URL" -c "UPDATE alembic_version SET version_num='001';"
+          echo "--- alembic_version now reads ---"
+          psql "$LIVE_URL" -c "SELECT * FROM alembic_version;"
+          echo
+          echo "Done. Redeploy the Railway service; 'alembic upgrade head' will find itself already at head and start uvicorn."
+
+      - name: What to do next
+        if: inputs.action != 'stamp'
+        run: |
+          echo "Report-only run; nothing was changed."
+          echo "If the comparison above says MATCH, re-run this workflow with action=stamp."
