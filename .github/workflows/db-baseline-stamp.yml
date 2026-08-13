@@ -57,11 +57,15 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "inspect = report only (safe). stamp = apply the fix if, and only if, the schemas match."
+        description: "inspect = report only (safe). stamp = apply the alembic_version fix if the schemas match. promote-user = raise one account to manager."
         type: choice
         required: true
         default: inspect
-        options: [inspect, stamp]
+        options: [inspect, stamp, promote-user]
+      email:
+        description: "promote-user only: the email address of the account to raise to manager."
+        type: string
+        required: false
 
 permissions: {}
 
@@ -238,8 +242,55 @@ jobs:
           echo
           echo "Done. Redeploy the Railway service; 'alembic upgrade head' will find itself already at head and start uvicorn."
 
+      # Every account that predates the role-based auth work was backfilled to
+      # 'nurse' -- the lowest tier, chosen deliberately so an accidental viewer
+      # announces itself rather than a silent over-grant. That leaves a
+      # chicken-and-egg: the Users page is manager-only, so a database whose
+      # only accounts are nurses has no way to promote anyone from the UI.
+      # seed_users.py is the documented escape hatch but only CREATES users, so
+      # it cannot raise an existing one. This step does that, and is the reason
+      # to delete this workflow promptly afterwards.
+      - name: Promote a user to manager
+        if: inputs.action == 'promote-user'
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          EMAIL: ${{ inputs.email }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EMAIL:-}" ]; then
+            echo "::error::action=promote-user requires the 'email' input."
+            exit 1
+          fi
+          echo "--- accounts before ---"
+          psql "$LIVE_URL" -c "SELECT id, email, name, access_level, active FROM users ORDER BY id;"
+          # -v plus :'em' lets psql quote the value as a SQL literal, so an
+          # apostrophe in an address is handled and the input cannot inject SQL.
+          # Two things learned the hard way, both verified against a real
+          # database rather than assumed:
+          #   - the SQL is piped in, not passed with -c: psql performs variable
+          #     interpolation when reading stdin or a file, but NOT for -c.
+          #   - existence is checked with its own SELECT rather than by counting
+          #     RETURNING lines, because psql also echoes the "UPDATE n" command
+          #     tag on stdout, which made a 1-row update look like 2.
+          # And do NOT switch to shell interpolation with $$-quoting: bash
+          # expands $$ to its own PID.
+          matches=$(printf '%s\n' "SELECT count(*) FROM users WHERE email = :'em';" \
+            | psql "$LIVE_URL" -v ON_ERROR_STOP=1 -v em="$EMAIL" -tAq)
+          if [ "$matches" = "0" ]; then
+            echo "::error::No user found with that email address. Check the list above."
+            exit 1
+          fi
+          printf '%s\n' "UPDATE users SET access_level='manager'::access_level WHERE email = :'em';" \
+            | psql "$LIVE_URL" -v ON_ERROR_STOP=1 -v em="$EMAIL" -q
+          echo "--- accounts after ---"
+          psql "$LIVE_URL" -c "SELECT id, email, name, access_level, active FROM users ORDER BY id;"
+          echo
+          echo "Done. Reload the app in the browser (a full page reload, not just"
+          echo "clicking around) -- LoginGate re-checks GET /auth/me on mount and"
+          echo "will pick up the new access level. Logging out and in also works."
+
       - name: What to do next
-        if: inputs.action != 'stamp'
+        if: inputs.action == 'inspect'
         run: |
           echo "Report-only run; nothing was changed."
           echo "If the comparison above says MATCH, re-run this workflow with action=stamp."
