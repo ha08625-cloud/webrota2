@@ -47,7 +47,7 @@ the same day:
     doctor's own move, not an eviction, so it never touches ROOM_MOVE.
   - Room occupied by someone already on `DUTY_PRIMARY`/`DUTY_SECONDARY`
     in that slot: protected, leave both doctors where they are. This is
-    a narrower protection rule than `_is_protected_occupant` above --
+    a narrower protection rule than `_protection` above --
     Partner/AHP and clinic-role holders are *not* protected here, and may
     be bumped, but only ever into another free D room (never C/W/SR).
   - Otherwise, look for another D room for the occupant via
@@ -77,6 +77,7 @@ from ...models.enums import (
     SessionRole,
     SystemCounterType,
 )
+from .. import rationale as rat
 from ..datatypes import (
     CounterState,
     DecisionLog,
@@ -153,6 +154,15 @@ def run_phase4(
                 f"Applied {duty_type.value} duty to {code} on "
                 f"{date_.isoformat()} {period.value} (pre-planned)."
             ),
+            rationale=rat.stages(
+                f"Duty roster names {code} as {duty_type.value} duty for "
+                f"{date_.isoformat()} {period.value}.",
+                rat.decided(
+                    "no selection was made -- this phase never chooses who is on "
+                    "duty, and no priority tier or counter was consulted; only the "
+                    "room below was decided here"
+                ),
+            ),
         )
 
         if slot.is_wfh:
@@ -187,6 +197,13 @@ def _resolve_duty_room(
     gen_week: int, day: Day, period: Period, date_: date, d_room_ids_desc: list[int],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    # Snapshot of what the search is working with, shared by every entry
+    # below so each one says which rooms were available at the time.
+    rooms_line = rat.listing(
+        "D rooms at this session (code descending, the sweep order)",
+        _d_room_states(context, grid, gen_week, day, period, d_room_ids_desc),
+    )
+    tried: list[str] = []
 
     # Self-check: already in any D room -- nothing to do.
     if slot.assigned_room_id is not None:
@@ -201,6 +218,13 @@ def _resolve_duty_room(
                     f"{date_.isoformat()} {period.value}; duty room "
                     f"requirement already satisfied."
                 ),
+                rationale=rat.stages(
+                    rooms_line,
+                    rat.decided(
+                        f"no search run -- {code} already held D room "
+                        f"{current_room.code}, which satisfies the duty requirement"
+                    ),
+                ),
             )
             return issues
 
@@ -210,6 +234,13 @@ def _resolve_duty_room(
         if context.room_by_id[room_id].room_type == RoomType.D:
             preferred_d_room = room_id
             break
+
+    pref_line = (
+        f"{code}'s first D room on their preference list: "
+        f"{context.room_by_id[preferred_d_room].code}"
+        if preferred_d_room is not None
+        else f"{code} has no D room on their preference list, so the sweep runs first"
+    )
 
     if preferred_d_room is not None:
         occupant_id = grid.get_room_occupant(gen_week, day, period, preferred_d_room)
@@ -233,17 +264,42 @@ def _resolve_duty_room(
                 phase=PHASE, action="assign_room",
                 week=gen_week, day=day, period=period, doctor_id=doctor_id,
                 room_id=preferred_d_room, message=message,
+                rationale=rat.stages(
+                    rooms_line,
+                    pref_line,
+                    rat.decided(
+                        f"{rat.PREFERENCE_ORDER} -- their preferred D room "
+                        f"{context.room_by_id[preferred_d_room].code} was free, so "
+                        f"no sweep or eviction was needed"
+                    ),
+                ),
             )
             return issues
 
-        if not _is_protected_occupant(context, grid, occupant_id, gen_week, day, period):
+        protected, why = _protection(context, grid, occupant_id, gen_week, day, period)
+        if not protected:
             issues.extend(_evict_and_place(
                 context, grid, counters, log, doctor_id, code, occupant_id,
                 preferred_d_room, gen_week, day, period, date_,
                 "preferred room, occupant displaced",
+                rat.stages(
+                    rooms_line,
+                    pref_line,
+                    f"It is held by {_code(context, occupant_id)}, who is not "
+                    f"protected (not Partner/AHP and holds no role this session).",
+                    rat.decided(
+                        f"{rat.PREFERENCE_ORDER} -- the preferred D room was taken "
+                        f"by an evictable occupant, so it was taken from them rather "
+                        f"than falling through to the sweep"
+                    ),
+                ),
             ))
             return issues
         # Protected occupant: fall through to the fallback sweep.
+        tried.append(
+            f"preferred D room {context.room_by_id[preferred_d_room].code}: held by "
+            f"{_code(context, occupant_id)}, {why}"
+        )
 
     # Fallback sweep, pass A: first D room free for *both* periods that
     # day, code descending -- avoids setting up a mid-day room change that
@@ -265,6 +321,17 @@ def _resolve_duty_room(
                 f"(fallback sweep, first room free for both periods that "
                 f"day, code descending)."
             ),
+            rationale=rat.stages(
+                rooms_line,
+                pref_line,
+                rat.listing("Rejected before the sweep", tried) if tried else None,
+                rat.decided(
+                    f"fallback sweep pass A -- "
+                    f"{context.room_by_id[all_day_room].code} is the highest-coded D "
+                    f"room free in both periods, preferred over a period-only room so "
+                    f"the consolidation pass has nothing to fix"
+                ),
+            ),
         )
         return issues
 
@@ -284,6 +351,17 @@ def _resolve_duty_room(
                 f"to {code} for duty on {date_.isoformat()} {period.value} "
                 f"(fallback sweep, first room free this period only, code "
                 f"descending; no room was free for both periods)."
+            ),
+            rationale=rat.stages(
+                rooms_line,
+                pref_line,
+                rat.listing("Rejected before the sweep", tried) if tried else None,
+                "Sweep pass A found no D room free in both periods of the day.",
+                rat.decided(
+                    f"fallback sweep pass B -- "
+                    f"{context.room_by_id[free_room].code} is the highest-coded D room "
+                    f"free in this period"
+                ),
             ),
         )
         return issues
@@ -308,11 +386,41 @@ def _resolve_duty_room(
     if sweep_candidates:
         sweep_candidates.sort(key=lambda c: _room_move_sort_key(context, counters, c[0]))
         evictee_id, d_room_id = sweep_candidates[0]
+        scores_line = rat.listing(
+            "Evictable Salaried D-room occupants, by weighted room-move counter",
+            [
+                f"{_code(context, cand_id)} in "
+                f"{context.room_by_id[room].code} "
+                f"({_room_move_score_text(context, counters, cand_id)})"
+                for cand_id, room in sweep_candidates
+            ],
+        )
+        best_score = _room_move_sort_key(context, counters, evictee_id)[0]
+        tied = [c for c in sweep_candidates
+                if _room_move_sort_key(context, counters, c[0])[0] == best_score]
+        decisive = (
+            f"{rat.ALPHABETICAL} -- {_code(context, evictee_id)}, all tied on a "
+            f"weighted room-move score of {rat.fmt(best_score)}"
+            if len(tied) > 1 else
+            f"{rat.WEIGHTED_COUNTER} -- {_code(context, evictee_id)} has the lowest "
+            f"weighted room-move score, {rat.fmt(best_score)}, so is the least "
+            f"disrupted by another move"
+        )
         issues.extend(_evict_and_place(
             context, grid, counters, log, doctor_id, code, evictee_id, d_room_id,
             gen_week, day, period, date_,
             "fallback sweep, lowest weighted room-move score, tie broken on "
             "doctor code",
+            rat.stages(
+                rooms_line,
+                pref_line,
+                rat.listing("Rejected before the sweep", tried) if tried else None,
+                "No D room was free in either sweep pass, so an occupant had to be "
+                "evicted. Trainees and Locums are never sweep victims, so only "
+                "Salaried occupants with no role and not on leave were considered.",
+                scores_line,
+                rat.decided(decisive),
+            ),
         ))
         return issues
 
@@ -320,6 +428,23 @@ def _resolve_duty_room(
     # already held (a non-D PRE_ASSIGNED/ADMIN_TIME slot) is left exactly
     # as it was -- this function never calls grid.free_room on the duty
     # doctor's own slot.
+    log.add(
+        phase=PHASE, action="duty_room_unresolved",
+        week=gen_week, day=day, period=period, doctor_id=doctor_id,
+        message=(
+            f"No D room could be found or freed for duty doctor {code} on "
+            f"{date_.isoformat()} {period.value}."
+        ),
+        rationale=rat.stages(
+            rooms_line,
+            pref_line,
+            rat.listing("Rejected before the sweep", tried) if tried else None,
+            "Neither sweep pass found a free D room, and no D room was held by a "
+            "Salaried doctor who was role-free and not on leave, so there was "
+            "nobody the sweep was allowed to evict.",
+            rat.decided("nothing left to try -- the duty role stands without a D room"),
+        ),
+    )
     issues.append(ValidationIssue(
         severity="warning", phase=PHASE, check="duty_no_d_room_available",
         week=gen_week, day=day, period=period,
@@ -335,6 +460,7 @@ def _evict_and_place(
     context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog,
     duty_doctor_id: int, duty_code: str, evictee_id: int, d_room_id: int,
     gen_week: int, day: Day, period: Period, date_: date, stage_desc: str,
+    rationale: str | None = None,
 ) -> list[ValidationIssue]:
     """Evict `evictee_id` from `d_room_id`, relocate them, and seat the duty
     doctor. Eviction is unconditional: the duty doctor takes the room
@@ -365,6 +491,12 @@ def _evict_and_place(
                 f"{duty_code} on {date_.isoformat()} {period.value} "
                 f"({stage_desc})."
             ),
+            rationale=rat.stages(
+                rationale,
+                f"{evictee_code} was rehoused in "
+                f"{context.room_by_id[new_room].code} and their room-move counter "
+                f"was incremented.",
+            ),
         )
     else:
         grid.free_room(gen_week, day, period, evictee_id)
@@ -388,26 +520,69 @@ def _evict_and_place(
                 f"doctor {duty_code} on {date_.isoformat()} {period.value} "
                 f"({stage_desc}); {evictee_code} could not be relocated."
             ),
+            rationale=rat.stages(
+                rationale,
+                f"{evictee_code}'s room-move counter was still incremented -- it "
+                f"records the disruption, not the destination -- but no free room "
+                f"was found for them on their preference list or in the fallback "
+                f"pool, so they are left without a room.",
+            ),
         )
 
     return issues
 
 
-def _is_protected_occupant(
+def _protection(
     context: GenerationContext, grid: RotaGrid, occupant_id: int,
     gen_week: int, day: Day, period: Period,
-) -> bool:
-    """Partner/AHP, or any doctor already holding a role (duty or clinic)
-    in this slot -- the role guard is what stops primary duty evicting
-    secondary duty, or vice versa, within the same session.
+) -> tuple[bool, str]:
+    """`(protected, why)` -- Partner/AHP, or any doctor already holding a
+    role (duty or clinic) in this slot, is protected. The role guard is what
+    stops primary duty evicting secondary duty, or vice versa, within the
+    same session. `why` is only meaningful when `protected` is True.
     """
     occupant = context.doctor_by_id.get(occupant_id)
     if occupant is not None and occupant.doctor_type in (DoctorType.PARTNER, DoctorType.AHP):
-        return True
+        return True, f"protected: {occupant.doctor_type.value}"
     occupant_slot = grid.get(occupant_id, gen_week, day, period)
     if occupant_slot is not None and occupant_slot.role is not None:
-        return True
-    return False
+        return True, f"protected: already on {occupant_slot.role.value} this session"
+    return False, "not protected"
+
+
+def _d_room_states(
+    context: GenerationContext, grid: RotaGrid,
+    gen_week: int, day: Day, period: Period, d_room_ids_desc: list[int],
+) -> list[str]:
+    """One line per D room: who holds it this period, and -- when free --
+    whether it is also free in the other period, which is what sweep pass A
+    is looking for."""
+    states = []
+    for room_id in d_room_ids_desc:
+        room_code = context.room_by_id[room_id].code
+        occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
+        if occupant_id is not None:
+            states.append(f"{room_code}: held by {_code(context, occupant_id)}")
+        elif _is_room_free_all_day(grid, gen_week, day, room_id):
+            states.append(f"{room_code}: free, both periods")
+        else:
+            states.append(f"{room_code}: free this period only")
+    return states
+
+
+def _room_move_score_text(
+    context: GenerationContext, counters: CounterState, doctor_id: int
+) -> str:
+    spw = context.spw_by_id.get(doctor_id, 0.0)
+    raw = counters.system.get((doctor_id, SystemCounterType.ROOM_MOVE), 0)
+    return rat.score(
+        raw, spw, counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw)
+    )
+
+
+def _code(context: GenerationContext, doctor_id: int) -> str:
+    doctor = context.doctor_by_id.get(doctor_id)
+    return doctor.code if doctor is not None else f"id={doctor_id}"
 
 
 def _room_move_sort_key(
@@ -488,6 +663,16 @@ def _consolidate_duty_rooms(
                     f"{duty_type.value} duty room and avoid a mid-day room "
                     f"change; the room was already free."
                 ),
+                rationale=rat.stages(
+                    f"{code} holds D room {duty_room.code} for their "
+                    f"{duty_type.value} duty in {period.value} but a different room "
+                    f"in {other_period.value}.",
+                    f"{duty_room.code} is unoccupied in {other_period.value}.",
+                    rat.decided(
+                        "same-day consolidation with nobody to bump -- the duty "
+                        "doctor's own move, so no room-move counter is touched"
+                    ),
+                ),
             )
             continue
 
@@ -508,6 +693,20 @@ def _consolidate_duty_rooms(
                     f"held by {occupant_code}, who is also on duty that "
                     f"session."
                 ),
+                rationale=rat.stages(
+                    f"{code} holds D room {duty_room.code} for their "
+                    f"{duty_type.value} duty in {period.value} but a different room "
+                    f"in {other_period.value}.",
+                    f"{duty_room.code} is held in {other_period.value} by "
+                    f"{occupant_code}, who is on "
+                    f"{occupant_slot.role.value} that session.",
+                    rat.decided(
+                        "consolidation abandoned -- a duty doctor is never bumped "
+                        "for another doctor's consolidation, and consolidation is "
+                        "opportunistic, so both doctors stay where the first pass "
+                        "put them"
+                    ),
+                ),
             )
             continue
 
@@ -522,6 +721,19 @@ def _consolidate_duty_rooms(
                     f"{date_.isoformat()} {other_period.value}: the room is "
                     f"held by {occupant_code} and no other D room was free "
                     f"to move them into."
+                ),
+                rationale=rat.stages(
+                    f"{code} holds D room {duty_room.code} for their "
+                    f"{duty_type.value} duty in {period.value} but a different room "
+                    f"in {other_period.value}.",
+                    f"{duty_room.code} is held in {other_period.value} by "
+                    f"{occupant_code}, who could be bumped, but no D room on their "
+                    f"preference list or anywhere else was free that session (a "
+                    f"bumped occupant is only ever moved to another D room here).",
+                    rat.decided(
+                        "consolidation abandoned -- it is opportunistic, so both "
+                        "doctors stay where the first pass put them"
+                    ),
                 ),
             )
             continue
@@ -538,5 +750,20 @@ def _consolidate_duty_rooms(
                 f"{date_.isoformat()} {other_period.value} to match their "
                 f"{duty_type.value} duty room, bumping {occupant_code} to "
                 f"{context.room_by_id[bump_room].code} to make room."
+            ),
+            rationale=rat.stages(
+                f"{code} holds D room {duty_room.code} for their "
+                f"{duty_type.value} duty in {period.value} but a different room in "
+                f"{other_period.value}.",
+                f"{duty_room.code} is held in {other_period.value} by "
+                f"{occupant_code}, who is not on duty that session and so may be "
+                f"bumped; {context.room_by_id[bump_room].code} was the first D room "
+                f"free for them.",
+                rat.decided(
+                    "same-day consolidation with a bump -- neither doctor's "
+                    "room-move counter is touched, since that counter records "
+                    "displacement by someone else's duty requirement, not tidying "
+                    "up a day"
+                ),
             ),
         )

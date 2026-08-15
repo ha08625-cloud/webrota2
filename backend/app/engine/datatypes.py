@@ -66,6 +66,16 @@ class DecisionLogEntry:
     `generate._write_to_db()` -- see that table's model docstring for the
     persistence conventions (plain integer ids, no FKs except rota_id;
     immutable after generation).
+
+    `message` says *what* happened in one line. `rationale` says *why*: a
+    multi-line, stage-by-stage replay of the selection the phase performed
+    (who was in the running, who was filtered out and on what grounds,
+    what each stage compared, and which stage was decisive), built by the
+    helpers in `engine/rationale.py`. It is optional -- entries recording
+    something that involved no choice (a skipped closed date, a WFH
+    abandonment) leave it `None` -- and it is never parsed: it exists to
+    be read by a human debugging a run, which is why it duplicates figures
+    that also appear in `message`.
     """
     sequence: int
     phase: str
@@ -79,6 +89,7 @@ class DecisionLogEntry:
     room_id: int | None = None
     related_room_id: int | None = None
     clinic_type_id: int | None = None
+    rationale: str | None = None
 
 
 @dataclass

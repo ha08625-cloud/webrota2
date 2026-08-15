@@ -136,6 +136,53 @@ describe("GenerationLogPanel", () => {
     expect(screen.getByText("Dr BB displaced")).toBeInTheDocument();
   });
 
+  it("hides the rationale behind a per-entry Why disclosure", async () => {
+    const rationale =
+      "Eligible (2): AA (priority tier 1, raw 1 / 10 sessions per week = 0.100); " +
+      "BB (priority tier 2, raw 0 / 10 sessions per week = 0.000)\n" +
+      "Top priority tier 1 (1): AA\n" +
+      "Decided on: priority tier -- AA is alone in tier 1.";
+    server.use(
+      http.get("/api/v1/rota/:id/log", () =>
+        HttpResponse.json([
+          makeGenerationLogEntry({ sequence: 0, message: "Dr AA assigned", rationale }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<GenerationLogPanel rotaId={7} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Generation log \(1 entries\)/ }));
+
+    // The rationale is several lines long per entry, so it stays collapsed
+    // until asked for - but it is in the DOM verbatim, newlines included.
+    const why = await screen.findByText("Why");
+    expect(why.closest("details")).not.toHaveAttribute("open");
+
+    await user.click(why);
+    expect(why.closest("details")).toHaveAttribute("open");
+    // textContent, not getByText: the default matcher collapses whitespace,
+    // and the line breaks are the structure here.
+    expect(why.closest("details")?.querySelector("pre")?.textContent).toBe(rationale);
+  });
+
+  it("renders no Why disclosure for an entry with no rationale", async () => {
+    server.use(
+      http.get("/api/v1/rota/:id/log", () =>
+        HttpResponse.json([
+          makeGenerationLogEntry({ sequence: 0, message: "Skipped, practice closed", rationale: null }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<GenerationLogPanel rotaId={7} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Generation log \(1 entries\)/ }));
+
+    expect(await screen.findByText("Skipped, practice closed")).toBeInTheDocument();
+    expect(screen.queryByText("Why")).not.toBeInTheDocument();
+  });
+
   it("renders an empty state for a rota with no log rows", async () => {
     server.use(http.get("/api/v1/rota/:id/log", () => HttpResponse.json([])));
 

@@ -8,10 +8,19 @@ clinic requires one, and increment their shared clinic counter.
 Iteration order is clinic type -> schedule -> generation week (schedule
 outer, week inner), per the M2 plan -- this matters because the counter
 selection for later iterations depends on increments made by earlier ones.
+
+Every entry this phase logs carries a `rationale` replaying the selection
+stage by stage: the eligible field with each doctor's tier and weighted
+counter, the doctors excluded from it and why, the top tier, the counter
+comparison within that tier, and the stage that actually decided. The
+room-resolution entries do the same for the clinic's eligible room list.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ...models.enums import MasterSessionType, RoomType, SessionRole
+from .. import rationale as rat
 from ..datatypes import (
     ClinicDoctorEligibility,
     ClinicTypeInfo,
@@ -60,7 +69,9 @@ def run_phase5(
                     )
                     continue
 
-                eligible = _eligible_doctors(context, grid, clinic, gen_week, day, period)
+                eligible, excluded = _eligible_doctors(
+                    context, grid, clinic, gen_week, day, period
+                )
                 if not eligible:
                     issues.append(ValidationIssue(
                         severity="warning", phase=PHASE, check="no_eligible_doctor",
@@ -70,17 +81,37 @@ def run_phase5(
                             f"{date_.isoformat()} {period.value}."
                         ),
                     ))
+                    # Logged as well as warned: the warning says nobody was
+                    # available, the log entry says which configured doctors
+                    # were considered and what ruled each of them out, which
+                    # is the actual question being asked when this fires.
+                    log.add(
+                        phase=PHASE, action="no_eligible_doctor",
+                        week=gen_week, day=day, period=period,
+                        clinic_type_id=clinic.id,
+                        message=(
+                            f"No eligible doctor for clinic '{clinic.name}' on "
+                            f"{date_.isoformat()} {period.value}; slot left "
+                            f"unassigned."
+                        ),
+                        rationale=rat.stages(
+                            rat.listing(
+                                "Doctors configured as eligible for this clinic type",
+                                _excluded_lines(excluded),
+                            ),
+                            "Every configured doctor was ruled out, so there was "
+                            "no field to compare.",
+                        ),
+                    )
                     continue
 
-                eligible.sort(key=lambda e: (
-                    e.doctor_priority,
-                    counters.weighted_clinic_score(
-                        e.doctor_id, clinic.id, context.spw_by_id.get(e.doctor_id, 0.0)
-                    ),
-                    context.doctor_by_id[e.doctor_id].code,
-                ))
-                doctor_id = eligible[0].doctor_id
-                reason = _selection_reason(context, counters, clinic, eligible)
+                # One scored, sorted field drives both the assignment and
+                # its explanation, so the log can never disagree with what
+                # the sort actually did.
+                candidates = _score_candidates(context, counters, clinic, eligible)
+                candidates.sort(key=lambda c: (c.tier, c.weighted, c.code))
+                doctor_id = candidates[0].doctor_id
+                reason = _selection_reason(candidates)
 
                 slot = grid.get(doctor_id, gen_week, day, period)
                 slot.clinic_type_id = clinic.id
@@ -95,6 +126,7 @@ def run_phase5(
                         f"{_code(context, doctor_id)} on {date_.isoformat()} "
                         f"{period.value} ({reason})."
                     ),
+                    rationale=_selection_rationale(candidates, excluded),
                 )
 
                 if clinic.room_required:
@@ -110,35 +142,118 @@ def run_phase5(
     return issues
 
 
-def _selection_reason(
+@dataclass(frozen=True)
+class _Candidate:
+    """One eligible doctor with everything the sort key looks at, resolved
+    once so the assignment and its rationale read the same numbers."""
+    doctor_id: int
+    code: str
+    tier: int
+    raw: int
+    spw: float
+    weighted: float
+
+
+def _score_candidates(
     context: GenerationContext,
     counters: CounterState,
     clinic: ClinicTypeInfo,
     eligible: list[ClinicDoctorEligibility],
-) -> str:
-    """Describe why `eligible[0]` was picked over the field, for the
-    decision log. Mirrors the sort key used to order `eligible`: priority
-    tier, then weighted counter score, then alphabetical."""
-    if len(eligible) == 1:
+) -> list[_Candidate]:
+    return [
+        _Candidate(
+            doctor_id=elig.doctor_id,
+            code=_code(context, elig.doctor_id),
+            tier=elig.doctor_priority,
+            raw=counters.clinic.get((elig.doctor_id, clinic.id), 0),
+            spw=context.spw_by_id.get(elig.doctor_id, 0.0),
+            weighted=counters.weighted_clinic_score(
+                elig.doctor_id, clinic.id, context.spw_by_id.get(elig.doctor_id, 0.0)
+            ),
+        )
+        for elig in eligible
+    ]
+
+
+def _selection_reason(candidates: list[_Candidate]) -> str:
+    """The one-line reason embedded in the entry's `message`. Mirrors the
+    sort key `candidates` is already ordered by: priority tier, then
+    weighted counter score, then alphabetical. `_selection_rationale`
+    expands the same comparison into the full stage-by-stage account."""
+    if len(candidates) == 1:
         return "only eligible doctor"
 
-    a, b = eligible[0], eligible[1]
-    if a.doctor_priority != b.doctor_priority:
-        return f"priority tier {a.doctor_priority}"
-
-    score_a = counters.weighted_clinic_score(
-        a.doctor_id, clinic.id, context.spw_by_id.get(a.doctor_id, 0.0)
-    )
-    score_b = counters.weighted_clinic_score(
-        b.doctor_id, clinic.id, context.spw_by_id.get(b.doctor_id, 0.0)
-    )
-    if score_a != score_b:
+    a, b = candidates[0], candidates[1]
+    if a.tier != b.tier:
+        return f"priority tier {a.tier}"
+    if a.weighted != b.weighted:
         return (
-            f"priority tier {a.doctor_priority}, tie broken on weighted "
-            f"score {score_a:.2f} vs {score_b:.2f}"
+            f"priority tier {a.tier}, tie broken on weighted "
+            f"score {a.weighted:.2f} vs {b.weighted:.2f}"
         )
+    return f"priority tier {a.tier}, alphabetical tie-break"
 
-    return f"priority tier {a.doctor_priority}, alphabetical tie-break"
+
+def _selection_rationale(
+    candidates: list[_Candidate], excluded: list[tuple[str, str]]
+) -> str:
+    """The full account of a clinic assignment: the eligible field, who was
+    ruled out and why, the top tier, the counter comparison inside it, and
+    the decisive stage.
+
+    Stages are emitted only up to the one that decided -- if the top tier
+    holds a single doctor, no counter line is written, because no counter
+    was consulted. Reading a run's log, the presence of a line is itself
+    the evidence that the stage ran.
+    """
+    chosen = candidates[0]
+    lines: list[str | None] = [
+        rat.listing(
+            "Eligible",
+            [
+                f"{c.code} (priority tier {c.tier}, {rat.score(c.raw, c.spw, c.weighted)})"
+                for c in candidates
+            ],
+        ),
+        rat.listing("Not eligible", _excluded_lines(excluded)) if excluded else None,
+    ]
+
+    top_tier = [c for c in candidates if c.tier == chosen.tier]
+    if len(candidates) == 1:
+        lines.append(rat.decided(f"{rat.ONLY_CANDIDATE} -- {chosen.code}"))
+        return rat.stages(*lines)
+
+    lines.append(rat.listing(
+        f"Top priority tier {chosen.tier}", [c.code for c in top_tier]
+    ))
+    if len(top_tier) == 1:
+        lines.append(rat.decided(
+            f"{rat.PRIORITY_TIER} -- {chosen.code} is alone in tier {chosen.tier}"
+        ))
+        return rat.stages(*lines)
+
+    lines.append(rat.listing(
+        "Weighted clinic counters within that tier",
+        [f"{c.code} {rat.score(c.raw, c.spw, c.weighted)}" for c in top_tier],
+    ))
+    tied = [c for c in top_tier if c.weighted == chosen.weighted]
+    if len(tied) == 1:
+        lines.append(rat.decided(
+            f"{rat.WEIGHTED_COUNTER} -- {chosen.code} has the lowest weighted "
+            f"count, {rat.fmt(chosen.weighted)}"
+        ))
+        return rat.stages(*lines)
+
+    lines.append(rat.listing(
+        f"Still tied on weighted count {rat.fmt(chosen.weighted)}",
+        [c.code for c in tied],
+    ))
+    lines.append(rat.decided(f"{rat.ALPHABETICAL} -- {chosen.code}"))
+    return rat.stages(*lines)
+
+
+def _excluded_lines(excluded: list[tuple[str, str]]) -> list[str]:
+    return [f"{code}: {reason}" for code, reason in excluded]
 
 
 def _eligible_doctors(
@@ -148,23 +263,55 @@ def _eligible_doctors(
     gen_week: int,
     day,
     period,
-) -> list[ClinicDoctorEligibility]:
+) -> tuple[list[ClinicDoctorEligibility], list[tuple[str, str]]]:
+    """`(eligible, excluded)` -- the doctors configured for this clinic type
+    that can take this slot, and `(code, reason)` for each that cannot.
+
+    The exclusion reasons are the phase's own filter conditions, in the
+    order they are applied, and exist purely for the decision log: "why
+    wasn't Dr X considered for this clinic" is the question the log could
+    not previously answer. The list is bounded by the clinic type's
+    configured eligibility list, not by the whole practice.
+    """
     result = []
+    excluded: list[tuple[str, str]] = []
     for elig in clinic.doctor_eligibilities:
         doctor = context.doctor_by_id.get(elig.doctor_id)
         if doctor is None or not doctor.active:
+            excluded.append((_code(context, elig.doctor_id), "inactive or unknown doctor"))
             continue
+        code = doctor.code
         slot = grid.get(elig.doctor_id, gen_week, day, period)
         if slot is None:
-            continue  # no template session for this doctor at this slot
-        if slot.is_on_leave or slot.is_wfh:
+            excluded.append((code, "does not work this session in the template"))
+            continue
+        if slot.is_on_leave:
+            excluded.append((code, "on leave"))
+            continue
+        if slot.is_wfh:
+            excluded.append((code, "working from home"))
             continue
         if slot.template_type in _EXCLUDED_TEMPLATE_TYPES:
+            excluded.append((code, f"template session is {slot.template_type.value}"))
             continue
         if slot.role is not None:
-            continue  # already on duty or assigned an earlier-tier clinic
+            # Already on duty or assigned a higher-priority clinic earlier
+            # in this phase -- name which, since "already has a role" on its
+            # own does not say whether duty or clinic ordering caused it.
+            held = slot.role.value
+            if slot.clinic_type_id is not None:
+                held = f"{held} ({_clinic_name(context, slot.clinic_type_id)})"
+            excluded.append((code, f"already assigned {held} this session"))
+            continue
         result.append(elig)
-    return result
+    return result, excluded
+
+
+def _clinic_name(context: GenerationContext, clinic_type_id: int) -> str:
+    for clinic in context.clinic_types:
+        if clinic.id == clinic_type_id:
+            return clinic.name
+    return f"clinic type id={clinic_type_id}"
 
 
 def _resolve_room(
@@ -179,6 +326,15 @@ def _resolve_room(
     log: DecisionLog,
 ) -> ValidationIssue | None:
     eligible_room_ids = sorted(clinic.eligible_room_ids)
+    # Snapshot the room list before anything moves, so every entry below
+    # explains itself against the state the search actually faced.
+    rooms_line = rat.listing(
+        f"Rooms eligible for clinic '{clinic.name}' (searched in room-id order)",
+        _room_states(
+            context, grid, eligible_room_ids, gen_week, day, period,
+            clinic_priority_by_id, clinic.clinic_priority,
+        ),
+    )
 
     current_room = grid.get_doctor_room(gen_week, day, period, doctor_id)
     if current_room is not None and current_room in clinic.eligible_room_ids:
@@ -190,6 +346,13 @@ def _resolve_room(
                 f"{_code(context, doctor_id)} already in eligible room "
                 f"{context.room_by_id[current_room].code} for clinic "
                 f"'{clinic.name}'."
+            ),
+            rationale=rat.stages(
+                rooms_line,
+                rat.decided(
+                    f"no search run -- {_code(context, doctor_id)} already held "
+                    f"{context.room_by_id[current_room].code}, which is on that list"
+                ),
             ),
         )
         return None  # already in an eligible room
@@ -205,17 +368,28 @@ def _resolve_room(
                     f"Assigned room {context.room_by_id[room_id].code} to "
                     f"{_code(context, doctor_id)} for clinic '{clinic.name}'."
                 ),
+                rationale=rat.stages(
+                    rooms_line,
+                    rat.decided(
+                        f"first free room in that list -- "
+                        f"{context.room_by_id[room_id].code}; no displacement needed"
+                    ),
+                ),
             )
             return None
 
+    attempts: list[str] = []
     for room_id in eligible_room_ids:
+        room_code = context.room_by_id[room_id].code
         occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
         if occupant_id is None:
             continue  # defensive: none were free above, so this shouldn't occur
-        if not _is_displaceable(
+        displaceable, why = _displaceability(
             context, grid, clinic_priority_by_id, occupant_id, gen_week, day, period,
             clinic.clinic_priority,
-        ):
+        )
+        if not displaceable:
+            attempts.append(f"{room_code}: cannot take it -- {why}")
             continue
 
         exclude_d = context.room_by_id[room_id].room_type == RoomType.D
@@ -223,6 +397,11 @@ def _resolve_room(
             context, grid, occupant_id, gen_week, day, period, exclude_d=exclude_d,
         )
         if new_room is None:
+            attempts.append(
+                f"{room_code}: {_code(context, occupant_id)} could be displaced but "
+                f"has no free preferred room to move to"
+                + (" (D rooms excluded)" if exclude_d else "")
+            )
             continue  # this candidate room's occupant has nowhere to go; try the next
 
         grid.assign_room(gen_week, day, period, occupant_id, new_room)
@@ -238,11 +417,38 @@ def _resolve_room(
                 f"{context.room_by_id[new_room].code} so "
                 f"{_code(context, doctor_id)} can run clinic '{clinic.name}'."
             ),
+            rationale=rat.stages(
+                rooms_line,
+                "No eligible room was free, so the list was walked again for a "
+                "displaceable occupant.",
+                rat.listing("Rooms tried and rejected first", attempts) if attempts else None,
+                rat.decided(
+                    f"first eligible room whose occupant could both be displaced and "
+                    f"rehoused -- {room_code}; {_code(context, occupant_id)} moved to "
+                    f"{context.room_by_id[new_room].code}, the first free room on their "
+                    f"own preference list"
+                ),
+            ),
         )
         return None
 
     doctor = context.doctor_by_id.get(doctor_id)
     code = doctor.code if doctor is not None else f"id={doctor_id}"
+    log.add(
+        phase=PHASE, action="clinic_room_unresolved",
+        week=gen_week, day=day, period=period, doctor_id=doctor_id,
+        clinic_type_id=clinic.id,
+        message=(
+            f"No eligible room could be found or freed for {code} on clinic "
+            f"'{clinic.name}'; left in their current room."
+        ),
+        rationale=rat.stages(
+            rooms_line,
+            rat.listing("Rooms tried for displacement", attempts),
+            rat.decided("nothing left to try -- every eligible room was occupied "
+                        "and none of the occupants could be displaced and rehoused"),
+        ),
+    )
     return ValidationIssue(
         severity="warning", phase=PHASE, check="clinic_room_unresolved",
         week=gen_week, day=day, period=period,
@@ -253,7 +459,37 @@ def _resolve_room(
     )
 
 
-def _is_displaceable(
+def _room_states(
+    context: GenerationContext,
+    grid: RotaGrid,
+    room_ids: list[int],
+    gen_week: int,
+    day,
+    period,
+    clinic_priority_by_id: dict[int, int],
+    current_clinic_priority: int,
+) -> list[str]:
+    """One `"R1: free"` / `"R1: held by AB, displaceable"` line per eligible
+    room, in the order the search walks them."""
+    states = []
+    for room_id in room_ids:
+        room_code = context.room_by_id[room_id].code
+        occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
+        if occupant_id is None:
+            states.append(f"{room_code}: free")
+            continue
+        displaceable, why = _displaceability(
+            context, grid, clinic_priority_by_id, occupant_id, gen_week, day, period,
+            current_clinic_priority,
+        )
+        states.append(
+            f"{room_code}: held by {_code(context, occupant_id)}, "
+            + ("displaceable" if displaceable else why)
+        )
+    return states
+
+
+def _displaceability(
     context: GenerationContext,
     grid: RotaGrid,
     clinic_priority_by_id: dict[int, int],
@@ -262,19 +498,26 @@ def _is_displaceable(
     day,
     period,
     current_clinic_priority: int,
-) -> bool:
+) -> tuple[bool, str]:
+    """`(displaceable, reason)` -- the reason names the protection that
+    fired, and is only meaningful when `displaceable` is False."""
     slot = grid.get(occupant_id, gen_week, day, period)
     if slot is None:
-        return False
+        return False, "no session slot for that doctor this session"
     if slot.is_on_leave:
-        return False
+        return False, "protected: on leave"
     if slot.role in (SessionRole.DUTY_PRIMARY, SessionRole.DUTY_SECONDARY):
-        return False
+        return False, f"protected: on {slot.role.value}"
     if slot.role == SessionRole.CLINIC:
         occupant_priority = clinic_priority_by_id.get(slot.clinic_type_id)
         if occupant_priority is not None and occupant_priority < current_clinic_priority:
-            return False  # protected: occupant's clinic is higher priority (lower number)
-    return True
+            # Protected: occupant's clinic is higher priority (lower number).
+            return False, (
+                f"protected: running '{_clinic_name(context, slot.clinic_type_id)}' "
+                f"at clinic priority {occupant_priority}, ahead of this clinic's "
+                f"{current_clinic_priority}"
+            )
+    return True, "displaceable"
 
 
 def _best_free_preferred_room(
