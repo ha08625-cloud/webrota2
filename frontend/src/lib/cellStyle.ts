@@ -44,8 +44,8 @@ export function cellStyle(
 
   if (session.is_wfh) {
     // WFH background is unconditionally blank/white regardless of any
-    // role present (architecture.md M3.7 note) - the WFH badge carries
-    // the signal, not the background colour.
+    // role present - the WFH badge carries the signal, not the
+    // background colour.
     return { background: "wfh", fontColor };
   }
 
@@ -64,7 +64,7 @@ export function cellStyle(
   if (session.template_type === "no_surgery" || session.template_type === "admin_time") {
     // Only reached when no role is present - the role branches above
     // already returned. This is the "role colouring wins visually" rule
-    // from architecture.md's M3.7 note: a role on an incompatible slot
+    // (architecture-clinical.md, "Cell colouring"): a role on an incompatible slot
     // stays normal/interactive here, and Phase 12's
     // role_on_incompatible_slot warning is what surfaces the conflict,
     // not the cell's own appearance.

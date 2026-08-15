@@ -217,7 +217,7 @@ def _load_staging_or_template(
     db: Session, config: RotaConfig
 ) -> tuple[MasterRotaTemplate | None, dict]:
     """Prefer a staging copy over the live template, if one exists for this
-    config. See architecture.md "Staging branch" section.
+    config. See architecture-clinical.md "Staging branch" section.
 
     Staging rows are keyed by *generation* week, not template week, and a
     staging config always persists `template_start_week = 1` -- so
