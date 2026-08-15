@@ -525,3 +525,216 @@ class TestDecisionLog:
         assert entry.related_room_id == fallback_room.id
         assert entry.clinic_type_id == ct.id
         assert "AA" in entry.message and "BB" in entry.message
+
+
+class TestDecisionLogRationale:
+    """The `rationale` field: the stage-by-stage account of *why* a doctor
+    was picked, as opposed to `message`'s one-line summary of what happened.
+
+    The point of these tests is that each stage is only narrated when it
+    actually ran -- a run whose outcome came from the priority tiers must
+    not carry a counter comparison it never made, or the log would be
+    unusable for telling the two mechanisms apart.
+    """
+
+    def test_lists_the_eligible_field_with_tiers_and_counters(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        winner = make_doctor(session, code="AA", spw="10.0")
+        loser = make_doctor(session, code="BB", spw="10.0")
+        _req_room(session, t, winner)
+        _req_room(session, t, loser)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(winner.id, 1), (loser.id, 2)],
+        )
+        make_clinic_counter(session, winner, ct, raw_count=3)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        lines = entry.rationale.splitlines()
+        # Both doctors appear with the tier and the counter division that
+        # produced their score, whichever stage ends up deciding.
+        assert lines[0].startswith("Eligible (2):")
+        assert "AA (priority tier 1, raw 3 / 10 sessions per week = 0.300)" in lines[0]
+        assert "BB (priority tier 2, raw 0 / 10 sessions per week = 0.000)" in lines[0]
+
+    def test_priority_tier_decision_omits_the_counter_stage(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        winner = make_doctor(session, code="AA", spw="10.0")
+        loser = make_doctor(session, code="BB", spw="10.0")
+        _req_room(session, t, winner)
+        _req_room(session, t, loser)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(winner.id, 1), (loser.id, 2)],
+        )
+        # AA has the *worse* counter and still wins: the tier decided, so no
+        # counter comparison was made and none may be narrated.
+        make_clinic_counter(session, winner, ct, raw_count=9)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert "Top priority tier 1 (1): AA" in entry.rationale
+        assert "Weighted clinic counters within that tier" not in entry.rationale
+        assert entry.rationale.endswith(
+            "Decided on: priority tier -- AA is alone in tier 1."
+        )
+
+    def test_counter_decision_shows_the_within_tier_comparison(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        low = make_doctor(session, code="ZZ", spw="10.0")
+        high = make_doctor(session, code="AA", spw="10.0")
+        _req_room(session, t, low)
+        _req_room(session, t, high)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(low.id, 1), (high.id, 1)],
+        )
+        make_clinic_counter(session, high, ct, raw_count=5)
+        make_clinic_counter(session, low, ct, raw_count=1)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert "Top priority tier 1 (2):" in entry.rationale
+        assert "Weighted clinic counters within that tier (2):" in entry.rationale
+        # ZZ wins on the counter despite losing the alphabetical order,
+        # which is the distinction the tie-break stages exist to make.
+        assert entry.rationale.endswith(
+            "Decided on: weighted counter -- ZZ has the lowest weighted count, 0.100."
+        )
+
+    def test_alphabetical_decision_is_stated_not_implied(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        first = make_doctor(session, code="AA", spw="10.0")
+        second = make_doctor(session, code="BB", spw="10.0")
+        _req_room(session, t, first)
+        _req_room(session, t, second)
+        make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(first.id, 1), (second.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert "Still tied on weighted count 0.000 (2): AA; BB" in entry.rationale
+        assert entry.rationale.endswith(
+            "Decided on: alphabetical order of doctor code (fully tied on every "
+            "earlier stage) -- AA."
+        )
+
+    def test_names_who_was_excluded_and_why(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        chosen = make_doctor(session, code="AA")
+        on_leave = make_doctor(session, code="BB")
+        no_session = make_doctor(session, code="CC")
+        _req_room(session, t, chosen)
+        _req_room(session, t, on_leave)
+        make_leave(session, on_leave, monday, Period.AM)
+        make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(chosen.id, 1), (on_leave.id, 1), (no_session.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic")
+        assert "Eligible (1): AA" in entry.rationale
+        assert "Not eligible (2):" in entry.rationale
+        assert "BB: on leave" in entry.rationale
+        assert "CC: does not work this session in the template" in entry.rationale
+
+    def test_a_doctor_taken_by_an_earlier_clinic_is_named_with_that_clinic(
+        self, session, config_1wk
+    ):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        _req_room(session, t, d)
+        make_clinic_type(
+            session, name="Dragon", room_required=False, clinic_priority=1,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)],
+        )
+        make_clinic_type(
+            session, name="Phoenix", room_required=False, clinic_priority=2,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        # The second clinic finds nobody, and says so naming the clinic that
+        # took the doctor first -- "already has a role" alone would not
+        # distinguish clinic ordering from a duty assignment.
+        entry = next(e for e in log.entries if e.action == "no_eligible_doctor")
+        assert "AA: already assigned clinic (Dragon) this session" in entry.rationale
+
+    def test_room_search_lists_the_rooms_and_their_occupants(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        clinic_doctor = make_doctor(session, code="AA")
+        occupant = make_doctor(session, code="BB")
+        taken_room = make_room(session, code="D1", room_type=RoomType.D)
+        free_room = make_room(session, code="D2", room_type=RoomType.D)
+
+        _req_room(session, t, clinic_doctor)
+        make_master_session(
+            session, t, occupant, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=taken_room,
+        )
+        make_clinic_type(
+            session, name="Dragon", room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(clinic_doctor.id, 1)],
+            room_ids=[taken_room.id, free_room.id],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_clinic_room")
+        assert "D1: held by BB" in entry.rationale
+        assert "D2: free" in entry.rationale
+        assert entry.rationale.endswith(
+            "Decided on: first free room in that list -- D2; no displacement needed."
+        )
+
+    def test_no_eligible_doctor_is_logged_with_every_exclusion(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        _req_room(session, t, d)
+        make_leave(session, d, monday, Period.AM)
+        ct = make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(d.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "no_eligible_doctor")
+        assert entry.clinic_type_id == ct.id
+        assert entry.week == 1 and entry.day == Day.MONDAY and entry.period == Period.AM
+        assert "AA: on leave" in entry.rationale

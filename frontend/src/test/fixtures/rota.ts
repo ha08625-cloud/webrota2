@@ -62,6 +62,7 @@ export function makeGenerationLogEntry(overrides: Partial<GenerationLogEntry> = 
     phase: "phase5",
     action: "assign_clinic",
     message: "Dr AA assigned to Diabetic clinic",
+    rationale: null,
     week: 1,
     day: "Monday",
     period: "AM",

@@ -671,3 +671,99 @@ class TestTotalFailure:
         issues12 = run_phase12(ctx, grid)
         assert not any(i.check == "unresolved_room" for i in issues12)
         assert not any(i.check == "role_on_incompatible_slot" for i in issues12)
+
+class TestDecisionLogRationale:
+    """Phase 4's `rationale`: which room-resolution stage fired, what the
+    earlier stages found, and -- when the sweep has to evict someone -- the
+    scored field it chose the victim from."""
+
+    def test_duty_assignment_states_that_nothing_was_selected(
+        self, session, config_1wk, monday
+    ):
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        make_room(session, code="D1", room_type=RoomType.D)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_duty")
+        # Explicit, because "no tier or counter was involved" is exactly what
+        # a reader comparing phases needs to know about duty.
+        assert "this phase never chooses who is on duty" in entry.rationale
+
+    def test_preferred_room_path_names_the_preference(self, session, config_1wk, monday):
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        make_preferred_room(session, duty_doc, preference_order=1, room=d1)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_room")
+        assert entry.room_id == d1.id
+        assert "D1: free, both periods" in entry.rationale
+        assert "D2: free, both periods" in entry.rationale
+        assert "AA's first D room on their preference list: D1" in entry.rationale
+        assert entry.rationale.endswith(
+            "Decided on: position in the doctor's room preference list -- their "
+            "preferred D room D1 was free, so no sweep or eviction was needed."
+        )
+
+    def test_sweep_eviction_shows_the_scored_victim_field(
+        self, session, config_1wk, monday
+    ):
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="ZZ")
+        high_score = make_doctor(session, code="HI", doctor_type=DoctorType.SALARIED, spw="10.0")
+        low_score = make_doctor(session, code="LO", doctor_type=DoctorType.SALARIED, spw="10.0")
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        make_system_counter(session, high_score, SystemCounterType.ROOM_MOVE, raw_count=8)
+        make_system_counter(session, low_score, SystemCounterType.ROOM_MOVE, raw_count=2)
+        _pre_assigned(session, t, high_score, d1)
+        _pre_assigned(session, t, low_score, d2)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == low_score.id
+        assert "LO in D2 (raw 2 / 10 sessions per week = 0.200)" in entry.rationale
+        assert "HI in D1 (raw 8 / 10 sessions per week = 0.800)" in entry.rationale
+        assert (
+            "Decided on: weighted counter -- LO has the lowest weighted room-move "
+            "score, 0.200, so is the least disrupted by another move."
+        ) in entry.rationale
+
+    def test_unresolved_duty_room_is_logged_with_what_was_tried(
+        self, session, config_1wk, monday
+    ):
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        # The only D room is held by a Partner, who is never a sweep victim.
+        _pre_assigned(session, t, partner, d1)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase4(ctx, grid, counters, log)
+
+        assert any(i.check == "duty_no_d_room_available" for i in issues)
+        entry = next(e for e in log.entries if e.action == "duty_room_unresolved")
+        assert "D1: held by PP" in entry.rationale
+        assert "nobody the sweep was allowed to evict" in entry.rationale

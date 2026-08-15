@@ -36,6 +36,7 @@ to inspect after the fact.
 from __future__ import annotations
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
+from .. import rationale as rat
 from ..datatypes import DecisionLog, GenerationContext, RotaGrid, ValidationIssue
 
 PHASE = "phase9b"
@@ -79,6 +80,9 @@ def _resolve_swaps_for_day(
 
             if a_am == b_pm and a_pm == b_am:
                 confirm, reason = _should_confirm_swap(context, a_id, b_id, a_am, b_am)
+                entry_rationale = _swap_rationale(
+                    context, a_id, b_id, a_am, b_am, confirm, reason,
+                )
                 if not confirm:
                     # Free both current PM rooms first -- assign_room only
                     # frees the assignee's own prior room, not a target
@@ -104,6 +108,7 @@ def _resolve_swaps_for_day(
                         f"Only the PM assignment is ever mutated by this "
                         f"phase."
                     ),
+                    rationale=entry_rationale,
                 )
                 processed.add(a_id)
                 processed.add(b_id)
@@ -133,6 +138,53 @@ def _eligible_doctors_for_day(
             continue  # unresolvable session
         result[doctor.id] = (am_slot.assigned_room_id, pm_slot.assigned_room_id)
     return result
+
+
+def _swap_rationale(
+    context: GenerationContext, a_id: int, b_id: int, x_room: int, y_room: int,
+    confirm: bool, reason: str,
+) -> str:
+    """The four preference facts the priority table is evaluated against,
+    then the row that fired and what it did.
+
+    The facts are listed whichever row wins, because the common debugging
+    question here is not "which row fired" -- the message already says that
+    -- but "is the doctor's room preference list what I think it is".
+    """
+    a_code = context.doctor_by_id[a_id].code
+    b_code = context.doctor_by_id[b_id].code
+    x_code = context.room_by_id[x_room].code
+    y_code = context.room_by_id[y_room].code
+    a_pref = context.preferred_rooms_by_doctor.get(a_id, ())
+    b_pref = context.preferred_rooms_by_doctor.get(b_id, ())
+
+    def _has(pref, room_id: int) -> str:
+        return "yes" if room_id in pref else "no"
+
+    return rat.stages(
+        f"{a_code} is in {x_code} in AM and {y_code} in PM; {b_code} is the exact "
+        f"mirror ({y_code} AM, {x_code} PM), which is what makes this a swap.",
+        rat.listing(
+            "Preference facts the priority table reads (a room counts as preferred "
+            "if it appears anywhere on the doctor's list, not just at the top)",
+            [
+                f"{a_code} prefers their own AM room {x_code}: {_has(a_pref, x_room)}",
+                f"{a_code} prefers the swap room {y_code}: {_has(a_pref, y_room)}",
+                f"{b_code} prefers their own AM room {y_code}: {_has(b_pref, y_room)}",
+                f"{b_code} prefers the swap room {x_code}: {_has(b_pref, x_room)}",
+            ],
+        ),
+        rat.decided(
+            f"{reason} -- "
+            + (
+                "CONFIRM, so the PM rooms are left exactly as the earlier phases "
+                "computed them and both doctors change rooms at lunchtime"
+                if confirm else
+                "DEFAULT, so both doctors keep their own AM room for PM and neither "
+                "changes rooms mid-day"
+            )
+        ),
+    )
 
 
 def _should_confirm_swap(

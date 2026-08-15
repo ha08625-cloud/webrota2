@@ -886,6 +886,12 @@ export interface GenerationLogEntry {
   phase: string;
   action: string;
   message: string;
+  // What happened is `message`; why it happened is `rationale` - one line
+  // per stage of the selection (candidates, exclusions, the decisive
+  // stage), newline-separated prose built by the engine's rationale.py.
+  // Null where the decision involved no choice, or on rows generated
+  // before the field existed. Rendered verbatim, never parsed.
+  rationale: string | null;
   week: number | null;
   day: Day | null;
   period: Period | null;

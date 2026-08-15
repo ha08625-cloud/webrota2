@@ -57,3 +57,29 @@ class TestGenerationLog:
         resp = client.get(f"/api/v1/rota/{out['rota_id']}/log")
         assert resp.status_code == 200
         assert len(resp.json()) > 0
+
+    def test_rationale_is_persisted_and_returned(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+
+        resp = client.get(f"/api/v1/rota/{out['rota_id']}/log")
+        entries = resp.json()
+
+        clinic_entry = next(e for e in entries if e["action"] == "assign_clinic")
+        # The stage-by-stage "why" survives the round trip through
+        # rota_generation_log verbatim, newlines and all -- the frontend
+        # renders it as written and never parses it.
+        rationale = clinic_entry["rationale"]
+        assert rationale.startswith("Eligible (")
+        assert "\n" in rationale
+        assert rationale.rstrip().endswith(".")
+        assert "Decided on: " in rationale
+
+    def test_rationale_is_null_where_no_choice_was_made(self, client, seeded):
+        make_clinic_type_via_api(client, seeded)
+        out = generate_rota(client)
+
+        entries = client.get(f"/api/v1/rota/{out['rota_id']}/log").json()
+        # Every entry carries the key, whether or not it has a decision to
+        # explain, so the client needs no per-action knowledge.
+        assert all("rationale" in e for e in entries)

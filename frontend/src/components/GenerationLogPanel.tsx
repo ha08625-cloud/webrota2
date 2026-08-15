@@ -184,6 +184,19 @@ export function GenerationLogPanel({ rotaId }: GenerationLogPanelProps) {
                               {entry.phase} · {entry.action}
                             </span>
                             {entry.message}
+                            {entry.rationale ? (
+                              <details className="mt-0.5">
+                                <summary className="cursor-pointer text-[10px] text-ink/50">
+                                  Why
+                                </summary>
+                                {/* Pre-wrapped, not parsed: the engine writes one
+                                    line per stage of the decision and the panel
+                                    shows exactly those lines. */}
+                                <pre className="mt-0.5 whitespace-pre-wrap border-l-2 border-border pl-2 font-sans text-[11px] text-ink/70">
+                                  {entry.rationale}
+                                </pre>
+                              </details>
+                            ) : null}
                           </li>
                         ))}
                       </ul>

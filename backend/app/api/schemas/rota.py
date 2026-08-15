@@ -183,5 +183,9 @@ class GenerationLogEntryOut(BaseModel):
     related_room_id: int | None = None
     clinic_type_id: int | None = None
     message: str
+    # The stage-by-stage "why" behind this entry (newline-separated), or
+    # null where the decision involved no choice to explain. Prose, not a
+    # structure -- the frontend renders it verbatim and never parses it.
+    rationale: str | None = None
 
     model_config = {"from_attributes": True}

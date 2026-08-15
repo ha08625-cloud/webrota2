@@ -178,7 +178,14 @@ class TestPass1Displacement:
 
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "no_full_day_room" for i in issues)
-        assert log.entries == []  # nothing was decided
+        # No room was assigned, but the failed search is still logged: the
+        # rationale is what answers "why did this trainee end up roomless".
+        failure = next(e for e in log.entries if e.action == "no_full_day_room")
+        assert "D rooms across the whole day" in failure.rationale
+        assert failure.rationale.endswith(
+            "Decided on: nothing left to try in this pass -- no Partner/Salaried "
+            "doctor held a D room all day while free of a role and of leave."
+        )
 
 
 class TestPass1PriorityTiers:
@@ -644,7 +651,12 @@ class TestPass3PartnerSalariedFallback:
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         warning = next(i for i in issues if i.check == "no_partner_salaried_room")
         assert "No free room anywhere" in warning.message
-        assert log.entries == []
+        # The unresolved slot is logged with the rooms it tried, not silently
+        # dropped: the warning says it failed, the rationale says why.
+        failure = next(e for e in log.entries if e.action == "no_partner_salaried_room")
+        assert failure.doctor_id == partner.id
+        assert "PP's preferred rooms, in their stated order: none" in failure.rationale
+        assert "every room in the practice was occupied" in failure.rationale
 
 
 class TestPass2DisplacementPriorityFunction:
@@ -804,6 +816,21 @@ class TestPass2TierOrderingBeatsFairness:
         entry = next(e for e in log.entries if e.action == "displace_room")
         assert entry.related_doctor_id == tier2_doc.id
         assert "priority tier 2" in entry.message
+        # The rationale shows the whole victim field with each doctor's tier
+        # and score, so a reader can confirm the tier -- not the counter --
+        # is what put T2 ahead of the better-scoring T3.
+        assert (
+            "T2 in D1 (tier 2: other session is in a different room anyway, "
+            "raw 5 / 10 sessions per week = 0.500)" in entry.rationale
+        )
+        assert (
+            "T3 in D2 (tier 3: same D room all day, so displacing them fragments "
+            "their day, raw 0 / 10 sessions per week = 0.000)" in entry.rationale
+        )
+        assert entry.rationale.splitlines()[-2] == (
+            "Decided on: priority tier -- T2 is alone in tier 2 (other session is "
+            "in a different room anyway)."
+        )
 
 
 class TestPass2FairnessTiebreakWithinTier:

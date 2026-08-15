@@ -141,6 +141,7 @@ def _write_to_db(
             related_doctor_id=entry.related_doctor_id, room_id=entry.room_id,
             related_room_id=entry.related_room_id,
             clinic_type_id=entry.clinic_type_id, message=entry.message,
+            rationale=entry.rationale,
         ))
 
     _write_counters(db, counters)

@@ -350,7 +350,7 @@ class TestPoolPath:
 
 
 class TestNoSupervisorAvailable:
-    def test_no_eligible_supervisor_warns_and_logs_nothing(self, session, config_1wk):
+    def test_no_eligible_supervisor_warns_and_logs_the_empty_pool(self, session, config_1wk):
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         _requires_room(session, t, trainee)
@@ -361,7 +361,13 @@ class TestNoSupervisorAvailable:
         issues = run_phase9c(ctx, grid, counters, log)
 
         assert any(i.check == "supervision_unassignable" for i in issues)
-        assert log.entries == []
+        # The unsupervised session is logged as well as warned: with no
+        # Partner/Salaried doctor in the session at all, both the pool and
+        # the ruled-out list are empty, and the rationale says so rather
+        # than leaving the reader to infer it from silence.
+        entry = next(e for e in log.entries if e.action == "supervision_unassignable")
+        assert "1 trainee(s) in this session need supervision." in entry.rationale
+        assert "why each was ruled out: none" in entry.rationale
 
 
 class TestNoTraineesSkipsSession:
@@ -378,3 +384,90 @@ class TestNoTraineesSkipsSession:
 
         assert issues == []
         assert log.entries == []
+
+class TestDecisionLogRationale:
+    """The supervision pool's `rationale`: who was in it, who was kept out,
+    each doctor's raw count, sessions-per-week and preference multiplier,
+    and the stage that decided."""
+
+    def test_pool_lines_show_the_counter_and_the_preference_multiplier(
+        self, session, config_1wk
+    ):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        keen = make_doctor(
+            session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
+            supervision_preference=SupervisionPreference.MORE,
+        )
+        reluctant = make_doctor(
+            session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0",
+            supervision_preference=SupervisionPreference.LESS,
+        )
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, keen, make_room(session, code="D1", room_type=RoomType.D))
+        _pre_assigned(session, t, reluctant, make_room(session, code="D2", room_type=RoomType.D))
+        make_system_counter(session, keen, SystemCounterType.SUPERVISION, raw_count=4)
+        make_system_counter(session, reluctant, SystemCounterType.SUPERVISION, raw_count=2)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert "1 trainee(s) in this session need supervision." in entry.rationale
+        assert (
+            "AA in D1: raw 4 / 10 sessions per week = 0.400, supervision preference "
+            "more (x0.66) -> 0.264" in entry.rationale
+        )
+        assert (
+            "BB in D2: raw 2 / 10 sessions per week = 0.200, supervision preference "
+            "less (x1.5) -> 0.300" in entry.rationale
+        )
+        # AA wins on the preference-adjusted score despite the higher raw
+        # count, and the rationale has to say that outright.
+        assert entry.doctor_id == keen.id
+        assert "the supervision-preference multipliers flipped this" in entry.rationale
+
+    def test_scores_are_those_used_to_choose_not_post_assignment(self, session, config_1wk):
+        """The winner's counter is incremented as part of the assignment. If
+        the rationale were built afterwards it would show the incremented
+        score -- which, on a tie decided alphabetically, reads as though the
+        loser had the better score and the wrong doctor was picked."""
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        first = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0")
+        second = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0")
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, first, make_room(session, code="D1", room_type=RoomType.D))
+        _pre_assigned(session, t, second, make_room(session, code="D2", room_type=RoomType.D))
+        make_system_counter(session, first, SystemCounterType.SUPERVISION, raw_count=2)
+        make_system_counter(session, second, SystemCounterType.SUPERVISION, raw_count=2)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert entry.doctor_id == first.id
+        assert "Tied on a weighted score of 0.200 (2): AA; BB" in entry.rationale
+        assert entry.rationale.endswith(
+            "Decided on: alphabetical order of doctor code (fully tied on every "
+            "earlier stage) -- AA."
+        )
+        assert "alphabetical tie-break" in entry.message
+
+    def test_names_partner_salaried_doctors_kept_out_of_the_pool(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        eligible = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0")
+        wrong_room = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0")
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, eligible, make_room(session, code="D1", room_type=RoomType.D))
+        _pre_assigned(session, t, wrong_room, make_room(session, code="C1", room_type=RoomType.C))
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert "Not in the pool (1): BB: in C1 (C), not a D or SR room" in entry.rationale
