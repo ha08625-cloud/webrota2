@@ -220,7 +220,7 @@ def get_active_draft(db: Session) -> GeneratedRota | None:
 def get_active_staging(db: Session) -> RotaStaging | None:
     """The single active staging, or None. At most one active staging
     exists globally; ordered by id for deterministic behavior, matching
-    get_active_draft()'s style. See architecture.md "Staging" section.
+    get_active_draft()'s style. See architecture-clinical.md "Staging".
     """
     return db.execute(
         select(RotaStaging).where(RotaStaging.completed_at.is_(None))
@@ -321,7 +321,7 @@ def rollback_commit(db: Session, rota_id: int) -> GeneratedRota:
     only has meaning for a committed rota. commit_rota() refreshes
     committed_at on re-commit regardless of any prior state, so a surviving
     archived_at would silently re-archive a freshly re-committed rota with no
-    UI action explaining it. See architecture.md "Archive / unarchive" section.
+    UI action explaining it. See architecture-clinical.md "Archive / unarchive".
 
     Strict reverse-chronological order is enforced two ways, deliberately
     without a separate locking mechanism:

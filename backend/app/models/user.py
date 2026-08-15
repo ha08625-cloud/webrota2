@@ -14,7 +14,7 @@ usable bearer tokens. The raw token is returned to the client exactly
 once, at login.
 
 School holidays aside, no DB-level ON DELETE CASCADE exists anywhere in
-this schema (see architecture.md); User -> UserSession cascade is
+this schema (see 001_initial_schema.py's docstring); User -> UserSession cascade is
 ORM-level (relationship(cascade="all, delete-orphan")), the same pattern
 GeneratedRota already uses for RotaSession/RotaClosure/generation_log.
 
