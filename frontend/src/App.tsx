@@ -50,7 +50,8 @@ interface NavItem {
    */
   groupPaths?: readonly string[];
   /**
-   * Hidden from anyone below manager (role-based auth, Task 3). Set only
+   * Hidden from anyone below manager, matching the backend, which 403s
+   * both of these routers below that tier. Set only
    * on Users and Audit Log: every other page is worth *reading* at any
    * access level, so the rest of the nav is identical for everyone and it
    * is the controls inside each page that go quiet. The route stays
