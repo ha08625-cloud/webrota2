@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models import (
+    AuditLogEntry,
     ClinicCounter,
     ClinicType,
     Doctor,
@@ -28,8 +29,10 @@ from app.models import (
     RotaGenerationLogEntry,
     RotaStaging,
     RotaStagingSession,
+    User,
 )
 from app.models.enums import (
+    AccessLevel,
     Day,
     DoctorType,
     MasterSessionType,
@@ -714,3 +717,69 @@ def test_reception_staff_code_unique(session):
     session.add(ReceptionStaff(code="RA", name="Someone Else"))
     with pytest.raises(IntegrityError):
         session.flush()
+
+
+def test_audit_log_entry_round_trip(session):
+    user = User(
+        email="manager@example.com",
+        name="Ada",
+        password_hash="not-a-real-hash",
+        access_level=AccessLevel.MANAGER,
+    )
+    session.add(user)
+    session.flush()
+
+    entry = AuditLogEntry(
+        user_id=user.id,
+        user_email=user.email,
+        user_access_level=user.access_level.value,
+        method="PATCH",
+        route="/rota/{rota_id}/sessions/{session_id}",
+        path="/api/v1/rota/12/sessions/45",
+        path_params={"rota_id": "12", "session_id": "45"},
+        request_body={"room_id": 3, "password": "[redacted]"},
+        status_code=200,
+        duration_ms=17,
+        client_ip="10.0.0.1",
+    )
+    session.add(entry)
+    session.flush()
+    session.expire_all()
+
+    fetched = session.get(AuditLogEntry, entry.id)
+    assert fetched.method == "PATCH"
+    assert fetched.route == "/rota/{rota_id}/sessions/{session_id}"
+    assert fetched.path == "/api/v1/rota/12/sessions/45"
+    # JSON columns round-trip as dicts; path params are strings by design.
+    assert fetched.path_params == {"rota_id": "12", "session_id": "45"}
+    assert fetched.request_body == {"room_id": 3, "password": "[redacted]"}
+    assert fetched.status_code == 200
+    assert fetched.outcome_detail is None
+    # access_level is a plain string, not the enum, so historical rows
+    # survive a tier rename.
+    assert fetched.user_access_level == "manager"
+    assert isinstance(fetched.user_access_level, str)
+    # `at` defaults in Python. SQLite does not round-trip tzinfo, so the
+    # value read back is naive and must be read as UTC.
+    assert fetched.at is not None
+
+
+def test_audit_log_entry_allows_no_actor(session):
+    entry = AuditLogEntry(
+        method="POST",
+        route="/auth/login",
+        path="/api/v1/auth/login",
+        status_code=401,
+        outcome_detail="Invalid credentials",
+    )
+    session.add(entry)
+    session.flush()
+    session.expire_all()
+
+    fetched = session.get(AuditLogEntry, entry.id)
+    assert fetched.user_id is None
+    assert fetched.user_email is None
+    assert fetched.user_access_level is None
+    assert fetched.path_params is None
+    assert fetched.request_body is None
+    assert fetched.outcome_detail == "Invalid credentials"
