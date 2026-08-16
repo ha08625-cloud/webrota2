@@ -24,6 +24,16 @@ so requesting two of them (or one of them plus `client` or
 identity for EVERY request through EITHER client. `client_at_tier` refuses
 a second call to make that failure loud rather than mysterious.
 
+`_audit_to_test_engine` is autouse and points the audit middleware's
+session factory at the per-test engine, so API tests exercise the audit
+write path for real rather than skipping it. The ordering is load-bearing:
+the project-level conftest has its own autouse fixture setting the factory
+to None (the safety net that stops any test writing audit rows into a real
+database), and autouse fixtures from a deeper conftest are set up AFTER
+shallower ones -- so this one wins for tests under test_api/ and the
+disabling default still applies everywhere else. Both restore the previous
+value on teardown.
+
 `db_session` hands tests a session on the same engine for direct
 assertions against rows the API doesn't expose (e.g. snapshot tables).
 `seeded` layers base reference data on top: rooms, two doctors with system
@@ -40,6 +50,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 import app.models  # noqa: F401  (registers all models on Base.metadata)
+from app.api.audit import (
+    get_session_factory as get_audit_session_factory,
+    set_session_factory as set_audit_session_factory,
+)
 from app.api.deps import get_current_user, get_db
 from app.api.main import app
 from app.models import (
@@ -114,6 +128,19 @@ def api_engine():
 @pytest.fixture
 def session_factory(api_engine):
     return sessionmaker(bind=api_engine, autoflush=False, future=True)
+
+
+@pytest.fixture(autouse=True)
+def _audit_to_test_engine(session_factory):
+    """Point the audit middleware at the per-test engine. Ordering versus
+    the root conftest's disabling fixture is load-bearing -- see the module
+    docstring."""
+    previous = get_audit_session_factory()
+    set_audit_session_factory(session_factory)
+    try:
+        yield
+    finally:
+        set_audit_session_factory(previous)
 
 
 @pytest.fixture
