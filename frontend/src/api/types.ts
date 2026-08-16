@@ -1190,3 +1190,85 @@ export interface ReceptionLeaveBulkOut {
 export interface ReceptionLeaveBulkDeleteOut {
   deleted_count: number;
 }
+
+// --- Audit log (schemas/audit.py) ---
+
+/**
+ * One row of the audit log: a single non-GET request that reached the API,
+ * captured by the ASGI middleware in backend/app/api/audit.py. Entries are
+ * HTTP-shaped rather than domain-shaped - "PATCH this route with this body
+ * returned 200", not "moved Dr AB from room 3 to room 5".
+ *
+ * The identity fields are frozen snapshots taken at write time, not joins:
+ * an entry still reads correctly after the user is renamed or demoted.
+ * `user_access_level` is therefore a plain string on the wire, not an
+ * AccessLevel - a historical row may name a tier that no longer exists.
+ * All three are null for a request with no authenticated actor (a failed
+ * login, an unauthenticated 401).
+ */
+export interface AuditLogEntry {
+  id: number;
+  /** UTC. The backend compares and returns wall-clock UTC regardless of the offset sent. */
+  at: string;
+  user_id: number | null;
+  user_email: string | null;
+  user_access_level: string | null;
+  method: string;
+  /**
+   * The templated route (`/rota/{rota_id}/sessions/{session_id}`), which is
+   * router-local: `include_router(prefix=)` prefixes and the `/api/v1` base
+   * are not part of it. Null when the request matched no route, or if a
+   * FastAPI upgrade stops populating `scope["route"]`. Use `path` for the
+   * real requested path.
+   */
+  route: string | null;
+  path: string;
+  /** Values are strings - the ASGI scope reports them that way, pre-coercion. */
+  path_params: Record<string, unknown> | null;
+  /**
+   * The redacted JSON request body, or an `{"_audit": ...}` marker when the
+   * body was too large, unparseable, or not JSON at all. Password-ish keys
+   * are replaced with "[redacted]" server-side.
+   */
+  request_body: Record<string, unknown> | null;
+  status_code: number;
+  outcome_detail: string | null;
+  duration_ms: number | null;
+  client_ip: string | null;
+}
+
+/**
+ * GET /audit response. `total` counts every row matching the filters, not
+ * the page, so the UI can render "x-y of total" and know whether a next
+ * page exists.
+ *
+ * Named `AuditLogList`, not `AuditLogPage`: `AuditLogPage` is the React
+ * component, and the collision would be confusing in a file importing both.
+ */
+export interface AuditLogList {
+  items: AuditLogEntry[];
+  total: number;
+}
+
+/**
+ * GET /audit query parameters. Every field is optional; omitted fields are
+ * left off the query string entirely rather than sent empty (see
+ * api/audit.ts), so the backend applies its own defaults for limit/offset.
+ *
+ * `path_contains` is a substring match with no word boundaries - `/rota/12`
+ * also matches `/rota/120`, and `/rota/12/` narrows it to that rota's
+ * sub-resources. `%` and `_` are matched literally, not as wildcards.
+ * The status and timestamp pairs are inclusive ranges; `since`/`until` are
+ * ISO 8601 strings.
+ */
+export interface AuditLogFilters {
+  limit?: number;
+  offset?: number;
+  user_id?: number;
+  path_contains?: string;
+  method?: string;
+  status_min?: number;
+  status_max?: number;
+  since?: string;
+  until?: string;
+}
