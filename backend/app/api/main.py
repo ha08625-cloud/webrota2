@@ -22,6 +22,12 @@ dependency system and cannot use get_db, so app.api.audit holds a
 module-level factory that defaults to None (disabled) and is pointed at
 SessionLocal explicitly below. See app/api/audit.py.
 
+The rows are read back through the audit router, which is registered in the
+normal gated loop like everything else even though it is manager-only in
+its own right: it currently exposes GET only, so the global write gate is
+inert, and registering it there means a non-GET added to it later is gated
+by default rather than by memory.
+
 The two exception handlers below exist for the same log: without them a 4xx
 row records the status and nothing about the reason, and "my edit was
 rejected and I don't know why" is exactly the question the log is meant to
@@ -53,6 +59,7 @@ from ..database import SessionLocal
 from .audit import AuditMiddleware, current_audit_context, set_session_factory
 from .deps import require_write_access
 from .routers import (
+    audit as audit_router,
     auth,
     clinic_types,
     closures,
@@ -152,7 +159,7 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_coverage, reception_master, reception_rota, reception_leave)
+_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_coverage, reception_master, reception_rota, reception_leave, audit_router)
 
 # The ONLY two routers that do not get the global write gate. Do not extend
 # this without a reason as specific as these:
