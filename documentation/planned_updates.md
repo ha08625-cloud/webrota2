@@ -1,4 +1,5 @@
-
+- Different UI designs, pickable by individual users
+- request leave by user
 - Add preferred rooms as an extra column on Doctors page
 - Displacing someone in the generated room - displace, swap or cancel
 - trainees off site needs validation or local supervisors
