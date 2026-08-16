@@ -13,6 +13,15 @@ without anyone having to remember a dependency. Adding a router to
 _UNGATED is the only way to opt out, and doing so needs a reason as
 specific as the two already there.
 
+Audit capture is registered the same way and for the same reason. The
+AuditMiddleware writes one row per non-GET request that reaches the app, so
+a new router -- or a new POST on an existing one -- is audited the moment it
+exists, with nobody having to remember a call. Registering it here is also
+where its database session factory is set: middleware runs outside the
+dependency system and cannot use get_db, so app.api.audit holds a
+module-level factory that defaults to None (disabled) and is pointed at
+SessionLocal explicitly below. See app/api/audit.py.
+
 If a built frontend exists (FRONTEND_DIST env var, defaulting
 to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
 so /api/v1/* and /health always win. The mount serves index.html as an SPA
@@ -28,6 +37,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from ..database import SessionLocal
+from .audit import AuditMiddleware, set_session_factory
 from .deps import require_write_access
 from .routers import (
     auth,
@@ -67,6 +78,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# add_middleware PREPENDS, so registering audit after CORS makes the audit
+# middleware the OUTER of the two -- it wraps CORS rather than sitting
+# inside it. Deliberate: either order works (preflight OPTIONS is a safe
+# method and skipped regardless), and being outermost means the status code
+# recorded is the one actually sent to the client.
+app.add_middleware(AuditMiddleware)
+
+# Middleware cannot use the get_db dependency, so the audit session factory
+# is set explicitly. Tests override it (see tests/conftest.py).
+set_session_factory(SessionLocal)
 
 API_PREFIX = "/api/v1"
 
