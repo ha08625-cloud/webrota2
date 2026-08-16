@@ -22,6 +22,12 @@ dependency system and cannot use get_db, so app.api.audit holds a
 module-level factory that defaults to None (disabled) and is pointed at
 SessionLocal explicitly below. See app/api/audit.py.
 
+The two exception handlers below exist for the same log: without them a 4xx
+row records the status and nothing about the reason, and "my edit was
+rejected and I don't know why" is exactly the question the log is meant to
+answer. Each records into the audit context and then delegates to FastAPI's
+own handler, so response behaviour is unchanged.
+
 If a built frontend exists (FRONTEND_DIST env var, defaulting
 to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
 so /api/v1/* and /health always win. The mount serves index.html as an SPA
@@ -32,13 +38,19 @@ M4 produces a build, the backend runs exactly as before.
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from ..database import SessionLocal
-from .audit import AuditMiddleware, set_session_factory
+from .audit import AuditMiddleware, current_audit_context, set_session_factory
 from .deps import require_write_access
 from .routers import (
     auth,
@@ -89,6 +101,54 @@ app.add_middleware(AuditMiddleware)
 # Middleware cannot use the get_db dependency, so the audit session factory
 # is set explicitly. Tests override it (see tests/conftest.py).
 set_session_factory(SessionLocal)
+
+
+# ---------------------------------------------------------------------------
+# Audit enrichment: why a 4xx happened
+# ---------------------------------------------------------------------------
+# Both handlers run inside Starlette's ExceptionMiddleware, which is inside
+# the audit middleware and on the same task, so mutating the context object
+# is visible to it. Neither truncates: the middleware truncates
+# outcome_detail once, at write time, which keeps the limit in one place.
+
+
+@app.exception_handler(HTTPException)
+async def audit_http_exception_handler(
+    request: Request, exc: HTTPException
+) -> Response:
+    """Record the detail of an HTTPException, then behave exactly as before.
+
+    Registered against STARLETTE's HTTPException, not FastAPI's: FastAPI
+    registers its own default handler under the Starlette class, and its
+    subclass is what endpoints raise. Registering for the subclass would
+    leave the 401s, 403s and 404s that the framework itself raises --
+    including every unmatched route -- with no detail recorded.
+    """
+    ctx = current_audit_context()
+    if ctx is not None:
+        ctx.outcome_detail = str(exc.detail)
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def audit_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> Response:
+    """Record which field failed validation and why (the 422 case).
+
+    A separate handler because an HTTPException handler never sees a
+    RequestValidationError. The errors are rendered as text rather than
+    stored as JSON: `exc.errors()` can carry non-serialisable exception
+    objects in its `ctx` entries.
+    """
+    ctx = current_audit_context()
+    if ctx is not None:
+        ctx.outcome_detail = "; ".join(
+            f"{'.'.join(str(p) for p in error.get('loc', ()))}: {error.get('msg', '')}"
+            for error in exc.errors()
+        )
+    return await request_validation_exception_handler(request, exc)
+
 
 API_PREFIX = "/api/v1"
 
