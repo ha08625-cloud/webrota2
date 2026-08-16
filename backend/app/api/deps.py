@@ -40,6 +40,17 @@ NURSE are permission-identical viewer labels.
 Both gates raise 403, not 404: the resource plainly exists (the caller
 can GET it), so hiding its existence buys nothing.
 
+get_current_user is also where the acting user reaches the audit log. It
+already holds the User row, so recording the identity here costs nothing --
+the alternative, re-resolving the bearer token inside the audit middleware,
+would be a second indexed SELECT on every write request. The row's identity
+fields are frozen snapshots, so the email and access level are copied in as
+plain values rather than left to be joined at read time. The 401 paths
+record nothing, which is correct: there was no user. Note that this mutates
+the context object in place and never calls ContextVar.set() -- this
+dependency runs threadpooled on a copied context, so a set() here would be
+invisible to the middleware (see api/audit.py).
+
 expires_at is normalized to aware UTC before comparison (auth plan, Task 4
 bugfix). SQLite's DateTime(timezone=True) does not round-trip tzinfo: a
 row written with an aware UTC datetime comes back naive after a fetch,
@@ -60,6 +71,7 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal
 from ..models import User, UserSession
 from ..models.enums import AccessLevel
+from .audit import current_audit_context
 
 _UNAUTHORIZED_DETAIL = "Not authenticated"
 
@@ -123,7 +135,24 @@ def get_current_user(
     if user is None or not user.active:
         raise HTTPException(status_code=401, detail=_UNAUTHORIZED_DETAIL)
 
+    record_audit_actor(user)
     return user
+
+
+def record_audit_actor(user: User) -> None:
+    """Copy the acting user onto the current request's audit row.
+
+    MUTATES the context object; see the module docstring. A None context is
+    normal, not an error: reads are not audited, and neither is code running
+    outside a request. Also called by POST /auth/login, the one endpoint
+    that resolves a user without get_current_user running.
+    """
+    ctx = current_audit_context()
+    if ctx is None:
+        return
+    ctx.user_id = user.id
+    ctx.user_email = user.email
+    ctx.user_access_level = user.access_level.value
 
 
 def _tier(user: User) -> int:

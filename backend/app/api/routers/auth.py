@@ -8,6 +8,14 @@ hardening for the unknown-email case (a constant-time bcrypt comparison
 against a dummy hash) is explicitly out of scope for this project (auth
 plan, Task 2, final bullet): a plain early return is fine here.
 
+Because login does not depend on get_current_user, it is also the one
+endpoint that has to put the acting user on its own audit row. It does so
+only on success. The failure path needs nothing: the middleware already
+captures the request body with `password` redacted and `email` intact, and
+the 401 detail, which is everything "the user says they cannot log in"
+needs. POST /logout and GET /me both depend on get_current_user and are
+recorded there.
+
 POST /logout re-parses the Authorization header itself (rather than
 threading the raw token through get_current_user, which returns only the
 User) so it can delete exactly the presented session -- not every session
@@ -21,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from ...models import User, UserSession
 from ..auth_utils import hash_token, new_session_token, verify_password
-from ..deps import get_current_user, get_db
+from ..deps import get_current_user, get_db, record_audit_actor
 from ..schemas import LoginIn, LoginOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -60,6 +68,10 @@ def login(body: LoginIn, db: Session = Depends(get_db)) -> LoginOut:
     )
     db.add(session_row)
     db.commit()
+
+    # get_current_user did not run here, so the audit row would otherwise
+    # have no actor on the one request that identifies a user by name.
+    record_audit_actor(user)
 
     return LoginOut(token=token, user=UserOut.model_validate(user))
 

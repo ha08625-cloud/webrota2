@@ -1,10 +1,19 @@
-"""Audit capture tests (audit log plan, Task 2a).
+"""Audit capture tests.
 
-These exercise the middleware itself -- what gets a row, what the row
-contains, and the ways it must not break the request it is auditing. The
-enrichment hooks (acting user, HTTPException detail, validation detail) are
-Task 2b and are not asserted here; `user_id` is expected to be null
-throughout, because `client` overrides get_current_user with a stub.
+The first half exercises the middleware itself -- what gets a row, what the
+row contains, and the ways it must not break the request it is auditing.
+Those tests run through `client`, which overrides get_current_user with a
+stub, so the enrichment hook never fires and `user_id` is null throughout.
+
+The second half covers enrichment: the acting user, the HTTPException
+detail behind a 401/403, the field-level detail behind a 422, and the user
+recorded by a successful login. Every one of those tests goes through
+`client_no_auth` with a directly-seeded user and a real login, and it has to
+-- `client`, `client_at_tier` and the tier fixtures all override
+get_current_user, which is where the identity is recorded, so a test written
+against them would assert nothing while appearing to pass. That also means
+no `seeded` fixture in the second half (it depends on `client`): those tests
+seed what they need through `db_session` and create the rest over the API.
 
 The audit session factory is pointed at the per-test engine by the autouse
 `_audit_to_test_engine` fixture in conftest.py, so rows written by the
@@ -239,3 +248,156 @@ def test_unparseable_json_body_is_stored_as_a_marker(client, db_session, seeded)
     rows = _entries(db_session)
     assert len(rows) == 1
     assert rows[0].request_body == {"_audit": "unparsed body"}
+
+
+# ---------------------------------------------------------------------------
+# Enrichment: acting user and outcome detail
+# ---------------------------------------------------------------------------
+
+
+def _seed_user(db_session, email, password, access_level=AccessLevel.MANAGER):
+    """Insert a real user row. Needed because every authenticated client
+    fixture stubs get_current_user out, and the identity hook lives inside
+    it -- see the module docstring."""
+    user = User(
+        email=email,
+        name="Seeded User",
+        password_hash=hash_password(password),
+        active=True,
+        access_level=access_level,
+        created_at=datetime.datetime.now(datetime.timezone.utc),
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+def _login(client_no_auth, email, password):
+    resp = client_no_auth.post(
+        f"{API_PREFIX}/auth/login", json={"email": email, "password": password}
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['token']}"}
+
+
+def _last(db_session):
+    """The newest row. The login these tests perform is itself audited, so
+    assertions look at the last row rather than the only one."""
+    return _entries(db_session)[-1]
+
+
+def test_authenticated_write_records_the_acting_user(client_no_auth, db_session):
+    user = _seed_user(db_session, "manager@example.com", "correct-horse")
+    headers = _login(client_no_auth, "manager@example.com", "correct-horse")
+
+    resp = client_no_auth.post(
+        f"{API_PREFIX}/doctors",
+        json={"code": "ZZ", "doctor_type": "Partner"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    row = _last(db_session)
+    assert row.path == f"{API_PREFIX}/doctors"
+    assert row.status_code == 201
+    assert row.user_id == user.id
+    assert row.user_email == "manager@example.com"
+    # A plain string, not an enum -- historical rows must survive a tier
+    # being renamed.
+    assert row.user_access_level == "manager"
+
+
+def test_unauthenticated_write_records_a_row_with_no_user(client_no_auth, db_session):
+    resp = client_no_auth.post(
+        f"{API_PREFIX}/doctors", json={"code": "ZZ", "doctor_type": "Partner"}
+    )
+    assert resp.status_code == 401
+
+    row = _last(db_session)
+    assert row.status_code == 401
+    assert row.user_id is None
+    assert row.user_email is None
+    assert row.user_access_level is None
+    assert row.outcome_detail == "Not authenticated"
+
+
+def test_forbidden_write_records_the_user_and_the_reason(client_no_auth, db_session):
+    user = _seed_user(
+        db_session, "nurse@example.com", "correct-horse", AccessLevel.NURSE
+    )
+    headers = _login(client_no_auth, "nurse@example.com", "correct-horse")
+
+    resp = client_no_auth.post(
+        f"{API_PREFIX}/doctors",
+        json={"code": "ZZ", "doctor_type": "Partner"},
+        headers=headers,
+    )
+    assert resp.status_code == 403
+
+    row = _last(db_session)
+    assert row.status_code == 403
+    # The user is recorded even though the request was refused: the gate
+    # runs after get_current_user, which is where identity is captured.
+    assert row.user_id == user.id
+    assert row.user_access_level == "nurse"
+    assert row.outcome_detail == "Your access level does not permit changes"
+
+
+def test_validation_error_records_the_field_and_the_message(
+    client_no_auth, db_session
+):
+    _seed_user(db_session, "manager@example.com", "correct-horse")
+    headers = _login(client_no_auth, "manager@example.com", "correct-horse")
+
+    resp = client_no_auth.post(
+        f"{API_PREFIX}/doctors", json={"doctor_type": "Partner"}, headers=headers
+    )
+    assert resp.status_code == 422
+
+    row = _last(db_session)
+    assert row.status_code == 422
+    assert row.outcome_detail is not None
+    assert "body.code" in row.outcome_detail
+    assert "Field required" in row.outcome_detail
+
+
+def test_successful_login_records_the_user_it_logged_in(client_no_auth, db_session):
+    user = _seed_user(db_session, "manager@example.com", "correct-horse")
+    _login(client_no_auth, "manager@example.com", "correct-horse")
+
+    row = _last(db_session)
+    assert row.path == f"{API_PREFIX}/auth/login"
+    assert row.status_code == 200
+    assert row.user_id == user.id
+    assert row.user_email == "manager@example.com"
+    assert row.user_access_level == "manager"
+
+
+def test_failed_login_records_the_reason_and_no_user(client_no_auth, db_session):
+    _seed_user(db_session, "manager@example.com", "correct-horse")
+
+    resp = client_no_auth.post(f"{API_PREFIX}/auth/login", json={
+        "email": "manager@example.com", "password": "wrong",
+    })
+    assert resp.status_code == 401
+
+    row = _last(db_session)
+    assert row.user_id is None
+    assert row.outcome_detail == "Invalid email or password"
+    # The body still identifies who was trying, with the password redacted.
+    assert row.request_body == {
+        "email": "manager@example.com", "password": "[redacted]",
+    }
+
+
+def test_logout_records_the_acting_user(client_no_auth, db_session):
+    user = _seed_user(db_session, "manager@example.com", "correct-horse")
+    headers = _login(client_no_auth, "manager@example.com", "correct-horse")
+
+    resp = client_no_auth.post(f"{API_PREFIX}/auth/logout", headers=headers)
+    assert resp.status_code == 204
+
+    row = _last(db_session)
+    assert row.path == f"{API_PREFIX}/auth/logout"
+    assert row.user_id == user.id
