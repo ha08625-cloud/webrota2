@@ -94,6 +94,36 @@ describe("ClinicalShell nav by access level", () => {
     expect(within(nav).queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
   });
 
+  it("offers Audit Log to a manager", () => {
+    renderAt("/clinical/counters");
+
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByRole("link", { name: "Audit Log" })).toBeInTheDocument();
+  });
+
+  it.each(["admin", "doctor", "nurse"] as const)("hides Audit Log from %s", (level) => {
+    renderAt("/clinical/counters", level);
+
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).queryByRole("link", { name: "Audit Log" })).not.toBeInTheDocument();
+  });
+
+  it("renders the audit log route for a manager", async () => {
+    server.use(
+      http.get("/api/v1/users", () => HttpResponse.json([])),
+      http.get("/api/v1/audit", () => HttpResponse.json({ items: [], total: 0 })),
+    );
+    renderAt("/clinical/audit");
+
+    expect(await screen.findByText(/No audit entries match/)).toBeInTheDocument();
+  });
+
+  it("lands a deep link to the audit log on the no-access state below manager", async () => {
+    renderAt("/clinical/audit", "nurse");
+
+    expect(await screen.findByText(/do not have access to the audit log/i)).toBeInTheDocument();
+  });
+
   it("keeps every other entry, so a read-only user still sees the whole app", () => {
     renderAt("/clinical/counters", "nurse");
 

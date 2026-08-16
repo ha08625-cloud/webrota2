@@ -12,6 +12,7 @@ import {
   SESSION_MANAGEMENT_TABS,
   SessionManagementLayout,
 } from "@/components/SessionManagementTabs";
+import { AuditLogPage } from "@/routes/AuditLogPage";
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
 import { ClosuresPage } from "@/routes/ClosuresPage";
 import { CountersPage } from "@/routes/CountersPage";
@@ -50,10 +51,11 @@ interface NavItem {
   groupPaths?: readonly string[];
   /**
    * Hidden from anyone below manager (role-based auth, Task 3). Set only
-   * on Users: every other page is worth *reading* at any access level, so
-   * the rest of the nav is identical for everyone and it is the controls
-   * inside each page that go quiet. The route stays registered either
-   * way - UsersPage renders its own no-access state for a deep link.
+   * on Users and Audit Log: every other page is worth *reading* at any
+   * access level, so the rest of the nav is identical for everyone and it
+   * is the controls inside each page that go quiet. The route stays
+   * registered either way - both pages render their own no-access state
+   * for a deep link.
    */
   managerOnly?: boolean;
 }
@@ -78,6 +80,7 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical/counters", label: "Counters", end: false },
   { to: "/clinical/how-it-works", label: "How This Works", end: false },
   { to: "/clinical/users", label: "Users", end: false, managerOnly: true },
+  { to: "/clinical/audit", label: "Audit Log", end: false, managerOnly: true },
 ];
 
 function navLinkClass(isActive: boolean) {
@@ -190,6 +193,7 @@ function ClinicalShell() {
             <Route path="counters" element={<CountersPage />} />
             <Route path="how-it-works" element={<HowItWorksPage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="audit" element={<AuditLogPage />} />
           </Routes>
         </main>
       </div>
