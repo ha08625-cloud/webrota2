@@ -10,7 +10,8 @@ import { formatDateTime } from "@/lib/date";
 const PAGE_SIZE = 50;
 
 /**
- * GET is not audited at all (audit plan, Scope), so these are the only
+ * Reads are not audited at all - this app holds staff scheduling data, not
+ * patient data, so a read log would be noise - so these are the only
  * methods that can appear. Listed explicitly rather than derived from the
  * rows on screen, so the filter does not change shape as you page.
  */
