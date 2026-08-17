@@ -37,11 +37,11 @@ const PHASES: Phase[] = [
   {
     id: "phase-4",
     title: "Step 3 — Place duty doctors",
-    summary: "Pre-planned duty doctors are put in and given a room, with the system trying to keep them in one room for the whole day.",
+    summary: "Duty doctors are assigned in advance, not chosen by the system. This step puts them onto the rota and gives them a room.",
     body: [
-      "Duty is planned in advance — the system isn't choosing who's on duty, it's applying assignments that were already entered on the Duty page. This step's job is to put those assignments onto the rota and, importantly, to find each duty doctor a proper D room for their duty session, since duty always needs to be based from a D room.",
-      "If a duty doctor's usual room is free, they get it. If it's occupied by someone who can be moved, that person is moved elsewhere and the duty doctor takes the room. Certain doctors are protected from being moved this way — Partners, AHPs, and anyone already holding another role — so the system falls back to finding any other suitable D room instead, and if it absolutely has to, it will move a Salaried doctor out of a D room to make space (Trainees and Locums are never moved this way).",
-      "Because duty follows a slightly different daily shift pattern to normal clinical sessions, the system then makes a second pass and tries to move the duty doctor into the same room for their other session that day too, so they're not shuffling rooms partway through the day. This is done opportunistically — it only happens if it can find a sensible way to do it — so it doesn't always succeed, and a doctor left in two different rooms isn't a mistake, just a case where no better option was available at this point in the process (a later step can still improve on it).",
+      "Duty doctors are assigned ahead of time by an admin — either using the \"Assign duty\" button in the menu (drag and drop a doctor's name onto the duty rota, or click to remove them), or from the Generate rota tab. The system works in 4-week chunks and shows a counter of how many duty sessions each doctor has done, including a version weighted by session, so duty can be shared out fairly.",
+      "This step doesn't decide who's on duty — that's already been done. Its job is to take those assignments and put them onto the generated rota, giving each duty doctor a room to work from.",
+      "Duty doctors get priority for their preferred room. The system also tries to keep them in the same room for both their morning and afternoon session, so they don't have to move partway through the day. This isn't always possible, and if a duty doctor ends up in two different rooms that day, it's not a mistake — it's just how the rooms happened to work out.",
     ],
   },
   {
