@@ -88,6 +88,8 @@ from .recurring_note import RecurringNoteIn, RecurringNoteOut
 from .reception import (
     CoverageRuleOut,
     CoverageRulePatch,
+    ReceptionCounterRowOut,
+    ReceptionCountersOut,
     ReceptionLeaveBulkDeleteIn,
     ReceptionLeaveBulkDeleteOut,
     ReceptionLeaveBulkIn,
@@ -147,4 +149,5 @@ __all__ = [
     "ReceptionLeaveIn", "ReceptionLeaveOut", "ReceptionLeaveBulkIn",
     "ReceptionLeaveBulkOut", "ReceptionLeaveBulkDeleteIn",
     "ReceptionLeaveBulkDeleteOut",
+    "ReceptionCounterRowOut", "ReceptionCountersOut",
 ]

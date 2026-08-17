@@ -234,3 +234,45 @@ class ReceptionLeaveBulkOut(BaseModel):
 
 class ReceptionLeaveBulkDeleteOut(BaseModel):
     deleted_count: int
+
+
+# --- Reception role counters ---
+
+
+class ReceptionCounterRowOut(BaseModel):
+    """One staff member's counters over the window (reception counters,
+    Task 2). A projection of `StaffRoleCounters` from
+    app/reception_counters.py -- the arithmetic lives there, this only
+    names the wire shape.
+
+    `role_slots` is a dict keyed by the ReceptionRole values rather than
+    thirteen named fields, zero-filled for every role. Adding a role has
+    already happened once (migration 004) and must not require a schema
+    edit, a frontend type edit and a migration to appear on the page.
+
+    `hours_worked` excludes `not_working` and nothing else, matching the
+    exclusion set in compute_role_counters; `role_slots` counts every
+    role including `not_working`. The two therefore disagree by design,
+    which is why the weighted score for `not_working` is not a proportion
+    of anything -- the frontend renders that one cell as an em dash and no
+    ratio is computed here or anywhere on the server.
+    """
+    staff_id: int
+    staff_code: str
+    staff_name: str
+    active: bool
+    hours_worked: float
+    days_present: int
+    role_slots: dict[str, int]
+
+
+class ReceptionCountersOut(BaseModel):
+    """GET /reception/counters. Carries its own window bounds and
+    generated-day count, so a reader can interpret the absolute slot counts
+    rather than having to reconstruct which dates produced them --
+    `days_counted` is the number of distinct generated dates in range, not
+    the number of days the range spans."""
+    from_date: datetime.date
+    to_date: datetime.date
+    days_counted: int
+    staff: list[ReceptionCounterRowOut]
