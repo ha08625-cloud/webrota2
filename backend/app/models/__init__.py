@@ -49,7 +49,6 @@ from .reception import (
     ReceptionMasterSession,
     ReceptionRota,
     ReceptionRotaSession,
-    ReceptionCoverageRule,
 )
 
 __all__ = [
@@ -70,5 +69,5 @@ __all__ = [
     "RecurringNote", "RecurringNoteDoctor", "RecurringNoteWeek",
     "DoctorSignature", "User", "UserSession", "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
-    "ReceptionRotaSession", "ReceptionCoverageRule",
+    "ReceptionRotaSession",
 ]

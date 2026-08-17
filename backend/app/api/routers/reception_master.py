@@ -60,8 +60,7 @@ def list_master_sessions(
     """The full flat template, one fetch -- at most a few hundred rows, and
     the grid pivots it client-side, exactly as GET /master-rota/active
     does. Ordered day, hour, staff_code; day is stored by value so it is
-    ordered in Python rather than SQL, matching reception_coverage's list
-    endpoint."""
+    ordered in Python rather than SQL."""
     rows = db.execute(
         select(ReceptionMasterSession, ReceptionStaff)
         .join(ReceptionStaff, ReceptionMasterSession.staff_id == ReceptionStaff.id)

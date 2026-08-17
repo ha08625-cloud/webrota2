@@ -111,7 +111,7 @@ Single Railway service deployed from the GitHub repo, Root Directory `/` (repo r
 
 Auth has no env var of its own. Every router endpoint requires a valid session and there is no fail-open mode, so a fresh environment has no way in until at least one user exists — see Seeding below.
 
-**Seeding.** `seed/run_all.py` (rooms, doctors, system counters, master template, reception coverage rules — the five seeders in dependency order) is run manually from a local machine against Railway's public Postgres URL (`DATABASE_PUBLIC_URL`). There is deliberately no clinic-type seed — clinic types are entered via the frontend.
+**Seeding.** `seed/run_all.py` (rooms, doctors, system counters, master template — the four seeders in dependency order) is run manually from a local machine against Railway's public Postgres URL (`DATABASE_PUBLIC_URL`). There is deliberately no clinic-type seed — clinic types are entered via the frontend.
 
 `seed/seed_users.py` bootstraps the first login and is deliberately separate from `run_all.py` — a one-off, run manually the same way, reading `SEED_USER_EMAIL`/`SEED_USER_NAME`/`SEED_USER_PASSWORD` from the environment with no hardcoded fallback, plus optional `SEED_USER_ACCESS_LEVEL` (defaults to `manager`). Idempotent: re-running it against an email that already exists is a safe no-op. This is also the recovery path if every user is somehow deactivated, and — since `users.access_level` defaults to `nurse` at both the model and schema level — the only way a database ends up with a manager in it at all; every other user is managed from the Users page instead once at least one active login exists.
 

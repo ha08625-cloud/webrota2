@@ -48,20 +48,6 @@ class ReceptionStaffOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CoverageRulePatch(BaseModel):
-    """The only editable field on a coverage rule -- see the router: no POST
-    or DELETE exists because the (day, hour) row set is fixed by the seed."""
-    min_phones_staff: int = Field(ge=0)
-
-
-class CoverageRuleOut(BaseModel):
-    id: int
-    day: Day
-    hour: float
-    min_phones_staff: int
-    model_config = {"from_attributes": True}
-
-
 class ReceptionMasterSessionOut(BaseModel):
     """One weekday template slot. staff_code / staff_name are joined in the
     router, matching MasterRotaSessionOut's pattern. `session_id`, not `id`

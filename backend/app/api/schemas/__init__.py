@@ -86,8 +86,6 @@ from .auth import LoginIn, LoginOut, UserIn, UserOut, UserPatch, UserSelfPatch
 from .audit import AuditLogEntryOut, AuditLogListOut
 from .recurring_note import RecurringNoteIn, RecurringNoteOut
 from .reception import (
-    CoverageRuleOut,
-    CoverageRulePatch,
     ReceptionCounterRowOut,
     ReceptionCountersOut,
     ReceptionLeaveBulkDeleteIn,
@@ -140,7 +138,6 @@ __all__ = [
     "AuditLogEntryOut", "AuditLogListOut",
     "RecurringNoteIn", "RecurringNoteOut",
     "ReceptionStaffIn", "ReceptionStaffOut", "ReceptionStaffPatch",
-    "CoverageRuleOut", "CoverageRulePatch",
     "ReceptionMasterSessionOut", "ReceptionMasterSessionCreateIn",
     "ReceptionMasterSessionPatchIn",
     "ReceptionRotaGenerateIn", "ReceptionRotaOut", "ReceptionRotaSessionIn",

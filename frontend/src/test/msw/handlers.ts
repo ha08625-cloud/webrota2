@@ -184,7 +184,6 @@ export const handlers: HttpHandler[] = [
   // no-active-record convention as auth/me and staging/active.
   http.get("/api/v1/reception/staff", () => HttpResponse.json([])),
   http.get("/api/v1/reception/master", () => HttpResponse.json([])),
-  http.get("/api/v1/reception/coverage-rules", () => HttpResponse.json([])),
   http.get("/api/v1/reception/rota", () =>
     HttpResponse.json({ detail: "No rota for this date" }, { status: 404 }),
   ),

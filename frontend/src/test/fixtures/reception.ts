@@ -1,5 +1,4 @@
 import type {
-  ReceptionCoverageRule,
   ReceptionLeaveEntry,
   ReceptionMasterSession,
   ReceptionRota,
@@ -15,20 +14,6 @@ export function makeReceptionStaff(overrides: Partial<ReceptionStaff> = {}): Rec
     code: "JS",
     name: "Jo Smith",
     active: true,
-    ...overrides,
-  };
-}
-
-let coverageRuleIdCounter = 1;
-
-export function makeReceptionCoverageRule(
-  overrides: Partial<ReceptionCoverageRule> = {},
-): ReceptionCoverageRule {
-  return {
-    id: coverageRuleIdCounter++,
-    day: "Monday",
-    hour: 9,
-    min_phones_staff: 2,
     ...overrides,
   };
 }

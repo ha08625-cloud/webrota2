@@ -61,7 +61,6 @@ from app.models import (
     DoctorPreferredRoom,
     MasterRotaSession,
     MasterRotaTemplate,
-    ReceptionCoverageRule,
     ReceptionStaff,
     Room,
     SystemCounter,
@@ -76,8 +75,6 @@ from app.models.enums import (
     Site,
     SystemCounterType,
 )
-from app.models.reception import RECEPTION_HOURS
-
 MONDAY = datetime.date(2026, 1, 5)
 
 
@@ -346,12 +343,9 @@ def seeded_no_d_rooms(client, db_session):
 
 @pytest.fixture
 def seeded_reception(client, db_session):
-    """Three active reception staff (RA/RB/RC) plus one inactive (RD), and
-    Monday's coverage rules -- 3 required on phones for the half-hour slots
-    inside the 9am/10am hours, 2 for every other slot, matching
-    seed_reception_coverage's numbers. Only Monday is seeded (not all five
-    weekdays) since the seed script itself does not run against the test
-    database and no test here needs the rest of the week.
+    """Three active reception staff (RA/RB/RC) plus one inactive (RD).
+    Coverage (MIN_PHONES_STAFF, a flat constant) needs no seed data of its
+    own -- see app/models/reception.py.
     """
     s = db_session
     ra = ReceptionStaff(code="RA", name="Alice Reception", active=True)
@@ -360,11 +354,6 @@ def seeded_reception(client, db_session):
     rd = ReceptionStaff(code="RD", name="Dee Reception", active=False)
     s.add_all([ra, rb, rc, rd])
     s.flush()
-    for hour in RECEPTION_HOURS:
-        s.add(ReceptionCoverageRule(
-            day=Day.MONDAY, hour=hour,
-            min_phones_staff=3 if hour in (9.0, 9.5, 10.0, 10.5) else 2,
-        ))
     s.commit()
     return {
         "staff_ra": ra.id, "staff_rb": rb.id, "staff_rc": rc.id,

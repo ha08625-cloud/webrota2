@@ -198,16 +198,16 @@ class TestLeaveAffectsCoverage:
     """The whole of what leave does to the rota: it lowers the phones
     headcount without touching a single session row."""
 
-    def _generate_monday_with_three_on_phones(self, client, seeded_reception):
-        for key in ("staff_ra", "staff_rb", "staff_rc"):
+    def _generate_monday_with_two_on_phones(self, client, seeded_reception):
+        for key in ("staff_ra", "staff_rb"):
             _add_template_session(client, seeded_reception[key], "Monday", 9.0)
         resp = client.post(ROTA_URL, json={"date": MONDAY.isoformat()})
         assert resp.status_code == 201, resp.text
         return resp.json()
 
     def test_no_leave_meets_the_rule(self, client, seeded_reception):
-        body = self._generate_monday_with_three_on_phones(client, seeded_reception)
-        # Monday 09:00 requires 3; all three are present.
+        body = self._generate_monday_with_two_on_phones(client, seeded_reception)
+        # Monday 09:00 requires 2 (MIN_PHONES_STAFF); both are present.
         assert [i for i in body["issues"] if i["message"].startswith("09:00")] == []
         assert body["staff_on_leave"] == []
 
@@ -215,19 +215,19 @@ class TestLeaveAffectsCoverage:
         self, client, seeded_reception
     ):
         ra = seeded_reception["staff_ra"]
-        self._generate_monday_with_three_on_phones(client, seeded_reception)
+        self._generate_monday_with_two_on_phones(client, seeded_reception)
         client.post(LEAVE_URL, json={"staff_id": ra, "date": MONDAY.isoformat()})
 
         body = client.get(f"{ROTA_URL}?date={MONDAY.isoformat()}").json()
         hour9 = [i for i in body["issues"] if i["message"].startswith("09:00")]
         assert len(hour9) == 1
-        assert "2 staff on phones, 3 required" in hour9[0]["message"]
+        assert "1 staff on phones, 2 required" in hour9[0]["message"]
         # The absent staff member's row is still there, and flagged.
         assert body["staff_on_leave"] == [ra]
         assert ra in {s["staff_id"] for s in body["sessions"]}
 
     def test_leave_on_another_date_does_not_count(self, client, seeded_reception):
-        self._generate_monday_with_three_on_phones(client, seeded_reception)
+        self._generate_monday_with_two_on_phones(client, seeded_reception)
         client.post(LEAVE_URL, json={
             "staff_id": seeded_reception["staff_ra"], "date": TUESDAY.isoformat(),
         })
@@ -236,7 +236,7 @@ class TestLeaveAffectsCoverage:
         assert body["staff_on_leave"] == []
 
     def test_session_write_response_reflects_leave(self, client, seeded_reception):
-        rota = self._generate_monday_with_three_on_phones(client, seeded_reception)
+        rota = self._generate_monday_with_two_on_phones(client, seeded_reception)
         client.post(LEAVE_URL, json={
             "staff_id": seeded_reception["staff_ra"], "date": MONDAY.isoformat(),
         })
@@ -252,7 +252,7 @@ class TestLeaveAffectsCoverage:
         )
         assert resp.status_code == 200
         hour9 = [i for i in resp.json()["issues"] if i["message"].startswith("09:00")]
-        assert "2 staff on phones, 3 required" in hour9[0]["message"]
+        assert "1 staff on phones, 2 required" in hour9[0]["message"]
 
     def test_generation_still_copies_staff_who_are_on_leave(
         self, client, seeded_reception
