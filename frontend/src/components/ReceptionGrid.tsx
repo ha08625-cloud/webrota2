@@ -4,7 +4,13 @@ import type { ReceptionRole, ReceptionStaff, ValidationIssue } from "@/api/types
 import { useWriteGate } from "@/auth/AuthContext";
 import { ReceptionCellPopover } from "@/components/ReceptionCellPopover";
 import { formatHour, RECEPTION_HOURS } from "@/lib/receptionHours";
-import { getReceptionCell, pivotReception, type ReceptionCellData } from "@/lib/pivotReception";
+import {
+  getReceptionCell,
+  pivotReception,
+  withPendingReceptionWrite,
+  type PendingReceptionWrite,
+  type ReceptionCellData,
+} from "@/lib/pivotReception";
 import { receptionRunContinuations } from "@/lib/receptionRuns";
 import { RECEPTION_ROLE_CHIP_CLASSNAME, RECEPTION_ROLE_LABELS } from "@/lib/receptionRoles";
 
@@ -94,6 +100,16 @@ export function ReceptionGrid<T extends ReceptionCellData>({
   const issuesByHour = useMemo(() => groupIssuesByHour(issues ?? []), [issues]);
   const onLeaveIds = useMemo(() => new Set(staffOnLeave ?? []), [staffOnLeave]);
   const [selection, setSelection] = useState<ReceptionSelection | null>(null);
+  /**
+   * The range edit currently being written, if any. `grid` is the truth -
+   * it is what the save/delete payloads are composed from, and it gains
+   * the edit one hour at a time as the page's sequential writes land -
+   * while `displayGrid` shows the finished result from the moment the user
+   * hits Save, so the run merges (or unmerges) in one step rather than
+   * animating across the row. See withPendingReceptionWrite.
+   */
+  const [pending, setPending] = useState<PendingReceptionWrite | null>(null);
+  const displayGrid = useMemo(() => withPendingReceptionWrite(grid, pending), [grid, pending]);
 
   useEffect(() => {
     if (selection === null) return;
@@ -136,14 +152,24 @@ export function ReceptionGrid<T extends ReceptionCellData>({
       role,
       note,
     }));
-    if (await onSave(payloads)) setSelection(null);
+    setPending({ staffId, hours, write: { role, note } });
+    try {
+      if (await onSave(payloads)) setSelection(null);
+    } finally {
+      setPending(null);
+    }
   }
 
   async function handleDelete(staffId: number, hours: number[]) {
     const sessionsInRange = hours
       .map((hour) => getReceptionCell(grid, staffId, hour))
       .filter((session): session is T => session !== undefined);
-    if (await onDelete(sessionsInRange)) setSelection(null);
+    setPending({ staffId, hours, write: null });
+    try {
+      if (await onDelete(sessionsInRange)) setSelection(null);
+    } finally {
+      setPending(null);
+    }
   }
 
   return (
@@ -181,13 +207,13 @@ export function ReceptionGrid<T extends ReceptionCellData>({
           </tr>
         </thead>
         <tbody>
-          {grid.rows.map(({ staff: member, inactiveWithSessions }) => {
+          {displayGrid.rows.map(({ staff: member, inactiveWithSessions }) => {
             // on an inactive row, a range only ever covers hours that already have a session - no new rows
             // get created for a leaver.
             const memberRange = selectedRangeHours(selection, member.id).filter(
-              (hour) => member.active || getReceptionCell(grid, member.id, hour) !== undefined,
+              (hour) => member.active || getReceptionCell(displayGrid, member.id, hour) !== undefined,
             );
-            const rowCells = RECEPTION_HOURS.map((hour) => getReceptionCell(grid, member.id, hour));
+            const rowCells = RECEPTION_HOURS.map((hour) => getReceptionCell(displayGrid, member.id, hour));
             const continuations = receptionRunContinuations(rowCells);
             const onLeave = onLeaveIds.has(member.id);
             // Dimming only - the cells stay clickable, since an admin may
@@ -211,11 +237,13 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                   const hours = isFocusCell && memberRange.length > 1 ? memberRange : [hour];
                   const seedSession =
                     hours.length > 1
-                      ? (getReceptionCell(grid, member.id, selection!.focusHour) ??
-                        getReceptionCell(grid, member.id, selection!.anchorHour) ??
+                      ? (getReceptionCell(displayGrid, member.id, selection!.focusHour) ??
+                        getReceptionCell(displayGrid, member.id, selection!.anchorHour) ??
                         null)
                       : (session ?? null);
-                  const canDelete = hours.some((h) => getReceptionCell(grid, member.id, h) !== undefined);
+                  const canDelete = hours.some(
+                    (h) => getReceptionCell(displayGrid, member.id, h) !== undefined,
+                  );
                   const repeatsPrevious = continuations[hourIndex];
                   const runLength = repeatsPrevious ? 1 : runLengthFrom(continuations, hourIndex);
                   const dividerClassName =
@@ -284,11 +312,21 @@ function runLengthFrom(continuations: boolean[], startIndex: number): number {
  * `runLength` is the number of slots the visible chip's cell heads up (1 for a lone
  * slot). For a multi-slot run the chip is centred across the whole run rather than the
  * run's first cell alone: the normal in-flow copy stays (invisible) to keep the
- * popover trigger's box its usual size, and a second, pointer-events-none copy is
+ * popover trigger's box its usual height, and a second, pointer-events-none copy is
  * absolutely positioned across the run's full width so it reads as centred on the
  * merged run instead of pinned to its left edge. The `<td>` carries `position:
  * relative` (via `runOriginClassName` in ReceptionGrid) so that width is measured
  * against the run's own first column, not the whole table.
+ *
+ * The table is laid out by the automatic algorithm (`table-fixed` has no effect
+ * while the table's own width is auto - `min-w-full` is a min-width, not a width),
+ * so every in-flow copy would otherwise widen its column to fit the role label.
+ * That is wanted for a lone slot, whose column has to hold the label on its own,
+ * and pointless for a run, which has runLength columns to spread one label across:
+ * a whole-row run of "Prescriptions" would stretch every column to fit text it
+ * only draws once. So inside a run the in-flow copy is zero-width and clipped -
+ * it still sets the row's height and the trigger's hit box, but contributes no
+ * width at all, leaving merged columns at their natural size.
  */
 function CellContent<T extends ReceptionCellData>({
   session,
@@ -308,10 +346,20 @@ function CellContent<T extends ReceptionCellData>({
     </>
   );
 
+  const inRun = repeated || runLength > 1;
+  const spacer = (
+    <div
+      className={inRun ? "w-0 overflow-hidden whitespace-nowrap" : undefined}
+      style={{ visibility: "hidden" }}
+    >
+      {chip}
+    </div>
+  );
+
   if (!repeated && runLength > 1) {
     return (
       <>
-        <div style={{ visibility: "hidden" }}>{chip}</div>
+        {spacer}
         <div
           className="pointer-events-none absolute inset-y-0 left-0 flex flex-col items-center justify-center"
           style={{ width: `${runLength * 100}%` }}
@@ -322,7 +370,7 @@ function CellContent<T extends ReceptionCellData>({
     );
   }
 
-  return <div style={repeated ? { visibility: "hidden" } : undefined}>{chip}</div>;
+  return repeated ? spacer : <div>{chip}</div>;
 }
 
 function groupIssuesByHour(issues: ValidationIssue[]): Map<number, ValidationIssue[]> {
