@@ -19,7 +19,6 @@ import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
 import { ExtraSessionsPage } from "@/routes/ExtraSessionsPage";
-import { HowItWorksPage } from "@/routes/HowItWorksPage";
 import { LandingPage } from "@/routes/LandingPage";
 import { LeavePage } from "@/routes/LeavePage";
 import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
@@ -78,7 +77,6 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
-  { to: "/clinical/how-it-works", label: "How This Works", end: false },
   { to: "/clinical/users", label: "Users", end: false, managerOnly: true },
   { to: "/clinical/audit", label: "Audit Log", end: false, managerOnly: true },
 ];
@@ -190,7 +188,6 @@ function ClinicalShell() {
             <Route path="duty" element={<DutyPage />} />
             <Route path="recurring-notes" element={<RecurringNotesPage />} />
             <Route path="counters" element={<CountersPage />} />
-            <Route path="how-it-works" element={<HowItWorksPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="audit" element={<AuditLogPage />} />
           </Routes>

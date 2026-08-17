@@ -370,7 +370,6 @@ Decisions worth knowing, page by page. Everything else is in the component.
 - **ExtraSessionsPage** — reads the active staging, because an extra session only takes effect through the staging copy's override step. The weekday-only rule is mirrored client-side so the server's 422 is never the first line of defence.
 - **RecurringNotesPage** — CRUD over note definitions. Purely annotation.
 - **CountersPage** — read-only live counter values, each row showing a client-computed weighted score mirroring the engine's exactly, including `sessions_per_week == 0` scoring as infinite and kept distinct from the genuine no-data case.
-- **HowItWorksPage** — a plain-English narrative of the generation pipeline for clinical staff, at `/clinical/how-it-works`. Content only, no data fetching. It is **deliberately not a developer reference and must not be merged with `documentation/phase_pipeline.md`** — the file's own docstring explains why. When a phase's behaviour changes, both need updating, and neither is derived from the other.
 - **UsersPage** — unlike DoctorsPage, the list is **not** active-only: inactive users are shown and flagged, since this page is the only recovery path once a user is locked out. The backend's zero-active-managers 409 surfaces as a toast rather than a form error, the action having no form of its own.
 - **SignaturesPage** — admin-staff document tooling, not part of either rota, so it sits on its own top-level route rather than in the clinical nav.
 
