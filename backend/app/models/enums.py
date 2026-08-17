@@ -92,6 +92,8 @@ class ReceptionRole(str, enum.Enum):
     LUNCH = "lunch"
     NOT_WORKING = "not_working"
     OTHER = "other"
+    CUTTESLOWE = "cutteslowe"
+    WOLVERCOTE = "wolvercote"
 
 
 class AccessLevel(str, enum.Enum):

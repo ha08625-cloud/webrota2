@@ -1018,7 +1018,9 @@ export type ReceptionRole =
   | "tasks"
   | "lunch"
   | "not_working"
-  | "other";
+  | "other"
+  | "cutteslowe"
+  | "wolvercote";
 
 export interface ReceptionStaff {
   id: number;

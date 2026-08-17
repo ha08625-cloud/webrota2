@@ -17,6 +17,8 @@ export const RECEPTION_ROLE_ORDER: ReceptionRole[] = [
   "tasks",
   "lunch",
   "not_working",
+  "cutteslowe",
+  "wolvercote",
   "other",
 ];
 
@@ -31,6 +33,8 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
   tasks: "Tasks",
   lunch: "Lunch",
   not_working: "Not working",
+  cutteslowe: "Cutteslowe",
+  wolvercote: "Wolvercote",
   other: "Other",
 };
 
@@ -54,5 +58,7 @@ export const RECEPTION_ROLE_CHIP_CLASSNAME: Record<ReceptionRole, string> = {
   tasks: "bg-indigo-100 text-indigo-800",
   lunch: "bg-yellow-100 text-yellow-800",
   not_working: "bg-ink/10 text-ink/50",
+  cutteslowe: "bg-emerald-100 text-emerald-800",
+  wolvercote: "bg-rose-100 text-rose-800",
   other: "bg-ink/10 text-ink/70",
 };
