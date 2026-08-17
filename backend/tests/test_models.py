@@ -625,6 +625,8 @@ def test_reception_role_round_trips_by_value():
     assert ReceptionRole.LUNCH.value == "lunch"
     assert ReceptionRole.NOT_WORKING.value == "not_working"
     assert ReceptionRole.OTHER.value == "other"
+    assert ReceptionRole.CUTTESLOWE.value == "cutteslowe"
+    assert ReceptionRole.WOLVERCOTE.value == "wolvercote"
 
 
 @pytest.mark.parametrize("bad_hour", [7, 18.5])
