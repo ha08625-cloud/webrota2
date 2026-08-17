@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -680,5 +680,135 @@ describe("ReceptionGrid: staff on leave", () => {
     await user.click(within(screen.getByTestId("reception-cell-1-9")).getByText("Phones"));
 
     expect(await screen.findByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+});
+
+describe("ReceptionGrid: in-flight range writes", () => {
+  /**
+   * A save/delete callback that stays pending until the test resolves it -
+   * standing in for the page's sequential per-hour writes, which is the
+   * window the grid draws the finished range in.
+   */
+  function deferred() {
+    let settle: (ok: boolean) => void = () => {};
+    const fn = vi.fn().mockReturnValue(new Promise<boolean>((resolve) => (settle = resolve)));
+    return { fn, finish: (ok: boolean) => act(async () => settle(ok)) };
+  }
+
+  async function selectAndSaveRange(onSave: ReturnType<typeof deferred>["fn"]) {
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[]}
+        onSave={onSave}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"));
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-10:30"));
+    await user.selectOptions(await screen.findByLabelText("Role"), "prescriptions");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+  }
+
+  it("draws the whole range merged as soon as Save is clicked, before any write has landed", async () => {
+    const { fn, finish } = deferred();
+    await selectAndSaveRange(fn);
+
+    // One transition, not one per hour: every cell in the range already
+    // shows the new role, and only the first is a run head.
+    const head = screen.getByTestId("reception-cell-1-9");
+    expect(within(head).getAllByText("Prescriptions")).toHaveLength(2);
+    expect(head).not.toHaveAttribute("data-run-continuation", "true");
+    for (const hour of [9.5, 10]) {
+      const cell = screen.getByTestId(`reception-cell-1-${hour}`);
+      expect(within(cell).getByText("Prescriptions")).toBeInTheDocument();
+      expect(cell).toHaveAttribute("data-run-continuation", "true");
+    }
+
+    await finish(true);
+  });
+
+  it("drops the drawn range when the writes fail, putting the cells back as they were", async () => {
+    const { fn, finish } = deferred();
+    await selectAndSaveRange(fn);
+    expect(screen.getByTestId("reception-cell-1-9.5")).toHaveAttribute("data-run-continuation", "true");
+
+    await finish(false);
+
+    expect(screen.queryByText("Prescriptions")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("reception-cell-1-9")).getByLabelText("Add session for AB 09:00-09:30"),
+    ).toBeInTheDocument();
+  });
+
+  it("empties the whole range as soon as Remove is clicked", async () => {
+    const { fn, finish } = deferred();
+    const sessions = [9, 9.5, 10].map((hour) =>
+      makeReceptionMasterSession({ session_id: hour * 10, staff_id: 1, hour, role: "phones", note: null }),
+    );
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={sessions}
+        onSave={resolvedOnSave()}
+        onDelete={fn}
+        saving={false}
+      />,
+    );
+    const user = userEvent.setup();
+    // the run head carries two copies of the chip (spacer + centred), so index the first
+    await user.click(within(screen.getByTestId("reception-cell-1-9")).getAllByText("Phones")[0]);
+    await shiftClick(user, within(screen.getByTestId("reception-cell-1-10")).getByText("Phones"));
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+    expect(screen.queryByText("Phones")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("reception-cell-1-10")).getByLabelText("Add session for AB 10:00-10:30"),
+    ).toBeInTheDocument();
+
+    await finish(true);
+  });
+});
+
+describe("ReceptionGrid: run sizing", () => {
+  /**
+   * jsdom does no layout, so the width contribution is asserted through the
+   * class that removes it: inside a run the in-flow (invisible) copy of the
+   * chip is zero-width and clipped, so a merged run's columns are not
+   * stretched to fit a label the run only draws once. A lone slot keeps its
+   * full-width copy - that column does have to hold the label by itself.
+   */
+  function inFlowChip(hour: number): HTMLElement {
+    return within(screen.getByTestId(`reception-cell-1-${hour}`)).getAllByText("Prescriptions")[0]
+      .parentElement as HTMLElement;
+  }
+
+  it("contributes no width from the invisible copy in a run's cells, and full width in a lone slot", () => {
+    const run = [9, 9.5, 10].map((hour) =>
+      makeReceptionMasterSession({ session_id: hour * 10, staff_id: 1, hour, role: "prescriptions", note: null }),
+    );
+    const lone = makeReceptionMasterSession({
+      session_id: 999,
+      staff_id: 1,
+      hour: 11,
+      role: "prescriptions",
+      note: null,
+    });
+    renderWithProviders(
+      <ReceptionGrid
+        staff={[makeReceptionStaff({ id: 1, code: "AB", active: true })]}
+        sessions={[...run, lone]}
+        onSave={resolvedOnSave()}
+        onDelete={resolvedOnDelete()}
+        saving={false}
+      />,
+    );
+
+    for (const hour of [9, 9.5, 10]) {
+      expect(inFlowChip(hour).className).toContain("w-0");
+    }
+    expect(inFlowChip(11).className).not.toContain("w-0");
   });
 });
