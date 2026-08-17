@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "./client";
 import type {
   Day,
+  ReceptionCounters,
   ReceptionCoverageRule,
   ReceptionLeaveBulkDeleteOut,
   ReceptionLeaveBulkOut,
@@ -42,6 +43,10 @@ export const receptionKeys = {
 
   leaveAll: ["reception", "leave"] as const,
   leaveList: (staffId: number | null) => ["reception", "leave", "list", staffId] as const,
+
+  countersAll: ["reception", "counters"] as const,
+  countersList: (fromDate: string | null, toDate: string | null) =>
+    ["reception", "counters", "list", fromDate, toDate] as const,
 };
 
 // --- Reception staff ---
@@ -404,5 +409,29 @@ export function useDeleteReceptionLeave() {
   return useMutation({
     mutationFn: (leaveId: number) => apiClient.delete<void>(`/reception/leave/${leaveId}`),
     onSuccess: () => invalidateLeaveAndRotas(queryClient),
+  });
+}
+
+// --- Reception counters ---
+// Read-only and derived server-side from reception_rota_sessions, so there
+// is nothing to invalidate on write here: the counters change whenever a
+// day is generated, edited or deleted, and the reception rota mutations
+// above already invalidate receptionKeys.rotaAll. Add countersAll to those
+// invalidations if a page ever shows counters alongside an editable day.
+
+export function useReceptionCounters(
+  fromDate: string | null = null,
+  toDate: string | null = null,
+) {
+  const params = new URLSearchParams();
+  if (fromDate !== null) params.set("from_date", fromDate);
+  if (toDate !== null) params.set("to_date", toDate);
+  const query = params.toString();
+  return useQuery({
+    queryKey: receptionKeys.countersList(fromDate, toDate),
+    queryFn: () =>
+      apiClient.get<ReceptionCounters>(
+        query === "" ? "/reception/counters" : `/reception/counters?${query}`,
+      ),
   });
 }
