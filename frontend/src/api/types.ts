@@ -1193,6 +1193,41 @@ export interface ReceptionLeaveBulkDeleteOut {
   deleted_count: number;
 }
 
+// --- Reception counters (reception counters plan) ---
+
+/**
+ * One staff member's role counters over the window. `role_slots` is a dict
+ * keyed by role value rather than thirteen named fields, zero-filled for
+ * every role by the backend, so adding a role never needs a type edit here.
+ *
+ * `hours_worked` excludes `not_working` and nothing else; `role_slots`
+ * counts every role, `not_working` included. The two disagree by design -
+ * see receptionWeightedScore.ts for what that means for the ratio.
+ */
+export interface ReceptionCounterRow {
+  staff_id: number;
+  staff_code: string;
+  staff_name: string;
+  active: boolean;
+  hours_worked: number;
+  days_present: number;
+  role_slots: Partial<Record<ReceptionRole, number>>;
+}
+
+/**
+ * GET /reception/counters. Carries its own window bounds and
+ * `days_counted` - the number of distinct *generated* dates in range, not
+ * the number of days the range spans - so the page can show what produced
+ * the absolute slot counts instead of leaving a sparsely generated window
+ * indistinguishable from a quiet one.
+ */
+export interface ReceptionCounters {
+  from_date: string;
+  to_date: string;
+  days_counted: number;
+  staff: ReceptionCounterRow[];
+}
+
 // --- Audit log (schemas/audit.py) ---
 
 /**
