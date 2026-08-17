@@ -15,7 +15,6 @@ from app.models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
-    ReceptionCoverageRule,
     ReceptionMasterSession,
     ReceptionRota,
     ReceptionRotaSession,
@@ -650,13 +649,6 @@ def test_reception_rota_session_hour_check(session, bad_hour):
         session.flush()
 
 
-@pytest.mark.parametrize("bad_hour", [7, 18.5])
-def test_reception_coverage_rule_hour_check(session, bad_hour):
-    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=bad_hour, min_phones_staff=2))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
 def test_reception_master_session_slot_unique(session):
     staff = _reception_staff(session)
     session.add(ReceptionMasterSession(
@@ -680,14 +672,6 @@ def test_reception_rota_session_slot_unique(session):
     session.add(ReceptionRotaSession(
         rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.OTHER,
     ))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
-def test_reception_coverage_rule_slot_unique(session):
-    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=9, min_phones_staff=3))
-    session.flush()
-    session.add(ReceptionCoverageRule(day=Day.MONDAY, hour=9, min_phones_staff=2))
     with pytest.raises(IntegrityError):
         session.flush()
 

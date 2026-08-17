@@ -29,7 +29,6 @@ from sqlalchemy.orm import Session
 
 from ...engine.week_map import DAY_ORDER
 from ...models import (
-    ReceptionCoverageRule,
     ReceptionLeaveEntry,
     ReceptionMasterSession,
     ReceptionRota,
@@ -37,7 +36,7 @@ from ...models import (
     ReceptionStaff,
 )
 from ...models.enums import Day, ReceptionRole
-from ...models.reception import format_hour
+from ...models.reception import MIN_PHONES_STAFF, RECEPTION_HOURS, format_hour
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionRotaGenerateIn,
@@ -97,10 +96,10 @@ def _staff_on_leave(db: Session, date: datetime.date) -> set[int]:
 
 
 def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[ValidationIssueOut]:
-    """One issue per (day, hour) where the rota's phones headcount falls
-    short of the coverage rule. The rule map is loaded once for the rota's
-    weekday; counts come off `rota.sessions` (already loaded, not re-queried
-    per hour). A (day, hour) with no rule row emits nothing. Always
+    """One issue per hour where the rota's phones headcount falls short of
+    MIN_PHONES_STAFF -- a flat constant, not a per-(day, hour) rule; there
+    is no coverage-rules table and no UI to edit it. Counts come off
+    `rota.sessions` (already loaded, not re-queried per hour). Always
     severity="warning" -- nothing in this feature blocks.
 
     Staff on leave for the rota's date are excluded from the headcount,
@@ -109,9 +108,6 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     same ids so the grid can dim them, since a warning counting fewer
     staff than the grid visibly shows would otherwise read as a bug."""
     day = _DAY_BY_WEEKDAY[rota.date.weekday()]
-    rules = db.execute(
-        select(ReceptionCoverageRule).where(ReceptionCoverageRule.day == day)
-    ).scalars().all()
     on_leave = _staff_on_leave(db, rota.date)
 
     counts: dict[float, int] = {}
@@ -120,16 +116,16 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
             counts[session.hour] = counts.get(session.hour, 0) + 1
 
     issues: list[ValidationIssueOut] = []
-    for rule in sorted(rules, key=lambda r: r.hour):
-        count = counts.get(rule.hour, 0)
-        if count < rule.min_phones_staff:
+    for hour in RECEPTION_HOURS:
+        count = counts.get(hour, 0)
+        if count < MIN_PHONES_STAFF:
             issues.append(ValidationIssueOut(
                 severity="warning",
                 phase="coverage",
                 check="phones_shortfall",
                 message=(
-                    f"{format_hour(rule.hour)}: {count} "
-                    f"staff on phones, {rule.min_phones_staff} required"
+                    f"{format_hour(hour)}: {count} "
+                    f"staff on phones, {MIN_PHONES_STAFF} required"
                 ),
                 day=day,
             ))

@@ -9,7 +9,6 @@ from seed.seed_rooms import seed_rooms
 from seed.seed_doctors import seed_doctors
 from seed.seed_system_counters import seed_system_counters
 from seed.seed_master_rota import seed_master_rota
-from seed.seed_reception_coverage import seed_reception_coverage
 
 
 def run_all(session: Session) -> None:
@@ -17,7 +16,6 @@ def run_all(session: Session) -> None:
     seed_doctors(session)
     seed_system_counters(session)
     seed_master_rota(session)
-    seed_reception_coverage(session)
 
 
 def main() -> None:

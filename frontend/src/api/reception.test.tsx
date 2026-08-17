@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 import {
-  makeReceptionCoverageRule,
   makeReceptionLeaveEntry,
   makeReceptionMasterSession,
   makeReceptionRota,
@@ -27,12 +26,10 @@ import {
   useDeleteReceptionRotaSession,
   useGenerateReceptionRota,
   usePatchReceptionRotaSession,
-  useReceptionCoverageRules,
   useReceptionLeave,
   useReceptionMasterSessions,
   useReceptionRotaByDate,
   useReceptionStaff,
-  useUpdateReceptionCoverageRule,
   useUpdateReceptionMasterSession,
 } from "./reception";
 
@@ -171,37 +168,6 @@ describe("useDeleteReceptionMasterSession", () => {
     const cached = queryClient.getQueryData(receptionKeys.masterList()) as ReturnType<typeof makeReceptionMasterSession>[];
     expect(cached).toHaveLength(1);
     expect(cached[0].session_id).toBe(2);
-  });
-});
-
-describe("useReceptionCoverageRules / useUpdateReceptionCoverageRule", () => {
-  it("fetches the list", async () => {
-    server.use(
-      http.get("/api/v1/reception/coverage-rules", () => HttpResponse.json([makeReceptionCoverageRule()])),
-    );
-
-    const { result } = renderHook(() => useReceptionCoverageRules(), { wrapper: makeWrapper(freshClient()) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toHaveLength(1);
-  });
-
-  it("PATCHes min_phones_staff and invalidates the list", async () => {
-    const queryClient = freshClient();
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
-    let capturedBody: unknown;
-    server.use(
-      http.patch("/api/v1/reception/coverage-rules/:id", async ({ request }) => {
-        capturedBody = await request.json();
-        return HttpResponse.json(makeReceptionCoverageRule({ min_phones_staff: 3 }));
-      }),
-    );
-
-    const { result } = renderHook(() => useUpdateReceptionCoverageRule(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate({ id: 1, minPhonesStaff: 3 });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody).toEqual({ min_phones_staff: 3 });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: receptionKeys.coverageRulesAll });
   });
 });
 

@@ -1043,24 +1043,6 @@ export interface ReceptionStaffPatch {
 }
 
 /**
- * Minimum phones headcount for one (day, hour) slot. The row set is fixed
- * by the seed (100 rows, one per weekday/half-hour combination) - there is no
- * POST or DELETE, only PATCH on `min_phones_staff` (CoverageRulePatch on
- * the backend; named with the `Reception` prefix here to avoid colliding
- * with the unrelated `CoverageSlot` leave-planning type above).
- */
-export interface ReceptionCoverageRule {
-  id: number;
-  day: Day;
-  hour: number;
-  min_phones_staff: number;
-}
-
-export interface ReceptionCoverageRulePatch {
-  min_phones_staff: number;
-}
-
-/**
  * One weekday master template slot (reception_master_sessions). Row
  * existence is the data - a staff member with no row for a (day, hour)
  * is not expected then. `session_id`, not `id`, since this sits in a list

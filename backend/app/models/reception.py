@@ -1,5 +1,6 @@
 """Reception rota models: staff, weekday master template, generated days, and
-coverage rules.
+leave. Phone-coverage minimum staffing is a flat constant
+(MIN_PHONES_STAFF below), not a model -- there is no coverage-rules table.
 
 Independent of the clinical rota (doctors, master_rota, engine/) end to end --
 the only things shared are auth, the app shell, the HTTP client, and
@@ -51,7 +52,6 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    Integer,
     String,
     UniqueConstraint,
 )
@@ -213,29 +213,8 @@ class ReceptionLeaveEntry(Base):
     staff: Mapped["ReceptionStaff"] = relationship()
 
 
-class ReceptionCoverageRule(Base):
-    """Minimum phones headcount required for a (day, hour) slot. Keyed on
-    day as well as hour -- Monday 9am and Friday 3pm are not the same
-    staffing problem, and adding the day dimension later would cost a
-    migration, a seed backfill, and a rules-page rework, versus one extra
-    column and 40 more seed rows now.
-
-    A missing (day, hour) row reads as no minimum (no warning possible),
-    not as zero-required-and-therefore-satisfied -- the same outcome, but
-    an explicit modelling choice rather than an accident of an empty table.
-    """
-
-    __tablename__ = "reception_coverage_rules"
-    __table_args__ = (
-        CheckConstraint(
-            f"hour BETWEEN {RECEPTION_FIRST_HOUR} AND {RECEPTION_LAST_HOUR} "
-            f"AND {HOUR_HALF_STEP_SQL}",
-            name="ck_rcr_hour",
-        ),
-        UniqueConstraint("day", "hour", name="uq_rcr_slot"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    day: Mapped[Day] = mapped_column(enum_col(Day), nullable=False)
-    hour: Mapped[float] = mapped_column(Float, nullable=False)
-    min_phones_staff: Mapped[int] = mapped_column(Integer, nullable=False)
+# Minimum phones headcount required at every (day, hour) slot. A flat
+# constant, not a per-slot rule: there is no coverage-rules table, no UI to
+# edit it, and no per-day/per-hour variation -- see compute_coverage_issues
+# in app/api/routers/reception_rota.py, the only place this is read.
+MIN_PHONES_STAFF = 2

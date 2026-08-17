@@ -72,7 +72,6 @@ from .routers import (
     leave_planning,
     master_rota,
     reception_counters,
-    reception_coverage,
     reception_leave,
     reception_master,
     reception_rota,
@@ -160,7 +159,7 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_coverage, reception_master, reception_rota, reception_leave, reception_counters, audit_router)
+_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router)
 
 # The ONLY two routers that do not get the global write gate. Do not extend
 # this without a reason as specific as these:

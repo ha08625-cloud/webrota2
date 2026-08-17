@@ -59,14 +59,17 @@ class TestReceptionRotaGenerate:
         second = client.post(ROTA_URL, json={"date": MONDAY.isoformat()})
         assert second.status_code == 201
 
-    def test_no_rule_no_warning_on_a_day_with_no_rules(self, client, seeded_reception):
-        # seeded_reception only seeds coverage rules for Monday; Tuesday has
-        # no rows at all, so an empty day must produce zero issues.
+    def test_empty_day_warns_every_hour(self, client, seeded_reception):
+        # MIN_PHONES_STAFF is a flat constant checked every hour of every
+        # weekday, so an empty day (no template rows for Tuesday) is short
+        # at every slot, not silently satisfied.
         resp = client.post(ROTA_URL, json={"date": TUESDAY.isoformat()})
         assert resp.status_code == 201
         body = resp.json()
         assert body["sessions"] == []
-        assert body["issues"] == []
+        assert len(body["issues"]) == 22
+        assert all(i["check"] == "phones_shortfall" for i in body["issues"])
+        assert all("0 staff on phones, 2 required" in i["message"] for i in body["issues"])
 
 
 class TestReceptionRotaLookup:
@@ -93,14 +96,9 @@ class TestReceptionRotaLookup:
 
 class TestReceptionRotaCoverage:
     def test_shortfall_warning_appears_and_clears(self, client, seeded_reception):
-        ra, rb, rc = (
-            seeded_reception["staff_ra"],
-            seeded_reception["staff_rb"],
-            seeded_reception["staff_rc"],
-        )
-        # Monday hour 9 requires 3 on phones (seeded_reception fixture).
+        ra, rb = seeded_reception["staff_ra"], seeded_reception["staff_rb"]
+        # MIN_PHONES_STAFF is a flat 2 for every hour.
         _add_template_session(client, ra, "Monday", 9, role="phones")
-        _add_template_session(client, rb, "Monday", 9, role="phones")
 
         generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
         issues = generated["issues"]
@@ -110,10 +108,10 @@ class TestReceptionRotaCoverage:
         assert hour9[0]["phase"] == "coverage"
         assert hour9[0]["check"] == "phones_shortfall"
         assert hour9[0]["day"] == "Monday"
-        assert "2 staff on phones, 3 required" in hour9[0]["message"]
+        assert "1 staff on phones, 2 required" in hour9[0]["message"]
 
         add_resp = client.post(f"{ROTA_URL}/{generated['rota_id']}/sessions", json={
-            "staff_id": rc, "hour": 9, "role": "phones",
+            "staff_id": rb, "hour": 9, "role": "phones",
         })
         assert add_resp.status_code == 201, add_resp.text
         remaining = add_resp.json()["issues"]
@@ -131,7 +129,7 @@ class TestReceptionRotaCoverage:
         generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
         hour9 = [i for i in generated["issues"] if i["message"].startswith("09:00")]
         assert len(hour9) == 1
-        assert "0 staff on phones, 3 required" in hour9[0]["message"]
+        assert "0 staff on phones, 2 required" in hour9[0]["message"]
 
 
 class TestReceptionRotaSessions:
@@ -205,7 +203,7 @@ class TestReceptionRotaSessions:
         refetched = client.get(f"{ROTA_URL}/{generated['rota_id']}").json()
         assert {s["staff_code"] for s in refetched["sessions"]} == {"RB"}
         hour9 = [i for i in refetched["issues"] if i["message"].startswith("09:00")]
-        assert "1 staff on phones, 3 required" in hour9[0]["message"]
+        assert "1 staff on phones, 2 required" in hour9[0]["message"]
 
     def test_delete_session_missing_404(self, client, seeded_reception):
         generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()

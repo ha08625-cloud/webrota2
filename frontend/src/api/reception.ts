@@ -4,7 +4,6 @@ import { apiClient } from "./client";
 import type {
   Day,
   ReceptionCounters,
-  ReceptionCoverageRule,
   ReceptionLeaveBulkDeleteOut,
   ReceptionLeaveBulkOut,
   ReceptionLeaveEntry,
@@ -33,9 +32,6 @@ export const receptionKeys = {
 
   masterAll: ["reception", "master"] as const,
   masterList: () => ["reception", "master", "list"] as const,
-
-  coverageRulesAll: ["reception", "coverage-rules"] as const,
-  coverageRulesList: () => ["reception", "coverage-rules", "list"] as const,
 
   rotaAll: ["reception", "rota"] as const,
   rotaByDate: (date: string) => ["reception", "rota", "date", date] as const,
@@ -93,36 +89,6 @@ export function useDeactivateReceptionStaff() {
     mutationFn: (id: number) => apiClient.delete<void>(`/reception/staff/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: receptionKeys.staffAll });
-    },
-  });
-}
-
-// --- Reception coverage rules ---
-// Also reference data - invalidate and refetch. No POST/DELETE: the
-// (day, hour) row set is fixed by the seed, only min_phones_staff is
-// editable (see CoverageRulePatch's backend docstring).
-
-export function useReceptionCoverageRules() {
-  return useQuery({
-    queryKey: receptionKeys.coverageRulesList(),
-    queryFn: () => apiClient.get<ReceptionCoverageRule[]>("/reception/coverage-rules"),
-  });
-}
-
-export interface UpdateReceptionCoverageRulePayload {
-  id: number;
-  minPhonesStaff: number;
-}
-
-export function useUpdateReceptionCoverageRule() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, minPhonesStaff }: UpdateReceptionCoverageRulePayload) =>
-      apiClient.patch<ReceptionCoverageRule>(`/reception/coverage-rules/${id}`, {
-        min_phones_staff: minPhonesStaff,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: receptionKeys.coverageRulesAll });
     },
   });
 }
