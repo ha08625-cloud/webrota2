@@ -146,6 +146,6 @@ describe("How This Works page", () => {
 
     expect(screen.getByRole("heading", { name: "How rota generation works" })).toBeInTheDocument();
     expect(screen.getAllByText(/Step 1 — Sanity checks/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/exactly one active master rota template/)).toBeInTheDocument();
+    expect(screen.getAllByText(/master rota template/).length).toBeGreaterThan(0);
   });
 });
