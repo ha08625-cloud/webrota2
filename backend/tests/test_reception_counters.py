@@ -14,7 +14,11 @@ from app.models import (
     ReceptionStaff,
 )
 from app.models.enums import ReceptionRole
-from app.reception_counters import compute_role_counters, default_counter_window
+from app.reception_counters import (
+    assignment_counter_window,
+    compute_role_counters,
+    default_counter_window,
+)
 
 MONDAY = datetime.date(2026, 8, 10)  # week commencing, used as the anchor
 
@@ -79,6 +83,60 @@ def test_window_from_a_sunday_uses_that_weeks_monday():
     from_date, to_date = default_counter_window(sunday)
     assert from_date == datetime.date(2026, 7, 13)
     assert to_date == sunday
+
+
+# --- assignment_counter_window ---------------------------------------------
+
+
+def test_assignment_window_on_a_monday_anchors_on_that_monday():
+    from_date, to_date = assignment_counter_window(MONDAY)
+    assert to_date == MONDAY
+    assert from_date == datetime.date(2026, 7, 13)  # four weeks before Monday
+
+
+def test_assignment_window_on_a_friday_ends_on_the_rota_date():
+    """Same anchor as the Monday of that week, but the upper bound follows the
+    rota's own date -- so each day in a generated week sees the days before
+    it."""
+    friday = MONDAY + datetime.timedelta(days=4)
+    mon_from, _ = assignment_counter_window(MONDAY)
+    fri_from, fri_to = assignment_counter_window(friday)
+
+    assert fri_from == mon_from
+    assert fri_to == friday
+    assert (fri_to - fri_from).days + 1 == 33
+
+
+def test_assignment_window_spans_a_month_boundary():
+    """1 Sep 2026 is a Tuesday; its Monday is 31 Aug, four weeks back is
+    3 Aug."""
+    tuesday = datetime.date(2026, 9, 1)
+    from_date, to_date = assignment_counter_window(tuesday)
+    assert from_date == datetime.date(2026, 8, 3)
+    assert to_date == tuesday
+
+
+def test_assignment_window_ignores_today_unlike_the_page_window(session):
+    """The property the whole helper exists for: a future-dated generated day
+    is visible to the assignment window for a later rota date, while
+    `default_counter_window` computed today excludes it entirely."""
+    today = MONDAY
+    tuesday = MONDAY + datetime.timedelta(days=1)
+    staff = _staff(session)
+    # Monday is generated and assigned "ahead of time" -- from today's point of
+    # view Tuesday is in the future.
+    _sessions(session, _rota(session, MONDAY), staff, [ReceptionRole.FRONT_DESK] * 6)
+    _sessions(session, _rota(session, tuesday), staff, [ReceptionRole.FRONT_DESK] * 6)
+
+    page_from, page_to = default_counter_window(today)
+    page = compute_role_counters(session, page_from, page_to)
+    assert _row(page, staff).role_slots[ReceptionRole.FRONT_DESK] == 6
+
+    # Assigning Wednesday sees both Monday and Tuesday.
+    wednesday = MONDAY + datetime.timedelta(days=2)
+    assign_from, assign_to = assignment_counter_window(wednesday)
+    assigning = compute_role_counters(session, assign_from, assign_to)
+    assert _row(assigning, staff).role_slots[ReceptionRole.FRONT_DESK] == 12
 
 
 # --- compute_role_counters -------------------------------------------------
