@@ -12,7 +12,7 @@ import {
   type ReceptionCellData,
 } from "@/lib/pivotReception";
 import { receptionRunContinuations } from "@/lib/receptionRuns";
-import { RECEPTION_ROLE_CHIP_CLASSNAME, RECEPTION_ROLE_LABELS } from "@/lib/receptionRoles";
+import { RECEPTION_ROLE_CELL_CLASSNAME, RECEPTION_ROLE_LABELS } from "@/lib/receptionRoles";
 
 export interface ReceptionSavePayload<T extends ReceptionCellData> {
   staffId: number;
@@ -250,13 +250,21 @@ export function ReceptionGrid<T extends ReceptionCellData>({
                     hourIndex === RECEPTION_HOURS.length - 1 || continuations[hourIndex + 1]
                       ? ""
                       : "border-r-2 border-ink/40";
-                  const selectedClassName = isSelected ? "bg-accent/10 ring-1 ring-inset ring-accent" : "";
+                  // The role colour fills the whole cell (not just the label), so a run of
+                  // slots reads as one block. Selection then only adds its ring - its own
+                  // background would collide with the role's, and the ring carries the signal.
+                  const roleClassName = session ? RECEPTION_ROLE_CELL_CLASSNAME[session.role] : "";
+                  const selectedClassName = isSelected
+                    ? session
+                      ? "ring-1 ring-inset ring-accent"
+                      : "bg-accent/10 ring-1 ring-inset ring-accent"
+                    : "";
                   const cursorClassName = interactive ? "cursor-pointer" : "";
                   const runOriginClassName = runLength > 1 ? "relative" : "";
                   return (
                     <td
                       key={hour}
-                      className={`border-b border-border px-2 py-1 text-center ${dividerClassName} ${selectedClassName} ${cursorClassName} ${onLeaveClassName} ${runOriginClassName}`}
+                      className={`border-b border-border px-2 py-1 text-center ${roleClassName} ${dividerClassName} ${selectedClassName} ${cursorClassName} ${onLeaveClassName} ${runOriginClassName}`}
                       data-testid={`reception-cell-${member.id}-${hour}`}
                       data-selected={isSelected ? "true" : undefined}
                       data-run-continuation={repeatsPrevious ? "true" : undefined}
@@ -339,9 +347,7 @@ function CellContent<T extends ReceptionCellData>({
 }) {
   const chip = (
     <>
-      <span className={`rounded px-1 text-xs font-medium ${RECEPTION_ROLE_CHIP_CLASSNAME[session.role]}`}>
-        {RECEPTION_ROLE_LABELS[session.role]}
-      </span>
+      <span className="px-1 text-xs font-medium">{RECEPTION_ROLE_LABELS[session.role]}</span>
       {session.note ? <div className="text-xs text-ink/60">{session.note}</div> : null}
     </>
   );

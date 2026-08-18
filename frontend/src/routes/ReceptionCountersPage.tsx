@@ -76,7 +76,7 @@ export function ReceptionCountersPage() {
       <p className="mt-2 max-w-3xl text-sm text-ink/70">
         How much of each role each staff member has done over a rolling window of generated day
         rotas. Days a staff member was on leave count toward neither their roles nor their hours.
-        Hours worked counts every scheduled half-hour slot except those tagged "Not working".
+        Hours worked counts every scheduled half-hour slot except those tagged "Off".
       </p>
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}

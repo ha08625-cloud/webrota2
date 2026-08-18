@@ -32,22 +32,24 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
   rotas: "Rotas",
   tasks: "Tasks",
   lunch: "Lunch",
-  not_working: "Not working",
+  not_working: "Off",
   cutteslowe: "Cutteslowe",
   wolvercote: "Wolvercote",
   other: "Other",
 };
 
 /**
- * Tailwind classes for the small role chip rendered in a grid cell, one
+ * Tailwind classes applied to a whole grid cell that has a session, one
  * distinct colour per role so the two reception grids (master template and
  * generated day, both rendered by ReceptionGrid) are scannable at a glance.
- * Picked from Tailwind's -100/-800 pairs, distinct from the clinical rota's
- * red/blue/green cell-background language (RotaGrid.tsx) so the two never
- * read as the same colour code. Exact hues are arbitrary - no functional
- * meaning attaches to any of them beyond "not the same as its neighbours".
+ * The colour fills the cell background rather than just tinting the label,
+ * so a run of slots reads as one continuous block. Picked from Tailwind's
+ * -100/-800 pairs, distinct from the clinical rota's red/blue/green
+ * cell-background language (RotaGrid.tsx) so the two never read as the same
+ * colour code. Exact hues are arbitrary - no functional meaning attaches to
+ * any of them beyond "not the same as its neighbours".
  */
-export const RECEPTION_ROLE_CHIP_CLASSNAME: Record<ReceptionRole, string> = {
+export const RECEPTION_ROLE_CELL_CLASSNAME: Record<ReceptionRole, string> = {
   phones: "bg-accent/10 text-accent",
   prescriptions: "bg-purple-100 text-purple-800",
   registrations: "bg-teal-100 text-teal-800",
