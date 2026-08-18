@@ -92,25 +92,29 @@ def default_counter_window(today: datetime.date) -> tuple[datetime.date, datetim
 def assignment_counter_window(
     rota_date: datetime.date,
 ) -> tuple[datetime.date, datetime.date]:
-    """The fairness window the front-desk assigner uses:
-    `(monday_of(rota_date) - 4 weeks, rota_date)`.
+    """The window the front-desk assignment generator uses as its fairness
+    input: `(monday_of(rota_date) - 4 weeks, rota_date)` -- the same shape as
+    `default_counter_window`, but anchored to the *rota's* date rather than to
+    today.
 
-    Same shape as `default_counter_window`, anchored to the day being
-    assigned rather than to today, and this difference is load-bearing rather
-    than cosmetic. `default_counter_window` deliberately stops at today so the
-    counters *page* is not polluted by assignments that have not happened; a
-    generator run on a Friday for next week would, under that rule, see every
-    day of the batch fall outside the window -- Monday's brand-new
-    `front_desk` rows would be invisible when Tuesday is assigned, so all five
-    days would read identical counters and pick the same person five times
-    running.
+    The page's window is deliberately wrong for the generator. Its final bound
+    is `today`, which excludes future-dated generated days so that generating a
+    week ahead does not pollute the counters page with assignments that have
+    not happened. Run the generator over a week generated ahead of today and
+    every day in the batch falls outside that window: assigning Tuesday cannot
+    see the `front_desk` rows written to Monday minutes earlier, so every day
+    in the batch reads identical counters and picks the same person, five days
+    running. Anchoring the upper bound to the rota's own date makes each day in
+    a batch see the days before it, which is what makes the rotation rotate.
 
-    Anchoring to the rota's own date fixes that and makes assignment
-    reproducible as a side effect: re-running against unchanged data a month
-    later reads the same window and therefore gives the same answer.
-    `compute_role_counters` itself has no notion of "today" -- the future-date
-    exclusion lives entirely in the window helpers -- so this needs no change
-    to the aggregation.
+    The same anchoring makes assignment reproducible: the window depends only
+    on the day being assigned, so re-running against unchanged data a month
+    later gives the same answer rather than drifting with the calendar.
+
+    `compute_role_counters` needs no change to support this -- it has no notion
+    of "today" at all, and the future-date exclusion lives entirely in
+    `default_counter_window`, where it must stay so `GET /reception/counters`
+    is unaffected.
     """
     monday = rota_date - datetime.timedelta(days=rota_date.weekday())
     return monday - datetime.timedelta(weeks=4), rota_date
