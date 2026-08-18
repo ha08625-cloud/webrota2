@@ -27,3 +27,4 @@ C: Instructions on completing the task
 #Task 2: Engine changes
 A: Data model changes have already been completed.  These are the changes to make in the engine files: etc.
 4. The tasks will then be used as context for new Sonnet chats for writing the code
+5. Implementation plans should end with a task that updates the architecture documentation with high level and design decisions and then deletes the implementation plan
