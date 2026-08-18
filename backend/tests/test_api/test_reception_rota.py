@@ -69,9 +69,9 @@ class TestReceptionRotaGenerate:
         assert resp.status_code == 201
         body = resp.json()
         assert body["sessions"] == []
-        assert len(body["issues"]) == 22
-        assert all(i["check"] == "phones_shortfall" for i in body["issues"])
-        assert all("0 staff on phones, 2 required" in i["message"] for i in body["issues"])
+        phones = [i for i in body["issues"] if i["check"] == "phones_shortfall"]
+        assert len(phones) == 22
+        assert all("0 staff on phones, 2 required" in i["message"] for i in phones)
 
 
 class TestReceptionRotaLookup:
@@ -246,3 +246,68 @@ class TestReceptionRotaSessions:
         resp = client.delete(f"{ROTA_URL}/{generated['rota_id']}")
         assert resp.status_code == 204
         assert client.get(f"{ROTA_URL}/{generated['rota_id']}").status_code == 404
+
+
+class TestReceptionRotaFrontDeskGap:
+    """front_desk_gap: one warning per contiguous uncovered range of
+    8:00am-6:00pm, not one per hour (D5)."""
+
+    ALL_DAY = "08:00-18:00: no front desk cover"
+
+    @staticmethod
+    def _gaps(body):
+        return [i for i in body["issues"] if i["check"] == "front_desk_gap"]
+
+    @staticmethod
+    def _cover(client, staff_id, day, first_hour, last_hour):
+        """Template rows tagged front_desk from first_hour up to (not
+        including) last_hour."""
+        hour = first_hour
+        while hour < last_hour:
+            _add_template_session(client, staff_id, day, hour, role="front_desk")
+            hour += 0.5
+
+    def test_no_front_desk_anywhere_is_one_issue(self, client, seeded_reception):
+        body = client.post(ROTA_URL, json={"date": TUESDAY.isoformat()}).json()
+        gaps = self._gaps(body)
+        assert len(gaps) == 1
+        assert gaps[0]["severity"] == "warning"
+        assert gaps[0]["phase"] == "coverage"
+        assert gaps[0]["day"] == "Tuesday"
+        assert gaps[0]["message"] == self.ALL_DAY
+
+    def test_fully_covered_day_emits_none(self, client, seeded_reception):
+        self._cover(client, seeded_reception["staff_ra"], "Monday", 8.0, 18.0)
+        body = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert self._gaps(body) == []
+
+    def test_gaps_either_side_of_covered_middle(self, client, seeded_reception):
+        # Covered 10:00-14:00 only, so the day has exactly two gaps.
+        self._cover(client, seeded_reception["staff_ra"], "Monday", 10.0, 14.0)
+        body = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert [i["message"] for i in self._gaps(body)] == [
+            "08:00-10:00: no front desk cover",
+            "14:00-18:00: no front desk cover",
+        ]
+
+    def test_holder_on_leave_leaves_the_gap_open(self, client, seeded_reception):
+        # Same leave exclusion phones_shortfall applies: a desk assigned to
+        # someone later marked off is not cover.
+        ra = seeded_reception["staff_ra"]
+        self._cover(client, ra, "Monday", 8.0, 18.0)
+        leave = client.post("/api/v1/reception/leave", json={
+            "staff_id": ra, "date": MONDAY.isoformat(),
+        })
+        assert leave.status_code == 201, leave.text
+
+        body = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert [i["message"] for i in self._gaps(body)] == [self.ALL_DAY]
+
+    def test_1730_slot_covers_the_last_half_hour(self, client, seeded_reception):
+        # 6:00-6:30pm is deliberately outside the covered window (D8), so
+        # cover ending at 18:00 leaves nothing uncovered.
+        self._cover(client, seeded_reception["staff_ra"], "Monday", 8.0, 17.5)
+        body = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert [i["message"] for i in self._gaps(body)] == [
+            "17:30-18:00: no front desk cover",
+        ]

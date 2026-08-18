@@ -72,15 +72,26 @@ RECEPTION_HOURS = [RECEPTION_FIRST_HOUR + 0.5 * i for i in range(_RECEPTION_SLOT
 HOUR_HALF_STEP_SQL = "(hour * 2) = CAST(hour * 2 AS INTEGER)"
 
 
+def _hour_label(hour: float) -> str:
+    whole = int(hour)
+    minutes = "30" if hour - whole >= 0.5 else "00"
+    return f"{whole:02d}:{minutes}"
+
+
 def format_hour(hour: float) -> str:
     """format_hour(8.5) -> "08:30-09:00". Mirrors formatHour in
     frontend/src/lib/receptionHours.ts -- the single formatter on each side,
     kept in sync by hand since nothing generates one from the other."""
-    def _label(h: float) -> str:
-        whole = int(h)
-        minutes = "30" if h - whole >= 0.5 else "00"
-        return f"{whole:02d}:{minutes}"
-    return f"{_label(hour)}-{_label(hour + 0.5)}"
+    return f"{_hour_label(hour)}-{_hour_label(hour + 0.5)}"
+
+
+def format_hour_range(start: float, end_exclusive: float) -> str:
+    """format_hour_range(8.0, 13.0) -> "08:00-13:00", for a span of several
+    slots rather than the single slot format_hour renders. `end_exclusive` is
+    the hour the range stops at, i.e. the start of the first slot *not* in it.
+    Server-rendered only -- unlike format_hour there is no frontend mirror to
+    keep in sync."""
+    return f"{_hour_label(start)}-{_hour_label(end_exclusive)}"
 
 
 class ReceptionStaff(Base):
