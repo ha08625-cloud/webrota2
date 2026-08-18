@@ -89,6 +89,37 @@ def default_counter_window(today: datetime.date) -> tuple[datetime.date, datetim
     return monday - datetime.timedelta(weeks=4), today
 
 
+def assignment_counter_window(
+    rota_date: datetime.date,
+) -> tuple[datetime.date, datetime.date]:
+    """The window the front-desk assignment generator uses as its fairness
+    input: `(monday_of(rota_date) - 4 weeks, rota_date)` -- the same shape as
+    `default_counter_window`, but anchored to the *rota's* date rather than to
+    today.
+
+    The page's window is deliberately wrong for the generator. Its final bound
+    is `today`, which excludes future-dated generated days so that generating a
+    week ahead does not pollute the counters page with assignments that have
+    not happened. Run the generator over a week generated ahead of today and
+    every day in the batch falls outside that window: assigning Tuesday cannot
+    see the `front_desk` rows written to Monday minutes earlier, so every day
+    in the batch reads identical counters and picks the same person, five days
+    running. Anchoring the upper bound to the rota's own date makes each day in
+    a batch see the days before it, which is what makes the rotation rotate.
+
+    The same anchoring makes assignment reproducible: the window depends only
+    on the day being assigned, so re-running against unchanged data a month
+    later gives the same answer rather than drifting with the calendar.
+
+    `compute_role_counters` needs no change to support this -- it has no notion
+    of "today" at all, and the future-date exclusion lives entirely in
+    `default_counter_window`, where it must stay so `GET /reception/counters`
+    is unaffected.
+    """
+    monday = rota_date - datetime.timedelta(days=rota_date.weekday())
+    return monday - datetime.timedelta(weeks=4), rota_date
+
+
 @dataclass
 class StaffRoleCounters:
     """One staff member's counters for the window.
