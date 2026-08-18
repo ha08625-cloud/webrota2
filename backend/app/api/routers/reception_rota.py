@@ -36,7 +36,13 @@ from ...models import (
     ReceptionStaff,
 )
 from ...models.enums import Day, ReceptionRole
-from ...models.reception import MIN_PHONES_STAFF, RECEPTION_HOURS, format_hour
+from ...models.reception import (
+    MIN_PHONES_STAFF,
+    RECEPTION_HOURS,
+    format_hour,
+    format_hour_range,
+)
+from ...reception_front_desk import FRONT_DESK_END_HOUR, FRONT_DESK_HOURS
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionRotaGenerateIn,
@@ -106,7 +112,16 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     which is the whole of what reception leave does. Their session rows are untouched and still
     returned by every read -- ReceptionRotaOut.staff_on_leave carries the
     same ids so the grid can dim them, since a warning counting fewer
-    staff than the grid visibly shows would otherwise read as a bug."""
+    staff than the grid visibly shows would otherwise read as a bug.
+
+    Also emits one `front_desk_gap` per *contiguous* uncovered range in
+    FRONT_DESK_HOURS (8:00am-6:00pm) -- per-range, not per-hour, since up to
+    twenty per-hour warnings stacked on top of the phones ones would swamp
+    the panel and "08:00-13:00: no front desk cover" says the same thing
+    once. Leave is excluded the same way it is for phones: a desk assigned
+    to someone later marked off is not covered. Note this fires on every day
+    generated before front desk assignment existed, since none of them have
+    a front_desk role anywhere."""
     day = _DAY_BY_WEEKDAY[rota.date.weekday()]
     on_leave = _staff_on_leave(db, rota.date)
 
@@ -129,6 +144,32 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
                 ),
                 day=day,
             ))
+
+    covered = {
+        session.hour
+        for session in rota.sessions
+        if session.role == ReceptionRole.FRONT_DESK and session.staff_id not in on_leave
+    }
+
+    def _gap(start: float, end: float) -> ValidationIssueOut:
+        return ValidationIssueOut(
+            severity="warning",
+            phase="coverage",
+            check="front_desk_gap",
+            message=f"{format_hour_range(start, end)}: no front desk cover",
+            day=day,
+        )
+
+    gap_start: float | None = None
+    for hour in FRONT_DESK_HOURS:
+        if hour not in covered:
+            if gap_start is None:
+                gap_start = hour
+        elif gap_start is not None:
+            issues.append(_gap(gap_start, hour))
+            gap_start = None
+    if gap_start is not None:
+        issues.append(_gap(gap_start, FRONT_DESK_END_HOUR))
     return issues
 
 
