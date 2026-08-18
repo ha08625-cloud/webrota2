@@ -280,11 +280,19 @@ def patch_session(
     user: dict = Depends(get_current_user),
 ) -> ReceptionSessionWriteOut:
     """Verbatim (role, note) pair setter, same contract as the master
-    template's PATCH."""
+    template's PATCH.
+
+    Also clears `displaced_role`: a manual edit overrides whatever the
+    front-desk assigner did to this slot, so a later reset must not restore a
+    role the day no longer has. Clearing it unconditionally is right even when
+    the user is *setting* `front_desk` by hand -- that tag is theirs, not the
+    generator's, and the generator must leave it alone.
+    """
     rota = _get_rota_or_404(db, rota_id)
     session = _get_session_or_404(db, rota_id, session_id)
     session.role = payload.role
     session.note = payload.note
+    session.displaced_role = None
     db.flush()
     issues = compute_coverage_issues(db, rota)
     db.commit()

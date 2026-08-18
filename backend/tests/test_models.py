@@ -691,6 +691,33 @@ def test_reception_rota_cascades_sessions_on_delete(session):
     assert remaining == []
 
 
+def test_reception_rota_session_displaced_role_defaults_to_none(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    row = ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.displaced_role is None
+
+
+def test_reception_rota_session_displaced_role_round_trips(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    row = ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9,
+        role=ReceptionRole.FRONT_DESK, displaced_role=ReceptionRole.PRESCRIPTIONS,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.displaced_role is ReceptionRole.PRESCRIPTIONS
+
+
 def test_reception_rota_date_unique(session):
     _reception_rota(session, date=datetime.date(2026, 8, 3))
     session.add(ReceptionRota(date=datetime.date(2026, 8, 3)))
