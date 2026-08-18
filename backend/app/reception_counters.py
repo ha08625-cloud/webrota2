@@ -89,6 +89,33 @@ def default_counter_window(today: datetime.date) -> tuple[datetime.date, datetim
     return monday - datetime.timedelta(weeks=4), today
 
 
+def assignment_counter_window(
+    rota_date: datetime.date,
+) -> tuple[datetime.date, datetime.date]:
+    """The fairness window the front-desk assigner uses:
+    `(monday_of(rota_date) - 4 weeks, rota_date)`.
+
+    Same shape as `default_counter_window`, anchored to the day being
+    assigned rather than to today, and this difference is load-bearing rather
+    than cosmetic. `default_counter_window` deliberately stops at today so the
+    counters *page* is not polluted by assignments that have not happened; a
+    generator run on a Friday for next week would, under that rule, see every
+    day of the batch fall outside the window -- Monday's brand-new
+    `front_desk` rows would be invisible when Tuesday is assigned, so all five
+    days would read identical counters and pick the same person five times
+    running.
+
+    Anchoring to the rota's own date fixes that and makes assignment
+    reproducible as a side effect: re-running against unchanged data a month
+    later reads the same window and therefore gives the same answer.
+    `compute_role_counters` itself has no notion of "today" -- the future-date
+    exclusion lives entirely in the window helpers -- so this needs no change
+    to the aggregation.
+    """
+    monday = rota_date - datetime.timedelta(days=rota_date.weekday())
+    return monday - datetime.timedelta(weeks=4), rota_date
+
+
 @dataclass
 class StaffRoleCounters:
     """One staff member's counters for the window.
