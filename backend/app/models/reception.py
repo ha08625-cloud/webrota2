@@ -154,7 +154,33 @@ class ReceptionRotaSession(Base):
     """A generated day's rows. Self-contained snapshots copied from the
     weekday template at generate time -- never re-derived from the template
     at read time, so an edit to the template after a day is generated does
-    not change that day."""
+    not change that day.
+
+    **`displaced_role` invariant: non-null <=> the front-desk generator wrote
+    this slot**, and it holds the role that was on the row immediately before
+    the generator overwrote it with `front_desk`. Nothing else in the system
+    ever sets it non-null.
+
+    The front-desk assigner records assignments by overwriting `role` in
+    place rather than in an overlay table, so this column is how a re-run
+    puts back what it took. It is set on every slot the generator writes,
+    *even when the previous role was already `front_desk`* (a no-op restore),
+    so that the invariant is total and the reset step can be a simple "restore
+    every row with a non-null displaced_role".
+
+    Consequences worth keeping in mind:
+
+    - A `front_desk` role tagged by hand has a NULL `displaced_role`, so a
+      re-run of the assigner leaves it untouched.
+    - A manual PATCH of a slot clears `displaced_role` back to NULL -- the
+      user has overridden the slot, and a later reset must not resurrect a
+      role that is no longer what the day says.
+
+    This is internal bookkeeping: it is deliberately not exposed in
+    ReceptionRotaSessionOut or any other schema, and the template
+    (ReceptionMasterSession) has no equivalent because it carries no
+    assignments.
+    """
 
     __tablename__ = "reception_rota_sessions"
     __table_args__ = (
@@ -178,6 +204,9 @@ class ReceptionRotaSession(Base):
         enum_col(ReceptionRole), nullable=False, default=ReceptionRole.PHONES
     )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    displaced_role: Mapped[ReceptionRole | None] = mapped_column(
+        enum_col(ReceptionRole), nullable=True, default=None
+    )
 
     rota: Mapped["ReceptionRota"] = relationship(back_populates="sessions")
     staff: Mapped["ReceptionStaff"] = relationship()

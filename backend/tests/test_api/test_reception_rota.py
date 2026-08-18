@@ -1,6 +1,8 @@
 """Reception day rota router tests (reception rota, Task 4)."""
 import datetime
 
+from app.models.enums import ReceptionRole
+
 from .conftest import MONDAY
 
 TUESDAY = MONDAY + datetime.timedelta(days=1)
@@ -176,6 +178,34 @@ class TestReceptionRotaSessions:
         assert body["session"]["role"] == "other"
         assert body["session"]["note"] == "training"
         assert "issues" in body
+
+    def test_patch_session_clears_displaced_role(
+        self, client, db_session, seeded_reception
+    ):
+        """A manual edit takes the slot off the front-desk generator's books
+        (D4): displaced_role goes back to NULL so a later reset cannot restore
+        a role the day no longer has."""
+        from app.models.reception import ReceptionRotaSession
+
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        created = client.post(f"{ROTA_URL}/{generated['rota_id']}/sessions", json={
+            "staff_id": seeded_reception["staff_ra"], "hour": 11,
+        }).json()["session"]
+        row = db_session.get(ReceptionRotaSession, created["session_id"])
+        row.role = ReceptionRole.FRONT_DESK
+        row.displaced_role = ReceptionRole.PHONES
+        db_session.commit()
+
+        resp = client.patch(
+            f"{ROTA_URL}/{generated['rota_id']}/sessions/{created['session_id']}",
+            json={"role": "prescriptions", "note": None},
+        )
+        assert resp.status_code == 200
+
+        db_session.expire_all()
+        row = db_session.get(ReceptionRotaSession, created["session_id"])
+        assert row.role is ReceptionRole.PRESCRIPTIONS
+        assert row.displaced_role is None
 
     def test_patch_session_missing_404(self, client, seeded_reception):
         generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
