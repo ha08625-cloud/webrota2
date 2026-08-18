@@ -42,7 +42,12 @@ from ...models.reception import (
     format_hour,
     format_hour_range,
 )
-from ...reception_front_desk import FRONT_DESK_END_HOUR, FRONT_DESK_HOURS
+from ...reception_counters import assignment_counter_window, compute_role_counters
+from ...reception_front_desk import (
+    FRONT_DESK_END_HOUR,
+    FRONT_DESK_HOURS,
+    select_front_desk_blocks,
+)
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionRotaGenerateIn,
@@ -259,6 +264,64 @@ def get_rota(
 ) -> ReceptionRotaOut:
     rota = _get_rota_or_404(db, rota_id)
     return _rota_out(db, rota)
+
+
+@router.post("/{rota_id}/front-desk", response_model=ReceptionRotaOut)
+def assign_front_desk(
+    rota_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> ReceptionRotaOut:
+    """Choose who mans the front desk on this day and write it onto the
+    existing session rows. No request body; returns the whole day with freshly
+    recomputed issues, since a successful assignment rewrites many rows at once
+    and the page should simply take the new state.
+
+    A separate endpoint rather than a step inside POST "" (D7): generation
+    stays a pure template copy with its 409 semantics intact, and assignment
+    can be re-run without the delete-then-regenerate dance.
+
+    404 on an unknown rota and no other error status. A day with no legal
+    assignment is a 200 whose issues carry `front_desk_gap` warnings -- the
+    documented outcome, not an error, and the same convention as everything
+    else in reception, where nothing blocks.
+    """
+    rota = _get_rota_or_404(db, rota_id)
+
+    # 1. Reset. Only rows this generator wrote (displaced_role IS NOT NULL --
+    #    the invariant on ReceptionRotaSession) are touched, so a front_desk
+    #    role tagged by hand, or one a later PATCH took ownership of, survives
+    #    a re-run untouched. Reset-then-assign is what makes re-running
+    #    idempotent.
+    for session in rota.sessions:
+        if session.displaced_role is not None:
+            session.role = session.displaced_role
+            session.displaced_role = None
+    # 2. Flush before reading counters: compute_role_counters queries the
+    #    sessions table, and this day is inside its own window, so without the
+    #    flush the day's previous front-desk slots would count toward the
+    #    fairness input for the assignment replacing them.
+    db.flush()
+    counters = compute_role_counters(db, *assignment_counter_window(rota.date))
+
+    # 3. Choose. Performs no writes and returns [] when nothing legal exists.
+    blocks = select_front_desk_blocks(rota, _staff_on_leave(db, rota.date), counters)
+
+    # 4. Apply. displaced_role is set even when the previous role was already
+    #    front_desk -- a no-op restore later, but it keeps D4's invariant total.
+    by_slot = {
+        (session.staff_id, session.hour): session for session in rota.sessions
+    }
+    for block in blocks:
+        for hour in block.slot_hours:
+            session = by_slot[(block.staff_id, hour)]
+            session.displaced_role = session.role
+            session.role = ReceptionRole.FRONT_DESK
+    db.flush()
+
+    out = _rota_out(db, rota)
+    db.commit()
+    return out
 
 
 @router.post(

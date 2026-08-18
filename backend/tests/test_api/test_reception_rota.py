@@ -311,3 +311,196 @@ class TestReceptionRotaFrontDeskGap:
         assert [i["message"] for i in self._gaps(body)] == [
             "17:30-18:00: no front desk cover",
         ]
+
+
+class TestReceptionRotaFrontDeskAssign:
+    """POST /{rota_id}/front-desk: reset, choose, apply (D7). The rule itself
+    is unit-tested in test_reception_front_desk.py -- what is tested here is
+    the endpoint's contract and, above all, the reset/apply ordering that
+    makes a re-run idempotent without eating manual edits (D4)."""
+
+    @staticmethod
+    def _url(rota_id):
+        return f"{ROTA_URL}/{rota_id}/front-desk"
+
+    @staticmethod
+    def _present(client, staff_id, day, first_hour, last_hour, role="phones"):
+        """Template rows from first_hour up to (not including) last_hour."""
+        hour = first_hour
+        while hour < last_hour:
+            _add_template_session(client, staff_id, day, hour, role=role)
+            hour += 0.5
+
+    def _full_day(self, client, seeded_reception, day="Monday"):
+        """All three active staff in for the whole covered window, so a legal
+        partition certainly exists."""
+        for key in ("staff_ra", "staff_rb", "staff_rc"):
+            self._present(client, seeded_reception[key], day, 8.0, 18.0)
+
+    @staticmethod
+    def _front_desk_hours(body):
+        return sorted(s["hour"] for s in body["sessions"] if s["role"] == "front_desk")
+
+    @staticmethod
+    def _roles(body):
+        return {(s["staff_id"], s["hour"]): s["role"] for s in body["sessions"]}
+
+    def test_assignment_tiles_the_window_and_clears_the_gaps(
+        self, client, seeded_reception
+    ):
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert TestReceptionRotaFrontDeskGap._gaps(generated)
+
+        resp = client.post(self._url(generated["rota_id"]))
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert self._front_desk_hours(body) == [8.0 + 0.5 * i for i in range(20)]
+        assert TestReceptionRotaFrontDeskGap._gaps(body) == []
+
+    def test_response_carries_the_rewritten_sessions(self, client, seeded_reception):
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assert not any(s["role"] == "front_desk" for s in generated["sessions"])
+
+        body = client.post(self._url(generated["rota_id"])).json()
+        assert body["rota_id"] == generated["rota_id"]
+        # A response the page can take wholesale: same row count, roles updated
+        # in place rather than rows added or removed.
+        assert len(body["sessions"]) == len(generated["sessions"])
+        holders = {
+            s["staff_id"] for s in body["sessions"] if s["role"] == "front_desk"
+        }
+        assert 2 <= len(holders) <= 3
+
+    def test_blocks_are_contiguous_runs_per_holder(self, client, seeded_reception):
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        body = client.post(self._url(generated["rota_id"])).json()
+
+        by_hour = {
+            s["hour"]: s["staff_id"]
+            for s in body["sessions"] if s["role"] == "front_desk"
+        }
+        runs = []
+        for hour in sorted(by_hour):
+            if runs and runs[-1][0] == by_hour[hour]:
+                continue
+            runs.append((by_hour[hour], hour))
+        # 2-3 blocks, and no holder returns to an adjacent block.
+        assert 2 <= len(runs) <= 3
+        assert all(a[0] != b[0] for a, b in zip(runs, runs[1:]))
+
+    def test_rerun_is_idempotent(self, client, seeded_reception, db_session):
+        from app.models.reception import ReceptionRotaSession
+
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+
+        first = client.post(self._url(generated["rota_id"])).json()
+        second = client.post(self._url(generated["rota_id"])).json()
+        assert self._roles(second) == self._roles(first)
+
+        # No displaced_role drift: every assigned row records the role the day
+        # had before assignment (phones here), not front_desk from the run before.
+        db_session.expire_all()
+        rows = db_session.query(ReceptionRotaSession).filter_by(
+            rota_id=generated["rota_id"]
+        ).all()
+        displaced = {
+            r.displaced_role for r in rows if r.role is ReceptionRole.FRONT_DESK
+        }
+        assert displaced == {ReceptionRole.PHONES}
+        assert all(
+            r.displaced_role is None
+            for r in rows if r.role is not ReceptionRole.FRONT_DESK
+        )
+
+    def test_manual_front_desk_tag_survives_a_rerun(self, client, seeded_reception):
+        """displaced_role IS NULL means "not the generator's row", so the reset
+        step leaves a hand-tagged slot alone. 7:30am is outside the covered
+        window (D8), so the assigner never touches it either."""
+        self._full_day(client, seeded_reception)
+        _add_template_session(
+            client, seeded_reception["staff_ra"], "Monday", 7.5, role="front_desk"
+        )
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+
+        client.post(self._url(generated["rota_id"]))
+        body = client.post(self._url(generated["rota_id"])).json()
+        tagged = next(s for s in body["sessions"] if s["hour"] == 7.5)
+        assert tagged["role"] == "front_desk"
+
+    def test_patch_takes_a_slot_off_the_generators_books(
+        self, client, seeded_reception, db_session
+    ):
+        """A manual PATCH clears displaced_role, so the next re-run neither
+        restores the displaced role nor re-uses the slot."""
+        from app.models.reception import ReceptionRotaSession
+
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assigned = client.post(self._url(generated["rota_id"])).json()
+
+        slot = next(s for s in assigned["sessions"] if s["role"] == "front_desk")
+        patched = client.patch(
+            f"{ROTA_URL}/{generated['rota_id']}/sessions/{slot['session_id']}",
+            json={"role": "not_working", "note": None},
+        )
+        assert patched.status_code == 200
+
+        body = client.post(self._url(generated["rota_id"])).json()
+        after = next(
+            s for s in body["sessions"] if s["session_id"] == slot["session_id"]
+        )
+        assert after["role"] == "not_working"
+        db_session.expire_all()
+        row = db_session.get(ReceptionRotaSession, slot["session_id"])
+        assert row.displaced_role is None
+
+    def test_unsolvable_day_is_200_with_gaps(self, client, seeded_reception):
+        # Everyone leaves at noon, so no partition of 8:00-18:00 has a holder
+        # for its later blocks. Nothing is assigned; the day comes back warning.
+        for key in ("staff_ra", "staff_rb", "staff_rc"):
+            self._present(client, seeded_reception[key], "Monday", 8.0, 12.0)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+
+        resp = client.post(self._url(generated["rota_id"]))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert self._front_desk_hours(body) == []
+        assert [i["message"] for i in TestReceptionRotaFrontDeskGap._gaps(body)] == [
+            TestReceptionRotaFrontDeskGap.ALL_DAY
+        ]
+
+    def test_unsolvable_rerun_still_resets_a_previous_assignment(
+        self, client, seeded_reception, db_session
+    ):
+        """An empty block list is not a no-op: the reset still stands, so a day
+        that has become unsolvable loses its stale assignment rather than
+        keeping it."""
+        from app.models.reception import ReceptionRotaSession
+
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        assigned = client.post(self._url(generated["rota_id"])).json()
+        assert self._front_desk_hours(assigned)
+
+        # Delete every row from noon on, leaving the afternoon uncoverable.
+        for session in assigned["sessions"]:
+            if session["hour"] >= 12.0:
+                client.delete(
+                    f"{ROTA_URL}/{generated['rota_id']}/sessions/{session['session_id']}"
+                )
+
+        body = client.post(self._url(generated["rota_id"])).json()
+        assert self._front_desk_hours(body) == []
+        db_session.expire_all()
+        rows = db_session.query(ReceptionRotaSession).filter_by(
+            rota_id=generated["rota_id"]
+        ).all()
+        assert all(r.displaced_role is None for r in rows)
+        assert all(r.role is ReceptionRole.PHONES for r in rows)
+
+    def test_unknown_rota_404(self, client, seeded_reception):
+        assert client.post(self._url(999999)).status_code == 404
