@@ -36,6 +36,18 @@ _PARAM = re.compile(r"\{[^}]+\}")
 _EXEMPT_PREFIXES = ("/api/v1/auth",)
 _EXEMPT_PATHS = ("/api/v1/users/me",)
 
+# (method, concrete path) pairs where an admin is SUPPOSED to 403 -- these
+# carry require_manager on top of the global write gate, so the sweep's
+# "an admin gets past the gate" assertion inverts for them. A set rather
+# than a path prefix: manager-only routes are a category now, not one
+# router. Paths are as the sweep generates them, i.e. with "1" substituted
+# for every path param.
+_MANAGER_ONLY = {
+    ("POST", "/api/v1/users"),
+    ("PATCH", "/api/v1/users/1"),
+    ("DELETE", "/api/v1/reception/staff/1"),
+}
+
 # The sweep covered 78 routes when written. The floor is a tripwire for
 # collection silently breaking, not a count to keep in sync -- raise it
 # only if it starts feeling loose.
@@ -99,13 +111,13 @@ def test_admin_is_not_blocked_by_the_write_gate(admin_client, method, path):
     the endpoint and is not this test's business -- only that the answer is
     not the gate's 403.
 
-    POST /users and PATCH /users/{id} are in the sweep and DO 403 for an
-    admin, from require_manager rather than the write gate; they are the
-    documented exception below.
+    The exceptions are the routes in _MANAGER_ONLY above, which carry
+    require_manager on top of the write gate and so DO 403 for an admin --
+    the assertion inverts for exactly those.
     """
     resp = admin_client.request(method, path)
-    if path.startswith("/api/v1/users"):
-        assert resp.status_code == 403
+    if (method, path) in _MANAGER_ONLY:
+        assert resp.status_code == 403, f"{method} {path} -> {resp.status_code}"
     else:
         assert resp.status_code != 403, f"{method} {path} -> unexpected 403"
 

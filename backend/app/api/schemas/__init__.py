@@ -103,9 +103,12 @@ from .reception import (
     ReceptionRotaSessionOut,
     ReceptionRotaSessionPatchIn,
     ReceptionSessionWriteOut,
+    ReceptionStaffDeletedCounts,
+    ReceptionStaffDeleteOut,
     ReceptionStaffIn,
     ReceptionStaffOut,
     ReceptionStaffPatch,
+    ReceptionStaffUsageOut,
 )
 
 __all__ = [
@@ -138,6 +141,8 @@ __all__ = [
     "AuditLogEntryOut", "AuditLogListOut",
     "RecurringNoteIn", "RecurringNoteOut",
     "ReceptionStaffIn", "ReceptionStaffOut", "ReceptionStaffPatch",
+    "ReceptionStaffUsageOut", "ReceptionStaffDeleteOut",
+    "ReceptionStaffDeletedCounts",
     "ReceptionMasterSessionOut", "ReceptionMasterSessionCreateIn",
     "ReceptionMasterSessionPatchIn",
     "ReceptionRotaGenerateIn", "ReceptionRotaOut", "ReceptionRotaSessionIn",
