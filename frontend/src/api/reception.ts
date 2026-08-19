@@ -14,8 +14,10 @@ import type {
   ReceptionRotaSession,
   ReceptionSessionWriteOut,
   ReceptionStaff,
+  ReceptionStaffDeleteResult,
   ReceptionStaffIn,
   ReceptionStaffPatch,
+  ReceptionStaffUsage,
   ValidationIssue,
 } from "./types";
 
@@ -29,6 +31,7 @@ import type {
 export const receptionKeys = {
   staffAll: ["reception", "staff"] as const,
   staffList: (includeInactive: boolean) => ["reception", "staff", "list", includeInactive] as const,
+  staffUsage: (staffId: number) => ["reception", "staff", "usage", staffId] as const,
 
   masterAll: ["reception", "master"] as const,
   masterList: () => ["reception", "master", "list"] as const,
@@ -82,13 +85,41 @@ export function useUpdateReceptionStaff() {
   });
 }
 
-/** DELETE /reception/staff/{id} - unconditional soft delete (active: false), 204 body. */
-export function useDeactivateReceptionStaff() {
+/**
+ * What deleting this staff member would destroy, for the confirm dialog.
+ * Its key sits under staffAll, so any staff write already invalidates it.
+ * Pass null while no member is chosen; the dialog mounts per row, so in
+ * practice this fetches when the dialog opens.
+ */
+export function useReceptionStaffUsage(staffId: number | null) {
+  return useQuery({
+    queryKey: receptionKeys.staffUsage(staffId ?? 0),
+    queryFn: () => apiClient.get<ReceptionStaffUsage>(`/reception/staff/${staffId}/usage`),
+    enabled: staffId !== null,
+  });
+}
+
+/**
+ * DELETE /reception/staff/{id} - a permanent purge, NOT a deactivate.
+ * Deactivation is useUpdateReceptionStaff with {active: false}; this
+ * removes the staff row and every row referencing it, and 409s unless the
+ * member is already inactive (see routers/reception_staff.py).
+ *
+ * Four roots to invalidate, because the purge reaches all four: the staff
+ * list itself, the day rotas it deleted sessions from, the counters
+ * derived from those sessions, and the leave entries it deleted - leave is
+ * cached per staff by useReceptionLeave, so ReceptionLeavePage would
+ * otherwise keep showing rows for someone who no longer exists.
+ */
+export function useDeleteReceptionStaff() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => apiClient.delete<void>(`/reception/staff/${id}`),
+    mutationFn: (id: number) => apiClient.delete<ReceptionStaffDeleteResult>(`/reception/staff/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: receptionKeys.staffAll });
+      queryClient.invalidateQueries({ queryKey: receptionKeys.rotaAll });
+      queryClient.invalidateQueries({ queryKey: receptionKeys.countersAll });
+      queryClient.invalidateQueries({ queryKey: receptionKeys.leaveAll });
     },
   });
 }
@@ -383,7 +414,9 @@ export function useDeleteReceptionLeave() {
 // is nothing to invalidate on write here: the counters change whenever a
 // day is generated, edited or deleted, and the reception rota mutations
 // above already invalidate receptionKeys.rotaAll. Add countersAll to those
-// invalidations if a page ever shows counters alongside an editable day.
+// invalidations if a page ever shows counters alongside an editable day -
+// useDeleteReceptionStaff already does, since a permanent purge removes a
+// person from the counters window entirely rather than changing a number.
 
 export function useReceptionCounters(
   fromDate: string | null = null,

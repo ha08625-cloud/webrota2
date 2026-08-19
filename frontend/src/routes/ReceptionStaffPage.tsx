@@ -1,8 +1,9 @@
 import { useState } from "react";
 
-import { useDeactivateReceptionStaff, useReceptionStaff, useUpdateReceptionStaff } from "@/api/reception";
+import { useReceptionStaff, useUpdateReceptionStaff } from "@/api/reception";
 import type { ApiError, ReceptionStaff } from "@/api/types";
-import { useWriteGate } from "@/auth/AuthContext";
+import { useIsManager, useWriteGate } from "@/auth/AuthContext";
+import { DeleteReceptionStaffDialog } from "@/components/DeleteReceptionStaffDialog";
 import { ReceptionStaffFormDialog } from "@/components/ReceptionStaffFormDialog";
 
 interface DialogState {
@@ -17,12 +18,13 @@ export function ReceptionStaffPage() {
   // Task 6), so a deactivation must have a visible way back, the same
   // convention UsersPage follows.
   const { data: staff, isLoading, isError } = useReceptionStaff(true);
-  const deactivateStaff = useDeactivateReceptionStaff();
   const updateStaff = useUpdateReceptionStaff();
+  const isManager = useIsManager();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
+  const [deleteTarget, setDeleteTarget] = useState<ReceptionStaff | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const isToggling = deactivateStaff.isPending || updateStaff.isPending;
+  const isToggling = updateStaff.isPending;
 
   function openCreate() {
     setActionError(null);
@@ -34,6 +36,8 @@ export function ReceptionStaffPage() {
     setDialogState({ open: true, staff: member });
   }
 
+  // Both directions are the same PATCH: DELETE is a permanent purge now
+  // (routers/reception_staff.py), not a soft delete, and would 409 here.
   function handleToggleActive(member: ReceptionStaff) {
     setActionError(null);
     const onError = (err: ApiError) => {
@@ -41,13 +45,14 @@ export function ReceptionStaffPage() {
       setActionError(message);
     };
 
-    if (member.active) {
-      if (!window.confirm(`Deactivate reception staff "${member.code}"?`)) return;
-      deactivateStaff.mutate(member.id, { onError });
-      return;
-    }
+    if (member.active && !window.confirm(`Deactivate reception staff "${member.code}"?`)) return;
 
-    updateStaff.mutate({ id: member.id, payload: { active: true } }, { onError });
+    updateStaff.mutate({ id: member.id, payload: { active: !member.active } }, { onError });
+  }
+
+  function openDelete(member: ReceptionStaff) {
+    setActionError(null);
+    setDeleteTarget(member);
   }
 
   return (
@@ -107,6 +112,19 @@ export function ReceptionStaffPage() {
                   >
                     {s.active ? "Deactivate" : "Reactivate"}
                   </button>
+                  {/* Only on an inactive row (the backend 409s otherwise -
+                      deactivate first, delete later) and only for a
+                      manager, matching how App.tsx hides Users and Audit
+                      Log below manager. The 403 is the real boundary. */}
+                  {!s.active && isManager ? (
+                    <button
+                      type="button"
+                      onClick={() => openDelete(s)}
+                      className="ml-3 text-xs text-red-700"
+                    >
+                      Delete
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -120,6 +138,17 @@ export function ReceptionStaffPage() {
           staff={dialogState.staff}
           open={dialogState.open}
           onOpenChange={(open) => setDialogState((s) => ({ ...s, open }))}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteReceptionStaffDialog
+          key={deleteTarget.id}
+          staff={deleteTarget}
+          open
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
         />
       ) : null}
     </div>
