@@ -174,6 +174,10 @@ def compute_role_counters(
     recently deactivated person's history stays visible; every active staff
     member with no rows appears zero-filled, so a new starter reads as 0 rather
     than vanishing. `active` is carried through so the caller can label them.
+    A *deleted* person's history does not stay visible, though: deleting a
+    staff member purges their `reception_rota_sessions` rows (see
+    `api/routers/reception_staff.py`), and these figures are derived from rows
+    that no longer exist, so past windows lose them entirely.
     """
     staff_rows = db.execute(
         select(ReceptionStaff).order_by(ReceptionStaff.name, ReceptionStaff.id)
