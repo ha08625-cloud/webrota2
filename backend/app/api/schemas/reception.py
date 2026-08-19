@@ -48,6 +48,43 @@ class ReceptionStaffOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReceptionStaffUsageOut(BaseModel):
+    """What a permanent delete of one staff member would destroy, read by
+    the confirm dialog before it asks. Four independent counts, not a
+    summary: "3 template slots" and "3 generated rows" mean very different
+    things to the person deciding.
+
+    `generated_days` is NOT the counters page's `days_present`. It counts
+    every generated date the member has any row on, with no leave anti-join
+    and no rolling window; `compute_role_counters` (app/reception_counters.py)
+    excludes leave dates and only looks at its window, so the two numbers can
+    and often will differ. Neither is wrong.
+    """
+    master_sessions: int
+    rota_sessions: int
+    generated_days: int
+    leave_entries: int
+
+
+class ReceptionStaffDeletedCounts(BaseModel):
+    """Rows actually removed, per table, by one permanent delete."""
+    master_sessions: int
+    rota_sessions: int
+    leave_entries: int
+
+
+class ReceptionStaffDeleteOut(BaseModel):
+    """DELETE /reception/staff/{id}. Reports what the delete really removed,
+    which the caller should show in preference to the numbers it pre-fetched
+    from /usage -- a day can be generated while the confirm dialog is open.
+
+    There is no `generated_days` here: the delete purges rota session rows
+    but deliberately leaves the `reception_rotas` headers standing, so no
+    day was removed.
+    """
+    deleted: ReceptionStaffDeletedCounts
+
+
 class ReceptionMasterSessionOut(BaseModel):
     """One weekday template slot. staff_code / staff_name are joined in the
     router, matching MasterRotaSessionOut's pattern. `session_id`, not `id`
