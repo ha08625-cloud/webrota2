@@ -1043,6 +1043,29 @@ export interface ReceptionStaffPatch {
 }
 
 /**
+ * GET /reception/staff/{id}/usage - what a permanent delete would destroy,
+ * read by the confirm dialog before it asks. `generated_days` is not the
+ * counters page's `days_present`: it counts every generated date the member
+ * has any row on, with no leave anti-join and no rolling window (see
+ * schemas/reception.py), so the two numbers can legitimately differ.
+ */
+export interface ReceptionStaffUsage {
+  master_sessions: number;
+  rota_sessions: number;
+  generated_days: number;
+  leave_entries: number;
+}
+
+/** DELETE /reception/staff/{id} response - rows actually removed, per table. */
+export interface ReceptionStaffDeleteResult {
+  deleted: {
+    master_sessions: number;
+    rota_sessions: number;
+    leave_entries: number;
+  };
+}
+
+/**
  * One weekday master template slot (reception_master_sessions). Row
  * existence is the data - a staff member with no row for a (day, hour)
  * is not expected then. `session_id`, not `id`, since this sits in a list

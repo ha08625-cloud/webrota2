@@ -24,12 +24,14 @@ import {
   useDeleteReceptionMasterSession,
   useDeleteReceptionRota,
   useDeleteReceptionRotaSession,
+  useDeleteReceptionStaff,
   useGenerateReceptionRota,
   usePatchReceptionRotaSession,
   useReceptionLeave,
   useReceptionMasterSessions,
   useReceptionRotaByDate,
   useReceptionStaff,
+  useReceptionStaffUsage,
   useUpdateReceptionMasterSession,
 } from "./reception";
 
@@ -79,6 +81,62 @@ describe("useCreateReceptionStaff", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedBody).toEqual({ code: "AB", name: "Ann Brown" });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: receptionKeys.staffAll });
+  });
+});
+
+describe("useReceptionStaffUsage", () => {
+  it("does not fetch until a staff member is chosen", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/v1/reception/staff/:id/usage", () => {
+        calls += 1;
+        return HttpResponse.json({
+          master_sessions: 1,
+          rota_sessions: 2,
+          generated_days: 2,
+          leave_entries: 0,
+        });
+      }),
+    );
+
+    const disabled = renderHook(() => useReceptionStaffUsage(null), { wrapper: makeWrapper(freshClient()) });
+    expect(disabled.result.current.fetchStatus).toBe("idle");
+    expect(calls).toBe(0);
+
+    const { result } = renderHook(() => useReceptionStaffUsage(5), { wrapper: makeWrapper(freshClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.rota_sessions).toBe(2);
+  });
+});
+
+describe("useDeleteReceptionStaff", () => {
+  it("purges and invalidates staff, rotas, counters and leave", async () => {
+    const queryClient = freshClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    let capturedUrl = "";
+    server.use(
+      http.delete("/api/v1/reception/staff/:id", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json({ deleted: { master_sessions: 1, rota_sessions: 2, leave_entries: 3 } });
+      }),
+    );
+
+    const { result } = renderHook(() => useDeleteReceptionStaff(), { wrapper: makeWrapper(queryClient) });
+    result.current.mutate(5);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(capturedUrl).toContain("/api/v1/reception/staff/5");
+    expect(result.current.data?.deleted.rota_sessions).toBe(2);
+    // Leave is the easy one to miss: the purge deletes leave entries, and
+    // useReceptionLeave caches them per staff.
+    for (const key of [
+      receptionKeys.staffAll,
+      receptionKeys.rotaAll,
+      receptionKeys.countersAll,
+      receptionKeys.leaveAll,
+    ]) {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: key });
+    }
   });
 });
 

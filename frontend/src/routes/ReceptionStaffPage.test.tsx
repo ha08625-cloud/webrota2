@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -96,10 +96,6 @@ describe("ReceptionStaffPage", () => {
     setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
     let active = true;
     server.use(
-      http.delete("/api/v1/reception/staff/1", () => {
-        active = false;
-        return new HttpResponse(null, { status: 204 });
-      }),
       http.patch("/api/v1/reception/staff/1", async ({ request }) => {
         const body = (await request.json()) as { active?: boolean };
         active = body.active ?? active;
@@ -123,6 +119,56 @@ describe("ReceptionStaffPage", () => {
     expect(await screen.findByRole("button", { name: "Deactivate" })).toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
+
+  it("offers Delete only on an inactive row", async () => {
+    setUpServer({
+      staff: [
+        makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" }),
+        makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false }),
+      ],
+    });
+    renderWithProviders(<ReceptionStaffPage />);
+    await screen.findByText("AB");
+
+    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
+    // The one Delete belongs to the inactive row, not the active one.
+    const inactiveRow = screen.getByText("CD").closest("tr");
+    expect(inactiveRow).not.toBeNull();
+    expect(within(inactiveRow as HTMLElement).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("hides Delete below manager, even on an inactive row", async () => {
+    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })] });
+    renderWithProviders(<ReceptionStaffPage />, { accessLevel: "admin" });
+    await screen.findByText("CD");
+
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("Delete opens the confirm dialog and the purge removes the row", async () => {
+    let staff = [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })];
+    server.use(
+      http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
+      http.get("/api/v1/reception/staff/2/usage", () =>
+        HttpResponse.json({ master_sessions: 0, rota_sessions: 0, generated_days: 0, leave_entries: 0 }),
+      ),
+      http.delete("/api/v1/reception/staff/2", () => {
+        staff = [];
+        return HttpResponse.json({ deleted: { master_sessions: 0, rota_sessions: 0, leave_entries: 0 } });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ReceptionStaffPage />);
+    await screen.findByText("CD");
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.type(await screen.findByLabelText("Type CD to confirm"), "CD");
+    await user.click(screen.getByRole("button", { name: "Permanently delete" }));
+
+    expect(await screen.findByText(/No reception staff yet/)).toBeInTheDocument();
+  });
+
 });
 
 describe("ReceptionStaffPage for a read-only user", () => {
