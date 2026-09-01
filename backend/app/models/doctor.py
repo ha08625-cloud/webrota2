@@ -14,6 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from ..api.auth_utils import new_session_token
 from ..database import Base
 from .enums import DoctorType, RoomType, SupervisionPreference, enum_col
 
@@ -43,6 +44,19 @@ class Doctor(Base):
     # other stays workable.
     start_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    # Secret that identifies this doctor's public .ics calendar feed. Every
+    # row has one from creation -- the feed route looks it up through the
+    # unique index and never has to handle a null. Deliberately NOT a server
+    # default: there is no single value the rows could share, so the Python
+    # default here (and the per-row backfill in migration 007) is what makes
+    # the NOT NULL safe. Reuses the session-token generator so "unguessable
+    # token" has one definition in the codebase; auth_utils is a leaf module
+    # with no app imports of its own, so this does not tangle the layering.
+    # Kept out of DoctorOut/DoctorDetailOut -- it reaches the frontend only
+    # through GET /doctors/{id}/calendar-feed.
+    calendar_token: Mapped[str] = mapped_column(
+        String, nullable=False, unique=True, index=True, default=new_session_token
+    )
 
     preferred_rooms: Mapped[list["DoctorPreferredRoom"]] = relationship(
         back_populates="doctor",

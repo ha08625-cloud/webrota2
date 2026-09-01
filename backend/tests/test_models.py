@@ -97,6 +97,28 @@ def test_doctor_code_unique(session):
         session.flush()
 
 
+def test_doctor_calendar_token_autopopulated_and_distinct(session):
+    """Every doctor row carries a token from creation, without the caller
+    naming one -- the invariant the feed route relies on to skip a null
+    branch. Two rows never share one.
+    """
+    a = _doctor(session, "AA")
+    b = _doctor(session, "BB")
+    assert a.calendar_token and b.calendar_token
+    assert a.calendar_token != b.calendar_token
+    # secrets.token_urlsafe(32) -> 43 urlsafe-base64 chars.
+    assert len(a.calendar_token) >= 40
+
+
+def test_doctor_calendar_token_unique(session):
+    a = _doctor(session, "AA")
+    session.add(Doctor(
+        code="BB", doctor_type=DoctorType.SALARIED, calendar_token=a.calendar_token
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
 def test_master_session_unique_with_week(session):
     d = _doctor(session)
     t = MasterRotaTemplate(name="Default")
