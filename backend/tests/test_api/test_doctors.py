@@ -2,7 +2,7 @@
 from sqlalchemy import select
 
 from app.models import Doctor, SystemCounter
-from app.models.enums import SystemCounterType
+from app.models.enums import DoctorType, SystemCounterType
 
 from .conftest import generate_rota
 
@@ -190,3 +190,99 @@ class TestDoctors:
         resp = client.delete(f"/api/v1/doctors/{seeded['doctor_aa']}")
         assert resp.status_code == 200
         assert resp.json()["active"] is False
+
+
+class TestCalendarFeed:
+    """Token management endpoints (calendar feed plan, Task 4).
+
+    The public feed route itself is tested in
+    test_calendar_feed_route.py; what is asserted here is that the token
+    the doctors router hands out is the one that route resolves, and that
+    rotation is manager-only.
+
+    The tier tests deliberately do NOT use the `seeded` fixture: `seeded`
+    requests `client`, whose MANAGER stub would overwrite the tier client's
+    identity on the shared `app.dependency_overrides` (see the conftest
+    docstrings). They build their doctor through `db_session` instead.
+    """
+
+    def _token(self, db_session, doctor_id):
+        return db_session.get(Doctor, doctor_id).calendar_token
+
+    def _make_doctor(self, db_session):
+        doctor = Doctor(code="CF", doctor_type=DoctorType.PARTNER)
+        db_session.add(doctor)
+        db_session.commit()
+        return doctor.id
+
+    def test_get_returns_the_stored_token_and_its_path(
+        self, client, db_session, seeded
+    ):
+        doctor_id = seeded["doctor_aa"]
+        body = client.get(f"/api/v1/doctors/{doctor_id}/calendar-feed").json()
+        token = self._token(db_session, doctor_id)
+        assert body == {
+            "doctor_id": doctor_id,
+            "token": token,
+            "feed_path": f"/api/v1/calendar/{token}.ics",
+        }
+        # A path, never an absolute URL -- the frontend prepends the origin.
+        assert not body["feed_path"].startswith("http")
+        # And it is the path that actually serves the feed.
+        assert client.get(body["feed_path"]).status_code == 200
+
+    def test_get_unknown_doctor_404(self, client, seeded):
+        assert client.get("/api/v1/doctors/9999/calendar-feed").status_code == 404
+
+    def test_rotate_dead_ends_the_old_url(self, client, db_session, seeded):
+        """`client` is manager tier, which is what rotation needs; the tier
+        boundary itself is tested below."""
+        doctor_id = seeded["doctor_aa"]
+        old = client.get(f"/api/v1/doctors/{doctor_id}/calendar-feed").json()
+        assert client.get(old["feed_path"]).status_code == 200
+
+        resp = client.post(f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate")
+        assert resp.status_code == 200
+        new = resp.json()
+        assert new["token"] != old["token"]
+
+        db_session.expire_all()
+        assert self._token(db_session, doctor_id) == new["token"]
+        assert client.get(new["feed_path"]).status_code == 200
+        assert client.get(old["feed_path"]).status_code == 404
+
+    def test_rotate_unknown_doctor_404(self, client, seeded):
+        assert client.post(
+            "/api/v1/doctors/9999/calendar-feed/rotate"
+        ).status_code == 404
+
+    def test_viewer_can_read_but_not_rotate(self, viewer_client, db_session):
+        doctor_id = self._make_doctor(db_session)
+        assert viewer_client.get(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed"
+        ).status_code == 200
+        assert viewer_client.post(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
+        ).status_code == 403
+
+    def test_admin_cannot_rotate(self, admin_client, db_session):
+        """The global write gate admits admin; require_manager is what stops
+        them, which is the whole reason it hangs off this endpoint."""
+        doctor_id = self._make_doctor(db_session)
+        assert admin_client.get(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed"
+        ).status_code == 200
+        assert admin_client.post(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
+        ).status_code == 403
+
+    def test_manager_can_rotate(self, manager_client, db_session):
+        doctor_id = self._make_doctor(db_session)
+        before = manager_client.get(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed"
+        ).json()["token"]
+        resp = manager_client.post(
+            f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["token"] != before
