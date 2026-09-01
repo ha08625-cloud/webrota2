@@ -1,7 +1,7 @@
 """Doctor router tests"""
 from sqlalchemy import select
 
-from app.models import SystemCounter
+from app.models import Doctor, SystemCounter
 from app.models.enums import SystemCounterType
 
 from .conftest import generate_rota
@@ -38,6 +38,25 @@ class TestDoctors:
             SystemCounterType.SUPERVISION,
         }
         assert all(r.raw_count == 0 for r in rows)
+
+    def test_create_doctor_sets_calendar_token(self, client, db_session, seeded):
+        """The calendar-token invariant: the router issues a token at
+        creation, distinct per doctor, and it never appears in the doctor
+        payloads (it reaches the frontend only via the feed endpoint).
+        """
+        ids = []
+        for code in ("CC", "DD"):
+            resp = client.post("/api/v1/doctors", json={
+                "code": code, "doctor_type": "Trainee",
+            })
+            assert resp.status_code == 201
+            assert "calendar_token" not in resp.json()
+            ids.append(resp.json()["id"])
+
+        tokens = [db_session.get(Doctor, i).calendar_token for i in ids]
+        assert all(tokens)
+        assert tokens[0] != tokens[1]
+        assert "calendar_token" not in client.get(f"/api/v1/doctors/{ids[0]}").json()
 
     def test_duplicate_code_409(self, client, seeded):
         resp = client.post("/api/v1/doctors", json={

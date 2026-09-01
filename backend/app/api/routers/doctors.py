@@ -15,6 +15,16 @@ creation. `generate._write_counters` relies on this invariant via a strict
 `.scalar_one()` and 500s the generation if it is ever violated (this
 happened in production when doctors created through this router predated
 the invariant -- see seed/backfill_system_counters.py for the repair).
+
+Calendar-token invariant: every doctor row also has a unique, unguessable
+`calendar_token` from creation, set here explicitly. It is the identifier of
+that doctor's public .ics feed, so the feed route can look it up through the
+unique index with no null branch. Unlike the counter invariant this one has
+no history of being violated -- migration 007 backfills a token per existing
+row and makes the column NOT NULL, so no database can hold a doctor without
+one. The token is deliberately absent from DoctorOut/DoctorDetailOut: it
+reaches the frontend only through the dedicated calendar-feed endpoint, so it
+never travels in the rota grid's caches or the audit log's request bodies.
 """
 from __future__ import annotations
 
@@ -33,6 +43,7 @@ from ...models import (
     SystemCounter,
 )
 from ...models.enums import RotaStatus, SystemCounterType
+from ..auth_utils import new_session_token
 from ..deps import get_current_user, get_db
 from ..schemas import (
     DoctorDetailOut,
@@ -94,6 +105,7 @@ def create_doctor(
         active=True,
         start_date=payload.start_date,
         end_date=payload.end_date,
+        calendar_token=new_session_token(),
     )
     db.add(doctor)
     try:
