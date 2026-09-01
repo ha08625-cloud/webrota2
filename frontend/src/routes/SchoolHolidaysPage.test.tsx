@@ -161,11 +161,16 @@ describe("SchoolHolidaysPage", () => {
   });
 
   it("edits an existing holiday, pre-filling the dialog", async () => {
+    // Dates are far-future on purpose. The page hides holidays that have
+    // already ended until "Show past holidays" is ticked, so a fixture
+    // range in the near past makes this row - and its Edit button -
+    // disappear the day the range ends, failing a test that has nothing to
+    // do with the passage of time. Same reason 2099 is used above.
     const holiday = makeSchoolHoliday({
       id: 7,
       school_id: 5,
-      start_date: "2026-07-21",
-      end_date: "2026-08-31",
+      start_date: "2099-07-21",
+      end_date: "2099-08-31",
       name: "Summer",
     });
     const school = makeSchool({ id: 5, name: "St Mary's Primary", holidays: [holiday] });
@@ -185,20 +190,28 @@ describe("SchoolHolidaysPage", () => {
     await screen.findByText(/Summer/);
     await user.click(screen.getByRole("button", { name: "Edit" }));
 
-    expect(screen.getByLabelText("Start date")).toHaveValue("2026-07-21");
+    expect(screen.getByLabelText("Start date")).toHaveValue("2099-07-21");
     const nameInput = screen.getByLabelText("Name (optional)");
     await user.clear(nameInput);
     await user.type(nameInput, "Summer break");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(capturedBody).toEqual({ start_date: "2026-07-21", end_date: "2026-08-31", name: "Summer break" }),
+      expect(capturedBody).toEqual({ start_date: "2099-07-21", end_date: "2099-08-31", name: "Summer break" }),
     );
     expect(capturedUrl).toContain("/schools/5/holidays/7");
   });
 
   it("deletes a holiday", async () => {
-    const holiday = makeSchoolHoliday({ id: 7, school_id: 5 });
+    // Far-future for the same reason as the edit test above: the default
+    // fixture range is in the past, and a past holiday renders no Delete
+    // button until the toggle is ticked.
+    const holiday = makeSchoolHoliday({
+      id: 7,
+      school_id: 5,
+      start_date: "2099-07-21",
+      end_date: "2099-08-31",
+    });
     const school = makeSchool({ id: 5, name: "St Mary's Primary", holidays: [holiday] });
     setUpServer({ schools: [school] });
     let deletedUrl = "";
