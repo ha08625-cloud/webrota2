@@ -149,7 +149,11 @@ describe("RotaPage", () => {
     // "w/c 13 Jul 2026" shape - exact date depends on today, so only the
     // format is asserted here (see date_test.ts for the date arithmetic
     // itself, which is tested against fixed dates).
-    expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3} \d{4}$/);
+    //
+    // The month is \w{3,4}, not \w{3}: en-GB's short month name for
+    // September is "Sept", not "Sep". A three-character bound passes for
+    // eleven months of the year and fails for the whole of September.
+    expect(options[0].textContent).toMatch(/^w\/c \d{1,2} \w{3,4} \d{4}$/);
   });
 
   it("sends the correct payload to POST /staging, defaulting template_start_week to 1", async () => {
