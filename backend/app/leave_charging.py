@@ -21,6 +21,15 @@ doctor was due to be at work at all. The two predicates are not shared and
 must not be merged; only the week-1 template map (`app/master_template.py`)
 is shared between them.
 
+`app/calendar_feed.py` asks the same "was the doctor due to be at work?"
+question and lands on the same set (`REQUIRES_ROOM`, `PRE_ASSIGNED`,
+`ADMIN_TIME`, `WFH` in, `NO_SURGERY` out). That alignment is intentional and
+deliberately **not** shared as a common predicate: this module reads the
+*live week-1 master template* by weekday, because it is asked about a bare
+date with no rota, while the feed reads the *persisted `template_type`
+snapshot* on a real `RotaSession` row. One function would force one of them
+onto the wrong source.
+
 Chargeability is computed at read time from the live template and closure
 tables, never stored on `LeaveEntry`: both tables are editable, and
 baking the answer in at booking time would leave rows asserting a pattern

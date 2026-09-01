@@ -12,6 +12,7 @@ dependencies = [
     "python-docx",
     "python-multipart",
     "bcrypt",
+    "icalendar>=7.3.0",
 ]
 
 [project.optional-dependencies]
