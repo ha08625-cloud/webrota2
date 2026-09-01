@@ -57,6 +57,7 @@ _MANAGER_ONLY = {
     ("POST", "/api/v1/users"),
     ("PATCH", "/api/v1/users/1"),
     ("DELETE", "/api/v1/reception/staff/1"),
+    ("POST", "/api/v1/doctors/1/calendar-feed/rotate"),
 }
 
 # The sweep covered 78 routes when written. The floor is a tripwire for

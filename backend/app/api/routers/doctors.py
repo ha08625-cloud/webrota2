@@ -25,6 +25,11 @@ row and makes the column NOT NULL, so no database can hold a doctor without
 one. The token is deliberately absent from DoctorOut/DoctorDetailOut: it
 reaches the frontend only through the dedicated calendar-feed endpoint, so it
 never travels in the rota grid's caches or the audit log's request bodies.
+
+Token management (read the feed URL, rotate the token) lives here rather
+than on the public calendar router, so it sits behind the ordinary session
+gate. Rotation additionally carries `Depends(require_manager)` -- see its
+docstring.
 """
 from __future__ import annotations
 
@@ -41,17 +46,20 @@ from ...models import (
     GeneratedRota,
     RotaSession,
     SystemCounter,
+    User,
 )
 from ...models.enums import RotaStatus, SystemCounterType
 from ..auth_utils import new_session_token
-from ..deps import get_current_user, get_db
+from ..deps import get_current_user, get_db, require_manager
 from ..schemas import (
+    CalendarFeedOut,
     DoctorDetailOut,
     DoctorIn,
     DoctorOut,
     DoctorPatch,
     PreferredRoomIn,
 )
+from .calendar import feed_path
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
 
@@ -203,6 +211,56 @@ def replace_preferred_rooms(
         ) from exc
     db.refresh(doctor)
     return doctor
+
+
+def _feed_out(doctor: Doctor) -> CalendarFeedOut:
+    return CalendarFeedOut(
+        doctor_id=doctor.id,
+        token=doctor.calendar_token,
+        feed_path=feed_path(doctor.calendar_token),
+    )
+
+
+@router.get("/{doctor_id}/calendar-feed", response_model=CalendarFeedOut)
+def get_calendar_feed(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> CalendarFeedOut:
+    """The doctor's feed token and path, readable at every access tier.
+
+    Deliberately not doctor-scoped: the feed is identified by its token, not
+    by who is logged in, and every rota surface in the app is already
+    readable at every tier. Any logged-in user picks a doctor from the
+    calendar page and copies that doctor's URL. The token defends against
+    outsiders, not against colleagues.
+    """
+    return _feed_out(_get_or_404(db, doctor_id))
+
+
+@router.post("/{doctor_id}/calendar-feed/rotate", response_model=CalendarFeedOut)
+def rotate_calendar_feed(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    manager: User = Depends(require_manager),
+) -> CalendarFeedOut:
+    """Issue a fresh token, dead-ending the old URL. Manager-only.
+
+    The global write gate is NOT enough here: it admits admin tier, and this
+    is the revocation path for a doctor's calendar link -- user-management
+    business rather than routine data entry, and silently destructive, since
+    the doctor's calendar simply stops updating with no error anywhere. So
+    `require_manager` hangs off the endpoint on top of the global gate, the
+    same per-endpoint pattern routers/users.py uses.
+
+    `test_authorization.py` lists this route in `_MANAGER_ONLY`: its sweep
+    otherwise asserts an admin gets past the gate on every non-GET route.
+    """
+    doctor = _get_or_404(db, doctor_id)
+    doctor.calendar_token = new_session_token()
+    db.commit()
+    db.refresh(doctor)
+    return _feed_out(doctor)
 
 
 @router.delete("/{doctor_id}", response_model=DoctorOut)

@@ -29,6 +29,7 @@ from .clinic_type import (
     ScheduleOut,
 )
 from .doctor import (
+    CalendarFeedOut,
     DoctorDetailOut,
     DoctorIn,
     DoctorOut,
@@ -118,6 +119,7 @@ __all__ = [
     "SwapIn", "SwapOut", "SetRoomIn", "SetRoomOut", "SetRoleIn", "SetRoleOut",
     "ClinicTypeIn", "ClinicTypeOut", "ClinicTypePatch", "ClinicTypeReorderIn", "DoctorEligIn", "DoctorEligOut",
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
+    "CalendarFeedOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
     "PreferredRoomIn", "PreferredRoomOut",
     "ExtraSessionIn", "ExtraSessionOut", "BlockedOut",

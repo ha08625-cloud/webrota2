@@ -69,3 +69,15 @@ class DoctorOut(BaseModel):
 
 class DoctorDetailOut(DoctorOut):
     preferred_rooms: list[PreferredRoomOut]
+
+class CalendarFeedOut(BaseModel):
+    """One doctor's calendar-feed token and the path that serves it.
+
+    `feed_path` is app-relative (`/api/v1/calendar/<token>.ics`); the
+    frontend prepends `window.location.origin`. See
+    `app/api/routers/calendar.py:feed_path` for why no absolute URL is
+    built server-side.
+    """
+    doctor_id: int
+    token: str
+    feed_path: str

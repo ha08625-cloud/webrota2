@@ -29,7 +29,9 @@ first run. The mirror-image sweep in the same file asserts 401 for every
 GET, with this one path as its single explicit allowlist entry.
 
 Token management (read and rotate) lives on the authenticated, write-gated
-doctors router, never here.
+doctors router, never here. That router composes the feed's path through
+`feed_path()` below rather than spelling it out again, so the URL has one
+definition.
 """
 from __future__ import annotations
 
@@ -46,6 +48,29 @@ from ..deps import get_db
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
 _NOT_FOUND_DETAIL = "Calendar feed not found"
+
+
+def feed_path(token: str) -> str:
+    """The app-relative path of one doctor's feed, e.g. `/api/v1/calendar/x.ics`.
+
+    Derived from the route itself (prefix, param and `.ics` suffix all come
+    out of `url_path_for`) so the doctors router cannot drift from what this
+    module actually serves.
+
+    Returns a path, never an absolute URL: the frontend prepends
+    `window.location.origin`. Building the absolute form here would mean
+    reading `request.base_url`, which behind Railway's proxy reports whatever
+    the proxy forwarded -- a scheme mismatch there yields an `http://` URL
+    that a subscriber pastes into Google and that silently fails. The browser
+    already knows its own origin correctly in dev and production alike.
+
+    `API_PREFIX` is imported inside the function on purpose: `api/main.py`
+    imports this module to register the router, so a module-level import
+    would be circular.
+    """
+    from ..main import API_PREFIX
+
+    return f"{API_PREFIX}{router.url_path_for('calendar_feed', token=token)}"
 
 
 @router.get("/{token}.ics")
