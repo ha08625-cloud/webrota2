@@ -128,9 +128,22 @@ describe("ClinicalShell nav by access level", () => {
     renderAt("/clinical/counters", "nurse");
 
     const nav = screen.getByRole("navigation");
-    for (const label of ["Generate new rotas", "Staging", "Master Rota", "Staff", "Counters"]) {
+    for (const label of [
+      "Generate new rotas",
+      "Staging",
+      "Master Rota",
+      "Staff",
+      "Counters",
+      "Calendar Feed",
+    ]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
+  });
+
+  it("renders the calendar feed route", async () => {
+    renderAt("/clinical/calendar", "nurse");
+
+    expect(await screen.findByRole("heading", { name: "Calendar Feed" })).toBeInTheDocument();
   });
 
   it("offers Change password at every level, since /users is manager-only", () => {

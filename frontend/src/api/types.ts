@@ -998,6 +998,19 @@ export interface SignatureMeta {
   uploaded_at: string;
 }
 
+// --- Calendar feed (schemas/doctor.py CalendarFeedOut) ---
+// One doctor's private .ics subscription. `feed_path` is app-relative
+// (`/api/v1/calendar/<token>.ics`) on purpose: the absolute URL is composed
+// client-side from window.location.origin, because the server sits behind a
+// proxy whose forwarded scheme cannot be trusted to produce an https:// URL.
+// See api/calendarFeed.ts.
+
+export interface CalendarFeed {
+  doctor_id: number;
+  token: string;
+  feed_path: string;
+}
+
 // --- Reception rota (reception rota plan) ---
 // Independent of the clinical rota end to end - see models/reception.py's
 // docstring. Wire shapes mirror backend/app/api/schemas/reception.py

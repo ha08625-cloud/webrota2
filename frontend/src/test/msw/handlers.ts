@@ -158,6 +158,23 @@ export const handlers: HttpHandler[] = [
   // Signatures feature (Task 4) - empty-list default, plus binary defaults
   // for the image and apply endpoints so tests that don't care about the
   // exact bytes don't need to stub them individually.
+  // Calendar feed (calendar feed, Task 5). One default token, so any test
+  // that lands on CalendarFeedPage gets a stable URL without stubbing;
+  // tests about rotation override the POST to return a second token.
+  http.get("/api/v1/doctors/:doctorId/calendar-feed", ({ params }) =>
+    HttpResponse.json({
+      doctor_id: Number(params.doctorId),
+      token: "feed-token",
+      feed_path: "/api/v1/calendar/feed-token.ics",
+    }),
+  ),
+  http.post("/api/v1/doctors/:doctorId/calendar-feed/rotate", ({ params }) =>
+    HttpResponse.json({
+      doctor_id: Number(params.doctorId),
+      token: "rotated-token",
+      feed_path: "/api/v1/calendar/rotated-token.ics",
+    }),
+  ),
   http.get("/api/v1/signatures", () => HttpResponse.json([])),
   http.get("/api/v1/signatures/:doctorId/image", () =>
     new HttpResponse(new Uint8Array([137, 80, 78, 71]).buffer, {
