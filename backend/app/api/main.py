@@ -4,7 +4,7 @@ CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
 "*" for development. All routers are registered under /api/v1.
 
 Router registration is also where write authorization is enforced
-(role-based auth plan, Task 2). Every router except the two in _UNGATED is
+(role-based auth plan, Task 2). Every router except the three in _UNGATED is
 included with `dependencies=[Depends(require_write_access)]`, which 403s a
 viewer-tier user on any non-GET request. Attaching the gate here rather
 than per-endpoint is what makes the API default-DENY: a new router, or a
@@ -61,6 +61,7 @@ from .deps import require_write_access
 from .routers import (
     audit as audit_router,
     auth,
+    calendar,
     clinic_types,
     closures,
     counters,
@@ -159,17 +160,25 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router)
+_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar)
 
-# The ONLY two routers that do not get the global write gate. Do not extend
-# this without a reason as specific as these:
+# The ONLY three routers that do not get the global write gate. Do not
+# extend this without a reason as specific as these:
 #   auth  -- POST /auth/login has no authenticated user by definition, and
 #            POST /auth/logout must stay reachable at every tier.
 #   users -- gates itself per-endpoint (Depends(require_manager) on the
 #            three admin endpoints), because PATCH /users/me is a write
 #            that every tier must be able to make on their own row.
+#   calendar -- the per-doctor .ics feed is fetched by Google/Outlook with
+#            no way to present a bearer token, so its single GET must be
+#            reachable unauthenticated; the token in the path is the
+#            credential. It is in _UNGATED rather than merely GET-only
+#            because require_write_access depends on get_current_user and
+#            so 401s even a GET. The router holds exactly one endpoint and
+#            must never gain a non-GET one -- test_authorization.py's
+#            sweeps enforce both halves. See routers/calendar.py.
 # Everything else is gated. See routers/users.py and deps.py.
-_UNGATED = (auth, users)
+_UNGATED = (auth, users, calendar)
 
 for module in _ALL_ROUTERS:
     dependencies = [] if module in _UNGATED else [Depends(require_write_access)]

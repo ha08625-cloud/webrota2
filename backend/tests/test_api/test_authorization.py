@@ -1,6 +1,6 @@
 """Authorization tests (role-based auth plan, Task 2).
 
-The load-bearing test here is `test_viewer_cannot_write`, a sweep over
+There are two load-bearing sweeps. `test_viewer_cannot_write` is a sweep over
 every non-GET route the app registers, not a per-router enumeration. That
 is deliberate: the gate's whole value is that it is default-deny, so the
 test that proves it has to be one that covers endpoints nobody has written
@@ -8,6 +8,17 @@ yet. A per-router list would pass forever while a new unguarded router
 sailed past it. `test_route_sweep_is_not_empty` guards the guard -- if a
 refactor breaks route collection, the sweep would otherwise "pass" over
 zero routes and prove nothing.
+
+`test_get_requires_authentication` is the same idea for the other half of
+the surface, and it exists because of the calendar feed (calendar feed
+plan, Decision 4). That feature opened the app's first and only
+unauthenticated endpoint; this sweep is what makes "we opened one hole,
+not a class of them" a checked property rather than a claim. It calls
+every GET in the schema with no credentials and asserts 401, with
+`_UNAUTHENTICATED_GET_PATHS` as the explicit list of what is allowed to
+answer otherwise. **Adding a path to that allowlist is a decision, not a
+test fix**: it means shipping another endpoint that anyone on the internet
+can read.
 
 Assertions are `== 403` and never "not 2xx". Most of these requests carry
 no body and invalid path params, so a broken gate would answer 422, and
@@ -53,6 +64,19 @@ _MANAGER_ONLY = {
 # only if it starts feeling loose.
 _MIN_SWEPT_ROUTES = 60
 
+# GETs that are SUPPOSED to answer without credentials. Exactly one, and
+# it is deliberate: a calendar client cannot present a bearer token, so the
+# unguessable token in the path is the credential (see
+# app/api/routers/calendar.py). "1" is what the sweep substitutes for the
+# {token} path param; it matches no doctor, so the endpoint answers 404 --
+# which is the point. The assertion is only that it is not the 401 every
+# other GET must give.
+_UNAUTHENTICATED_GET_PATHS = {"/api/v1/calendar/1.ics"}
+
+# The GET sweep covered 39 routes when written; same tripwire rationale as
+# _MIN_SWEPT_ROUTES above.
+_MIN_SWEPT_GET_ROUTES = 30
+
 # A write that succeeds on its own merits, for the targeted tier tests --
 # the sweep sends empty bodies, so it can only ever prove a 403.
 DOCTORS = "/api/v1/doctors"
@@ -88,7 +112,24 @@ def _all_non_get_routes():
     return sorted(set(collected))
 
 
+def _all_get_routes():
+    """Every concrete GET path the app serves under the API prefix.
+
+    Same enumeration and same caveats as `_all_non_get_routes`. Scoped to
+    API_PREFIX so that /health -- registered directly on the app and open
+    on purpose, for Railway's health check -- is not swept.
+    """
+    collected = []
+    for path, operations in app.openapi()["paths"].items():
+        if not path.startswith("/api/v1"):
+            continue
+        if "get" in operations:
+            collected.append(_PARAM.sub("1", path))
+    return sorted(set(collected))
+
+
 _NON_GET_ROUTES = _all_non_get_routes()
+_GET_ROUTES = _all_get_routes()
 
 
 def test_route_sweep_is_not_empty():
@@ -96,6 +137,30 @@ def test_route_sweep_is_not_empty():
         f"route collection found only {len(_NON_GET_ROUTES)} non-GET routes; "
         "the sweep below is no longer testing what it claims to"
     )
+
+
+def test_get_route_sweep_is_not_empty():
+    assert len(_GET_ROUTES) >= _MIN_SWEPT_GET_ROUTES, (
+        f"route collection found only {len(_GET_ROUTES)} GET routes; "
+        "the sweep below is no longer testing what it claims to"
+    )
+
+
+@pytest.mark.parametrize("path", _GET_ROUTES)
+def test_get_requires_authentication(client_no_auth, path):
+    """Every GET in the app needs a session, bar the allowlist.
+
+    The counterpart to `test_viewer_cannot_write`: that sweep proves no
+    write escapes the gate, this one proves no read escapes authentication.
+    Uses `client_no_auth` because `client` would override get_current_user
+    and make the whole question moot. See the module docstring before
+    touching `_UNAUTHENTICATED_GET_PATHS`.
+    """
+    resp = client_no_auth.get(path)
+    if path in _UNAUTHENTICATED_GET_PATHS:
+        assert resp.status_code != 401, f"GET {path} -> unexpected 401"
+    else:
+        assert resp.status_code == 401, f"GET {path} -> {resp.status_code}"
 
 
 @pytest.mark.parametrize("method,path", _NON_GET_ROUTES)
