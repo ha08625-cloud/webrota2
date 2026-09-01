@@ -13,6 +13,7 @@ import {
   SessionManagementLayout,
 } from "@/components/SessionManagementTabs";
 import { AuditLogPage } from "@/routes/AuditLogPage";
+import { CalendarFeedPage } from "@/routes/CalendarFeedPage";
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
 import { ClosuresPage } from "@/routes/ClosuresPage";
 import { CountersPage } from "@/routes/CountersPage";
@@ -77,6 +78,9 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical/duty", label: "Assign Duty", end: false },
   { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
+  // Not managerOnly: every tier reads this page and copies a link. Only the
+  // "issue a new link" button inside it is manager-gated.
+  { to: "/clinical/calendar", label: "Calendar Feed", end: false },
   { to: "/clinical/users", label: "Users", end: false, managerOnly: true },
   { to: "/clinical/audit", label: "Audit Log", end: false, managerOnly: true },
 ];
@@ -188,6 +192,7 @@ function ClinicalShell() {
             <Route path="duty" element={<DutyPage />} />
             <Route path="recurring-notes" element={<RecurringNotesPage />} />
             <Route path="counters" element={<CountersPage />} />
+            <Route path="calendar" element={<CalendarFeedPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="audit" element={<AuditLogPage />} />
           </Routes>
