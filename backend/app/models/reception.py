@@ -171,17 +171,25 @@ class ReceptionRotaSession(Base):
     at read time, so an edit to the template after a day is generated does
     not change that day.
 
-    **`displaced_role` invariant: non-null <=> the front-desk generator wrote
-    this slot**, and it holds the role that was on the row immediately before
-    the generator overwrote it with `front_desk`. Nothing else in the system
-    ever sets it non-null.
+    **`displaced_role` invariant: non-null <=> an assigner wrote this
+    slot**, and it holds the role that was on the row immediately before
+    that assigner overwrote it. Nothing else in the system ever sets it
+    non-null.
 
-    The front-desk assigner records assignments by overwriting `role` in
-    place rather than in an overlay table, so this column is how a re-run
-    puts back what it took. It is set on every slot the generator writes,
-    *even when the previous role was already `front_desk`* (a no-op restore),
-    so that the invariant is total and the reset step can be a simple "restore
-    every row with a non-null displaced_role".
+    There are two assigners, both inside `POST /reception/rota/{id}/assign`
+    and both writing this column: the front-desk step
+    (`reception_front_desk`, overwriting with `front_desk`) and the phones
+    top-up that runs immediately after it (`reception_phones`, overwriting
+    `online_triage` with `phones`). Assigners record assignments by
+    overwriting `role` in place rather than in an overlay table, so this
+    column is how a re-run puts back what they took. It is set on every slot
+    either of them writes, *even when that makes the eventual restore a no-op
+    because the previous role was already the role being written* (which the
+    desk step can do, and the top-up cannot since it only ever takes
+    `online_triage` rows), so that the invariant is total and the reset step
+    -- which runs once, before both -- can be a simple "restore every row
+    with a non-null displaced_role" without needing to know which assigner
+    wrote it.
 
     Consequences worth keeping in mind:
 
@@ -276,8 +284,9 @@ def min_phones_for_hour(hour: float) -> int:
     """Phones headcount required at the half-hour slot starting `hour`.
 
     Read by compute_coverage_issues in app/api/routers/reception_rota.py
-    (which warns when the rota is below it) and by reception_front_desk.py
-    (which penalises pushing an hour below it)."""
+    (which warns when the rota is below it), by reception_front_desk.py
+    (which penalises pushing an hour below it) and by reception_phones.py
+    (which derives its window and its per-hour deficits from it)."""
     if hour < PHONES_OPEN_HOUR:
         return 0
     if hour >= PHONES_QUIET_HOUR:

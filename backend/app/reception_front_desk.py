@@ -38,6 +38,17 @@ When no legal solution exists at all this returns an empty list. It never
 invents a partial or illegal assignment; the caller emits `front_desk_gap`
 warnings instead.
 
+**A second assignment step runs immediately after this one.**
+`reception_phones` moves `online_triage` staff onto `phones` to repair hours
+that sit below `min_phones_for_hour` -- including shortfalls this module's
+`W_PHONES` penalty tolerated, since that penalty is a score and not a
+prohibition. `W_PHONES` survives that repair unchanged and deliberately: a
+shortfall that has to be fixed by consuming somebody's triage time is a real
+cost, not a free one, so the desk should still avoid creating one where it
+can. Anyone retuning the weights must therefore keep the documented
+relationship below -- `W_PHONES` dominates `W_ROLE` -- rather than dropping
+it on the grounds that the top-up will clean up afterwards.
+
 **This module performs no writes and no queries.** It takes the loaded rota,
 the ids on leave, and the counters aggregate, and returns blocks; the router
 applies them (setting `displaced_role`, per the invariant on
