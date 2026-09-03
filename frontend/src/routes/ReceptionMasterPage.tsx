@@ -84,11 +84,6 @@ export function ReceptionMasterPage() {
   return (
     <div>
       <h1 className="text-lg font-semibold">Master Template</h1>
-      <p className="mt-2 max-w-2xl text-sm text-ink/70">
-        The expected weekday pattern. Generating a day copies that weekday's rows onto the date.
-        Shift-click a second hour in the same row to apply one role to the whole range.
-      </p>
-
       <div className="mt-4 flex gap-1 border-b border-border" role="tablist" aria-label="Day">
         {DAYS.map((day) => (
           <button
