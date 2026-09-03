@@ -337,15 +337,16 @@ class TestReceptionRotaFrontDeskGap:
         ]
 
 
-class TestReceptionRotaFrontDeskAssign:
-    """POST /{rota_id}/front-desk: reset, choose, apply (D7). The rule itself
-    is unit-tested in test_reception_front_desk.py -- what is tested here is
-    the endpoint's contract and, above all, the reset/apply ordering that
-    makes a re-run idempotent without eating manual edits (D4)."""
+class TestReceptionRotaAssign:
+    """POST /{rota_id}/assign: reset, then front desk, then the phones top-up,
+    in one transaction (D1). Both rules are unit-tested in
+    test_reception_front_desk.py and test_reception_phones.py -- what is tested
+    here is the endpoint's contract and, above all, the reset/apply ordering
+    that makes a re-run idempotent without eating manual edits."""
 
     @staticmethod
     def _url(rota_id):
-        return f"{ROTA_URL}/{rota_id}/front-desk"
+        return f"{ROTA_URL}/{rota_id}/assign"
 
     @staticmethod
     def _present(client, staff_id, day, first_hour, last_hour, role="phones"):
@@ -528,3 +529,138 @@ class TestReceptionRotaFrontDeskAssign:
 
     def test_unknown_rota_404(self, client, seeded_reception):
         assert client.post(self._url(999999)).status_code == 404
+
+    # --- the phones top-up, step two of the same endpoint -------------------
+
+    def _shortfall_day(self, client, seeded_reception, day="Monday"):
+        """One person on phones all day and two on online_triage all day.
+
+        The phones minimum is two until 5pm, so the generated day is short at
+        every hour before then, and the top-up has triage cover to spend on it.
+        The front desk takes its blocks out of the same three people first,
+        which is the point: the top-up runs against the post-desk world.
+        """
+        self._present(client, seeded_reception["staff_ra"], day, 8.0, 18.0)
+        for key in ("staff_rb", "staff_rc"):
+            self._present(
+                client, seeded_reception[key], day, 8.0, 18.0, role="online_triage"
+            )
+
+    @staticmethod
+    def _shortfalls(body):
+        return [i for i in body["issues"] if i["check"] == "phones_shortfall"]
+
+    def test_topup_moves_triage_onto_phones_and_shrinks_the_shortfall(
+        self, client, seeded_reception
+    ):
+        self._shortfall_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        before = self._shortfalls(generated)
+        assert before
+
+        body = client.post(self._url(generated["rota_id"])).json()
+        assert len(self._shortfalls(body)) < len(before)
+
+        # The new phones rows come off rows the template had as online_triage.
+        was_triage = {
+            (s["staff_id"], s["hour"])
+            for s in generated["sessions"] if s["role"] == "online_triage"
+        }
+        now_phones = {
+            (s["staff_id"], s["hour"])
+            for s in body["sessions"] if s["role"] == "phones"
+        }
+        assert now_phones & was_triage
+
+    def test_topup_rows_are_contiguous_runs(self, client, seeded_reception):
+        """Chunks, not scattered slots: each person the top-up moved holds a
+        single unbroken run of new phones slots."""
+        self._shortfall_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        was_triage = {
+            (s["staff_id"], s["hour"])
+            for s in generated["sessions"] if s["role"] == "online_triage"
+        }
+        body = client.post(self._url(generated["rota_id"])).json()
+
+        by_staff: dict[int, list[float]] = {}
+        for s in body["sessions"]:
+            if s["role"] == "phones" and (s["staff_id"], s["hour"]) in was_triage:
+                by_staff.setdefault(s["staff_id"], []).append(s["hour"])
+        assert by_staff
+        for hours in by_staff.values():
+            hours.sort()
+            assert hours == [hours[0] + 0.5 * i for i in range(len(hours))]
+
+    def test_topup_rerun_is_idempotent(self, client, seeded_reception, db_session):
+        """The shared reset covers both assigners, so a second call reproduces
+        the first exactly rather than compounding on it."""
+        from app.models.reception import ReceptionRotaSession
+
+        self._shortfall_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+
+        first = client.post(self._url(generated["rota_id"])).json()
+        second = client.post(self._url(generated["rota_id"])).json()
+        assert self._roles(second) == self._roles(first)
+        assert self._shortfalls(second) == self._shortfalls(first)
+
+        # No displaced_role drift: a top-up row still records online_triage,
+        # not the phones role the run before left there.
+        db_session.expire_all()
+        rows = db_session.query(ReceptionRotaSession).filter_by(
+            rota_id=generated["rota_id"]
+        ).all()
+        displaced = {
+            r.displaced_role for r in rows
+            if r.role is ReceptionRole.PHONES and r.displaced_role is not None
+        }
+        assert displaced == {ReceptionRole.ONLINE_TRIAGE}
+
+    def test_patch_of_a_topup_slot_survives_a_rerun(
+        self, client, seeded_reception, db_session
+    ):
+        """Same property as the front-desk case: the PATCH nulls
+        displaced_role, so the reset must not restore online_triage over it."""
+        from app.models.reception import ReceptionRotaSession
+
+        self._shortfall_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+        was_triage = {
+            (s["staff_id"], s["hour"])
+            for s in generated["sessions"] if s["role"] == "online_triage"
+        }
+        assigned = client.post(self._url(generated["rota_id"])).json()
+
+        slot = next(
+            s for s in assigned["sessions"]
+            if s["role"] == "phones" and (s["staff_id"], s["hour"]) in was_triage
+        )
+        patched = client.patch(
+            f"{ROTA_URL}/{generated['rota_id']}/sessions/{slot['session_id']}",
+            json={"role": "not_working", "note": None},
+        )
+        assert patched.status_code == 200
+
+        body = client.post(self._url(generated["rota_id"])).json()
+        after = next(
+            s for s in body["sessions"] if s["session_id"] == slot["session_id"]
+        )
+        assert after["role"] == "not_working"
+        db_session.expire_all()
+        row = db_session.get(ReceptionRotaSession, slot["session_id"])
+        assert row.displaced_role is None
+
+    def test_no_triage_anywhere_still_assigns_the_front_desk(
+        self, client, seeded_reception
+    ):
+        """The top-up doing nothing is a 200, not an error, and does not
+        disturb step one."""
+        self._full_day(client, seeded_reception)
+        generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
+
+        resp = client.post(self._url(generated["rota_id"]))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert self._front_desk_hours(body) == [8.0 + 0.5 * i for i in range(20)]
+        assert not any(s["role"] == "online_triage" for s in body["sessions"])

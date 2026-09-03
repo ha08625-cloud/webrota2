@@ -1,5 +1,5 @@
-"""Reception day rota router: generation, editing, and coverage validation
-(reception rota, Task 4).
+"""Reception day rota router: generation, assignment, editing, and coverage
+validation (reception rota, Task 4).
 
 The day grid is a straight copy-then-edit, not a generation pipeline: POST
 "" copies the weekday's master template rows onto a date (active staff
@@ -48,6 +48,7 @@ from ...reception_front_desk import (
     FRONT_DESK_HOURS,
     select_front_desk_blocks,
 )
+from ...reception_phones import select_phones_blocks
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionRotaGenerateIn,
@@ -268,59 +269,91 @@ def get_rota(
     return _rota_out(db, rota)
 
 
-@router.post("/{rota_id}/front-desk", response_model=ReceptionRotaOut)
-def assign_front_desk(
+@router.post("/{rota_id}/assign", response_model=ReceptionRotaOut)
+def assign_rota(
     rota_id: int,
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> ReceptionRotaOut:
-    """Choose who mans the front desk on this day and write it onto the
-    existing session rows. No request body; returns the whole day with freshly
-    recomputed issues, since a successful assignment rewrites many rows at once
-    and the page should simply take the new state.
+    """Assign the day: one transaction doing reset -> front desk -> phones
+    top-up. No request body; returns the whole day with freshly recomputed
+    issues, since a successful assignment rewrites many rows at once and the
+    page should simply take the new state.
 
-    A separate endpoint rather than a step inside POST "" (D7): generation
-    stays a pure template copy with its 409 semantics intact, and assignment
-    can be re-run without the delete-then-regenerate dance. The day page
-    chains the two client-side (generate, then assign) -- that is a UI
-    decision, not a reason to merge the endpoints.
+    The two assignment steps are one endpoint rather than two because they are
+    genuinely coupled (D1): the front-desk scorer deliberately displaces phones
+    (W_PHONES is a penalty, not a prohibition), so the top-up exists partly to
+    repair the hole the desk just made, and running it against a stale desk
+    assignment would be meaningless. The decisive argument is the reset -- two
+    endpoints would each have to reset only *their own* displaced_role rows,
+    which needs a discriminator column and therefore a migration, bought purely
+    to enable a re-run mode nobody wants. One endpoint keeps displaced_role's
+    invariant flat and total, and needs no schema change.
 
-    404 on an unknown rota and no other error status. A day with no legal
-    assignment is a 200 whose issues carry `front_desk_gap` warnings -- the
-    documented outcome, not an error, and the same convention as everything
-    else in reception, where nothing blocks.
+    Still a separate endpoint from POST "": generation stays a pure template
+    copy with its 409 semantics intact, and assignment can be re-run without
+    the delete-then-regenerate dance. The day page chains the two client-side
+    (generate, then assign) -- that is a UI decision, not a reason to merge
+    those two.
+
+    404 on an unknown rota and no other error status. A day where neither step
+    could do anything is a 200 whose issues carry `front_desk_gap` and
+    `phones_shortfall` warnings -- the documented outcome, not an error, and
+    the same convention as everything else in reception, where nothing blocks.
     """
     rota = _get_rota_or_404(db, rota_id)
+    on_leave = _staff_on_leave(db, rota.date)
 
-    # 1. Reset. Only rows this generator wrote (displaced_role IS NOT NULL --
+    # 1. Reset. Only rows either assigner wrote (displaced_role IS NOT NULL --
     #    the invariant on ReceptionRotaSession) are touched, so a front_desk
     #    role tagged by hand, or one a later PATCH took ownership of, survives
-    #    a re-run untouched. Reset-then-assign is what makes re-running
-    #    idempotent.
+    #    a re-run untouched. One flat reset covers both assigners, which is
+    #    what makes re-running the whole endpoint idempotent.
     for session in rota.sessions:
         if session.displaced_role is not None:
             session.role = session.displaced_role
             session.displaced_role = None
     # 2. Flush before reading counters: compute_role_counters queries the
     #    sessions table, and this day is inside its own window, so without the
-    #    flush the day's previous front-desk slots would count toward the
+    #    flush the day's previous assigned slots would count toward the
     #    fairness input for the assignment replacing them.
+    #
+    #    This single RoleCounters is deliberately passed to both selectors and
+    #    must not be recomputed after step 4 (D10): recomputing would need a
+    #    second flush and would fold the just-written front_desk slots into the
+    #    denominator, so the two selectors in one transaction would disagree
+    #    about what the day looked like.
     db.flush()
     counters = compute_role_counters(db, *assignment_counter_window(rota.date))
 
-    # 3. Choose. Performs no writes and returns [] when nothing legal exists.
-    blocks = select_front_desk_blocks(rota, _staff_on_leave(db, rota.date), counters)
+    # 3. Choose the front desk. Performs no writes and returns [] when nothing
+    #    legal exists.
+    desk_blocks = select_front_desk_blocks(rota, on_leave, counters)
 
-    # 4. Apply. displaced_role is set even when the previous role was already
-    #    front_desk -- a no-op restore later, but it keeps D4's invariant total.
+    # 4. Apply the front desk. displaced_role is set even when the previous
+    #    role was already front_desk -- a no-op restore later, but it keeps the
+    #    invariant total.
     by_slot = {
         (session.staff_id, session.hour): session for session in rota.sessions
     }
-    for block in blocks:
+    for block in desk_blocks:
         for hour in block.slot_hours:
             session = by_slot[(block.staff_id, hour)]
             session.displaced_role = session.role
             session.role = ReceptionRole.FRONT_DESK
+
+    # 5. Choose the phones top-up, against the post-desk world. No flush is
+    #    needed first: rota.sessions are live ORM objects whose roles step 4
+    #    already changed, so the selector sees them through the identity map.
+    phones_blocks = select_phones_blocks(rota, on_leave, counters)
+
+    # 6. Apply the top-up. Same displaced_role bookkeeping as the desk, and
+    #    `note` is left alone exactly as the desk leaves it (D11).
+    for block in phones_blocks:
+        for hour in block.slot_hours:
+            session = by_slot[(block.staff_id, hour)]
+            session.displaced_role = session.role
+            session.role = ReceptionRole.PHONES
     db.flush()
 
     out = _rota_out(db, rota)
