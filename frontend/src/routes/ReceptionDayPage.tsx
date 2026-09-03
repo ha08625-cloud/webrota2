@@ -44,7 +44,7 @@ function tabLabel(date: string): string {
  * ?date= - a 404 offers "Generate from template", a 200 renders the
  * ReceptionGrid/ReceptionCellPopover pair built for the master template
  * (Task 7) unchanged, against that date's sessions, with a coverage panel
- * alongside (reception rota plan, Task 8).
+ * beside the page header (reception rota plan, Task 8).
  *
  * The backend has no week concept at all - each date is still its own
  * header, generated/regenerated/deleted independently (409 if it already
@@ -67,6 +67,11 @@ export function ReceptionDayPage() {
   const [activeDate, setActiveDate] = useState(weekDates[0]);
 
   const { data: staff } = useReceptionStaff(true);
+  // Same query key the active tab uses, so this shares its cache entry
+  // rather than issuing a second request - the panel just needs the
+  // issues from it, and it lives beside the page header now, not beside
+  // the grid.
+  const { data: activeRota } = useReceptionRotaByDate(activeDate);
   const generateRota = useGenerateReceptionRota();
   const deleteRota = useDeleteReceptionRota();
   const assignFrontDesk = useAssignReceptionFrontDesk();
@@ -139,42 +144,44 @@ export function ReceptionDayPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold">Day Rota</h1>
-      <p className="mt-2 max-w-2xl text-sm text-ink/70">
-        Pick a week to generate Monday to Friday from the master template, or edit an existing week.
-        Shift-click a second hour in the same row to apply one role to the whole range.
-      </p>
-
-      <div className="mt-4 flex items-end gap-3">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="reception-week-start">
-            Week commencing
-          </label>
-          <select
-            id="reception-week-start"
-            value={weekStart}
-            onChange={(e) => handleWeekChange(e.target.value)}
-            className="mt-1 rounded border border-border p-1 text-sm"
-          >
-            {weekOptions.map((monday) => (
-              <option key={monday} value={monday}>
-                {formatWeekLabel(monday)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="button"
-          onClick={handleGenerateWeek}
-          disabled={generatingWeek}
-          className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          {...writeGate}
-        >
-          {generatingWeek ? "Generating..." : "Generate week from template"}
-        </button>
-      </div>
+          <h1 className="text-lg font-semibold">Day Rota</h1>
 
-      {weekError ? <p className="mt-3 rounded bg-red-50 p-2 text-sm text-red-700">{weekError}</p> : null}
+          <div className="mt-4 flex items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-ink/70" htmlFor="reception-week-start">
+                Week commencing
+              </label>
+              <select
+                id="reception-week-start"
+                value={weekStart}
+                onChange={(e) => handleWeekChange(e.target.value)}
+                className="mt-1 rounded border border-border p-1 text-sm"
+              >
+                {weekOptions.map((monday) => (
+                  <option key={monday} value={monday}>
+                    {formatWeekLabel(monday)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handleGenerateWeek}
+              disabled={generatingWeek}
+              className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              {...writeGate}
+            >
+              {generatingWeek ? "Generating..." : "Generate week from template"}
+            </button>
+          </div>
+
+          {weekError ? <p className="mt-3 rounded bg-red-50 p-2 text-sm text-red-700">{weekError}</p> : null}
+        </div>
+
+        {activeRota ? <ReceptionCoveragePanel issues={activeRota.issues} /> : null}
+      </div>
 
       <div className="mt-4 flex gap-1 border-b border-border" role="tablist" aria-label="Day">
         {weekDates.map((date) => {
@@ -346,10 +353,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
 
       {rota ? (
         <div>
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-ink/70">
-              Generated {rota.sessions.length} session{rota.sessions.length === 1 ? "" : "s"}.
-            </p>
+          <div className="flex items-center justify-end">
             <div className="flex gap-2">
               <button
                 type="button"
@@ -363,7 +367,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
             </div>
           </div>
 
-          <div className="mt-3 flex items-start gap-4">
+          <div className="mt-3">
             <ReceptionGrid
               key={date}
               staff={staff}
@@ -374,7 +378,6 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
               onDelete={handleDelete}
               saving={saving}
             />
-            <ReceptionCoveragePanel issues={rota.issues} />
           </div>
         </div>
       ) : null}
