@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import {
+  fetchReceptionRotaByDate,
   useAssignReceptionFrontDesk,
   useCreateReceptionRotaSession,
   useDeleteReceptionRota,
@@ -10,7 +11,7 @@ import {
   useReceptionRotaByDate,
   useReceptionStaff,
 } from "@/api/reception";
-import type { ApiError, ReceptionRotaSession, ReceptionStaff } from "@/api/types";
+import type { ApiError, ReceptionRota, ReceptionRotaSession, ReceptionStaff } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { ReceptionCoveragePanel } from "@/components/ReceptionCoveragePanel";
 import { ReceptionGrid, type ReceptionSavePayload } from "@/components/ReceptionGrid";
@@ -48,8 +49,12 @@ function tabLabel(date: string): string {
  * The backend has no week concept at all - each date is still its own
  * header, generated/regenerated/deleted independently (409 if it already
  * exists). "Generate week" is a client-side loop over the five existing
- * per-day POSTs, skipping (not erroring on) any day that already has a
- * rota; regenerating and editing both stay per-day, on the active tab.
+ * per-day endpoints: it first reads all five dates, and any day that
+ * already has a rota is DELETED and rebuilt rather than skipped, so the
+ * button always leaves the whole week freshly copied from the template.
+ * Because that destroys edits, a confirm is raised first whenever at
+ * least one day already exists. Editing and single-day Regenerate both
+ * stay per-day, on the active tab.
  *
  * Generating (per-day or per-week) always chains the front-desk assignment
  * onto the fresh day, so "generate" produces a manned day in one gesture.
@@ -63,6 +68,7 @@ export function ReceptionDayPage() {
 
   const { data: staff } = useReceptionStaff(true);
   const generateRota = useGenerateReceptionRota();
+  const deleteRota = useDeleteReceptionRota();
   const assignFrontDesk = useAssignReceptionFrontDesk();
   const [generatingWeek, setGeneratingWeek] = useState(false);
   const [weekError, setWeekError] = useState<string | null>(null);
@@ -72,25 +78,57 @@ export function ReceptionDayPage() {
     setActiveDate(newWeekStart);
   }
 
+  /**
+   * Scrap-and-regenerate for the whole week. Every weekday is read first
+   * so the confirm can be raised once, up front, rather than mid-loop:
+   * blowing away a week of hand-edits is worth a single explicit yes, and
+   * a per-day prompt in the middle of a five-day loop would be worse.
+   *
+   * A day that already exists is deleted before being generated again -
+   * POST /reception/rota 409s on an existing date, which is what made the
+   * old skip-on-409 version of this button appear to do nothing once a
+   * week had been generated.
+   */
   async function handleGenerateWeek() {
     setWeekError(null);
     setGeneratingWeek(true);
+
+    let existing: (ReceptionRota | null)[];
+    try {
+      existing = await Promise.all(weekDates.map((date) => fetchReceptionRotaByDate(date)));
+    } catch (err) {
+      setGeneratingWeek(false);
+      setWeekError(apiErrorMessage(err as ApiError, "Could not check which days already have a rota."));
+      return;
+    }
+
+    if (existing.some((rota) => rota !== null)) {
+      const confirmed = window.confirm(
+        "This will scrap the existing rota for this week and regenerate it from scratch, " +
+          "deleting every edit made to those days. Proceed?",
+      );
+      if (!confirmed) {
+        setGeneratingWeek(false);
+        return;
+      }
+    }
+
     const failures: string[] = [];
-    for (const date of weekDates) {
+    for (const [index, date] of weekDates.entries()) {
       try {
+        const current = existing[index];
+        if (current) {
+          await deleteRota.mutateAsync({ rotaId: current.rota_id, date });
+        }
         const generated = await generateRota.mutateAsync(date);
-        // Front desk assignment follows a *successful* generate only. It is
-        // deliberately not run after the 409 below: that day already existed,
-        // so it presumably already has its desk assigned, and reshuffling
-        // someone's existing day is not what this button promises. The only
-        // way to redo an existing day's desk is Regenerate on its own tab.
+        // Front desk assignment is chained onto every day now, not only the
+        // newly created ones: after this button runs, every day in the week
+        // is a fresh copy of the template, so every day needs its desk
+        // manned - the old "leave existing days alone" carve-out no longer
+        // applies to a button that rebuilds them.
         await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
       } catch (err) {
-        const apiErr = err as ApiError;
-        // A 409 means this day already has a rota - expected, not a failure.
-        if (apiErr.status !== 409) {
-          failures.push(`${date}: ${apiErrorMessage(apiErr, "failed")}`);
-        }
+        failures.push(`${date}: ${apiErrorMessage(err as ApiError, "failed")}`);
       }
     }
     setGeneratingWeek(false);

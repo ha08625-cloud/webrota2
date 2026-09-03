@@ -376,9 +376,14 @@ describe("ReceptionDayPage", () => {
     expect(screen.getByTestId("reception-cell-1-9")).toBeInTheDocument();
   });
 
-  it("generating the week assigns the front desk for each freshly generated day, and not for a 409 day", async () => {
+  it("generating a week where no day exists posts once per weekday, with no confirm", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    // Other tests in this file spy on window.confirm too, and the spy is
+    // not auto-restored between them - clear it so the counts below are
+    // this test's calls only.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmSpy.mockClear();
     renderWithProviders(<ReceptionDayPage />);
     await defaultMonday();
 
@@ -388,10 +393,6 @@ describe("ReceptionDayPage", () => {
       http.post("/api/v1/reception/rota", async ({ request }) => {
         const body = (await request.json()) as { date: string };
         postedDates.push(body.date);
-        // Wednesday (the third day) already exists.
-        if (postedDates.length === 3) {
-          return HttpResponse.json({ detail: "Rota already exists for this date" }, { status: 409 });
-        }
         return HttpResponse.json(
           makeReceptionRota({ rota_id: postedDates.length, date: body.date, sessions: [], issues: [] }),
           { status: 201 },
@@ -400,7 +401,9 @@ describe("ReceptionDayPage", () => {
       http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) => {
         const rotaId = Number(params.rotaId);
         assignedRotaIds.push(rotaId);
-        return HttpResponse.json(makeReceptionRota({ rota_id: rotaId, date: postedDates[rotaId - 1], sessions: [], issues: [] }));
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: rotaId, date: postedDates[rotaId - 1], sessions: [], issues: [] }),
+        );
       }),
     );
 
@@ -408,44 +411,110 @@ describe("ReceptionDayPage", () => {
     await user.click(screen.getByRole("button", { name: "Generate week from template" }));
 
     await waitFor(() => expect(postedDates).toHaveLength(5));
-    // Four assigns, one per generated day; the 409 day (rota id 3, never
-    // returned) is deliberately left alone.
-    await waitFor(() => expect(assignedRotaIds).toEqual([1, 2, 4, 5]));
+    await waitFor(() => expect(assignedRotaIds).toEqual([1, 2, 3, 4, 5]));
+    // Nothing existed, so there was nothing to scrap and nothing to confirm.
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
   });
 
-  it("generating the week posts once per weekday, skipping days that already exist (409)", async () => {
+  it("generating a week that already has days confirms, then deletes and regenerates every existing day", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    // Other tests in this file spy on window.confirm too, and the spy is
+    // not auto-restored between them - clear it so the counts below are
+    // this test's calls only.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmSpy.mockClear();
     renderWithProviders(<ReceptionDayPage />);
-    await defaultMonday();
+    const monday = await defaultMonday();
 
+    // Monday and Wednesday already have a rota; the other three do not.
+    const existingDates = [monday, addDays(monday, 2)];
+    const deletedRotaIds: number[] = [];
     const postedDates: string[] = [];
+    const assignedRotaIds: number[] = [];
     server.use(
+      http.get("/api/v1/reception/rota", ({ request }) => {
+        const date = new URL(request.url).searchParams.get("date") ?? "";
+        const index = existingDates.indexOf(date);
+        if (index === -1) {
+          return HttpResponse.json({ detail: "No rota for this date" }, { status: 404 });
+        }
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: 100 + index, date, sessions: [], issues: [] }),
+        );
+      }),
+      http.delete("/api/v1/reception/rota/:rotaId", ({ params }) => {
+        deletedRotaIds.push(Number(params.rotaId));
+        return new HttpResponse(null, { status: 204 });
+      }),
       http.post("/api/v1/reception/rota", async ({ request }) => {
         const body = (await request.json()) as { date: string };
         postedDates.push(body.date);
-        // Every other day already exists - simulate the mixed skip/create case.
-        if (postedDates.length % 2 === 0) {
-          return HttpResponse.json({ detail: "Rota already exists for this date" }, { status: 409 });
-        }
         return HttpResponse.json(
           makeReceptionRota({ rota_id: postedDates.length, date: body.date, sessions: [], issues: [] }),
           { status: 201 },
         );
       }),
-      // Each successful generate is followed by a front-desk assignment; the
-      // test above covers which days get one, so this just has to succeed.
-      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) =>
-        HttpResponse.json(makeReceptionRota({ rota_id: Number(params.rotaId), sessions: [], issues: [] })),
-      ),
+      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) => {
+        const rotaId = Number(params.rotaId);
+        assignedRotaIds.push(rotaId);
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: rotaId, date: postedDates[rotaId - 1], sessions: [], issues: [] }),
+        );
+      }),
     );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Generate week from template" }));
 
     await waitFor(() => expect(postedDates).toHaveLength(5));
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/scrap the existing rota/i);
+    // Only the two days that existed are deleted, and every day - rebuilt or
+    // newly created - gets its front desk assigned.
+    expect(deletedRotaIds).toEqual([100, 101]);
+    await waitFor(() => expect(assignedRotaIds).toEqual([1, 2, 3, 4, 5]));
     expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
+  });
+
+  it("cancelling the confirm leaves the existing week untouched", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+
+    const deletedRotaIds: number[] = [];
+    const postedDates: string[] = [];
+    server.use(
+      http.get("/api/v1/reception/rota", ({ request }) => {
+        const date = new URL(request.url).searchParams.get("date") ?? "";
+        return HttpResponse.json(makeReceptionRota({ rota_id: 42, date, sessions: [], issues: [] }));
+      }),
+      http.delete("/api/v1/reception/rota/:rotaId", ({ params }) => {
+        deletedRotaIds.push(Number(params.rotaId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("/api/v1/reception/rota", async ({ request }) => {
+        const body = (await request.json()) as { date: string };
+        postedDates.push(body.date);
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: 1, date: body.date, sessions: [], issues: [] }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate week from template" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Generate week from template" })).toBeEnabled(),
+    );
+    expect(deletedRotaIds).toEqual([]);
+    expect(postedDates).toEqual([]);
+    expect(monday).toBeTruthy();
   });
 });
 
