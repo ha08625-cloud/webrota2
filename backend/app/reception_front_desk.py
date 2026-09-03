@@ -23,7 +23,7 @@ here.
 **Nothing is a hard constraint that could leave the desk unmanned.** The
 3-5 hour ideal block length is a score, not a rule, so an awkward day degrades
 into a 2.5h + 5.5h split (ranked last, but produced) rather than failing.
-Displacing a specialist role and pushing an hour below `MIN_PHONES_STAFF` are
+Displacing a specialist role and pushing an hour below its phones minimum are
 likewise penalties, not prohibitions: with a thin day a hard phones rule could
 make the whole problem infeasible, and an unmanned desk is worse than a
 coverage warning that already has a UI. The hard constraints are only those
@@ -60,7 +60,7 @@ from itertools import product
 
 from .models import ReceptionRota
 from .models.enums import ReceptionRole
-from .models.reception import MIN_PHONES_STAFF
+from .models.reception import min_phones_for_hour
 from .reception_counters import RoleCounters
 
 # The covered window: 8:00am-6:00pm as twenty half-hour slots. FRONT_DESK_HOURS
@@ -90,7 +90,7 @@ HOURS_PER_SLOT = 0.5
 # keep that relationship -- W_PHONES must dominate W_ROLE.
 W_LEN = 1.0  # per hour outside the 3-5h ideal band
 W_FAIR = 6.0  # x the holder's front_desk_hours / hours_worked over the window
-W_PHONES = 2.0  # per hour newly pushed below MIN_PHONES_STAFF
+W_PHONES = 2.0  # per hour newly pushed below its phones minimum
 W_ROLE = 0.5  # per slot displacing a specialist role
 W_REPEAT = 4.0  # once, if one person holds two (non-adjacent) blocks
 
@@ -259,7 +259,8 @@ def _block_cost(
             # hour that was already short is not this block's fault -- only
             # hours the assignment *newly* pushes below the minimum count.
             before = phones_before[hour]
-            if before >= MIN_PHONES_STAFF and before - 1 < MIN_PHONES_STAFF:
+            required = min_phones_for_hour(hour)
+            if before >= required and before - 1 < required:
                 cost += W_PHONES * HOURS_PER_SLOT
     return cost
 

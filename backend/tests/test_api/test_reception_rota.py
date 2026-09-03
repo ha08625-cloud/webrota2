@@ -61,17 +61,25 @@ class TestReceptionRotaGenerate:
         second = client.post(ROTA_URL, json={"date": MONDAY.isoformat()})
         assert second.status_code == 201
 
-    def test_empty_day_warns_every_hour(self, client, seeded_reception):
-        # MIN_PHONES_STAFF is a flat constant checked every hour of every
-        # weekday, so an empty day (no template rows for Tuesday) is short
-        # at every slot, not silently satisfied.
+    def test_empty_day_warns_every_hour_that_needs_cover(
+        self, client, seeded_reception
+    ):
+        # The phones minimum is checked at every hour of every weekday, so an
+        # empty day (no template rows for Tuesday) is short at every slot that
+        # needs cover -- all but 07:30-08:00, where the lines are shut and the
+        # requirement is zero.
         resp = client.post(ROTA_URL, json={"date": TUESDAY.isoformat()})
         assert resp.status_code == 201
         body = resp.json()
         assert body["sessions"] == []
         phones = [i for i in body["issues"] if i["check"] == "phones_shortfall"]
-        assert len(phones) == 22
-        assert all("0 staff on phones, 2 required" in i["message"] for i in phones)
+        assert len(phones) == 21
+        assert not any(i["message"].startswith("07:30") for i in phones)
+        # 17:00 onwards needs one, everything before it two.
+        quiet = [i for i in phones if "1 required" in i["message"]]
+        assert [i["message"].split(":")[0] + ":" + i["message"].split(":")[1][:2]
+                for i in quiet] == ["17:00", "17:30", "18:00"]
+        assert len([i for i in phones if "2 required" in i["message"]]) == 18
 
 
 class TestReceptionRotaLookup:
@@ -99,7 +107,7 @@ class TestReceptionRotaLookup:
 class TestReceptionRotaCoverage:
     def test_shortfall_warning_appears_and_clears(self, client, seeded_reception):
         ra, rb = seeded_reception["staff_ra"], seeded_reception["staff_rb"]
-        # MIN_PHONES_STAFF is a flat 2 for every hour.
+        # 09:00 is inside the standard window, so it needs two.
         _add_template_session(client, ra, "Monday", 9, role="phones")
 
         generated = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()
@@ -118,6 +126,22 @@ class TestReceptionRotaCoverage:
         assert add_resp.status_code == 201, add_resp.text
         remaining = add_resp.json()["issues"]
         assert not any(i["message"].startswith("09:00") for i in remaining)
+
+    def test_one_person_satisfies_the_quiet_late_slots(self, client, seeded_reception):
+        # 17:00-18:30 only needs one person, so a lone late phones session
+        # clears all three of those slots -- and 07:30-08:00 never warns at
+        # all, since the lines are not open yet.
+        ra = seeded_reception["staff_ra"]
+        for hour in (17.0, 17.5, 18.0):
+            _add_template_session(client, ra, "Monday", hour, role="phones")
+
+        issues = client.post(ROTA_URL, json={"date": MONDAY.isoformat()}).json()["issues"]
+        phones = [i for i in issues if i["check"] == "phones_shortfall"]
+        assert not any(
+            i["message"].startswith(prefix)
+            for i in phones
+            for prefix in ("07:30", "17:00", "17:30", "18:00")
+        )
 
     def test_other_role_does_not_count_towards_phones(self, client, seeded_reception):
         ra, rb, rc = (

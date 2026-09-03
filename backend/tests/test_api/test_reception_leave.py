@@ -207,7 +207,7 @@ class TestLeaveAffectsCoverage:
 
     def test_no_leave_meets_the_rule(self, client, seeded_reception):
         body = self._generate_monday_with_two_on_phones(client, seeded_reception)
-        # Monday 09:00 requires 2 (MIN_PHONES_STAFF); both are present.
+        # Monday 09:00 requires 2; both are present.
         assert [i for i in body["issues"] if i["message"].startswith("09:00")] == []
         assert body["staff_on_leave"] == []
 

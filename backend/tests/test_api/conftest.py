@@ -344,7 +344,7 @@ def seeded_no_d_rooms(client, db_session):
 @pytest.fixture
 def seeded_reception(client, db_session):
     """Three active reception staff (RA/RB/RC) plus one inactive (RD).
-    Coverage (MIN_PHONES_STAFF, a flat constant) needs no seed data of its
+    Coverage (min_phones_for_hour, a function of the hour) needs no seed data of its
     own -- see app/models/reception.py.
     """
     s = db_session
