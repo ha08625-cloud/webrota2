@@ -1,6 +1,6 @@
 """Reception rota models: staff, weekday master template, generated days, and
-leave. Phone-coverage minimum staffing is a flat constant
-(MIN_PHONES_STAFF below), not a model -- there is no coverage-rules table.
+leave. Phone-coverage minimum staffing is a function of the hour of day
+(min_phones_for_hour below), not a model -- there is no coverage-rules table.
 
 Independent of the clinical rota (doctors, master_rota, engine/) end to end --
 the only things shared are auth, the app shell, the HTTP client, and
@@ -257,8 +257,29 @@ class ReceptionLeaveEntry(Base):
     staff: Mapped["ReceptionStaff"] = relationship()
 
 
-# Minimum phones headcount required at every (day, hour) slot. A flat
-# constant, not a per-slot rule: there is no coverage-rules table, no UI to
-# edit it, and no per-day/per-hour variation -- see compute_coverage_issues
-# in app/api/routers/reception_rota.py, the only place this is read.
+# Minimum phones headcount required at a slot. Varies by hour of day but
+# never by weekday, and there is no coverage-rules table and no UI to edit
+# it -- the shape of the phone day is a property of the phone lines, not
+# something a user configures. Read via min_phones_for_hour() below.
+#
+# The standard requirement across the working day.
 MIN_PHONES_STAFF = 2
+# 7:30-8:00: the lines are not open yet, so no cover is required at all.
+PHONES_OPEN_HOUR = 8.0
+# 17:00 onwards (17:00, 17:30 and the closing 18:00-18:30 slot): calls are
+# light enough that one person is enough.
+PHONES_QUIET_HOUR = 17.0
+MIN_PHONES_STAFF_QUIET = 1
+
+
+def min_phones_for_hour(hour: float) -> int:
+    """Phones headcount required at the half-hour slot starting `hour`.
+
+    Read by compute_coverage_issues in app/api/routers/reception_rota.py
+    (which warns when the rota is below it) and by reception_front_desk.py
+    (which penalises pushing an hour below it)."""
+    if hour < PHONES_OPEN_HOUR:
+        return 0
+    if hour >= PHONES_QUIET_HOUR:
+        return MIN_PHONES_STAFF_QUIET
+    return MIN_PHONES_STAFF

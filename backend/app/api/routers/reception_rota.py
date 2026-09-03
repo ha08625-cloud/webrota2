@@ -37,7 +37,7 @@ from ...models import (
 )
 from ...models.enums import Day, ReceptionRole
 from ...models.reception import (
-    MIN_PHONES_STAFF,
+    min_phones_for_hour,
     RECEPTION_HOURS,
     format_hour,
     format_hour_range,
@@ -107,8 +107,10 @@ def _staff_on_leave(db: Session, date: datetime.date) -> set[int]:
 
 def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[ValidationIssueOut]:
     """One issue per hour where the rota's phones headcount falls short of
-    MIN_PHONES_STAFF -- a flat constant, not a per-(day, hour) rule; there
-    is no coverage-rules table and no UI to edit it. Counts come off
+    min_phones_for_hour -- which varies by hour of day (no cover needed
+    before the lines open at 8:00, one person from 17:00, two in between)
+    but not by weekday; there is no coverage-rules table and no UI to edit
+    it. Counts come off
     `rota.sessions` (already loaded, not re-queried per hour). Always
     severity="warning" -- nothing in this feature blocks.
 
@@ -137,14 +139,15 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     issues: list[ValidationIssueOut] = []
     for hour in RECEPTION_HOURS:
         count = counts.get(hour, 0)
-        if count < MIN_PHONES_STAFF:
+        required = min_phones_for_hour(hour)
+        if count < required:
             issues.append(ValidationIssueOut(
                 severity="warning",
                 phase="coverage",
                 check="phones_shortfall",
                 message=(
                     f"{format_hour(hour)}: {count} "
-                    f"staff on phones, {MIN_PHONES_STAFF} required"
+                    f"staff on phones, {required} required"
                 ),
                 day=day,
             ))
