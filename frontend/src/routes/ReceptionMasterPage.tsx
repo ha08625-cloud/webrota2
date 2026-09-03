@@ -97,8 +97,10 @@ export function ReceptionMasterPage() {
             role="tab"
             aria-selected={day === activeDay}
             onClick={() => setActiveDay(day)}
-            className={`px-4 py-2 text-sm font-medium ${
-              day === activeDay ? "border-b-2 border-accent text-accent" : "text-ink/60 hover:text-ink"
+            className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              day === activeDay
+                ? "border-accent text-accent"
+                : "border-transparent text-ink/60 hover:bg-ink/[0.03] hover:text-ink"
             }`}
           >
             {day}

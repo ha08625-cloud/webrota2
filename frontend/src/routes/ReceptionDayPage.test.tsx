@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ValidationIssue } from "@/api/types";
-import { addDays } from "@/lib/date";
+import { addDays, parseLocalDate } from "@/lib/date";
 import {
   makeReceptionRota,
   makeReceptionRotaSession,
@@ -230,7 +230,13 @@ describe("ReceptionDayPage", () => {
     expect(await screen.findByRole("button", { name: "Generate from template" })).toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("tab", { name: new RegExp(`^Tuesday ${tuesday}$`) }));
+    // Tabs are labelled "Tue 4 Sep", not by ISO date - match the rendered form.
+    const tuesdayLabel = parseLocalDate(tuesday).toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    await user.click(screen.getByRole("tab", { name: tuesdayLabel }));
 
     expect(await screen.findByTestId("reception-cell-1-10")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generate from template" })).not.toBeInTheDocument();

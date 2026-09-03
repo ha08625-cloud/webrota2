@@ -22,3 +22,14 @@ function hourLabel(hour: number): string {
 export function formatHour(hour: number): string {
   return `${hourLabel(hour)}-${hourLabel(hour + 0.5)}`;
 }
+
+/**
+ * formatHourStart(8) -> "08:00". The grid's column headers label the tick a
+ * slot starts on rather than its full range: at 22 columns the two-line
+ * "08:00-08:30" was what forced every column wide enough to need horizontal
+ * scrolling. The full range is still what screen readers and tooltips get -
+ * see ReceptionGrid's header cells.
+ */
+export function formatHourStart(hour: number): string {
+  return hourLabel(hour);
+}
