@@ -23,14 +23,14 @@ interface ReceptionCoveragePanelProps {
  */
 export function ReceptionCoveragePanel({ issues }: ReceptionCoveragePanelProps) {
   return (
-    <aside className="w-72 shrink-0 border-l border-border p-3">
-      <h2 className="text-sm font-semibold">Coverage</h2>
+    <aside className="w-72 shrink-0 rounded-lg border border-border bg-surface p-4 shadow-sm">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink/50">Coverage</h2>
       {issues.length === 0 ? (
         <p className="mt-2 text-sm text-ink/50">No coverage shortfalls.</p>
       ) : (
         <ul className="mt-2 space-y-1">
           {issues.map((issue, index) => (
-            <li key={index} className="rounded bg-amber-50 px-2 py-1 text-sm text-amber-800">
+            <li key={index} className="rounded-md bg-amber-50 px-2 py-1.5 text-sm text-amber-800">
               {issue.message}
             </li>
           ))}

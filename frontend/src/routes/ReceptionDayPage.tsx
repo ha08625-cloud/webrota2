@@ -28,8 +28,13 @@ function apiErrorMessage(err: ApiError, fallback: string): string {
   return typeof err.detail === "string" ? err.detail : fallback;
 }
 
-function weekdayLabel(date: string): string {
-  return parseLocalDate(date).toLocaleDateString("en-GB", { weekday: "long" });
+/** "Mon 3 Sep" - the day tabs read as dates, not as ISO identifiers. */
+function tabLabel(date: string): string {
+  return parseLocalDate(date).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 /**
@@ -140,11 +145,13 @@ export function ReceptionDayPage() {
               role="tab"
               aria-selected={isActive}
               onClick={() => setActiveDate(date)}
-              className={`px-4 py-2 text-sm font-medium ${
-                isActive ? "border-b-2 border-accent text-accent" : "text-ink/60 hover:text-ink"
+              className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                isActive
+                  ? "border-accent text-accent"
+                  : "border-transparent text-ink/60 hover:bg-ink/[0.03] hover:text-ink"
               }`}
             >
-              {weekdayLabel(date)} {date}
+              {tabLabel(date)}
             </button>
           );
         })}
@@ -310,7 +317,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
             </div>
           </div>
 
-          <div className="mt-3 flex gap-4">
+          <div className="mt-3 flex items-start gap-4">
             <ReceptionGrid
               key={date}
               staff={staff}

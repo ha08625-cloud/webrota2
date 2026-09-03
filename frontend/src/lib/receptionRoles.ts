@@ -39,28 +39,46 @@ export const RECEPTION_ROLE_LABELS: Record<ReceptionRole, string> = {
 };
 
 /**
- * Tailwind classes applied to a whole grid cell that has a session, one
- * distinct colour per role so the two reception grids (master template and
- * generated day, both rendered by ReceptionGrid) are scannable at a glance.
- * The colour fills the cell background rather than just tinting the label,
- * so a run of slots reads as one continuous block. Picked from Tailwind's
- * -100/-800 pairs, distinct from the clinical rota's red/blue/green
- * cell-background language (RotaGrid.tsx) so the two never read as the same
- * colour code. Exact hues are arbitrary - no functional meaning attaches to
- * any of them beyond "not the same as its neighbours".
+ * Tailwind classes for the way a session is painted in the two reception
+ * grids (master template and generated day, both rendered by ReceptionGrid).
+ * `bar` is the background and border of the coloured bar; `text` is the
+ * colour of the role label, which is a separate field because the label does
+ * not live inside the bar - a run's label is one element centred across every
+ * cell of the run, while the bar is drawn per cell.
+ *
+ * The bar - not the `<td>` - carries the colour, so a run of slots reads as
+ * one rounded block on a timeline rather than a row of filled spreadsheet
+ * cells. ReceptionGrid supplies the border *sides* (top and bottom on every
+ * segment, left/right only at a run's ends) so a multi-slot run is outlined
+ * as one capsule with no internal rules.
+ *
+ * Pale -50 grounds with -700 text, deliberately lower-chroma than the
+ * -100/-800 pairs this replaced: at this density a whole row of saturated
+ * bands is what made the grid read as garish. The outline, not the fill, is
+ * what keeps thirteen roles apart, and hues are spaced around the wheel
+ * rather than assigned in the order roles were added - phones (the accent)
+ * and prescriptions in particular must not both land on lavender, which is
+ * the one pairing a user is likely to misread. Distinct from the clinical
+ * rota's red/blue/green cell-background language (RotaGrid.tsx) so the two
+ * never read as the same colour code.
+ *
+ * `not_working` is the exception and is meant to be: "Off" is the single most
+ * common value on the grid, so giving it a colour of its own made absence the
+ * loudest thing on the page. It recedes to a near-background wash with no
+ * outline, leaving the eye on the hours somebody is working.
  */
-export const RECEPTION_ROLE_CELL_CLASSNAME: Record<ReceptionRole, string> = {
-  phones: "bg-accent/10 text-accent",
-  prescriptions: "bg-purple-100 text-purple-800",
-  registrations: "bg-teal-100 text-teal-800",
-  front_desk: "bg-orange-100 text-orange-800",
-  admin: "bg-sky-100 text-sky-800",
-  online_triage: "bg-pink-100 text-pink-800",
-  rotas: "bg-lime-100 text-lime-800",
-  tasks: "bg-indigo-100 text-indigo-800",
-  lunch: "bg-yellow-100 text-yellow-800",
-  not_working: "bg-ink/10 text-ink/50",
-  cutteslowe: "bg-emerald-100 text-emerald-800",
-  wolvercote: "bg-rose-100 text-rose-800",
-  other: "bg-ink/10 text-ink/70",
+export const RECEPTION_ROLE_COLOURS: Record<ReceptionRole, { bar: string; text: string }> = {
+  phones: { bar: "bg-accent/[0.10] border-accent/30", text: "text-accent" },
+  prescriptions: { bar: "bg-orange-50 border-orange-200", text: "text-orange-700" },
+  registrations: { bar: "bg-teal-50 border-teal-300", text: "text-teal-700" },
+  front_desk: { bar: "bg-purple-50 border-purple-300", text: "text-purple-700" },
+  admin: { bar: "bg-sky-50 border-sky-300", text: "text-sky-700" },
+  online_triage: { bar: "bg-fuchsia-50 border-fuchsia-300", text: "text-fuchsia-700" },
+  rotas: { bar: "bg-lime-50 border-lime-400", text: "text-lime-700" },
+  tasks: { bar: "bg-cyan-50 border-cyan-300", text: "text-cyan-700" },
+  lunch: { bar: "bg-yellow-50 border-yellow-400", text: "text-yellow-700" },
+  not_working: { bar: "bg-ink/[0.035] border-transparent", text: "text-ink/45" },
+  cutteslowe: { bar: "bg-emerald-50 border-emerald-300", text: "text-emerald-700" },
+  wolvercote: { bar: "bg-rose-100 border-rose-300", text: "text-rose-700" },
+  other: { bar: "bg-ink/[0.06] border-ink/15", text: "text-ink/60" },
 };
