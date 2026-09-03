@@ -54,7 +54,7 @@ describe("ReceptionDayPage", () => {
       sessions: [makeReceptionRotaSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones" })],
       issues: [],
     });
-    let frontDeskAssigned = false;
+    let rotaAssigned = false;
     server.use(
       // No override for GET /reception/rota - the default handler 404s,
       // which is the "never generated" steady state this test starts from.
@@ -62,8 +62,8 @@ describe("ReceptionDayPage", () => {
         capturedBody = await request.json();
         return HttpResponse.json(generated, { status: 201 });
       }),
-      http.post("/api/v1/reception/rota/7/front-desk", () => {
-        frontDeskAssigned = true;
+      http.post("/api/v1/reception/rota/7/assign", () => {
+        rotaAssigned = true;
         return HttpResponse.json(generated);
       }),
     );
@@ -74,9 +74,9 @@ describe("ReceptionDayPage", () => {
 
     expect(capturedBody).toEqual({ date: monday });
     expect(await screen.findByTestId("reception-cell-1-9")).toBeInTheDocument();
-    // Generate is template copy + front desk, one gesture - there is no
-    // separate "Assign front desk" button to press afterwards.
-    await waitFor(() => expect(frontDeskAssigned).toBe(true));
+    // Generate is template copy + assign, one gesture - there is no
+    // separate "Assign" button to press afterwards.
+    await waitFor(() => expect(rotaAssigned).toBe(true));
   });
 
   it("splices a patched cell and its recomputed issues from one PATCH response", async () => {
@@ -139,8 +139,8 @@ describe("ReceptionDayPage", () => {
         calls.push("POST");
         return HttpResponse.json(regenerated, { status: 201 });
       }),
-      http.post("/api/v1/reception/rota/8/front-desk", () => {
-        calls.push("FRONT_DESK");
+      http.post("/api/v1/reception/rota/8/assign", () => {
+        calls.push("ASSIGN");
         return HttpResponse.json(regenerated);
       }),
     );
@@ -150,7 +150,7 @@ describe("ReceptionDayPage", () => {
     const regenerateButton = await screen.findByRole("button", { name: "Regenerate" });
     await user.click(regenerateButton);
 
-    await waitFor(() => expect(calls).toEqual(["DELETE", "POST", "FRONT_DESK"]));
+    await waitFor(() => expect(calls).toEqual(["DELETE", "POST", "ASSIGN"]));
   });
 
   it("does not regenerate when the confirm is dismissed", async () => {
@@ -307,7 +307,7 @@ describe("ReceptionDayPage", () => {
     expect(patchCalled).toBe(true);
   });
 
-  it("generating a day assigns the front desk and repaints the grid from that response", async () => {
+  it("generating a day assigns the rota and repaints the grid from that response", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
@@ -323,7 +323,7 @@ describe("ReceptionDayPage", () => {
           { status: 201 },
         ),
       ),
-      http.post("/api/v1/reception/rota/7/front-desk", () => {
+      http.post("/api/v1/reception/rota/7/assign", () => {
         assigned = true;
         // The whole day comes back, not a session delta - the endpoint
         // rewrites many rows at once.
@@ -345,7 +345,7 @@ describe("ReceptionDayPage", () => {
     expect(await within(screen.getByTestId("reception-cell-1-9")).findByText("Front desk")).toBeInTheDocument();
   });
 
-  it("surfaces a front-desk assignment failure in the day's error banner, keeping the generated day", async () => {
+  it("surfaces an assignment failure in the day's error banner, keeping the generated day", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
@@ -363,7 +363,7 @@ describe("ReceptionDayPage", () => {
           { status: 201 },
         ),
       ),
-      http.post("/api/v1/reception/rota/7/front-desk", () =>
+      http.post("/api/v1/reception/rota/7/assign", () =>
         HttpResponse.json({ detail: "Rota not found" }, { status: 404 }),
       ),
     );
@@ -398,7 +398,7 @@ describe("ReceptionDayPage", () => {
           { status: 201 },
         );
       }),
-      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) => {
+      http.post("/api/v1/reception/rota/:rotaId/assign", ({ params }) => {
         const rotaId = Number(params.rotaId);
         assignedRotaIds.push(rotaId);
         return HttpResponse.json(
@@ -456,7 +456,7 @@ describe("ReceptionDayPage", () => {
           { status: 201 },
         );
       }),
-      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) => {
+      http.post("/api/v1/reception/rota/:rotaId/assign", ({ params }) => {
         const rotaId = Number(params.rotaId);
         assignedRotaIds.push(rotaId);
         return HttpResponse.json(
@@ -472,7 +472,7 @@ describe("ReceptionDayPage", () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy.mock.calls[0][0]).toMatch(/scrap the existing rota/i);
     // Only the two days that existed are deleted, and every day - rebuilt or
-    // newly created - gets its front desk assigned.
+    // newly created - gets assigned.
     expect(deletedRotaIds).toEqual([100, 101]);
     await waitFor(() => expect(assignedRotaIds).toEqual([1, 2, 3, 4, 5]));
     expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
