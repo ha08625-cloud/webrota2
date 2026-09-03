@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import {
   fetchReceptionRotaByDate,
-  useAssignReceptionFrontDesk,
+  useAssignReceptionRota,
   useCreateReceptionRotaSession,
   useDeleteReceptionRota,
   useDeleteReceptionRotaSession,
@@ -56,8 +56,9 @@ function tabLabel(date: string): string {
  * least one day already exists. Editing and single-day Regenerate both
  * stay per-day, on the active tab.
  *
- * Generating (per-day or per-week) always chains the front-desk assignment
- * onto the fresh day, so "generate" produces a manned day in one gesture.
+ * Generating (per-day or per-week) always chains the assignment step (front
+ * desk, then the phones top-up) onto the fresh day, so "generate" produces a
+ * manned day in one gesture.
  */
 export function ReceptionDayPage() {
   const writeGate = useWriteGate();
@@ -74,7 +75,7 @@ export function ReceptionDayPage() {
   const { data: activeRota } = useReceptionRotaByDate(activeDate);
   const generateRota = useGenerateReceptionRota();
   const deleteRota = useDeleteReceptionRota();
-  const assignFrontDesk = useAssignReceptionFrontDesk();
+  const assignRota = useAssignReceptionRota();
   const [generatingWeek, setGeneratingWeek] = useState(false);
   const [weekError, setWeekError] = useState<string | null>(null);
 
@@ -126,12 +127,12 @@ export function ReceptionDayPage() {
           await deleteRota.mutateAsync({ rotaId: current.rota_id, date });
         }
         const generated = await generateRota.mutateAsync(date);
-        // Front desk assignment is chained onto every day now, not only the
-        // newly created ones: after this button runs, every day in the week
-        // is a fresh copy of the template, so every day needs its desk
-        // manned - the old "leave existing days alone" carve-out no longer
-        // applies to a button that rebuilds them.
-        await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
+        // Assignment is chained onto every day now, not only the newly
+        // created ones: after this button runs, every day in the week is a
+        // fresh copy of the template, so every day needs its desk manned -
+        // the old "leave existing days alone" carve-out no longer applies to
+        // a button that rebuilds them.
+        await assignRota.mutateAsync({ rotaId: generated.rota_id, date });
       } catch (err) {
         failures.push(`${date}: ${apiErrorMessage(err as ApiError, "failed")}`);
       }
@@ -228,27 +229,27 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const { data: rota, isLoading, isError, error } = useReceptionRotaByDate(date);
   const generateRota = useGenerateReceptionRota();
   const deleteRota = useDeleteReceptionRota();
-  const assignFrontDesk = useAssignReceptionFrontDesk();
+  const assignRota = useAssignReceptionRota();
   const createSession = useCreateReceptionRotaSession();
   const updateSession = usePatchReceptionRotaSession();
   const deleteSession = useDeleteReceptionRotaSession();
 
   const notFound = isError && error.status === 404;
   const saving =
-    savingRange || generateRota.isPending || deleteRota.isPending || assignFrontDesk.isPending;
+    savingRange || generateRota.isPending || deleteRota.isPending || assignRota.isPending;
 
   /**
-   * Generating a day means "copy the template *and* man the front desk" -
-   * two endpoints, always chained, in the same order handleGenerateWeek
-   * uses. They stay separate server-side (POST "" keeps its 409 semantics,
-   * and front-desk assignment stays independently re-runnable), but there
-   * is no longer a button that runs only the first half.
+   * Generating a day means "copy the template *and* assign it" - two
+   * endpoints, always chained, in the same order handleGenerateWeek uses.
+   * They stay separate server-side (POST "" keeps its 409 semantics, and
+   * assignment stays independently re-runnable), but there is no longer a
+   * button that runs only the first half.
    *
    * The two failures are reported separately: a failed assignment still
    * leaves a generated day on screen, so saying "could not generate" there
    * would be wrong.
    */
-  async function generateAndAssignFrontDesk(generateFallback: string) {
+  async function generateAndAssign(generateFallback: string) {
     let generated;
     try {
       generated = await generateRota.mutateAsync(date);
@@ -257,20 +258,17 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
       return;
     }
     try {
-      await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
+      await assignRota.mutateAsync({ rotaId: generated.rota_id, date });
     } catch (err) {
       setActionError(
-        apiErrorMessage(
-          err as ApiError,
-          "The day was generated, but the front desk could not be assigned.",
-        ),
+        apiErrorMessage(err as ApiError, "The day was generated, but it could not be assigned."),
       );
     }
   }
 
   function handleGenerate() {
     setActionError(null);
-    void generateAndAssignFrontDesk("Could not generate this day.");
+    void generateAndAssign("Could not generate this day.");
   }
 
   async function handleRegenerate() {
@@ -287,7 +285,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
       setActionError(apiErrorMessage(err as ApiError, "Could not regenerate this day."));
       return;
     }
-    await generateAndAssignFrontDesk("Could not regenerate this day.");
+    await generateAndAssign("Could not regenerate this day.");
   }
 
   async function handleSave(payloads: ReceptionSavePayload<ReceptionRotaSession>[]): Promise<boolean> {
