@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
 import type {
+  ApiError,
   Day,
   ReceptionCounters,
   ReceptionLeaveBulkDeleteOut,
@@ -220,6 +221,24 @@ export function useReceptionRotaByDate(date: string | undefined) {
     // between offering "Generate" and rendering the grid.
     retry: false,
   });
+}
+
+/**
+ * One-shot, imperative read of a date's rota - null on 404, since "no rota
+ * generated yet" is an expected answer here rather than a failure.
+ *
+ * Deliberately not a hook: the week-level "Generate week from template"
+ * flow needs to know, on a button press, which of the five weekdays
+ * already exist (and their rota ids, to delete before regenerating). That
+ * is five reads triggered by a gesture, not five rendered subscriptions.
+ */
+export async function fetchReceptionRotaByDate(date: string): Promise<ReceptionRota | null> {
+  try {
+    return await apiClient.get<ReceptionRota>(`/reception/rota?date=${date}`);
+  } catch (err) {
+    if ((err as ApiError).status === 404) return null;
+    throw err;
+  }
 }
 
 export function useReceptionRota(rotaId: number | undefined) {
