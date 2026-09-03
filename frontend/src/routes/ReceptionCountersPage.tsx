@@ -137,7 +137,7 @@ export function ReceptionCountersPage() {
                 {counters.staff.map((row) => (
                   <tr key={row.staff_id} className="border-t border-border">
                     <td className="py-1 pr-4 whitespace-nowrap">
-                      {row.staff_name}
+                      {row.staff_code}
                       {/* Labelled rather than filtered out: a deactivated
                           staff member with history in the window still has
                           real counts, and a blank-labelled row would read

@@ -114,7 +114,7 @@ def create_staff(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ) -> ReceptionStaff:
-    staff = ReceptionStaff(code=payload.code, name=payload.name, active=True)
+    staff = ReceptionStaff(code=payload.code, active=True)
     db.add(staff)
     try:
         db.commit()
@@ -122,7 +122,7 @@ def create_staff(
         db.rollback()
         raise HTTPException(
             status_code=409,
-            detail=f"Reception staff code '{payload.code}' already exists",
+            detail=f"Reception staff name '{payload.code}' already exists",
         ) from exc
     db.refresh(staff)
     return staff
@@ -139,8 +139,6 @@ def patch_staff(
     fields = payload.model_fields_set
     if "code" in fields and payload.code is not None:
         staff.code = payload.code
-    if "name" in fields and payload.name is not None:
-        staff.name = payload.name
     if "active" in fields and payload.active is not None:
         staff.active = payload.active
     try:
@@ -148,7 +146,7 @@ def patch_staff(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=409, detail="Reception staff code already exists"
+            status_code=409, detail="Reception staff name already exists"
         ) from exc
     db.refresh(staff)
     return staff

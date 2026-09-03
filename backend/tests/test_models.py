@@ -620,8 +620,8 @@ def test_staging_source_template_start_week_round_trip(session):
 
 # --- Reception rota (reception rota plan, Task 1) ---
 
-def _reception_staff(session, code="RA", name="Rita Admin"):
-    s = ReceptionStaff(code=code, name=name, active=True)
+def _reception_staff(session, code="RA"):
+    s = ReceptionStaff(code=code, active=True)
     session.add(s)
     session.flush()
     return s
@@ -749,7 +749,7 @@ def test_reception_rota_date_unique(session):
 
 def test_reception_staff_code_unique(session):
     _reception_staff(session, code="RA")
-    session.add(ReceptionStaff(code="RA", name="Someone Else"))
+    session.add(ReceptionStaff(code="RA"))
     with pytest.raises(IntegrityError):
         session.flush()
 

@@ -12,7 +12,6 @@ export function makeReceptionStaff(overrides: Partial<ReceptionStaff> = {}): Rec
   return {
     id: staffIdCounter++,
     code: "JS",
-    name: "Jo Smith",
     active: true,
     ...overrides,
   };
@@ -27,7 +26,6 @@ export function makeReceptionMasterSession(
     session_id: masterSessionIdCounter++,
     staff_id: 1,
     staff_code: "JS",
-    staff_name: "Jo Smith",
     day: "Monday",
     hour: 9,
     role: "phones",
@@ -45,7 +43,6 @@ export function makeReceptionRotaSession(
     session_id: rotaSessionIdCounter++,
     staff_id: 1,
     staff_code: "JS",
-    staff_name: "Jo Smith",
     hour: 9,
     role: "phones",
     note: null,

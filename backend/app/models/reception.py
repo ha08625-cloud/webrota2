@@ -99,8 +99,12 @@ class ReceptionStaff(Base):
     __table_args__ = (UniqueConstraint("code", name="uq_reception_staff_code"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # `code` is the only identifier: it is what every grid row header, sort
+    # order and confirm prompt uses, and it is unique. There is deliberately
+    # no separate `name` -- the two were the same thing in practice, and the
+    # frontend simply labels this field "Name" (two Emilys are distinguished
+    # by typing "Emily M"/"Emily S"). Mirrors Doctor, which is code-only too.
     code: Mapped[str] = mapped_column(String, nullable=False)
-    name: Mapped[str] = mapped_column(String, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     def __repr__(self) -> str:  # pragma: no cover

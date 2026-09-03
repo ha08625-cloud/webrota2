@@ -15,9 +15,9 @@ describe("pivotReception", () => {
   });
 
   it("carries the full staff object through onto each row", () => {
-    const staff = [makeReceptionStaff({ id: 1, code: "AA", name: "Ann Brown" })];
+    const staff = [makeReceptionStaff({ id: 1, code: "AA" })];
     const grid = pivotReception([], staff);
-    expect(grid.rows[0].staff.name).toBe("Ann Brown");
+    expect(grid.rows[0].staff).toEqual(staff[0]);
   });
 
   it("does not duplicate a staff row when they have multiple sessions", () => {

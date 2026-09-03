@@ -24,8 +24,8 @@ describe("ReceptionStaffPage", () => {
   it("lists inactive staff in their own section below the active ones", async () => {
     setUpServer({
       staff: [
-        makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" }),
-        makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false }),
+        makeReceptionStaff({ id: 1, code: "AB" }),
+        makeReceptionStaff({ id: 2, code: "CD", active: false }),
       ],
     });
     renderWithProviders(<ReceptionStaffPage />);
@@ -47,7 +47,7 @@ describe("ReceptionStaffPage", () => {
   });
 
   it("omits the inactive section when every staff member is active", async () => {
-    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB" })] });
     renderWithProviders(<ReceptionStaffPage />);
     await screen.findByText("AB");
 
@@ -55,7 +55,7 @@ describe("ReceptionStaffPage", () => {
   });
 
   it("says so when every staff member is inactive", async () => {
-    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })] });
+    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", active: false })] });
     renderWithProviders(<ReceptionStaffPage />);
     await screen.findByText("CD");
 
@@ -80,10 +80,10 @@ describe("ReceptionStaffPage", () => {
     server.use(
       http.post("/api/v1/reception/staff", () => {
         created = true;
-        return HttpResponse.json(makeReceptionStaff({ id: 9, code: "JS", name: "Jo Smith" }), { status: 201 });
+        return HttpResponse.json(makeReceptionStaff({ id: 9, code: "JS" }), { status: 201 });
       }),
       http.get("/api/v1/reception/staff", () =>
-        HttpResponse.json(created ? [makeReceptionStaff({ id: 9, code: "JS", name: "Jo Smith" })] : []),
+        HttpResponse.json(created ? [makeReceptionStaff({ id: 9, code: "JS" })] : []),
       ),
     );
 
@@ -92,18 +92,17 @@ describe("ReceptionStaffPage", () => {
     await screen.findByText(/No reception staff yet/);
 
     await user.click(screen.getByRole("button", { name: "New Reception Staff" }));
-    await user.type(screen.getByLabelText("Code"), "JS");
-    await user.type(screen.getByLabelText("Name"), "Jo Smith");
+    await user.type(screen.getByLabelText("Name"), "JS");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("JS")).toBeInTheDocument();
   });
 
-  it("a duplicate-code 409 is shown on the code field within the dialog", async () => {
-    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+  it("a duplicate-name 409 is shown on the name field within the dialog", async () => {
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB" })] });
     server.use(
       http.post("/api/v1/reception/staff", () =>
-        HttpResponse.json({ detail: "Reception staff code 'AB' already exists" }, { status: 409 }),
+        HttpResponse.json({ detail: "Reception staff name 'AB' already exists" }, { status: 409 }),
       ),
     );
 
@@ -112,25 +111,24 @@ describe("ReceptionStaffPage", () => {
     await screen.findByText("AB");
 
     await user.click(screen.getByRole("button", { name: "New Reception Staff" }));
-    await user.type(screen.getByLabelText("Code"), "AB");
-    await user.type(screen.getByLabelText("Name"), "Another Name");
+    await user.type(screen.getByLabelText("Name"), "AB");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Reception staff code 'AB' already exists")).toBeInTheDocument();
+    expect(await screen.findByText("Reception staff name 'AB' already exists")).toBeInTheDocument();
   });
 
   it("deactivate then reactivate moves the row between the two sections", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB" })] });
     let active = true;
     server.use(
       http.patch("/api/v1/reception/staff/1", async ({ request }) => {
         const body = (await request.json()) as { active?: boolean };
         active = body.active ?? active;
-        return HttpResponse.json(makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown", active }));
+        return HttpResponse.json(makeReceptionStaff({ id: 1, code: "AB", active }));
       }),
       http.get("/api/v1/reception/staff", () =>
-        HttpResponse.json([makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown", active })]),
+        HttpResponse.json([makeReceptionStaff({ id: 1, code: "AB", active })]),
       ),
     );
 
@@ -152,8 +150,8 @@ describe("ReceptionStaffPage", () => {
   it("offers Delete only on an inactive row", async () => {
     setUpServer({
       staff: [
-        makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" }),
-        makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false }),
+        makeReceptionStaff({ id: 1, code: "AB" }),
+        makeReceptionStaff({ id: 2, code: "CD", active: false }),
       ],
     });
     renderWithProviders(<ReceptionStaffPage />);
@@ -167,7 +165,7 @@ describe("ReceptionStaffPage", () => {
   });
 
   it("hides Delete below manager, even on an inactive row", async () => {
-    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })] });
+    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", active: false })] });
     renderWithProviders(<ReceptionStaffPage />, { accessLevel: "admin" });
     await screen.findByText("CD");
 
@@ -175,7 +173,7 @@ describe("ReceptionStaffPage", () => {
   });
 
   it("Delete opens the confirm dialog and the purge removes the row", async () => {
-    let staff = [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })];
+    let staff = [makeReceptionStaff({ id: 2, code: "CD", active: false })];
     server.use(
       http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
       http.get("/api/v1/reception/staff/2/usage", () =>
@@ -204,9 +202,9 @@ describe("ReceptionStaffPage for a read-only user", () => {
   // Same treatment as the clinical pages - the reception side is gated
   // the same way, since the backend gate is one global dependency.
   it("disables the write controls and says why", async () => {
-    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB" })] });
     renderWithProviders(<ReceptionStaffPage />, { accessLevel: "nurse" });
-    await screen.findByText("Ann Brown");
+    await screen.findByText("AB");
 
     const create = screen.getByRole("button", { name: "New Reception Staff" });
     expect(create).toBeDisabled();

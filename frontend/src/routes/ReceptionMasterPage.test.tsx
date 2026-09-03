@@ -57,7 +57,7 @@ describe("ReceptionMasterPage", () => {
     setUpServer({
       staff: [
         makeReceptionStaff({ id: 1, code: "AB", active: true }),
-        makeReceptionStaff({ id: 2, code: "ZZ", name: "Zoe Zed", active: false }),
+        makeReceptionStaff({ id: 2, code: "ZZ", active: false }),
       ],
       sessions: [
         makeReceptionMasterSession({ session_id: 1, staff_id: 1, day: "Monday", hour: 9, role: "phones" }),

@@ -71,7 +71,7 @@ export function DeleteReceptionStaffDialog({
           </Dialog.Title>
 
           <p className="mt-2 text-sm text-ink/70">
-            This removes {staff.name} and everything recorded against them. It cannot be
+            This removes them and everything recorded against them. It cannot be
             undone. If you only want them off the rota from now on, Deactivate does that and
             keeps the history.
           </p>

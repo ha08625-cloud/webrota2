@@ -47,11 +47,10 @@ export function ReceptionStaffFormDialog({ staff, open, onOpenChange }: Receptio
     }
     const payload = toWirePayload(result.data);
 
-    // The duplicate-code 409 (routers/reception_staff.py) names the code
-    // field in its message, so it is shown there rather than as a
-    // top-of-form banner (reception rota plan, Task 6) - unlike
-    // DoctorFormDialog's equivalent, whose 409 has no single field it
-    // unambiguously points at.
+    // The duplicate-name 409 (routers/reception_staff.py) names the field
+    // in its message, so it is shown there rather than as a top-of-form
+    // banner (reception rota plan, Task 6) - unlike DoctorFormDialog's
+    // equivalent, whose 409 has no single field it unambiguously points at.
     const onError = (err: ApiError) => {
       const message = typeof err.detail === "string" ? err.detail : "Could not save this staff member.";
       if (err.status === 409) {
@@ -81,20 +80,10 @@ export function ReceptionStaffFormDialog({ staff, open, onOpenChange }: Receptio
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
             {formError ? <p className="rounded bg-red-50 p-2 text-sm text-red-700">{formError}</p> : null}
 
-            <div>
-              <label className="block text-sm font-medium" htmlFor="rs-code">
-                Code
-              </label>
-              <input
-                id="rs-code"
-                type="text"
-                value={values.code}
-                onChange={(e) => setValues((v) => ({ ...v, code: e.target.value }))}
-                className="mt-1 w-full rounded border border-border p-1 text-sm"
-              />
-              {fieldErrors.code ? <p className="mt-1 text-xs text-red-700">{fieldErrors.code}</p> : null}
-            </div>
-
+            {/* Labelled "Name" but bound to `code`, the single identifier
+                the record has. It is rendered in every grid row header, so
+                it wants to be short - initials or a first name, with a
+                surname initial only where two people would collide. */}
             <div>
               <label className="block text-sm font-medium" htmlFor="rs-name">
                 Name
@@ -102,11 +91,11 @@ export function ReceptionStaffFormDialog({ staff, open, onOpenChange }: Receptio
               <input
                 id="rs-name"
                 type="text"
-                value={values.name}
-                onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
+                value={values.code}
+                onChange={(e) => setValues((v) => ({ ...v, code: e.target.value }))}
                 className="mt-1 w-full rounded border border-border p-1 text-sm"
               />
-              {fieldErrors.name ? <p className="mt-1 text-xs text-red-700">{fieldErrors.name}</p> : null}
+              {fieldErrors.code ? <p className="mt-1 text-xs text-red-700">{fieldErrors.code}</p> : null}
             </div>
 
             <div className="flex justify-end gap-2 border-t border-border pt-3">

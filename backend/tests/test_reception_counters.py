@@ -23,8 +23,8 @@ from app.reception_counters import (
 MONDAY = datetime.date(2026, 8, 10)  # week commencing, used as the anchor
 
 
-def _staff(session, code="R1", name="Alex", active=True):
-    s = ReceptionStaff(code=code, name=name, active=active)
+def _staff(session, code="R1", active=True):
+    s = ReceptionStaff(code=code, active=active)
     session.add(s)
     session.flush()
     return s
@@ -213,8 +213,8 @@ def test_leave_excludes_counts_hours_and_days_present(session):
 
 
 def test_leave_for_one_staff_member_does_not_affect_another(session):
-    away = _staff(session, code="R1", name="Alex")
-    present = _staff(session, code="R2", name="Blake")
+    away = _staff(session, code="R1")
+    present = _staff(session, code="R2")
     rota = _rota(session, MONDAY)
     _sessions(session, rota, away, [ReceptionRole.PHONES] * 2)
     _sessions(session, rota, present, [ReceptionRole.PHONES] * 2)
@@ -236,8 +236,8 @@ def test_days_present_counts_a_multi_role_day_once(session):
 
 
 def test_active_staff_with_no_rows_appear_zero_filled(session):
-    worked = _staff(session, code="R1", name="Alex")
-    new_starter = _staff(session, code="R2", name="Blake")
+    worked = _staff(session, code="R1")
+    new_starter = _staff(session, code="R2")
     _sessions(session, _rota(session, MONDAY), worked, [ReceptionRole.PHONES])
 
     row = _row(compute_role_counters(session, MONDAY, MONDAY), new_starter)
@@ -248,7 +248,7 @@ def test_active_staff_with_no_rows_appear_zero_filled(session):
 
 
 def test_inactive_staff_with_rows_still_appear(session):
-    leaver = _staff(session, code="R1", name="Alex", active=False)
+    leaver = _staff(session, code="R1", active=False)
     _sessions(session, _rota(session, MONDAY), leaver, [ReceptionRole.PHONES] * 2)
 
     row = _row(compute_role_counters(session, MONDAY, MONDAY), leaver)
@@ -258,7 +258,7 @@ def test_inactive_staff_with_rows_still_appear(session):
 
 
 def test_inactive_staff_with_no_rows_are_omitted(session):
-    leaver = _staff(session, code="R1", name="Alex", active=False)
+    leaver = _staff(session, code="R1", active=False)
 
     result = compute_role_counters(session, MONDAY, MONDAY)
 
@@ -304,10 +304,10 @@ def test_a_generated_but_empty_day_still_counts_as_a_day(session):
     assert compute_role_counters(session, MONDAY, MONDAY).days_counted == 1
 
 
-def test_rows_are_ordered_by_staff_name(session):
-    for code, name in (("R1", "Casey"), ("R2", "Alex"), ("R3", "Blake")):
-        _staff(session, code=code, name=name)
+def test_rows_are_ordered_by_staff_code(session):
+    for code in ("Casey", "Alex", "Blake"):
+        _staff(session, code=code)
 
     result = compute_role_counters(session, MONDAY, MONDAY)
 
-    assert [r.name for r in result.staff] == ["Alex", "Blake", "Casey"]
+    assert [r.code for r in result.staff] == ["Alex", "Blake", "Casey"]

@@ -71,15 +71,15 @@ describe("useCreateReceptionStaff", () => {
     server.use(
       http.post("/api/v1/reception/staff", async ({ request }) => {
         capturedBody = await request.json();
-        return HttpResponse.json(makeReceptionStaff({ code: "AB", name: "Ann Brown" }), { status: 201 });
+        return HttpResponse.json(makeReceptionStaff({ code: "AB" }), { status: 201 });
       }),
     );
 
     const { result } = renderHook(() => useCreateReceptionStaff(), { wrapper: makeWrapper(queryClient) });
-    result.current.mutate({ code: "AB", name: "Ann Brown" });
+    result.current.mutate({ code: "AB" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(capturedBody).toEqual({ code: "AB", name: "Ann Brown" });
+    expect(capturedBody).toEqual({ code: "AB" });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: receptionKeys.staffAll });
   });
 });

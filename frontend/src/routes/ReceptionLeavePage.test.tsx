@@ -10,9 +10,9 @@ import { server } from "@/test/msw/server";
 import { ReceptionLeavePage } from "./ReceptionLeavePage";
 
 const STAFF = [
-  makeReceptionStaff({ id: 1, code: "RA", name: "Alice Reception" }),
-  makeReceptionStaff({ id: 2, code: "RB", name: "Bob Reception" }),
-  makeReceptionStaff({ id: 3, code: "RC", name: "Cara Reception", active: false }),
+  makeReceptionStaff({ id: 1, code: "RA" }),
+  makeReceptionStaff({ id: 2, code: "RB" }),
+  makeReceptionStaff({ id: 3, code: "RC", active: false }),
 ];
 
 function setUpServer(entries: ReturnType<typeof makeReceptionLeaveEntry>[] = []) {

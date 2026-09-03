@@ -61,8 +61,9 @@ export function ReceptionStaffPage() {
   function renderRows(members: ReceptionStaff[]) {
     return members.map((s) => (
       <tr key={s.id} className="border-t border-border">
+        {/* `code` under a "Name" heading - it is the only identifier a
+            reception staff member has (api/types.ts). */}
         <td className="py-1 pr-4">{s.code}</td>
-        <td className="py-1 pr-4">{s.name}</td>
         <td className="py-1">
           <button
             type="button"
@@ -106,7 +107,6 @@ export function ReceptionStaffPage() {
       <table className="mt-2 min-w-full text-sm">
         <thead>
           <tr className="text-left text-ink/70">
-            <th className="py-1 pr-4 font-medium">Code</th>
             <th className="py-1 pr-4 font-medium">Name</th>
             <th className="py-1" />
           </tr>

@@ -28,22 +28,23 @@ def _check_half_hour_step(hour: float) -> float:
 
 
 class ReceptionStaffIn(BaseModel):
+    """`code` is the only identifier a reception staff member has -- there is
+    no separate name (see models/reception.py). The frontend labels this
+    field "Name"; the wire name stays `code` to match the column and the
+    `staff_code` joins below."""
     code: str = Field(min_length=1)
-    name: str = Field(min_length=1)
 
 
 class ReceptionStaffPatch(BaseModel):
     """Partial update; only fields present in the request body are applied
     (checked via model_fields_set), matching SessionPatchIn's convention."""
     code: str | None = Field(default=None, min_length=1)
-    name: str | None = Field(default=None, min_length=1)
     active: bool | None = None
 
 
 class ReceptionStaffOut(BaseModel):
     id: int
     code: str
-    name: str
     active: bool
     model_config = {"from_attributes": True}
 
@@ -86,14 +87,13 @@ class ReceptionStaffDeleteOut(BaseModel):
 
 
 class ReceptionMasterSessionOut(BaseModel):
-    """One weekday template slot. staff_code / staff_name are joined in the
-    router, matching MasterRotaSessionOut's pattern. `session_id`, not `id`
+    """One weekday template slot. staff_code is joined in the router,
+    matching MasterRotaSessionOut's pattern. `session_id`, not `id`
     -- this sits in a list alongside staff_id, the same naming rule
     MasterRotaSessionOut documents."""
     session_id: int
     staff_id: int
     staff_code: str
-    staff_name: str
     day: Day
     hour: float
     role: ReceptionRole
@@ -157,12 +157,11 @@ class ReceptionRotaSessionPatchIn(BaseModel):
 
 
 class ReceptionRotaSessionOut(BaseModel):
-    """One day-rota slot. staff_code / staff_name are joined in the router,
-    matching ReceptionMasterSessionOut's pattern."""
+    """One day-rota slot. staff_code is joined in the router, matching
+    ReceptionMasterSessionOut's pattern."""
     session_id: int
     staff_id: int
     staff_code: str
-    staff_name: str
     hour: float
     role: ReceptionRole
     note: str | None = None
@@ -282,7 +281,6 @@ class ReceptionCounterRowOut(BaseModel):
     """
     staff_id: int
     staff_code: str
-    staff_name: str
     active: bool
     hours_worked: float
     days_present: int

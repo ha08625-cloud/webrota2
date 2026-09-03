@@ -348,10 +348,10 @@ def seeded_reception(client, db_session):
     own -- see app/models/reception.py.
     """
     s = db_session
-    ra = ReceptionStaff(code="RA", name="Alice Reception", active=True)
-    rb = ReceptionStaff(code="RB", name="Bob Reception", active=True)
-    rc = ReceptionStaff(code="RC", name="Cara Reception", active=True)
-    rd = ReceptionStaff(code="RD", name="Dee Reception", active=False)
+    ra = ReceptionStaff(code="RA", active=True)
+    rb = ReceptionStaff(code="RB", active=True)
+    rc = ReceptionStaff(code="RC", active=True)
+    rd = ReceptionStaff(code="RD", active=False)
     s.add_all([ra, rb, rc, rd])
     s.flush()
     s.commit()

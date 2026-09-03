@@ -139,7 +139,6 @@ class TestResponseShape:
 
         row = _row_by_code(body, "RA")
         assert row["staff_id"] == ra
-        assert row["staff_name"] == "Alice Reception"
         assert row["active"] is True
         assert row["days_present"] == 1
         # phones + lunch count as worked; not_working does not.
@@ -172,13 +171,13 @@ class TestResponseShape:
         assert rd_row["active"] is False
         assert rd_row["role_slots"]["phones"] == 1
 
-    def test_staff_ordered_by_name(
+    def test_staff_ordered_by_code(
         self, client, seeded_reception, db_session, pin_today
     ):
         pin_today(WEDNESDAY)
         body = client.get(COUNTERS_URL).json()
-        names = [r["staff_name"] for r in body["staff"]]
-        assert names == sorted(names)
+        codes = [r["staff_code"] for r in body["staff"]]
+        assert codes == sorted(codes)
 
 
 class TestWindowFiltersRows:
