@@ -54,12 +54,17 @@ describe("ReceptionDayPage", () => {
       sessions: [makeReceptionRotaSession({ session_id: 1, staff_id: 1, hour: 9, role: "phones" })],
       issues: [],
     });
+    let frontDeskAssigned = false;
     server.use(
       // No override for GET /reception/rota - the default handler 404s,
       // which is the "never generated" steady state this test starts from.
       http.post("/api/v1/reception/rota", async ({ request }) => {
         capturedBody = await request.json();
         return HttpResponse.json(generated, { status: 201 });
+      }),
+      http.post("/api/v1/reception/rota/7/front-desk", () => {
+        frontDeskAssigned = true;
+        return HttpResponse.json(generated);
       }),
     );
 
@@ -69,6 +74,9 @@ describe("ReceptionDayPage", () => {
 
     expect(capturedBody).toEqual({ date: monday });
     expect(await screen.findByTestId("reception-cell-1-9")).toBeInTheDocument();
+    // Generate is template copy + front desk, one gesture - there is no
+    // separate "Assign front desk" button to press afterwards.
+    await waitFor(() => expect(frontDeskAssigned).toBe(true));
   });
 
   it("splices a patched cell and its recomputed issues from one PATCH response", async () => {
@@ -131,6 +139,10 @@ describe("ReceptionDayPage", () => {
         calls.push("POST");
         return HttpResponse.json(regenerated, { status: 201 });
       }),
+      http.post("/api/v1/reception/rota/8/front-desk", () => {
+        calls.push("FRONT_DESK");
+        return HttpResponse.json(regenerated);
+      }),
     );
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
@@ -138,7 +150,7 @@ describe("ReceptionDayPage", () => {
     const regenerateButton = await screen.findByRole("button", { name: "Regenerate" });
     await user.click(regenerateButton);
 
-    await waitFor(() => expect(calls).toEqual(["DELETE", "POST"]));
+    await waitFor(() => expect(calls).toEqual(["DELETE", "POST", "FRONT_DESK"]));
   });
 
   it("does not regenerate when the confirm is dismissed", async () => {
@@ -295,7 +307,7 @@ describe("ReceptionDayPage", () => {
     expect(patchCalled).toBe(true);
   });
 
-  it("Assign front desk posts to the front-desk endpoint and repaints the grid from the response", async () => {
+  it("generating a day assigns the front desk and repaints the grid from that response", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
@@ -304,8 +316,12 @@ describe("ReceptionDayPage", () => {
     const before = makeReceptionRotaSession({ session_id: 5, staff_id: 1, hour: 9, role: "phones", note: null });
     let assigned = false;
     server.use(
-      http.get("/api/v1/reception/rota", () =>
-        HttpResponse.json(makeReceptionRota({ rota_id: 7, date: monday, sessions: [before], issues: [] })),
+      // Default GET handler 404s - this day starts ungenerated.
+      http.post("/api/v1/reception/rota", () =>
+        HttpResponse.json(
+          makeReceptionRota({ rota_id: 7, date: monday, sessions: [before], issues: [] }),
+          { status: 201 },
+        ),
       ),
       http.post("/api/v1/reception/rota/7/front-desk", () => {
         assigned = true;
@@ -323,20 +339,20 @@ describe("ReceptionDayPage", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Assign front desk" }));
+    await user.click(await screen.findByRole("button", { name: "Generate from template" }));
 
     await waitFor(() => expect(assigned).toBe(true));
     expect(await within(screen.getByTestId("reception-cell-1-9")).findByText("Front desk")).toBeInTheDocument();
   });
 
-  it("surfaces a front-desk assignment failure in the day's error banner", async () => {
+  it("surfaces a front-desk assignment failure in the day's error banner, keeping the generated day", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
     renderWithProviders(<ReceptionDayPage />);
     const monday = await defaultMonday();
 
     server.use(
-      http.get("/api/v1/reception/rota", () =>
+      http.post("/api/v1/reception/rota", () =>
         HttpResponse.json(
           makeReceptionRota({
             rota_id: 7,
@@ -344,6 +360,7 @@ describe("ReceptionDayPage", () => {
             sessions: [makeReceptionRotaSession({ session_id: 5, staff_id: 1, hour: 9, role: "phones" })],
             issues: [],
           }),
+          { status: 201 },
         ),
       ),
       http.post("/api/v1/reception/rota/7/front-desk", () =>
@@ -352,9 +369,11 @@ describe("ReceptionDayPage", () => {
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Assign front desk" }));
+    await user.click(await screen.findByRole("button", { name: "Generate from template" }));
 
     expect(await screen.findByText("Rota not found")).toBeInTheDocument();
+    // The generate half succeeded, so the grid stays on screen.
+    expect(screen.getByTestId("reception-cell-1-9")).toBeInTheDocument();
   });
 
   it("generating the week assigns the front desk for each freshly generated day, and not for a 409 day", async () => {

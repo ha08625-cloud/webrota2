@@ -281,7 +281,9 @@ def assign_front_desk(
 
     A separate endpoint rather than a step inside POST "" (D7): generation
     stays a pure template copy with its 409 semantics intact, and assignment
-    can be re-run without the delete-then-regenerate dance.
+    can be re-run without the delete-then-regenerate dance. The day page
+    chains the two client-side (generate, then assign) -- that is a UI
+    decision, not a reason to merge the endpoints.
 
     404 on an unknown rota and no other error status. A day with no legal
     assignment is a 200 whose issues carry `front_desk_gap` warnings -- the
