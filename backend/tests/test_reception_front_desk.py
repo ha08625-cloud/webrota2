@@ -113,17 +113,19 @@ def test_every_partition_tiles_the_window_within_the_length_limits():
 def test_availability_excludes_lunch_branch_sites_and_absent_rows():
     rota = _rota(sessions=_rows(
         A,
-        range(0, 12),
+        range(0, 13),
         overrides={
             4: ReceptionRole.LUNCH,
             5: ReceptionRole.NOT_WORKING,
             6: ReceptionRole.CUTTESLOWE,
             7: ReceptionRole.WOLVERCOTE,
+            8: ReceptionRole.REGISTRATIONS,
+            9: ReceptionRole.ONLINE_TRIAGE,
         },
     ))
     available = compute_availability(rota, staff_on_leave=set())
-    # 12 rows, four unavailable roles, and slots 12-19 have no row at all.
-    assert available[A] == {_hour(i) for i in list(range(0, 4)) + list(range(8, 12))}
+    # 13 rows, six unavailable roles, and slots 13-19 have no row at all.
+    assert available[A] == {_hour(i) for i in list(range(0, 4)) + list(range(10, 13))}
 
 
 def test_availability_excludes_staff_on_leave_entirely():

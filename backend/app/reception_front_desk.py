@@ -107,18 +107,19 @@ W_REPEAT = 4.0  # once, if one person holds two (non-adjacent) blocks
 
 # Roles that mean "not at the desk this slot". `lunch` and `not_working` are
 # self-explanatory; `cutteslowe` and `wolvercote` are branch sites -- that
-# person is not in this building at all; `registrations` is excluded outright
-# rather than merely penalised, since it is not something that can be dropped
-# for a slot the way `phones` or `other` can. Note what is *not* here: an
-# existing `front_desk` row counts as available, because it is a working slot
-# and, after the router's reset step, a leftover manual front-desk tag must
-# not make its holder unassignable.
+# person is not in this building at all; `registrations` and `online_triage`
+# are excluded outright rather than merely penalised, since they are not
+# something that can be dropped for a slot the way `phones` or `other` can.
+# Note what is *not* here: an existing `front_desk` row counts as available,
+# because it is a working slot and, after the router's reset step, a
+# leftover manual front-desk tag must not make its holder unassignable.
 _UNAVAILABLE_ROLES: frozenset[ReceptionRole] = frozenset({
     ReceptionRole.LUNCH,
     ReceptionRole.NOT_WORKING,
     ReceptionRole.CUTTESLOWE,
     ReceptionRole.WOLVERCOTE,
     ReceptionRole.REGISTRATIONS,
+    ReceptionRole.ONLINE_TRIAGE,
 })
 
 # Roles cheap enough to displace without penalty. Everything else is a
