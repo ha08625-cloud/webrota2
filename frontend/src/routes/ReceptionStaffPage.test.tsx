@@ -21,7 +21,7 @@ describe("ReceptionStaffPage", () => {
     expect(await screen.findByText(/No reception staff yet/)).toBeInTheDocument();
   });
 
-  it("renders a row per staff member, including inactive ones", async () => {
+  it("lists inactive staff in their own section below the active ones", async () => {
     setUpServer({
       staff: [
         makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" }),
@@ -30,9 +30,37 @@ describe("ReceptionStaffPage", () => {
     });
     renderWithProviders(<ReceptionStaffPage />);
 
-    expect(await screen.findByText("AB")).toBeInTheDocument();
-    expect(screen.getByText("CD")).toBeInTheDocument();
-    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    const activeSection = (await screen.findByRole("heading", { name: "Active" })).closest("section");
+    const inactiveSection = screen.getByRole("heading", { name: "Inactive" }).closest("section");
+    expect(activeSection).not.toBeNull();
+    expect(inactiveSection).not.toBeNull();
+
+    expect(within(activeSection as HTMLElement).getByText("AB")).toBeInTheDocument();
+    expect(within(activeSection as HTMLElement).queryByText("CD")).not.toBeInTheDocument();
+    expect(within(inactiveSection as HTMLElement).getByText("CD")).toBeInTheDocument();
+
+    // Inactive comes after active in document order.
+    expect(
+      (activeSection as HTMLElement).compareDocumentPosition(inactiveSection as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("omits the inactive section when every staff member is active", async () => {
+    setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
+    renderWithProviders(<ReceptionStaffPage />);
+    await screen.findByText("AB");
+
+    expect(screen.queryByRole("heading", { name: "Inactive" })).not.toBeInTheDocument();
+  });
+
+  it("says so when every staff member is inactive", async () => {
+    setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", name: "Cai Davies", active: false })] });
+    renderWithProviders(<ReceptionStaffPage />);
+    await screen.findByText("CD");
+
+    expect(screen.getByText("No active reception staff.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Inactive" })).toBeInTheDocument();
   });
 
   it("New Reception Staff opens the dialog in create mode", async () => {
@@ -91,7 +119,7 @@ describe("ReceptionStaffPage", () => {
     expect(await screen.findByText("Reception staff code 'AB' already exists")).toBeInTheDocument();
   });
 
-  it("deactivate then reactivate toggles the status column", async () => {
+  it("deactivate then reactivate moves the row between the two sections", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB", name: "Ann Brown" })] });
     let active = true;
@@ -109,15 +137,16 @@ describe("ReceptionStaffPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<ReceptionStaffPage />);
     await screen.findByText("AB");
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Inactive" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Deactivate" }));
     expect(await screen.findByRole("button", { name: "Reactivate" })).toBeInTheDocument();
-    expect(screen.getByText("Inactive")).toBeInTheDocument();
+    const inactiveSection = screen.getByRole("heading", { name: "Inactive" }).closest("section");
+    expect(within(inactiveSection as HTMLElement).getByText("AB")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reactivate" }));
     expect(await screen.findByRole("button", { name: "Deactivate" })).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Inactive" })).not.toBeInTheDocument();
   });
 
   it("offers Delete only on an inactive row", async () => {

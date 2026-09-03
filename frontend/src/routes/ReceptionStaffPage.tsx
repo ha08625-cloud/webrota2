@@ -55,6 +55,67 @@ export function ReceptionStaffPage() {
     setDeleteTarget(member);
   }
 
+  const activeStaff = staff?.filter((s) => s.active) ?? [];
+  const inactiveStaff = staff?.filter((s) => !s.active) ?? [];
+
+  function renderRows(members: ReceptionStaff[]) {
+    return members.map((s) => (
+      <tr key={s.id} className="border-t border-border">
+        <td className="py-1 pr-4">{s.code}</td>
+        <td className="py-1 pr-4">{s.name}</td>
+        <td className="py-1">
+          <button
+            type="button"
+            onClick={() => openEdit(s)}
+            className="mr-3 text-xs text-accent disabled:opacity-50"
+            {...writeGate}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => handleToggleActive(s)}
+            disabled={isToggling}
+            className="text-xs text-red-700 disabled:opacity-50"
+            {...writeGate}
+          >
+            {s.active ? "Deactivate" : "Reactivate"}
+          </button>
+          {/* Only on an inactive row (the backend 409s otherwise -
+              deactivate first, delete later) and only for a
+              manager, matching how App.tsx hides Users and Audit
+              Log below manager. The 403 is the real boundary. */}
+          {!s.active && isManager ? (
+            <button
+              type="button"
+              onClick={() => openDelete(s)}
+              className="ml-3 text-xs text-red-700"
+            >
+              Delete
+            </button>
+          ) : null}
+        </td>
+      </tr>
+    ));
+  }
+
+  // The two lists carry the active/inactive distinction that used to be a
+  // Status column, so the column would only repeat its own heading.
+  function renderTable(members: ReceptionStaff[]) {
+    return (
+      <table className="mt-2 min-w-full text-sm">
+        <thead>
+          <tr className="text-left text-ink/70">
+            <th className="py-1 pr-4 font-medium">Code</th>
+            <th className="py-1 pr-4 font-medium">Name</th>
+            <th className="py-1" />
+          </tr>
+        </thead>
+        <tbody>{renderRows(members)}</tbody>
+      </table>
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -79,57 +140,23 @@ export function ReceptionStaffPage() {
       ) : null}
 
       {staff && staff.length > 0 ? (
-        <table className="mt-4 min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-ink/70">
-              <th className="py-1 pr-4 font-medium">Code</th>
-              <th className="py-1 pr-4 font-medium">Name</th>
-              <th className="py-1 pr-4 font-medium">Status</th>
-              <th className="py-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {staff.map((s) => (
-              <tr key={s.id} className="border-t border-border">
-                <td className="py-1 pr-4">{s.code}</td>
-                <td className="py-1 pr-4">{s.name}</td>
-                <td className="py-1 pr-4">{s.active ? "Active" : "Inactive"}</td>
-                <td className="py-1">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(s)}
-                    className="mr-3 text-xs text-accent disabled:opacity-50"
-                    {...writeGate}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleActive(s)}
-                    disabled={isToggling}
-                    className="text-xs text-red-700 disabled:opacity-50"
-                    {...writeGate}
-                  >
-                    {s.active ? "Deactivate" : "Reactivate"}
-                  </button>
-                  {/* Only on an inactive row (the backend 409s otherwise -
-                      deactivate first, delete later) and only for a
-                      manager, matching how App.tsx hides Users and Audit
-                      Log below manager. The 403 is the real boundary. */}
-                  {!s.active && isManager ? (
-                    <button
-                      type="button"
-                      onClick={() => openDelete(s)}
-                      className="ml-3 text-xs text-red-700"
-                    >
-                      Delete
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <section className="mt-4">
+            <h2 className="text-sm font-semibold">Active</h2>
+            {activeStaff.length > 0 ? (
+              renderTable(activeStaff)
+            ) : (
+              <p className="mt-2 text-sm text-ink/50">No active reception staff.</p>
+            )}
+          </section>
+
+          {inactiveStaff.length > 0 ? (
+            <section className="mt-8">
+              <h2 className="text-sm font-semibold text-ink/70">Inactive</h2>
+              {renderTable(inactiveStaff)}
+            </section>
+          ) : null}
+        </>
       ) : null}
 
       {dialogState.open ? (
