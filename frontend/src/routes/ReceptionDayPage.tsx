@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import {
+  useAssignReceptionFrontDesk,
   useCreateReceptionRotaSession,
   useDeleteReceptionRota,
   useDeleteReceptionRotaSession,
@@ -54,6 +55,7 @@ export function ReceptionDayPage() {
 
   const { data: staff } = useReceptionStaff(true);
   const generateRota = useGenerateReceptionRota();
+  const assignFrontDesk = useAssignReceptionFrontDesk();
   const [generatingWeek, setGeneratingWeek] = useState(false);
   const [weekError, setWeekError] = useState<string | null>(null);
 
@@ -68,7 +70,13 @@ export function ReceptionDayPage() {
     const failures: string[] = [];
     for (const date of weekDates) {
       try {
-        await generateRota.mutateAsync(date);
+        const generated = await generateRota.mutateAsync(date);
+        // Front desk assignment follows a *successful* generate only. It is
+        // deliberately not run after the 409 below: that day already existed,
+        // so it presumably already has its desk assigned, and reshuffling
+        // someone's existing day is not what this button promises. Assigning
+        // an existing day stays a per-day action on its own tab.
+        await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
       } catch (err) {
         const apiErr = err as ApiError;
         // A 409 means this day already has a rota - expected, not a failure.
@@ -165,12 +173,14 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const { data: rota, isLoading, isError, error } = useReceptionRotaByDate(date);
   const generateRota = useGenerateReceptionRota();
   const deleteRota = useDeleteReceptionRota();
+  const assignFrontDesk = useAssignReceptionFrontDesk();
   const createSession = useCreateReceptionRotaSession();
   const updateSession = usePatchReceptionRotaSession();
   const deleteSession = useDeleteReceptionRotaSession();
 
   const notFound = isError && error.status === 404;
-  const saving = savingRange || generateRota.isPending || deleteRota.isPending;
+  const saving =
+    savingRange || generateRota.isPending || deleteRota.isPending || assignFrontDesk.isPending;
 
   function handleGenerate() {
     setActionError(null);
@@ -196,6 +206,17 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
           });
         },
         onError: (err) => setActionError(apiErrorMessage(err, "Could not regenerate this day.")),
+      },
+    );
+  }
+
+  function handleAssignFrontDesk() {
+    if (!rota) return;
+    setActionError(null);
+    assignFrontDesk.mutate(
+      { rotaId: rota.rota_id, date },
+      {
+        onError: (err) => setActionError(apiErrorMessage(err, "Could not assign the front desk.")),
       },
     );
   }
@@ -267,15 +288,26 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
             <p className="text-sm text-ink/70">
               Generated {rota.sessions.length} session{rota.sessions.length === 1 ? "" : "s"}.
             </p>
-            <button
-              type="button"
-              onClick={handleRegenerate}
-              disabled={saving}
-              className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
-              {...writeGate}
-            >
-              Regenerate
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleAssignFrontDesk}
+                disabled={saving}
+                className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
+                {...writeGate}
+              >
+                Assign front desk
+              </button>
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={saving}
+                className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
+                {...writeGate}
+              >
+                Regenerate
+              </button>
+            </div>
           </div>
 
           <div className="mt-3 flex gap-4">
