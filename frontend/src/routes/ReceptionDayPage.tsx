@@ -50,6 +50,9 @@ function tabLabel(date: string): string {
  * exists). "Generate week" is a client-side loop over the five existing
  * per-day POSTs, skipping (not erroring on) any day that already has a
  * rota; regenerating and editing both stay per-day, on the active tab.
+ *
+ * Generating (per-day or per-week) always chains the front-desk assignment
+ * onto the fresh day, so "generate" produces a manned day in one gesture.
  */
 export function ReceptionDayPage() {
   const writeGate = useWriteGate();
@@ -79,8 +82,8 @@ export function ReceptionDayPage() {
         // Front desk assignment follows a *successful* generate only. It is
         // deliberately not run after the 409 below: that day already existed,
         // so it presumably already has its desk assigned, and reshuffling
-        // someone's existing day is not what this button promises. Assigning
-        // an existing day stays a per-day action on its own tab.
+        // someone's existing day is not what this button promises. The only
+        // way to redo an existing day's desk is Regenerate on its own tab.
         await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
       } catch (err) {
         const apiErr = err as ApiError;
@@ -189,14 +192,43 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const saving =
     savingRange || generateRota.isPending || deleteRota.isPending || assignFrontDesk.isPending;
 
-  function handleGenerate() {
-    setActionError(null);
-    generateRota.mutate(date, {
-      onError: (err) => setActionError(apiErrorMessage(err, "Could not generate this day.")),
-    });
+  /**
+   * Generating a day means "copy the template *and* man the front desk" -
+   * two endpoints, always chained, in the same order handleGenerateWeek
+   * uses. They stay separate server-side (POST "" keeps its 409 semantics,
+   * and front-desk assignment stays independently re-runnable), but there
+   * is no longer a button that runs only the first half.
+   *
+   * The two failures are reported separately: a failed assignment still
+   * leaves a generated day on screen, so saying "could not generate" there
+   * would be wrong.
+   */
+  async function generateAndAssignFrontDesk(generateFallback: string) {
+    let generated;
+    try {
+      generated = await generateRota.mutateAsync(date);
+    } catch (err) {
+      setActionError(apiErrorMessage(err as ApiError, generateFallback));
+      return;
+    }
+    try {
+      await assignFrontDesk.mutateAsync({ rotaId: generated.rota_id, date });
+    } catch (err) {
+      setActionError(
+        apiErrorMessage(
+          err as ApiError,
+          "The day was generated, but the front desk could not be assigned.",
+        ),
+      );
+    }
   }
 
-  function handleRegenerate() {
+  function handleGenerate() {
+    setActionError(null);
+    void generateAndAssignFrontDesk("Could not generate this day.");
+  }
+
+  async function handleRegenerate() {
     if (!rota) return;
     const confirmed = window.confirm(
       "Regenerating will delete every edit made to this day and copy the master template fresh. Continue?",
@@ -204,28 +236,13 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
     if (!confirmed) return;
 
     setActionError(null);
-    deleteRota.mutate(
-      { rotaId: rota.rota_id, date },
-      {
-        onSuccess: () => {
-          generateRota.mutate(date, {
-            onError: (err) => setActionError(apiErrorMessage(err, "Could not regenerate this day.")),
-          });
-        },
-        onError: (err) => setActionError(apiErrorMessage(err, "Could not regenerate this day.")),
-      },
-    );
-  }
-
-  function handleAssignFrontDesk() {
-    if (!rota) return;
-    setActionError(null);
-    assignFrontDesk.mutate(
-      { rotaId: rota.rota_id, date },
-      {
-        onError: (err) => setActionError(apiErrorMessage(err, "Could not assign the front desk.")),
-      },
-    );
+    try {
+      await deleteRota.mutateAsync({ rotaId: rota.rota_id, date });
+    } catch (err) {
+      setActionError(apiErrorMessage(err as ApiError, "Could not regenerate this day."));
+      return;
+    }
+    await generateAndAssignFrontDesk("Could not regenerate this day.");
   }
 
   async function handleSave(payloads: ReceptionSavePayload<ReceptionRotaSession>[]): Promise<boolean> {
@@ -278,7 +295,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={generateRota.isPending}
+            disabled={saving}
             className="mt-2 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             {...writeGate}
           >
@@ -298,16 +315,7 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={handleAssignFrontDesk}
-                disabled={saving}
-                className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
-                {...writeGate}
-              >
-                Assign front desk
-              </button>
-              <button
-                type="button"
-                onClick={handleRegenerate}
+                onClick={() => void handleRegenerate()}
                 disabled={saving}
                 className="rounded border border-border px-3 py-1 text-sm text-ink/80 hover:bg-accent/5 disabled:opacity-50"
                 {...writeGate}
