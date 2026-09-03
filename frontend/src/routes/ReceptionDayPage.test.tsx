@@ -289,6 +289,106 @@ describe("ReceptionDayPage", () => {
     expect(patchCalled).toBe(true);
   });
 
+  it("Assign front desk posts to the front-desk endpoint and repaints the grid from the response", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+
+    const before = makeReceptionRotaSession({ session_id: 5, staff_id: 1, hour: 9, role: "phones", note: null });
+    let assigned = false;
+    server.use(
+      http.get("/api/v1/reception/rota", () =>
+        HttpResponse.json(makeReceptionRota({ rota_id: 7, date: monday, sessions: [before], issues: [] })),
+      ),
+      http.post("/api/v1/reception/rota/7/front-desk", () => {
+        assigned = true;
+        // The whole day comes back, not a session delta - the endpoint
+        // rewrites many rows at once.
+        return HttpResponse.json(
+          makeReceptionRota({
+            rota_id: 7,
+            date: monday,
+            sessions: [{ ...before, role: "front_desk" }],
+            issues: [],
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Assign front desk" }));
+
+    await waitFor(() => expect(assigned).toBe(true));
+    expect(await within(screen.getByTestId("reception-cell-1-9")).findByText("Front desk")).toBeInTheDocument();
+  });
+
+  it("surfaces a front-desk assignment failure in the day's error banner", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    const monday = await defaultMonday();
+
+    server.use(
+      http.get("/api/v1/reception/rota", () =>
+        HttpResponse.json(
+          makeReceptionRota({
+            rota_id: 7,
+            date: monday,
+            sessions: [makeReceptionRotaSession({ session_id: 5, staff_id: 1, hour: 9, role: "phones" })],
+            issues: [],
+          }),
+        ),
+      ),
+      http.post("/api/v1/reception/rota/7/front-desk", () =>
+        HttpResponse.json({ detail: "Rota not found" }, { status: 404 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Assign front desk" }));
+
+    expect(await screen.findByText("Rota not found")).toBeInTheDocument();
+  });
+
+  it("generating the week assigns the front desk for each freshly generated day, and not for a 409 day", async () => {
+    const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
+    server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
+    renderWithProviders(<ReceptionDayPage />);
+    await defaultMonday();
+
+    const postedDates: string[] = [];
+    const assignedRotaIds: number[] = [];
+    server.use(
+      http.post("/api/v1/reception/rota", async ({ request }) => {
+        const body = (await request.json()) as { date: string };
+        postedDates.push(body.date);
+        // Wednesday (the third day) already exists.
+        if (postedDates.length === 3) {
+          return HttpResponse.json({ detail: "Rota already exists for this date" }, { status: 409 });
+        }
+        return HttpResponse.json(
+          makeReceptionRota({ rota_id: postedDates.length, date: body.date, sessions: [], issues: [] }),
+          { status: 201 },
+        );
+      }),
+      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) => {
+        const rotaId = Number(params.rotaId);
+        assignedRotaIds.push(rotaId);
+        return HttpResponse.json(makeReceptionRota({ rota_id: rotaId, date: postedDates[rotaId - 1], sessions: [], issues: [] }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Generate week from template" }));
+
+    await waitFor(() => expect(postedDates).toHaveLength(5));
+    // Four assigns, one per generated day; the 409 day (rota id 3, never
+    // returned) is deliberately left alone.
+    await waitFor(() => expect(assignedRotaIds).toEqual([1, 2, 4, 5]));
+    expect(screen.queryByText(/Could not generate every day/)).not.toBeInTheDocument();
+  });
+
   it("generating the week posts once per weekday, skipping days that already exist (409)", async () => {
     const staff = [makeReceptionStaff({ id: 1, code: "AB", active: true })];
     server.use(http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)));
@@ -309,6 +409,11 @@ describe("ReceptionDayPage", () => {
           { status: 201 },
         );
       }),
+      // Each successful generate is followed by a front-desk assignment; the
+      // test above covers which days get one, so this just has to succeed.
+      http.post("/api/v1/reception/rota/:rotaId/front-desk", ({ params }) =>
+        HttpResponse.json(makeReceptionRota({ rota_id: Number(params.rotaId), sessions: [], issues: [] })),
+      ),
     );
 
     const user = userEvent.setup();

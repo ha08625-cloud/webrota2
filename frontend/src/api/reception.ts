@@ -241,6 +241,33 @@ export function useGenerateReceptionRota() {
   });
 }
 
+export interface AssignReceptionFrontDeskPayload {
+  rotaId: number;
+  date: string;
+}
+
+/**
+ * POST /reception/rota/{id}/front-desk - no body. Resets whatever the
+ * assigner wrote last time, then chooses and applies a 2-3 block partition
+ * of 8:00am-6:00pm.
+ *
+ * The response is the whole day, not a session delta (it rewrites many rows
+ * at once), so this overwrites both caches outright the way
+ * useGenerateReceptionRota does rather than splicing. An unsolvable day is
+ * still a 200 - it simply comes back carrying front_desk_gap issues.
+ */
+export function useAssignReceptionFrontDesk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rotaId }: AssignReceptionFrontDeskPayload) =>
+      apiClient.post<ReceptionRota>(`/reception/rota/${rotaId}/front-desk`),
+    onSuccess: (data, { date }) => {
+      queryClient.setQueryData(receptionKeys.rotaByDate(date), data);
+      queryClient.setQueryData(receptionKeys.rotaDetail(data.rota_id), data);
+    },
+  });
+}
+
 export interface DeleteReceptionRotaPayload {
   rotaId: number;
   date: string;
