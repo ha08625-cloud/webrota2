@@ -27,10 +27,14 @@ function apiErrorMessage(err: ApiError, fallback: string): string {
  * grid.
  */
 export function ReceptionMasterPage() {
-  // include_inactive so a leaver's still-present template rows still get
-  // a row to render on (flagged), rather than looking like an orphaned
-  // slot - same reasoning as MasterRotaGrid's useDoctors(false).
-  const { data: staff, isLoading: staffLoading, isError: staffError } = useReceptionStaff(true);
+  // Active staff only. A deactivated member is off the template entirely -
+  // their rows are not deleted, so reactivating them brings the whole
+  // working pattern back without reassigning it, but until then there is
+  // nothing on this page to edit for someone who is not working, and a
+  // flagged (inactive) row was only noise. The day rota page still asks
+  // for the inactive ones, because a day generated before someone left
+  // has real sessions on it that must stay visible.
+  const { data: staff, isLoading: staffLoading, isError: staffError } = useReceptionStaff(false);
   const { data: sessions, isLoading: sessionsLoading, isError: sessionsError } = useReceptionMasterSessions();
   const createSession = useCreateReceptionMasterSession();
   const updateSession = useUpdateReceptionMasterSession();

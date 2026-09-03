@@ -28,7 +28,12 @@ function setUpServer({
   sessions = [] as ReturnType<typeof makeReceptionMasterSession>[],
 } = {}) {
   server.use(
-    http.get("/api/v1/reception/staff", () => HttpResponse.json(staff)),
+    // Honours include_inactive exactly as the real endpoint does, so a
+    // page asking for the wrong list is visible in these tests.
+    http.get("/api/v1/reception/staff", ({ request }) => {
+      const includeInactive = new URL(request.url).searchParams.get("include_inactive") === "true";
+      return HttpResponse.json(includeInactive ? staff : staff.filter((s) => s.active));
+    }),
     http.get("/api/v1/reception/master", () => HttpResponse.json(sessions)),
   );
 }
@@ -46,6 +51,25 @@ describe("ReceptionMasterPage", () => {
     expect(await screen.findByRole("tab", { name: "Monday", selected: true })).toBeInTheDocument();
     const cell = await screen.findByTestId("reception-cell-1-9");
     expect(within(cell).getByText("Phones")).toBeInTheDocument();
+  });
+
+  it("leaves an inactive staff member off the grid entirely, template rows and all", async () => {
+    setUpServer({
+      staff: [
+        makeReceptionStaff({ id: 1, code: "AB", active: true }),
+        makeReceptionStaff({ id: 2, code: "ZZ", name: "Zoe Zed", active: false }),
+      ],
+      sessions: [
+        makeReceptionMasterSession({ session_id: 1, staff_id: 1, day: "Monday", hour: 9, role: "phones" }),
+        makeReceptionMasterSession({ session_id: 2, staff_id: 2, day: "Monday", hour: 9, role: "phones" }),
+      ],
+    });
+    renderWithProviders(<ReceptionMasterPage />);
+
+    await screen.findByTestId("reception-cell-1-9");
+    expect(screen.queryByTestId("reception-cell-2-9")).not.toBeInTheDocument();
+    expect(screen.queryByText("ZZ")).not.toBeInTheDocument();
+    expect(screen.queryByText("(inactive)")).not.toBeInTheDocument();
   });
 
   it("switching the day tab swaps the sessions shown", async () => {
