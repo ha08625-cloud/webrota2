@@ -70,7 +70,6 @@ def _counters(front_desk_hours=None, hours_worked=None):
         StaffRoleCounters(
             staff_id=staff_id,
             code=f"R{staff_id}",
-            name=f"Staff {staff_id}",
             active=True,
             role_slots={
                 role: 0 for role in ReceptionRole

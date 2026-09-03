@@ -80,7 +80,6 @@ def get_reception_counters(
             ReceptionCounterRowOut(
                 staff_id=row.staff_id,
                 staff_code=row.code,
-                staff_name=row.name,
                 active=row.active,
                 hours_worked=row.hours_worked,
                 days_present=row.days_present,

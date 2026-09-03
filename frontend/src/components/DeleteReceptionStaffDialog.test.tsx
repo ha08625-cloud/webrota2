@@ -9,7 +9,7 @@ import { server } from "@/test/msw/server";
 
 import { DeleteReceptionStaffDialog } from "./DeleteReceptionStaffDialog";
 
-const staff = makeReceptionStaff({ id: 4, code: "AB", name: "Ann Brown", active: false });
+const staff = makeReceptionStaff({ id: 4, code: "AB", active: false });
 
 function stubUsage(overrides: Partial<Record<string, number>> = {}) {
   server.use(

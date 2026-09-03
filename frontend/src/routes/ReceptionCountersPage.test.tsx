@@ -14,7 +14,6 @@ function makeRow(overrides: Partial<ReceptionCounterRow> = {}): ReceptionCounter
   return {
     staff_id: 1,
     staff_code: "JS",
-    staff_name: "Jo Smith",
     active: true,
     hours_worked: 0,
     days_present: 0,
@@ -41,9 +40,9 @@ function mockMaster(sessions: unknown[] = []) {
   server.use(http.get("/api/v1/reception/master", () => HttpResponse.json(sessions)));
 }
 
-/** The row cells for one staff member, by their name cell's row. */
-function rowFor(name: string) {
-  return screen.getByText(name).closest("tr") as HTMLElement;
+/** The row cells for one staff member, by their name (`staff_code`) cell. */
+function rowFor(code: string) {
+  return screen.getByText(code).closest("tr") as HTMLElement;
 }
 
 describe("ReceptionCountersPage", () => {
@@ -53,12 +52,12 @@ describe("ReceptionCountersPage", () => {
         staff: [
           makeRow({
             staff_id: 1,
-            staff_name: "Jo Smith",
+            staff_code: "Jo Smith",
             hours_worked: 10,
             days_present: 4,
             role_slots: { phones: 12, admin: 8, not_working: 3 },
           }),
-          makeRow({ staff_id: 2, staff_name: "Alex Lee", hours_worked: 2.5, days_present: 1 }),
+          makeRow({ staff_id: 2, staff_code: "Alex Lee", hours_worked: 2.5, days_present: 1 }),
         ],
       }),
     );
@@ -89,7 +88,7 @@ describe("ReceptionCountersPage", () => {
       makeCounters({
         staff: [
           makeRow({
-            staff_name: "Jo Smith",
+            staff_code: "Jo Smith",
             hours_worked: 10,
             role_slots: { phones: 12, admin: 8 },
           }),
@@ -115,7 +114,7 @@ describe("ReceptionCountersPage", () => {
       makeCounters({
         staff: [
           makeRow({
-            staff_name: "Jo Smith",
+            staff_code: "Jo Smith",
             hours_worked: 1,
             role_slots: { phones: 2, not_working: 10 },
           }),
@@ -149,7 +148,7 @@ describe("ReceptionCountersPage", () => {
   it("labels an inactive staff member with history rather than hiding the row", async () => {
     mockCounters(
       makeCounters({
-        staff: [makeRow({ staff_name: "Sam Old", active: false, hours_worked: 3, days_present: 2 })],
+        staff: [makeRow({ staff_code: "Sam Old", active: false, hours_worked: 3, days_present: 2 })],
       }),
     );
     mockMaster();

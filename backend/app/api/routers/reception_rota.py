@@ -69,7 +69,6 @@ def _session_out(session: ReceptionRotaSession, staff: ReceptionStaff) -> Recept
         session_id=session.id,
         staff_id=session.staff_id,
         staff_code=staff.code,
-        staff_name=staff.name,
         hour=session.hour,
         role=session.role,
         note=session.note,

@@ -62,29 +62,24 @@ def _rows_for(db, model, staff_id):
 
 class TestReceptionStaff:
     def test_create_and_list(self, client, seeded_reception):
-        resp = client.post(STAFF, json={
-            "code": "RE", "name": "Eve Reception",
-        })
+        resp = client.post(STAFF, json={"code": "RE"})
         assert resp.status_code == 201
         body = resp.json()
         assert body["code"] == "RE"
-        assert body["name"] == "Eve Reception"
         assert body["active"] is True
 
         listed = client.get(STAFF).json()
         assert {s["code"] for s in listed} == {"RA", "RB", "RC", "RE"}
 
     def test_duplicate_code_409(self, client, seeded_reception):
-        resp = client.post(STAFF, json={"code": "RA", "name": "Duplicate"})
+        resp = client.post(STAFF, json={"code": "RA"})
         assert resp.status_code == 409
 
-    def test_patch_name(self, client, seeded_reception):
+    def test_patch_code(self, client, seeded_reception):
         url = f"{STAFF}/{seeded_reception['staff_ra']}"
-        resp = client.patch(url, json={"name": "Alice Updated"})
+        resp = client.patch(url, json={"code": "Alice Updated"})
         assert resp.status_code == 200
-        body = resp.json()
-        assert body["name"] == "Alice Updated"
-        assert body["code"] == "RA"  # untouched
+        assert resp.json()["code"] == "Alice Updated"
 
     def test_patch_duplicate_code_409(self, client, seeded_reception):
         url = f"{STAFF}/{seeded_reception['staff_ra']}"
@@ -123,7 +118,7 @@ class TestReceptionStaff:
         assert resp.json()["active"] is True
 
     def test_get_or_404(self, client, seeded_reception):
-        resp = client.patch(f"{STAFF}/999999", json={"name": "X"})
+        resp = client.patch(f"{STAFF}/999999", json={"code": "X"})
         assert resp.status_code == 404
 
 
@@ -156,7 +151,7 @@ class TestStaffUsage:
     def test_readable_by_a_viewer(self, viewer_client, db_session):
         """Usage is a GET, so it is open at every tier even though the
         delete it describes is manager-only."""
-        staff = ReceptionStaff(code="RZ", name="Zed", active=True)
+        staff = ReceptionStaff(code="RZ", active=True)
         db_session.add(staff)
         db_session.commit()
         assert viewer_client.get(f"{STAFF}/{staff.id}/usage").status_code == 200
@@ -251,7 +246,7 @@ class TestPermanentDeleteIsManagerOnly:
 
     @staticmethod
     def _inactive_staff(db):
-        staff = ReceptionStaff(code="RZ", name="Zed", active=False)
+        staff = ReceptionStaff(code="RZ", active=False)
         db.add(staff)
         db.commit()
         return staff.id

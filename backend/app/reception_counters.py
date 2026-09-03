@@ -132,7 +132,6 @@ class StaffRoleCounters:
 
     staff_id: int
     code: str
-    name: str
     active: bool
     role_slots: dict[ReceptionRole, int] = field(default_factory=dict)
     hours_worked: float = 0.0
@@ -142,7 +141,7 @@ class StaffRoleCounters:
 @dataclass
 class RoleCounters:
     """The window's bounds, its generated-day count, and one row per staff
-    member ordered by name.
+    member ordered by code.
 
     `days_counted` is the number of distinct generated dates in range, not the
     number of days in the window: a window with sparse generation contributes
@@ -180,7 +179,7 @@ def compute_role_counters(
     that no longer exist, so past windows lose them entirely.
     """
     staff_rows = db.execute(
-        select(ReceptionStaff).order_by(ReceptionStaff.name, ReceptionStaff.id)
+        select(ReceptionStaff).order_by(ReceptionStaff.code, ReceptionStaff.id)
     ).scalars().all()
     staff_by_id = {s.id: s for s in staff_rows}
 
@@ -246,7 +245,6 @@ def compute_role_counters(
         row = StaffRoleCounters(
             staff_id=staff.id,
             code=staff.code,
-            name=staff.name,
             active=staff.active,
             role_slots={role: 0 for role in ReceptionRole},
         )
@@ -275,7 +273,7 @@ def compute_role_counters(
             continue
         row.days_present = len(dates)
 
-    ordered = sorted(counters.values(), key=lambda r: (r.name, r.staff_id))
+    ordered = sorted(counters.values(), key=lambda r: (r.code, r.staff_id))
     return RoleCounters(
         from_date=from_date,
         to_date=to_date,

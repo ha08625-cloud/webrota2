@@ -116,7 +116,7 @@ export function withPendingReceptionWrite<T extends ReceptionCellData>(
       cells.set(key, { ...existing, ...pending.write });
     } else {
       // A create: there is no row to copy the display-only fields
-      // (staff_code, staff_name, day) off of, and nothing renders them
+      // (staff_code, day) off of, and nothing renders them
       // from a cell - the grid gets them from the staff row instead.
       cells.set(key, {
         session_id: PENDING_SESSION_ID,

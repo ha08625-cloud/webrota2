@@ -1035,23 +1035,25 @@ export type ReceptionRole =
   | "cutteslowe"
   | "wolvercote";
 
+/**
+ * `code` is a reception staff member's only identifier - there is no
+ * separate name. The staff page labels this field "Name"; the wire name
+ * stays `code` to match the column and the `staff_code` joins below.
+ */
 export interface ReceptionStaff {
   id: number;
   code: string;
-  name: string;
   active: boolean;
 }
 
 /** POST /reception/staff body. `active` is not settable here - always true server-side. */
 export interface ReceptionStaffIn {
   code: string;
-  name: string;
 }
 
 /** PATCH /reception/staff/{id} body - every field optional, only supplied fields are applied (model_fields_set). */
 export interface ReceptionStaffPatch {
   code?: string;
-  name?: string;
   active?: boolean;
 }
 
@@ -1088,7 +1090,6 @@ export interface ReceptionMasterSession {
   session_id: number;
   staff_id: number;
   staff_code: string;
-  staff_name: string;
   day: Day;
   hour: number;
   role: ReceptionRole;
@@ -1119,7 +1120,6 @@ export interface ReceptionRotaSession {
   session_id: number;
   staff_id: number;
   staff_code: string;
-  staff_name: string;
   hour: number;
   role: ReceptionRole;
   note: string | null;
@@ -1225,7 +1225,6 @@ export interface ReceptionLeaveBulkDeleteOut {
 export interface ReceptionCounterRow {
   staff_id: number;
   staff_code: string;
-  staff_name: string;
   active: boolean;
   hours_worked: number;
   days_present: number;

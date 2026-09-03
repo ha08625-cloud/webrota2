@@ -46,7 +46,6 @@ class TestReceptionMaster:
         assert body["role"] == "other"
         assert body["note"] == "training"
         assert body["staff_code"] == "RA"
-        assert body["staff_name"] == "Alice Reception"
 
     def test_duplicate_slot_409(self, client, seeded_reception):
         payload = {
