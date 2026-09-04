@@ -31,15 +31,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # docs_only <files> exits 0 (true) only if every changed file is
+          # markdown/text, so a docs-only push/PR still short-circuits even
+          # when it isn't a redundant PR-merge re-test.
+          docs_only() {
+            [ -n "$1" ] && ! echo "$1" | grep -qvE '\.(md|txt)$'
+          }
+
           if [ "${{ github.event_name }}" != "push" ]; then
-            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            if docs_only "$CHANGED"; then
+              echo "Only markdown/text files changed; skipping tests."
+              echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
           PR_NUMBER=$(git log -1 --pretty=%s | grep -oP '(?<=#)\d+' | head -1)
           if [ -z "$PR_NUMBER" ]; then
-            echo "Not a recognisable PR merge commit; running tests."
-            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "Not a recognisable PR merge commit; checking changed files."
+            CHANGED=$(git diff --name-only HEAD^ HEAD)
+            if docs_only "$CHANGED"; then
+              echo "Only markdown/text files changed; skipping tests."
+              echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -52,6 +71,13 @@ jobs:
 
           if git diff --quiet "$PR_HEAD_SHA" HEAD; then
             echo "Merge of PR #$PR_NUMBER matches already-tested head $PR_HEAD_SHA; skipping."
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$PR_HEAD_SHA" HEAD)
+          if docs_only "$CHANGED"; then
+            echo "Merge of PR #$PR_NUMBER differs from tested head only by markdown/text; skipping tests."
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
           else
             echo "Merge of PR #$PR_NUMBER differs from tested head $PR_HEAD_SHA; running tests."
