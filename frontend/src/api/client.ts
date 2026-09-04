@@ -170,14 +170,24 @@ export const apiClient = {
 
   /**
    * POST multipart/form-data, binary response - the "drop a docx, get a
-   * signed docx back" apply endpoint. Returns the filename the server
-   * proposed via Content-Disposition alongside the blob, so the caller can
-   * trigger a same-named download.
+   * transformed docx back" endpoints (signature apply, EOI fill). Returns
+   * the filename the server proposed via Content-Disposition alongside the
+   * blob, so the caller can trigger a same-named download.
+   *
+   * The raw `headers` come back too rather than any endpoint-specific
+   * field: the EOI fill endpoint reports its unmatched rules in
+   * `X-EOI-Unmatched`, and that stays the EOI hook's business to read
+   * (see api/eoi.ts) instead of leaking into this shared transport.
+   * Anything read here must be listed in the backend's CORS
+   * `expose_headers` to be visible cross-origin.
    */
-  postFormBlob: async (path: string, formData: FormData): Promise<{ blob: Blob; filename: string | null }> => {
+  postFormBlob: async (
+    path: string,
+    formData: FormData,
+  ): Promise<{ blob: Blob; filename: string | null; headers: Headers }> => {
     const response = await rawFetch(path, { method: "POST", body: formData });
     await throwIfError(response);
     const blob = await response.blob();
-    return { blob, filename: parseFilename(response) };
+    return { blob, filename: parseFilename(response), headers: response.headers };
   },
 };
