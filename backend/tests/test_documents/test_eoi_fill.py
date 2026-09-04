@@ -1,28 +1,26 @@
 """Tests for app.documents.eoi_fill.fill_eoi.
 
-Every document here is built in-test with python-docx: the module is a
-bytes-in/bytes-out transform, and the rule mechanics (dedup, targeting,
-the two write modes, misses) are all exercisable on small synthetic forms.
-
-The rule table itself is not exercised, because EOI_RULES is still empty
--- the trigger phrases and answer text live in the FillResearchSite macro
-source, which is not yet in the repository. The end-to-end assertions the
-plan calls for (the three vertical merges of the real form, the 38-cell
-snapshot, section-10 reported unmatched, Section 4's sibling checkbox
-lines surviving) belong with that transcription and the committed blank
-form; the merge and same-cell-line mechanics they depend on are covered
-here on synthetic equivalents.
+The rule mechanics -- dedup, targeting, the two write modes, misses --
+are exercised on small documents built in-test with python-docx, since
+the module is a bytes-in/bytes-out transform and synthetic forms make the
+mechanic under test obvious. The real rule table is exercised end to end
+against tests/fixtures/site_id_form_blank.docx, where what matters is
+that all eleven sections land in the right cells of a form with twelve
+merged regions.
 """
 import io
+from pathlib import Path
 
 import pytest
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
-from app.documents.eoi_fill import fill_eoi, normalise_text
-from app.documents.eoi_rules import EoiRule
+from app.documents.eoi_fill import _snapshot, fill_eoi, normalise_text
+from app.documents.eoi_rules import EOI_RULES, EoiRule
 from app.documents.errors import DocumentFormatError
+
+BLANK_FORM = Path(__file__).parents[1] / "fixtures" / "site_id_form_blank.docx"
 
 
 def _to_bytes(document: Document) -> bytes:
@@ -160,22 +158,42 @@ class TestMatching:
 
         assert unmatched == ["rule-x"]
 
-    def test_max_source_length_rejects_a_long_trigger_cell(self):
+    def test_max_target_length_protects_an_already_answered_cell(self):
+        # The macro measured the target cell, not the trigger: the guard
+        # exists so a part-filled form does not lose a hand-written answer.
         rule = EoiRule(
             id="rule-len",
             label="Len",
             required=("trigger phrase",),
-            max_source_length=30,
+            max_target_length=30,
             answer=("answer",),
         )
-        long_cell = "a trigger phrase followed by a great deal more text"
-        docx_bytes = _grid(text={(0, 0): long_cell})
+        answered = "an answer somebody has already written in by hand"
+        filled, unmatched = fill_eoi(
+            _grid(text={(0, 0): "a trigger phrase", (0, 1): answered}), [rule]
+        )
+        assert unmatched == ["rule-len"]
+        assert _reopen(filled).tables[0].rows[0].cells[1].text == answered
+
+        _, matched = fill_eoi(
+            _grid(text={(0, 0): "a trigger phrase", (0, 1): "short"}), [rule]
+        )
+        assert matched == []
+
+    def test_max_target_length_ignores_the_trigger_cell_length(self):
+        rule = EoiRule(
+            id="rule-len",
+            label="Len",
+            required=("trigger phrase",),
+            max_target_length=30,
+            answer=("answer",),
+        )
+        long_trigger = "a trigger phrase followed by a great deal more text"
+        docx_bytes = _grid(text={(0, 0): long_trigger, (0, 1): ""})
 
         _, unmatched = fill_eoi(docx_bytes, [rule])
-        assert unmatched == ["rule-len"]
 
-        short, matched = fill_eoi(_grid(text={(0, 0): "a trigger phrase"}), [rule])
-        assert matched == []
+        assert unmatched == []
 
     def test_unrelated_document_reports_every_rule(self):
         docx_bytes = _grid()
@@ -356,3 +374,93 @@ class TestRuleValidation:
             EoiRule(id="bad", label="Bad", required=(), answer=("a",))
         with pytest.raises(ValueError):
             EoiRule(id="bad", label="Bad", required=("x",), answer=())
+
+
+@pytest.fixture(scope="module")
+def blank() -> bytes:
+    return BLANK_FORM.read_bytes()
+
+
+@pytest.fixture(scope="module")
+def filled(blank):
+    output, unmatched = fill_eoi(blank)
+    return _reopen(output), unmatched
+
+
+class TestTheRealForm:
+    """End-to-end against the committed blank Site Identification form."""
+
+    def test_the_form_table_has_38_distinct_cells(self, blank):
+        # 25 rows x 2 columns with 12 merged regions. A walk that did not
+        # deduplicate would see 50.
+        entries = _snapshot(_reopen(blank))
+        assert sum(1 for e in entries if e.table_index == 1) == 38
+
+    def test_only_section_10_is_unmatched(self, filled):
+        # There is no "Non-Commercial ... Studies" cell on this form. The
+        # macro reported success regardless; the miss is now visible.
+        _, unmatched = filled
+        assert unmatched == ["section-10"]
+
+    @pytest.mark.parametrize(
+        "row, opening",
+        [
+            (1, "Summertown Health Centre"),
+            (2, "Name and Role: Dr Charlie Luo"),
+            (3, "Name and Role: Dr Charlie Luo"),
+            (5, "South Central RRRN sc.rrdn@nihr.ac.uk"),
+            (7, "Summertown Health Centre is based in Oxfordshire"),
+            (11, "Summertown Health Centre has a dedicated GCP trained"),
+            (12, "Based on the information provided"),
+            (14, "Confirmation of capacity and capability"),
+            (18, "We have previous experience recruiting"),
+        ],
+    )
+    def test_each_answer_lands_in_the_cell_to_the_right(self, filled, row, opening):
+        document, _ = filled
+        assert document.tables[1].rows[row].cells[1].text.startswith(opening)
+
+    def test_a_merged_label_does_not_fill_the_next_row(self, filled):
+        # The "Main contact / Research Setting" label is merged across rows
+        # 3-4 in column 0 but not in column 1, so row.cells hands the label
+        # back twice while the two answer cells stay distinct. A walk that
+        # visited it twice would write the contact details over row 4's
+        # Research Setting answer.
+        document, _ = filled
+        assert document.tables[1].rows[4].cells[1].text.startswith("Primary Care Y")
+
+    def test_the_research_setting_lines_survive(self, filled):
+        # The macro replaced the whole cell here, destroying three lines.
+        document, _ = filled
+        cell = document.tables[1].rows[4].cells[1]
+        assert [p.text for p in cell.paragraphs] == [
+            "Primary Care Y",
+            "Secondary Care     Y/N (_)",
+            "Community Care    Y/N (_)",
+            "Other [insert detail here]",
+        ]
+
+    def test_the_investigator_label_is_left_alone(self, filled):
+        # Word splits this label across runs ("Name and " / "R" / "ole:"),
+        # which is why the port replaces whole cells rather than text.
+        document, _ = filled
+        assert document.tables[1].rows[2].cells[0].text == "Investigator"
+
+    def test_the_sponsor_questions_are_left_empty(self, filled):
+        document, _ = filled
+        for row in (21, 22, 23, 24):
+            assert document.tables[1].rows[row].cells[1].text.strip() == ""
+
+    def test_the_answers_inherit_the_form_font(self, filled):
+        document, _ = filled
+        for paragraph in document.tables[1].rows[11].cells[1].paragraphs:
+            for run in paragraph.runs:
+                assert run.font.name == "Arial"
+                assert run.font.size == Pt(9)
+
+    def test_every_rule_writes_its_paragraphs_verbatim(self, filled):
+        document, _ = filled
+        by_id = {rule.id: rule for rule in EOI_RULES}
+        for row, rule_id in ((1, "section-1"), (5, "section-5"), (14, "section-9")):
+            cell = document.tables[1].rows[row].cells[1]
+            assert [p.text for p in cell.paragraphs] == list(by_id[rule_id].answer)

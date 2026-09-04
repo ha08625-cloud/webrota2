@@ -69,16 +69,24 @@ class _CellEntry:
 
 def _snapshot(document: Document) -> list[_CellEntry]:
     """Every distinct cell of every table, in document order, with its
-    normalised text. Vertically merged cells appear once."""
+    normalised text. Merged cells appear once, at their first position.
+
+    Dedup is by id(cell._tc) because _Cell has no __eq__, and it is only
+    sound while every visited cell is kept alive: lxml hands out one proxy
+    per underlying element, but frees it once nothing refers to it, and a
+    later proxy can then land on the same id. `visited` exists solely to
+    hold those references for the duration of the walk -- without it the
+    38-cell reference form dedups down to 13.
+    """
     entries: list[_CellEntry] = []
-    seen: set[int] = set()
+    visited: dict[int, _Cell] = {}
     for table_index, table in enumerate(document.tables):
         for row_index, row in enumerate(table.rows):
             for col_index, cell in enumerate(row.cells):
                 key = id(cell._tc)
-                if key in seen:
+                if key in visited:
                     continue
-                seen.add(key)
+                visited[key] = cell
                 entries.append(
                     _CellEntry(
                         cell=cell,
@@ -228,6 +236,14 @@ def _apply_rule(
         # had resolved last, which on a wider form would write an answer
         # into an unrelated cell without complaining.
         if target is None or id(target.cell._tc) in written:
+            continue
+        # The macro measured the target, not the trigger: this guard is
+        # what stops Section 10 overwriting an answer already written by
+        # hand into a form that has been part-filled.
+        if (
+            rule.max_target_length is not None
+            and len(target.text) >= rule.max_target_length
+        ):
             continue
         _write_cell(target.cell, entry.cell, rule.answer)
         written.add(id(target.cell._tc))

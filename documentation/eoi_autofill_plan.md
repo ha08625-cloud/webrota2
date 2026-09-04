@@ -194,16 +194,21 @@ signing a document, which is already admin-tier, and manager-only would cost a
 
 ## Task 1: Rules and fill engine
 
-**Progress note (Task 1, partial).** The engine is built and tested --
-`eoi_rules.py` (the `EoiRule` dataclass), `eoi_fill.py` (`fill_eoi`, the
-snapshot walk, merge dedup, both write modes, formatting inheritance) and
-`tests/test_documents/test_eoi_fill.py`, all against synthetic documents.
-`EOI_RULES` is still an empty tuple, because **the prerequisites below are
-not done**: the repository is still public, and neither the macro source nor
-the blank form is committed. What remains of this task is the verbatim
-transcription of the eleven rules plus the assertions that need the real form
-(the three vertical merges, the 38-cell snapshot, `section-10` unmatched,
-Section 4's sibling checkbox lines).
+**Task 1 is complete.** Two corrections were made to this plan while
+porting, both because the plan misread the macro:
+
+- **`max_source_length` is `max_target_length`.** Section 10's guard is
+  `Len(Trim(targetCell.Range.Text)) < 50` -- it measures the *answer* cell,
+  not the trigger, and its purpose is to leave alone an answer somebody has
+  already written into a part-filled form. It is applied in `eoi_fill` after
+  the target is resolved, not in `EoiRule.matches`.
+- **The snapshot is 40 cells, not 38.** 38 is the form table; the covering
+  note above it is a second table of two more.
+
+Also worth knowing: `id(cell._tc)` deduplication is only sound while every
+visited cell is kept alive. lxml frees a proxy once nothing refers to it and
+a later proxy can land on the same id, which silently collapses the 38-cell
+form to 13. `_snapshot` holds the references deliberately.
 
 **A. State of the world.** Nothing is built. The prerequisites above are done:
 the repository is private, the macro source is at
@@ -231,9 +236,9 @@ layer only -- no FastAPI, no DB, the same convention as the rest of
    - `label: str` -- human name, for the frontend's warning text.
    - `required: tuple[str, ...]` -- all must appear in the cell text.
    - `excluded: tuple[str, ...] = ()` -- none may appear.
-   - `max_source_length: int | None = None` -- the guard ported from Section
-     10's `Len(Trim(cellText)) < 50`; the trigger cell's stripped text must be
-     shorter than this.
+   - `max_target_length: int | None = None` -- the guard ported from Section
+     10's `Len(Trim(targetCell.Range.Text)) < 50`; the *target* cell's
+     normalised text must be shorter than this.
    - `target: Literal["right_cell", "same_cell_line"] = "right_cell"`.
    - `answer: tuple[str, ...]` -- the paragraphs to write. For
      `same_cell_line` this is exactly one string.
@@ -262,7 +267,7 @@ layer only -- no FastAPI, no DB, the same convention as the rest of
    leaves a Normal-styled empty paragraph behind.
 7. Tests, against the committed blank form:
    - the three vertical merges are each filled exactly once (assert on the
-     resulting cell text, and assert the snapshot length is 38);
+     resulting cell text, and assert the form table's snapshot length is 38);
    - `right_cell` writes to the right and leaves the trigger cell untouched;
    - `same_cell_line` replaces only the matching paragraph -- assert the other
      three "Primary/Secondary/Community/Other" lines survive (defect 1);
@@ -272,7 +277,7 @@ layer only -- no FastAPI, no DB, the same convention as the rest of
      a second write (defect 2);
    - a rule whose trigger differs only in case still matches (defect 3);
    - `section-10` is reported unmatched on this form (defect 4);
-   - `max_source_length` rejects a trigger cell that is too long;
+   - `max_target_length` rejects a target cell that is already answered;
    - written paragraphs carry the expected font/size, not Normal;
    - the returned bytes reopen cleanly in python-docx;
    - a non-docx input raises `DocumentFormatError`.
