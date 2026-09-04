@@ -12,6 +12,7 @@ import {
   SESSION_MANAGEMENT_TABS,
   SessionManagementLayout,
 } from "@/components/SessionManagementTabs";
+import { SignaturesLayout } from "@/components/SignaturesTabs";
 import { AuditLogPage } from "@/routes/AuditLogPage";
 import { CalendarFeedPage } from "@/routes/CalendarFeedPage";
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
@@ -19,6 +20,7 @@ import { ClosuresPage } from "@/routes/ClosuresPage";
 import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
+import { EoiPage } from "@/routes/EoiPage";
 import { ExtraSessionsPage } from "@/routes/ExtraSessionsPage";
 import { LandingPage } from "@/routes/LandingPage";
 import { LeavePage } from "@/routes/LeavePage";
@@ -203,9 +205,10 @@ function ClinicalShell() {
 }
  
 /**
- * Signatures is admin-staff tooling, not part of either rota, so it gets
- * its own top-level page reachable from the landing page rather than
- * living under the clinical section.
+ * Document tooling (signatures, Study EOI autofill) is admin-staff work,
+ * not part of either rota, so it gets its own top-level section reachable
+ * from the landing page rather than living under the clinical section. The
+ * pages inside it are switched with a sub-tab bar, not a left nav.
  */
 function SignaturesShell() {
   const { handleLogout, isLoggingOut } = useHandleLogout();
@@ -213,7 +216,7 @@ function SignaturesShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
-        <span className="text-sm font-semibold">Rota Generator - Signatures</span>
+        <span className="text-sm font-semibold">Rota Generator - Documents</span>
         <div className="flex items-center gap-4">
           <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
             Switch app
@@ -233,7 +236,16 @@ function SignaturesShell() {
         </div>
       </div>
       <main className="flex-1 p-6">
-        <SignaturesPage />
+        <Routes>
+          {/* One layout route so the sub-tab bar is rendered in a single
+              place, above whichever page is active. Signatures is the index
+              route, so the pre-existing /signatures bookmark still lands on
+              it. */}
+          <Route element={<SignaturesLayout />}>
+            <Route index element={<SignaturesPage />} />
+            <Route path="eoi" element={<EoiPage />} />
+          </Route>
+        </Routes>
       </main>
     </div>
   );
@@ -305,7 +317,7 @@ export function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/clinical/*" element={<ClinicalShell />} />
         <Route path="/reception/*" element={<ReceptionShell />} />
-        <Route path="/signatures" element={<SignaturesShell />} />
+        <Route path="/signatures/*" element={<SignaturesShell />} />
       </Routes>
     </BrowserRouter>
   );
