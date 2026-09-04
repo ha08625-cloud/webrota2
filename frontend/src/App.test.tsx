@@ -26,6 +26,7 @@ function renderAt(path: string, accessLevel: AccessLevel = "manager") {
     http.get("/api/v1/doctors", () => HttpResponse.json([])),
     http.get("/api/v1/leave", () => HttpResponse.json([])),
     http.get("/api/v1/closures", () => HttpResponse.json([])),
+    http.get("/api/v1/signatures", () => HttpResponse.json([])),
   );
   window.history.pushState({}, "", path);
 
@@ -150,5 +151,25 @@ describe("ClinicalShell nav by access level", () => {
     renderAt("/clinical/counters", "nurse");
 
     expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The documents section is a sub-tab shell rather than a single page, so
+ * these cover the route conversion: the pre-existing /signatures bookmark
+ * still lands on the signatures page, and the second tab has a route.
+ */
+describe("documents section", () => {
+  it("renders the signatures page at /signatures", async () => {
+    renderAt("/signatures");
+
+    expect(await screen.findByRole("heading", { name: "Signatures" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Study EOI" })).toBeInTheDocument();
+  });
+
+  it("renders the EOI page at /signatures/eoi", async () => {
+    renderAt("/signatures/eoi");
+
+    expect(await screen.findByRole("heading", { name: "Study EOI" })).toBeInTheDocument();
   });
 });

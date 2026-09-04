@@ -5,9 +5,9 @@ import { Link } from "react-router-dom";
  * layout shell) but are otherwise independent sections - see
  * Architecture.md "Shared entry point" for why this split exists rather
  * than a second app. Reception has no scheduling logic yet (planned
- * separately); its tile links to a placeholder page. Signatures is admin
- * staff tooling unrelated to either rota, so it gets its own tile rather
- * than living inside the clinical section.
+ * separately); its tile links to a placeholder page. Documents (signatures
+ * and Study EOI autofill) is admin staff tooling unrelated to either rota,
+ * so it gets its own tile rather than living inside the clinical section.
  */
 export function LandingPage() {
   return (
@@ -35,8 +35,10 @@ export function LandingPage() {
             to="/signatures"
             className="rounded border border-border bg-surface p-6 text-left shadow-sm transition hover:border-accent hover:shadow-md"
           >
-            <h2 className="text-base font-semibold text-ink">Signatures</h2>
-            <p className="mt-2 text-sm text-ink/70">Upload doctor signatures and sign documents.</p>
+            <h2 className="text-base font-semibold text-ink">Documents</h2>
+            <p className="mt-2 text-sm text-ink/70">
+              Sign documents with doctor signatures, and autofill study EOI forms.
+            </p>
           </Link>
         </div>
       </div>
