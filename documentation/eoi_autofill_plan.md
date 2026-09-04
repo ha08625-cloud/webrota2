@@ -194,6 +194,17 @@ signing a document, which is already admin-tier, and manager-only would cost a
 
 ## Task 1: Rules and fill engine
 
+**Progress note (Task 1, partial).** The engine is built and tested --
+`eoi_rules.py` (the `EoiRule` dataclass), `eoi_fill.py` (`fill_eoi`, the
+snapshot walk, merge dedup, both write modes, formatting inheritance) and
+`tests/test_documents/test_eoi_fill.py`, all against synthetic documents.
+`EOI_RULES` is still an empty tuple, because **the prerequisites below are
+not done**: the repository is still public, and neither the macro source nor
+the blank form is committed. What remains of this task is the verbatim
+transcription of the eleven rules plus the assertions that need the real form
+(the three vertical merges, the 38-cell snapshot, `section-10` unmatched,
+Section 4's sibling checkbox lines).
+
 **A. State of the world.** Nothing is built. The prerequisites above are done:
 the repository is private, the macro source is at
 `documentation/reference/FillResearchSite.bas`, and the blank form is at

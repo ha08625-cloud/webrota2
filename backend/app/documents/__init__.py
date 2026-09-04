@@ -18,6 +18,12 @@ access, the same convention as app.engine.
   restrict_editing.py     apply_read_only_protection(): Word Restrict
                            Editing (read-only, fixed password);
                            save_docx(): save an open Document to bytes
+  eoi_rules.py            EoiRule and EOI_RULES: the rule table for the
+                           Site Identification (EOI) form autofill, ported
+                           from the FillResearchSite macro
+  eoi_fill.py             fill_eoi(): apply those rules to an uploaded
+                           form, returning the filled bytes and the ids of
+                           the rules that matched nothing
 
 Usage (the router, Task 3, composes these calls in order):
 
@@ -38,6 +44,8 @@ convert_to_pdf shells out to LibreOffice, so unlike the rest of this
 package it is not pure -- it needs libreoffice-writer installed (see
 nixpacks.toml and the CI test job).
 """
+from .eoi_fill import fill_eoi
+from .eoi_rules import EOI_RULES, EoiRule
 from .errors import ConversionError, DocumentFormatError
 from .pdf_convert import convert_to_pdf
 from .restrict_editing import (
@@ -59,4 +67,7 @@ __all__ = [
     "apply_read_only_protection",
     "save_docx",
     "DEFAULT_LOCK_PASSWORD",
+    "EoiRule",
+    "EOI_RULES",
+    "fill_eoi",
 ]
