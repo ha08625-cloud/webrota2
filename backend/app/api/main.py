@@ -67,6 +67,7 @@ from .routers import (
     counters,
     doctors,
     duty,
+    eoi,
     extra_sessions,
     leave,
     leave_entitlement,
@@ -97,6 +98,14 @@ app.add_middleware(
     allow_credentials=False if _origins == ["*"] else True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Both are read by the frontend off a download response, and neither is
+    # a CORS-safelisted response header, so without this the browser hides
+    # them cross-origin. X-EOI-Unmatched is what the EOI tab needs; listing
+    # Content-Disposition also fixes a pre-existing bug in the signature
+    # flow, whose filename parsing silently fell back to a client-side
+    # guess whenever the frontend was served from a different origin than
+    # the API.
+    expose_headers=["Content-Disposition", "X-EOI-Unmatched"],
 )
 
 # add_middleware PREPENDS, so registering audit after CORS makes the audit
@@ -160,7 +169,7 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar)
+_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar, eoi)
 
 # The ONLY three routers that do not get the global write gate. Do not
 # extend this without a reason as specific as these:

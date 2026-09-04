@@ -17,8 +17,6 @@ from __future__ import annotations
 import datetime
 import logging
 import os
-import re
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -40,6 +38,7 @@ from ...documents import (
 from ...models import Doctor, DoctorSignature
 from ..deps import get_current_user, get_db
 from ..schemas import SignatureMetaOut
+from ._uploads import safe_filename_stem
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,6 @@ _DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
 _PDF_MEDIA_TYPE = "application/pdf"
-_FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._ -]")
 
 # What the admin sees when LibreOffice is missing, wedged, or fails. The real
 # reason is logged; it names temp paths and soffice internals, neither of
@@ -105,13 +103,6 @@ def _sniff_format(data: bytes) -> str:
         "File is not a valid .docx or .rtf document. Word's .doc format is "
         "not supported -- save it as .docx or .rtf and try again."
     )
-
-
-def _safe_filename_stem(filename: str | None) -> str:
-    # Basename only -- never a client-supplied path.
-    stem = Path(filename or "document").stem
-    cleaned = _FILENAME_SAFE.sub("", stem).strip()
-    return cleaned or "document"
 
 
 @router.get("", response_model=list[SignatureMetaOut])
@@ -244,7 +235,7 @@ def apply_signature(
         logger.exception("PDF conversion failed for doctor %s", doctor_id)
         raise HTTPException(status_code=502, detail=_CONVERSION_FAILED_MESSAGE) from exc
 
-    filename = f"{_safe_filename_stem(file.filename)}-signed.{extension}"
+    filename = f"{safe_filename_stem(file.filename)}-signed.{extension}"
     return Response(
         content=out_bytes,
         media_type=media_type,
