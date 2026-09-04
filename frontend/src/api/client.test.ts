@@ -240,6 +240,20 @@ describe("apiClient.postFormBlob", () => {
     expect(result.filename).toBe("letter-signed.docx");
   });
 
+  it("surfaces the raw response headers", async () => {
+    server.use(
+      http.post("/api/v1/blob-form-check", () =>
+        new HttpResponse(new Uint8Array([1]).buffer, {
+          headers: { "X-EOI-Unmatched": "section-4,section-10" },
+        }),
+      ),
+    );
+
+    const result = await apiClient.postFormBlob("/blob-form-check", new FormData());
+
+    expect(result.headers.get("X-EOI-Unmatched")).toBe("section-4,section-10");
+  });
+
   it("returns a null filename when Content-Disposition is missing", async () => {
     server.use(
       http.post("/api/v1/blob-form-check", () => new HttpResponse(new Uint8Array([1]).buffer)),
