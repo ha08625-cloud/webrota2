@@ -3,29 +3,6 @@
 Status: implementation plan (workflow step 2). Reviewed and expanded from the
 provisional plan. Tasks below are sized for individual chats.
 
-## Prerequisites (do these before Task 1)
-
-1. **Make the repository private.** Decided during review. The rule set holds
-   practice-identifying data -- CQC rating, ODP reporting dates, recruitment
-   totals, and the named contacts and site details in the answer paragraphs --
-   and `backend/tests/fixtures/README.md` already records this project's bar
-   for what may be committed to a public repo. The hardcoded-constant design
-   below is only acceptable once visibility is flipped. Note the two knock-on
-   effects: GitHub Actions minutes are metered on private repos (public repos
-   are unmetered), and the Railway deploy needs the GitHub connection to still
-   have access after the change.
-2. **Commit the two source inputs.** Neither is currently in the repository:
-   - the `FillResearchSite` VBA macro source (put it at
-     `documentation/reference/FillResearchSite.bas`), which is the only record
-     of the eleven rules' trigger phrases and answer text;
-   - `76021_Blank_site_ID_form.docx`, as
-     `backend/tests/fixtures/site_id_form_blank.docx`. Check it before
-     committing: it must be the blank template with no sponsor or practice
-     content. Add a section to `backend/tests/fixtures/README.md` saying what
-     it is and that it was checked.
-
-   Task 1 cannot be written without both.
-
 ## Scope
 
 A second tab on the Signatures page that fills the standard sections of an
