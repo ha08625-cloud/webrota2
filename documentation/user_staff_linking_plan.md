@@ -9,34 +9,26 @@ and expanded into an implementation plan before any code is written.
 unrelated. `AccessLevel.DOCTOR` is a permission label, documented in
 `models/enums.py` as "not linked to any Doctor or ReceptionStaff row". So the
 app knows a request came from Charlie, but not that Charlie is `CH` on the
-clinical rota. Every per-person feature is blocked on closing that gap:
-self-service leave requests, a personalised "my rota", an authenticated
-calendar feed, "my leave balance", and later per-user notifications.
+clinical rota.
+
+That gap is what blocks every per-person feature — a personalised "my rota", a
+self-service calendar subscription, "my leave balance", and anything later that
+needs to know whose row is whose. This ticket closes the gap and builds the
+first features that read from it.
 
 ## Scope
 
 **In scope:** an optional link from a `User` to at most one `Doctor` and at most
-one `ReceptionStaff`; managing it; exposing it to the frontend; and the features
-that link unlocks, phased.
+one `ReceptionStaff`; managing that link; exposing it to the frontend; and one
+or more read-only features that use it.
 
-**Out of scope:** changing what `access_level` means; automatic name matching;
-creating logins from the Doctors page; email or push notification of any kind;
-partial approval of a leave request.
+**Out of scope:** anything that lets a user *write* on behalf of their linked
+staff member. Every feature here reads. Nothing in this ticket changes the
+authorization model — reads are already open to all four tiers, so no new
+endpoint needs a permission change, and `require_write_access` is untouched.
 
-## Phasing (a design decision, not scheduling)
-
-The link is a half-day of work. Self-service leave requests is a new model, a
-new router, an approval UI and a change to the API's authorization
-architecture. Shipping them as one unit means a working link sits behind an
-unfinished approval workflow.
-
-- **Phase 1 — the link and read-only self-service.** FK, manager-facing picker,
-  `/auth/me` exposure, and the features that only *read*. Useful standing
-  alone, and it proves the link's shape before anything writes through it.
-- **Phase 2 — leave requests.** Request model, approval workflow, and the
-  authorization change that lets a viewer-tier user write one thing.
-
-Phase 2 should be re-planned after Phase 1 lands, not detailed now.
+Also out of scope: changing what `access_level` means; automatic name matching;
+creating logins from the Doctors page; and notifications of any kind.
 
 ## Design Decisions
 
@@ -46,10 +38,10 @@ Phase 2 should be re-planned after Phase 1 lands, not detailed now.
 under its own unique index.
 
 - **On `users`, not on the staff tables**, because linking is a privilege
-  grant: it decides whose leave you may request and whose rota is "yours". The
-  Users page is manager-only; the Doctors page is writable by any admin.
-  Putting the column on `doctors` would let an admin grant themselves a
-  clinical identity.
+  grant: it decides whose rota is "yours" and, in any future ticket, what you
+  are allowed to act on. The Users page is manager-only; the Doctors page is
+  writable by any admin. Putting the column on `doctors` would let an admin
+  grant themselves a clinical identity.
 - **Two typed FK columns, not a polymorphic `(kind, ref_id)` pair**, which
   would give up referential integrity to save one column in a schema that has
   exactly two staff types and no prospect of a third.
@@ -63,10 +55,10 @@ under its own unique index.
 
 `Doctor.code` is initials-style, `ReceptionStaff.code` is a human-typed display
 name ("Emily M"), and `User.name` is free text. Matching two free-text fields
-where a false positive means booking leave as the wrong person is a bad trade
-for saving a one-off set of dropdown clicks at a practice with a few dozen
-staff. Not even a "suggested match" hint in v1 — the suggestion is what gets
-clicked through.
+where a false positive means showing someone another person's rota as their own
+is a bad trade for saving a one-off set of dropdown clicks at a practice with a
+few dozen staff. Not even a "suggested match" hint in v1 — the suggestion is
+what gets clicked through.
 
 ### D3. The link is orthogonal to `access_level`. Neither derives the other.
 
@@ -104,48 +96,7 @@ carrying `{id, code}` only. `AuthContext` derives `linkedDoctorId` /
 the context rather than reading the user object — the same one-file-change
 property the existing tier comparisons have.
 
-### D6. (Phase 2) A viewer-tier write needs an exemption in `require_write_access`, not a new `_UNGATED` router
-
-`require_write_access` is attached globally in `main.py`'s `include_router`
-loop, so every non-GET 403s for `doctor`/`nurse`. A doctor posting their own
-leave request is exactly that request. Two options exist and only one is
-acceptable:
-
-- Adding the router to `_UNGATED` and gating per-endpoint. This is what
-  `users.py` does, and its own docstring correctly calls it default-OPEN and
-  invisible to `test_authorization.py`'s sweep. Rejected.
-- An exempt `(method, path)` set checked inside `require_write_access` —
-  which `deps.py` already nominates as the intended fix for this exact
-  situation. **Chosen.** It must be a module constant that the authorization
-  sweep imports, so that adding an entry is one deliberate edit in one place
-  and the sweep asserts the exemptions are exactly that set.
-
-An exemption makes the path writable by *every* tier, so the endpoint's own
-ownership check ("this request is for your linked doctor") is the actual
-security boundary, not a convenience. An unlinked user calling it gets a 403.
-
-### D7. (Phase 2) Leave requests are a separate table; `LeaveEntry` stays the engine's truth
-
-A `LeaveRequest` row is a *request*, not leave. Approving one materialises
-`LeaveEntry` rows through the existing bulk-add path, so the engine, the
-charging calculation and the draft-room-release behaviour are untouched and
-un-forked. Rejecting one writes nothing.
-
-Consequences to settle during Phase 2 planning, listed here so they are not
-rediscovered: a request stores a date range plus a period mode (not expanded
-slots), so the chargeable-session count shown at request time is advisory and
-recomputed at approval; approval is whole-request only, with the admin editing
-leave directly afterwards for anything finer; and the existing bulk endpoint's
-"skipped" reporting covers the case where some of the dates already have leave.
-
-### D8. (Phase 2) There is no notification channel, and the badge is the answer
-
-This app sends no email and has no push. A pending request reaches a manager
-only if someone looks at a page, so Phase 2 needs a pending-count badge on the
-nav entry. Accepting that deliberately is better than discovering it after the
-workflow is built.
-
-## Phase 1 — Task Breakdown
+## Task Breakdown
 
 ### Task 1: Data model and migration
 
@@ -184,41 +135,39 @@ excluding staff already claimed by another user. `AuthContext` exposes the
 derived ids per D5. Mirror the new wire fields in `types.ts` by hand, as that
 file's convention requires.
 
-### Task 4: The first read-only self-service features
+### Task 4: The read-only self-service features
 
 Deliberately last, and deliberately small — this task is what proves the link
-is shaped right. Candidates, to be chosen during review rather than all built:
+is shaped right. Candidates, to be narrowed during review rather than all
+built:
 
-- "My rota" — highlight the logged-in user's own row in `RotaGrid`, and default
-  the leave-planning and calendar views to their own doctor.
-- "My leave balance" — the existing entitlement summary, defaulted to self.
-- An authenticated `GET /doctors/me/calendar-feed` returning the current user's
-  feed URL, so a doctor can subscribe without a manager fetching the token for
-  them. The unauthenticated `.ics` route itself is unchanged.
+- **"My rota"** — highlight the logged-in user's own row in `RotaGrid`, and
+  default the leave-planning and calendar views to their own doctor.
+- **"My leave balance"** — the existing entitlement summary, defaulted to self.
+- **Self-service calendar subscription** — an authenticated
+  `GET /doctors/me/calendar-feed` returning the current user's own feed URL, so
+  a doctor can subscribe without a manager fetching the token for them. The
+  unauthenticated `.ics` route itself is unchanged, and the manager-only
+  rotation endpoint stays where it is.
+
+All three are GETs, so none of them touches the authorization model.
 
 ### Task 5: Review and documentation
 
-Phase 1 is live. Fold D1–D5 and the shape of the link into
+The link is live. Fold D1–D5 and the shape of the link into
 `documentation/architecture.md` (it is shared infrastructure — auth, not a
 rota domain), note the reception-delete interaction in
-`documentation/architecture-reception.md`, remove "request leave by user" from
-`documentation/planned_updates.md` only once Phase 2 has shipped, and delete
-this plan file.
+`documentation/architecture-reception.md`, and delete this plan file.
 
 ## Open Questions for the Review Chat
 
-1. **Does reception get self-service leave in Phase 2, or clinical only?**
-   `ReceptionLeaveEntry` is much thinner than `LeaveEntry` (whole days, no
-   period, no notes), so the two request flows would not share a schema. Doing
-   both roughly doubles Phase 2's API and UI surface. Recommendation:
-   clinical first, reception as a follow-on.
-2. **Should an approved leave request be revocable by the requester?** Cancelling
-   approved leave means deleting `LeaveEntry` rows that a committed rota may
-   already reflect. Recommendation: no — cancellation is an admin action.
-3. **Which of Task 4's three candidates is actually wanted first?** Any one of
-   them validates the link; building all three before Phase 2 delays the
-   feature that motivated this.
-4. **Is a doctor allowed to see other doctors' leave?** Today every tier reads
-   everything, and Phase 1 does not change that. Worth confirming that is
-   still intended once individuals have identities in the system, because
-   "everyone sees everything" reads differently when the app knows who you are.
+1. **Which of Task 4's three candidates is actually wanted?** Any one of them
+   validates the link. Building all three turns a small ticket into a large
+   one, and the third (the calendar feed) is the only one that adds an
+   endpoint rather than changing a default.
+2. **Is a doctor allowed to see other doctors' leave and rota?** Today every
+   tier reads everything, and this ticket does not change that. Worth
+   confirming that is still intended once individuals have identities in the
+   system, because "everyone sees everything" reads differently when the app
+   knows who you are — and if the answer is no, that is a much bigger ticket
+   than this one and should not be smuggled into it.
