@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useUpdateUser, useUsers } from "@/api/users";
-import type { AccessLevel, ApiError, AuthUser } from "@/api/types";
+import type { AccessLevel, ApiError, AuthUser, StaffLink } from "@/api/types";
 import { useIsManager } from "@/auth/AuthContext";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { ToastDisplay, useToast } from "@/components/Toast";
@@ -35,6 +35,20 @@ export function UsersPage() {
   }
 
   return <UsersTable />;
+}
+
+/**
+ * Read-only summary of the staff link - the doctor code, the reception
+ * code, both, or an em dash. Editing it is the dialog's job. An inactive
+ * link is marked rather than hidden: it is a supported state (the staff
+ * row was soft-deleted, or hard-deleted reception staff nulled the link
+ * elsewhere), and showing it is how a manager notices it needs attention.
+ */
+function linkedLabel(user: AuthUser): string {
+  const parts = [user.linked_doctor, user.linked_reception_staff]
+    .filter((link): link is StaffLink => link !== null)
+    .map((link) => (link.active ? link.code : `${link.code} (inactive)`));
+  return parts.length > 0 ? parts.join(", ") : "\u2014";
 }
 
 function UsersTable() {
@@ -112,6 +126,7 @@ function UsersTable() {
               <th className="py-1 pr-4 font-medium">Name</th>
               <th className="py-1 pr-4 font-medium">Email</th>
               <th className="py-1 pr-4 font-medium">Access level</th>
+              <th className="py-1 pr-4 font-medium">Linked to</th>
               <th className="py-1" />
             </tr>
           </thead>
@@ -138,6 +153,7 @@ function UsersTable() {
                     ))}
                   </select>
                 </td>
+                <td className="py-1 pr-4">{linkedLabel(u)}</td>
                 <td className="py-1">
                   <button type="button" onClick={() => openEdit(u)} className="mr-3 text-xs text-accent">
                     Edit

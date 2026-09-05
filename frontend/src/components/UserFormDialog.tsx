@@ -2,7 +2,9 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
-import { useCreateUser, useUpdateUser } from "@/api/users";
+import { useDoctors } from "@/api/doctors";
+import { useReceptionStaff } from "@/api/reception";
+import { useCreateUser, useUpdateUser, useUsers } from "@/api/users";
 import type { AccessLevel, ApiError, AuthUser } from "@/api/types";
 import { ACCESS_LEVELS, accessLevelDescription, accessLevelLabel } from "@/lib/accessLevels";
 import {
@@ -25,9 +27,40 @@ interface UserFormDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface StaffOption {
+  id: number;
+  label: string;
+}
+
+/**
+ * The staff rows this user may be linked to: everything not already
+ * claimed by *another* user, plus - always - this user's own current
+ * link, so an existing link renders its own value rather than silently
+ * falling back to "Not linked".
+ *
+ * Inactive rows are included for the same reason and suffixed, because a
+ * link to a soft-deleted doctor is a supported state, not a mistake to
+ * hide (staff linking, D4).
+ */
+function staffOptions(
+  staff: readonly { id: number; code: string; active: boolean }[] | undefined,
+  claimedByOthers: ReadonlySet<number>,
+  currentId: number | "",
+): StaffOption[] {
+  return (staff ?? [])
+    .filter((s) => s.id === currentId || !claimedByOthers.has(s.id))
+    .map((s) => ({ id: s.id, label: s.active ? s.code : `${s.code} (inactive)` }));
+}
+
 export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps) {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
+  // Inactive included in both: see staffOptions. `useUsers()` is already
+  // fetched by the page that renders this dialog, so reading it here to
+  // work out which staff rows are taken costs no extra request.
+  const { data: doctors } = useDoctors(false);
+  const { data: receptionStaff } = useReceptionStaff(true);
+  const { data: users } = useUsers();
 
   const [values, setValues] = useState<UserFormValues>(() =>
     user ? formValuesFromUser(user) : emptyFormValues(),
@@ -37,6 +70,18 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
 
   const isSaving = createUser.isPending || updateUser.isPending;
   const mode = user ? "edit" : "create";
+
+  const otherUsers = (users ?? []).filter((u) => u.id !== user?.id);
+  const doctorOptions = staffOptions(
+    doctors,
+    new Set(otherUsers.flatMap((u) => (u.linked_doctor ? [u.linked_doctor.id] : []))),
+    values.doctor_id,
+  );
+  const receptionOptions = staffOptions(
+    receptionStaff,
+    new Set(otherUsers.flatMap((u) => (u.linked_reception_staff ? [u.linked_reception_staff.id] : []))),
+    values.reception_staff_id,
+  );
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -129,6 +174,62 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
               {fieldErrors.access_level ? (
                 <p className="mt-1 text-xs text-red-700">{fieldErrors.access_level}</p>
               ) : null}
+            </div>
+
+            {/* Identity, not permission: this is what makes "my rota" and
+                the calendar page know who you are, and it is deliberately
+                independent of the access level above (staff linking, D3).
+                Neither handler touches access_level. */}
+            <div>
+              <label className="block text-sm font-medium" htmlFor="user-doctor-id">
+                Linked doctor
+              </label>
+              <select
+                id="user-doctor-id"
+                value={values.doctor_id}
+                onChange={(e) =>
+                  setValues((v) => ({
+                    ...v,
+                    doctor_id: e.target.value === "" ? "" : Number(e.target.value),
+                  }))
+                }
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              >
+                <option value="">Not linked</option>
+                {doctorOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="user-reception-staff-id">
+                Linked reception staff
+              </label>
+              <select
+                id="user-reception-staff-id"
+                value={values.reception_staff_id}
+                onChange={(e) =>
+                  setValues((v) => ({
+                    ...v,
+                    reception_staff_id: e.target.value === "" ? "" : Number(e.target.value),
+                  }))
+                }
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              >
+                <option value="">Not linked</option>
+                {receptionOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-ink/50">
+                Linking tells the app which rota entries are this person's own - it is separate from
+                their access level. Staff already linked to another user are not listed.
+              </p>
             </div>
 
             <div>

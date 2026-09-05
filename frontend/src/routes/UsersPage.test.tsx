@@ -200,4 +200,22 @@ describe("UsersPage below manager", () => {
     // Not even the list request goes out - the backend would 403 it.
     expect(listed).toBe(false);
   });
+
+  it("shows the linked staff codes, marking inactive ones, and a dash when unlinked", async () => {
+    setUpServer([
+      makeAuthUser({
+        id: 1,
+        name: "Ann",
+        linked_doctor: { id: 3, code: "AB", active: true },
+        linked_reception_staff: { id: 7, code: "Emily M", active: false },
+      }),
+      makeAuthUser({ id: 2, name: "Bob" }),
+    ]);
+    renderWithProviders(<UsersPage />);
+
+    const annRow = (await screen.findByText("Ann")).closest("tr");
+    expect(annRow?.textContent).toContain("AB, Emily M (inactive)");
+    const bobRow = (await screen.findByText("Bob")).closest("tr");
+    expect(bobRow?.textContent).toContain("\u2014");
+  });
 });

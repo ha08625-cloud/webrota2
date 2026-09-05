@@ -3,13 +3,21 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { AccessLevel, AuthUser } from "@/api/types";
 
 /**
- * The logged-in user, plus the two booleans everything else in the UI
- * actually asks about (role-based auth, Task 3).
+ * The logged-in user, plus the four derived values everything else in the
+ * UI actually asks about: the two permission booleans (role-based auth,
+ * Task 3) and the two staff-link ids (staff linking, Task 3).
  *
  * The tier comparisons live here and nowhere else: components ask
  * `useCanWrite()` / `useIsManager()` rather than comparing
  * `user.access_level === "manager"` themselves, so adding or renaming a
- * level is a one-file change.
+ * level is a one-file change. The links are unwrapped here for the same
+ * reason: components ask `useLinkedDoctorId()` rather than reaching into
+ * `user.linked_doctor?.id`, so the wire shape of the link lives in one
+ * file.
+ *
+ * The two are independent of each other. `access_level` is what you may
+ * do; the link is who you are on the rota. Neither derives the other -
+ * a manager may be a doctor, a doctor-tier user may have no clinical row.
  *
  * This gating is UX only. The 403 from the API is the security
  * boundary; hiding and disabling controls here just stops a viewer
@@ -21,6 +29,10 @@ export interface AuthState {
   canWrite: boolean;
   /** manager - may additionally manage users. */
   isManager: boolean;
+  /** The Doctor this login belongs to, or null when unlinked. */
+  linkedDoctorId: number | null;
+  /** The ReceptionStaff member this login belongs to, or null when unlinked. */
+  linkedReceptionStaffId: number | null;
 }
 
 /** Tooltip for a control disabled because the current user cannot write. */
@@ -40,6 +52,8 @@ const AuthContext = createContext<AuthState>({
   user: null,
   canWrite: false,
   isManager: false,
+  linkedDoctorId: null,
+  linkedReceptionStaffId: null,
 });
 
 interface AuthProviderProps {
@@ -53,6 +67,8 @@ export function AuthProvider({ user, children }: AuthProviderProps) {
       user,
       canWrite: user !== null && WRITE_LEVELS.includes(user.access_level),
       isManager: user !== null && user.access_level === "manager",
+      linkedDoctorId: user?.linked_doctor?.id ?? null,
+      linkedReceptionStaffId: user?.linked_reception_staff?.id ?? null,
     }),
     [user],
   );
@@ -85,4 +101,18 @@ export function useWriteGate(): { disabled?: true; title?: string } {
 
 export function useIsManager(): boolean {
   return useAuth().isManager;
+}
+
+/**
+ * The linked staff ids, for the features that mean "mine" - defaulting a
+ * picker to you, highlighting your row. Null means unlinked (or no
+ * provider), which every caller must handle by falling back to the
+ * unpersonalised behaviour rather than to some other person's data.
+ */
+export function useLinkedDoctorId(): number | null {
+  return useAuth().linkedDoctorId;
+}
+
+export function useLinkedReceptionStaffId(): number | null {
+  return useAuth().linkedReceptionStaffId;
 }

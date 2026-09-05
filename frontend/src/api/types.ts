@@ -52,12 +52,34 @@ export interface FastApiValidationError {
  */
 export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
 
+/**
+ * The staff row a login is linked to (StaffLinkOut in schemas/auth.py).
+ * `active` rides along so a client can render "AB (inactive)" without a
+ * second lookup - a link to a soft-deleted doctor is a supported state,
+ * because deactivating a doctor never clears the link.
+ */
+export interface StaffLink {
+  id: number;
+  code: string;
+  active: boolean;
+}
+
 export interface AuthUser {
   id: number;
   email: string;
   name: string;
   active: boolean;
   access_level: AccessLevel;
+  /**
+   * The optional link from this login to the person it belongs to on the
+   * rota. Independent of `access_level`, which is a permission tier and
+   * says nothing about identity: a manager may be a doctor, a doctor-tier
+   * user may have no clinical row at all. Read it through
+   * useLinkedDoctorId() / useLinkedReceptionStaffId() rather than
+   * reaching in here.
+   */
+  linked_doctor: StaffLink | null;
+  linked_reception_staff: StaffLink | null;
   created_at: string;
 }
 
@@ -82,6 +104,9 @@ export interface UserIn {
   name: string;
   password: string;
   access_level: AccessLevel;
+  /** null (or omitted) = not linked. A staff row already claimed by another user is a 409. */
+  doctor_id?: number | null;
+  reception_staff_id?: number | null;
 }
 
 /**
@@ -99,6 +124,12 @@ export interface UserPatch {
   active?: boolean;
   access_level?: AccessLevel;
   password?: string;
+  /**
+   * Explicit `null` clears the link; omitting the key leaves it alone.
+   * The form always sends both, so "Not linked" can actually unlink.
+   */
+  doctor_id?: number | null;
+  reception_staff_id?: number | null;
 }
 
 /**
