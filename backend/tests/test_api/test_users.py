@@ -34,8 +34,8 @@ from sqlalchemy import func, select
 import pytest
 
 from app.api.auth_utils import hash_password, hash_token, new_session_token
-from app.models import User, UserSession
-from app.models.enums import AccessLevel
+from app.models import Doctor, ReceptionStaff, User, UserSession
+from app.models.enums import AccessLevel, DoctorType
 
 USERS = "/api/v1/users"
 
@@ -514,3 +514,224 @@ class TestPatchMe:
 
     def test_requires_authentication(self, client_no_auth):
         assert client_no_auth.patch(f"{USERS}/me", json={"name": "X"}).status_code == 401
+
+
+class TestStaffLinks:
+    """The optional link from a login to a rota person (models/user.py).
+
+    The link is orthogonal to access_level in both directions -- setting one
+    never moves the other -- and two of the tests below exist only to pin
+    that, because it is the property most likely to be quietly "helpfully"
+    fudged by a later change.
+    """
+
+    def _doctor(self, db_session, code="AB", active=True):
+        doctor = Doctor(
+            code=code,
+            doctor_type=DoctorType.PARTNER,
+            sessions_per_week=10,
+            active=active,
+        )
+        db_session.add(doctor)
+        db_session.commit()
+        db_session.refresh(doctor)
+        return doctor
+
+    def _staff(self, db_session, code="Emily M"):
+        staff = ReceptionStaff(code=code, active=True)
+        db_session.add(staff)
+        db_session.commit()
+        db_session.refresh(staff)
+        return staff
+
+    def test_create_with_links(self, client, db_session):
+        doctor = self._doctor(db_session)
+        staff = self._staff(db_session)
+        resp = client.post(USERS, json={
+            "email": "linked@example.com", "name": "Linked",
+            "password": "password123", "access_level": "doctor",
+            "doctor_id": doctor.id, "reception_staff_id": staff.id,
+        })
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["linked_doctor"] == {
+            "id": doctor.id, "code": "AB", "active": True
+        }
+        assert body["linked_reception_staff"]["code"] == "Emily M"
+        row = db_session.get(User, body["id"])
+        assert (row.doctor_id, row.reception_staff_id) == (doctor.id, staff.id)
+
+    def test_create_without_links_is_unlinked(self, client):
+        created = _create_user(client, email="plain@example.com")
+        assert created["linked_doctor"] is None
+        assert created["linked_reception_staff"] is None
+
+    def test_create_with_unknown_doctor_404s(self, client):
+        resp = client.post(USERS, json={
+            "email": "ghost@example.com", "name": "Ghost",
+            "password": "password123", "access_level": "doctor",
+            "doctor_id": 999999,
+        })
+        assert resp.status_code == 404, resp.text
+
+    def test_create_with_unknown_reception_staff_404s(self, client):
+        resp = client.post(USERS, json={
+            "email": "ghost2@example.com", "name": "Ghost",
+            "password": "password123", "access_level": "nurse",
+            "reception_staff_id": 999999,
+        })
+        assert resp.status_code == 404, resp.text
+
+    def test_create_with_claimed_doctor_409s(self, client, db_session):
+        doctor = self._doctor(db_session)
+        _create_user(client, email="first@example.com")
+        assert client.patch(
+            f"{USERS}/{_create_user(client, email='holder@example.com')['id']}",
+            json={"doctor_id": doctor.id},
+        ).status_code == 200
+        resp = client.post(USERS, json={
+            "email": "second@example.com", "name": "Second",
+            "password": "password123", "access_level": "doctor",
+            "doctor_id": doctor.id,
+        })
+        assert resp.status_code == 409, resp.text
+
+    def test_patch_sets_changes_and_clears_the_link(self, client, db_session):
+        first = self._doctor(db_session, code="AB")
+        second = self._doctor(db_session, code="CD")
+        created = _create_user(client, email="mover@example.com")
+
+        resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": first.id})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"]["code"] == "AB"
+
+        resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": second.id})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"]["code"] == "CD"
+
+        resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": None})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"] is None
+        db_session.expire_all()
+        assert db_session.get(User, created["id"]).doctor_id is None
+
+    def test_repatching_the_same_link_is_not_a_self_conflict(self, client, db_session):
+        """Re-saving an unchanged form must not 409 against the user's own
+        row -- the claimed-by-another check excludes the patch target."""
+        doctor = self._doctor(db_session)
+        created = _create_user(client, email="resave@example.com")
+        for _ in range(2):
+            resp = client.patch(
+                f"{USERS}/{created['id']}", json={"doctor_id": doctor.id}
+            )
+            assert resp.status_code == 200, resp.text
+
+    def test_patch_to_a_claimed_doctor_409s(self, client, db_session):
+        doctor = self._doctor(db_session)
+        holder = _create_user(client, email="holder@example.com")
+        other = _create_user(client, email="other@example.com")
+        assert client.patch(
+            f"{USERS}/{holder['id']}", json={"doctor_id": doctor.id}
+        ).status_code == 200
+        resp = client.patch(f"{USERS}/{other['id']}", json={"doctor_id": doctor.id})
+        assert resp.status_code == 409, resp.text
+        assert "already exists" not in resp.json()["detail"]
+
+    def test_patch_to_an_unknown_doctor_404s(self, client):
+        created = _create_user(client, email="nowhere@example.com")
+        resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": 999999})
+        assert resp.status_code == 404, resp.text
+
+    def test_unrelated_patch_leaves_the_link_alone(self, client, db_session):
+        doctor = self._doctor(db_session)
+        created = _create_user(client, email="rename@example.com")
+        assert client.patch(
+            f"{USERS}/{created['id']}", json={"doctor_id": doctor.id}
+        ).status_code == 200
+        resp = client.patch(f"{USERS}/{created['id']}", json={"name": "Renamed"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"]["id"] == doctor.id
+
+    def test_patching_access_level_leaves_the_link_alone(self, client, db_session):
+        """D3: neither derives the other."""
+        doctor = self._doctor(db_session)
+        created = _create_user(client, email="tier@example.com", access_level="manager")
+        _create_user(client, email="spare-manager@example.com")
+        assert client.patch(
+            f"{USERS}/{created['id']}", json={"doctor_id": doctor.id}
+        ).status_code == 200
+        resp = client.patch(f"{USERS}/{created['id']}", json={"access_level": "nurse"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "nurse"
+        assert resp.json()["linked_doctor"]["id"] == doctor.id
+
+    def test_linking_does_not_change_access_level(self, client, db_session):
+        """D3, the other direction: a doctor link is not the DOCTOR tier."""
+        doctor = self._doctor(db_session)
+        created = _create_user(client, email="nurse-link@example.com", access_level="nurse")
+        resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": doctor.id})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access_level"] == "nurse"
+        db_session.expire_all()
+        assert db_session.get(User, created["id"]).access_level == AccessLevel.NURSE
+
+    def test_list_carries_links_and_nulls(self, client, db_session):
+        doctor = self._doctor(db_session)
+        linked = _create_user(client, email="listed-linked@example.com")
+        _create_user(client, email="listed-plain@example.com")
+        assert client.patch(
+            f"{USERS}/{linked['id']}", json={"doctor_id": doctor.id}
+        ).status_code == 200
+
+        resp = client.get(USERS)
+        assert resp.status_code == 200, resp.text
+        by_email = {u["email"]: u for u in resp.json()}
+        assert by_email["listed-linked@example.com"]["linked_doctor"]["code"] == "AB"
+        assert by_email["listed-plain@example.com"]["linked_doctor"] is None
+
+    def test_link_to_an_inactive_doctor_serialises_as_inactive(
+        self, client, db_session
+    ):
+        """D4: a soft-deleted doctor never clears the link -- it is shown as
+        inactive instead, so the record of whose login it is survives."""
+        doctor = self._doctor(db_session)
+        created = _create_user(client, email="retired@example.com")
+        assert client.patch(
+            f"{USERS}/{created['id']}", json={"doctor_id": doctor.id}
+        ).status_code == 200
+        doctor.active = False
+        db_session.commit()
+
+        resp = client.get(USERS)
+        by_email = {u["email"]: u for u in resp.json()}
+        link = by_email["retired@example.com"]["linked_doctor"]
+        assert link["id"] == doctor.id
+        assert link["active"] is False
+
+    def test_patch_me_cannot_self_link(self, client_no_auth, db_session):
+        """UserSelfPatch has no doctor_id, so the key is dropped rather than
+        422ing -- the same shape as the access-level test above."""
+        doctor = self._doctor(db_session)
+        _seed_user_directly(
+            db_session, "selflink@example.com", "old-password",
+            access_level=AccessLevel.NURSE,
+        )
+        login = client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "selflink@example.com", "password": "old-password"},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers,
+            json={"name": "Sneaky", "doctor_id": doctor.id},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["name"] == "Sneaky"
+        assert resp.json()["linked_doctor"] is None
+        db_session.expire_all()
+        row = db_session.execute(
+            select(User).where(User.email == "selflink@example.com")
+        ).scalar_one()
+        assert row.doctor_id is None

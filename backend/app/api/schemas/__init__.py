@@ -83,7 +83,15 @@ from .staging import (
 )
 from .school import SchoolHolidayIn, SchoolHolidayOut, SchoolIn, SchoolOut
 from .signature import SignatureMetaOut
-from .auth import LoginIn, LoginOut, UserIn, UserOut, UserPatch, UserSelfPatch
+from .auth import (
+    LoginIn,
+    LoginOut,
+    StaffLinkOut,
+    UserIn,
+    UserOut,
+    UserPatch,
+    UserSelfPatch,
+)
 from .audit import AuditLogEntryOut, AuditLogListOut
 from .recurring_note import RecurringNoteIn, RecurringNoteOut
 from .reception import (
@@ -139,7 +147,8 @@ __all__ = [
     "StagingSessionPatchIn", "StagingSessionCreateIn", "StagingSessionWriteOut",
     "SignatureMetaOut",
     "SchoolIn", "SchoolOut", "SchoolHolidayIn", "SchoolHolidayOut",
-    "LoginIn", "LoginOut", "UserOut", "UserIn", "UserPatch", "UserSelfPatch",
+    "LoginIn", "LoginOut", "StaffLinkOut", "UserOut", "UserIn", "UserPatch",
+    "UserSelfPatch",
     "AuditLogEntryOut", "AuditLogListOut",
     "RecurringNoteIn", "RecurringNoteOut",
     "ReceptionStaffIn", "ReceptionStaffOut", "ReceptionStaffPatch",

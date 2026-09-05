@@ -33,6 +33,17 @@ including the request's own session, so the very next call 401s. That is
 the correct behaviour for a password change, and the frontend handles the
 401 by sending the user back to the login screen.
 
+Staff links: `doctor_id` and `reception_staff_id` (models/user.py) are
+settable on POST and on `PATCH /{user_id}`, both manager-only, and never on
+`PATCH /users/me` -- linking yourself to a rota identity is self-promotion
+of exactly the kind UserSelfPatch's omitted fields exist to prevent. Both
+ids are validated by _validate_staff_links BEFORE any mutation: sending an
+id that does not exist is a 404 and one already claimed by another user is
+a 409, rather than an IntegrityError surfacing from the commit as the
+409 "Email already exists" this file used to raise for every integrity
+failure. Sending an explicit null clears a link; omitting the key leaves it
+alone, because model_dump(exclude_unset=True) distinguishes the two.
+
 Lock-out guard: a PATCH that would leave zero active MANAGERS is
 rejected with 409. There are two ways to get there and both are guarded --
 deactivating the last active manager, and demoting them off `manager`.
@@ -49,7 +60,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import User, UserSession
+from ...models import Doctor, ReceptionStaff, User, UserSession
 from ...models.enums import AccessLevel
 from ..auth_utils import hash_password
 from ..deps import get_current_user, get_db, require_manager
@@ -63,6 +74,47 @@ def _get_or_404(db: Session, user_id: int) -> User:
     if user is None:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
     return user
+
+
+# field on User -> (staff model, human name for the error messages)
+_STAFF_LINKS = {
+    "doctor_id": (Doctor, "Doctor"),
+    "reception_staff_id": (ReceptionStaff, "Reception staff"),
+}
+
+
+def _validate_staff_links(
+    db: Session, updates: dict, exclude_user_id: int | None = None
+) -> None:
+    """404 on an unknown staff id, 409 on one another user already holds.
+
+    Runs before the mutation in both create and patch. Without it a bad id
+    reaches the database and comes back as an IntegrityError, which this
+    file's handler would report as an email conflict. The unique indexes on
+    both columns remain the real guarantee -- this is the readable error in
+    front of them, not a replacement for them.
+
+    `exclude_user_id` is the row being patched, so re-saving a form that
+    did not change the link is not a conflict with itself.
+    """
+    for field, (model, label) in _STAFF_LINKS.items():
+        staff_id = updates.get(field)
+        if staff_id is None:  # absent, or an explicit null that clears it
+            continue
+        if db.get(model, staff_id) is None:
+            raise HTTPException(
+                status_code=404, detail=f"{label} {staff_id} not found"
+            )
+        stmt = select(func.count()).select_from(User).where(
+            getattr(User, field) == staff_id
+        )
+        if exclude_user_id is not None:
+            stmt = stmt.where(User.id != exclude_user_id)
+        if db.execute(stmt).scalar_one() > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{label} {staff_id} is already linked to another user",
+            )
 
 
 def _active_manager_count(db: Session, exclude_id: int | None = None) -> int:
@@ -90,12 +142,15 @@ def create_user(
     db: Session = Depends(get_db),
     user: User = Depends(require_manager),
 ) -> User:
+    _validate_staff_links(db, payload.model_dump(exclude_unset=True))
     new_user = User(
         email=payload.email,
         name=payload.name,
         password_hash=hash_password(payload.password),
         active=True,
         access_level=payload.access_level,
+        doctor_id=payload.doctor_id,
+        reception_staff_id=payload.reception_staff_id,
     )
     db.add(new_user)
     try:
@@ -103,7 +158,11 @@ def create_user(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=409, detail=f"Email '{payload.email}' already exists"
+            status_code=409,
+            detail=(
+                f"Email '{payload.email}' already exists, or a staff link "
+                "was claimed by another user"
+            ),
         ) from exc
     db.refresh(new_user)
     return new_user
@@ -148,6 +207,8 @@ def patch_user(
     target = _get_or_404(db, user_id)
     updates = payload.model_dump(exclude_unset=True)
 
+    _validate_staff_links(db, updates, exclude_user_id=target.id)
+
     # Lock-out guard, both routes to the same end state. Checked before the
     # mutation and inside this request's transaction.
     is_active_manager = target.active and target.access_level == AccessLevel.MANAGER
@@ -180,7 +241,11 @@ def patch_user(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=409, detail="Email already exists"
+            status_code=409,
+            detail=(
+                "Email already exists, or a staff link was claimed by "
+                "another user"
+            ),
         ) from exc
     db.refresh(target)
     return target

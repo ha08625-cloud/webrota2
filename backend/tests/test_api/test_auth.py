@@ -11,8 +11,8 @@ import datetime
 from sqlalchemy import func, select
 
 from app.api.auth_utils import hash_password, hash_token, new_session_token
-from app.models import User, UserSession
-from app.models.enums import AccessLevel
+from app.models import Doctor, User, UserSession
+from app.models.enums import AccessLevel, DoctorType
 
 PROTECTED = "/api/v1/rooms"  # any get_current_user-gated GET works here
 
@@ -198,3 +198,41 @@ class TestSessionLifecycle:
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["access_level"] == "doctor"
+
+    def test_me_returns_the_staff_link(self, client_no_auth, db_session):
+        """How the frontend learns which rota person the caller is. Goes
+        through a real seeded user and a real session on purpose: most
+        fixtures override get_current_user with a stub that has no link at
+        all (see test_api/conftest.py), so nothing about this is observable
+        through them."""
+        doctor = Doctor(
+            code="AB", doctor_type=DoctorType.PARTNER,
+            sessions_per_week=10, active=True,
+        )
+        db_session.add(doctor)
+        db_session.commit()
+        db_session.refresh(doctor)
+
+        user = _make_user(db_session, email="linked@example.com")
+        user.doctor_id = doctor.id
+        db_session.commit()
+        token = _make_session(db_session, user)
+
+        resp = client_no_auth.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"] == {
+            "id": doctor.id, "code": "AB", "active": True
+        }
+        assert resp.json()["linked_reception_staff"] is None
+
+    def test_me_has_no_link_for_an_unlinked_user(self, client_no_auth, db_session):
+        user = _make_user(db_session, email="unlinked@example.com")
+        token = _make_session(db_session, user)
+        resp = client_no_auth.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["linked_doctor"] is None
+        assert resp.json()["linked_reception_staff"] is None
