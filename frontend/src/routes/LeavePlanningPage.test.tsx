@@ -811,4 +811,59 @@ describe("LeavePlanningPage", () => {
       );
     });
   });
+
+  describe("the linked doctor default", () => {
+    const LINKED_BB = { linked_doctor: { id: 2, code: "BB", active: true } };
+
+    it("opens on the doctor this login is linked to", async () => {
+      setUpServer();
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
+      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+
+      expect(await screen.findByTestId("planning-selected-doctor")).toHaveTextContent("BB");
+      expect(screen.getByTestId("planning-row-2")).toHaveAttribute("data-row-selected", "true");
+    });
+
+    it("opens with no doctor selected for an unlinked user", async () => {
+      setUpServer();
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
+      renderWithProviders(<LeavePlanningPage />);
+
+      expect(await screen.findByTestId("planning-row-2")).toHaveAttribute(
+        "data-row-selected",
+        "false",
+      );
+      expect(screen.queryByTestId("planning-selected-doctor")).not.toBeInTheDocument();
+    });
+
+    it("lets the linked user select another doctor, and keeps it across a re-render", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      stubEntitlement([
+        makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AA" }),
+        makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" }),
+      ]);
+      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+
+      await user.click(await screen.findByTestId("planning-doctor-label-1"));
+      expect(await screen.findByTestId("planning-selected-doctor")).toHaveTextContent("AA");
+
+      // A month change re-renders the page; the default must not be
+      // re-applied over the user's own pick.
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(await screen.findByText("September 2026")).toBeInTheDocument();
+      expect(screen.getByTestId("planning-selected-doctor")).toHaveTextContent("AA");
+    });
+
+    it("still clears the highlight when the linked doctor's own label is clicked", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
+      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+
+      await user.click(await screen.findByTestId("planning-doctor-label-2"));
+
+      expect(screen.queryByTestId("planning-selected-doctor")).not.toBeInTheDocument();
+    });
+  });
 });

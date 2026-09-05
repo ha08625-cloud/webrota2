@@ -9,7 +9,7 @@ import {
   useLeaveEntitlements,
 } from "@/api/leave";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
-import { useWriteGate } from "@/auth/AuthContext";
+import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
@@ -73,6 +73,7 @@ function describeSpan(span: {
 
 export function LeavePage() {
   const writeGate = useWriteGate();
+  const linkedDoctorId = useLinkedDoctorId();
   // The filter reads against *all* doctors (including inactive) - a
   // deactivated doctor's historical leave entries are still real rows
   // that should be findable here, not hidden because they're no longer
@@ -88,7 +89,13 @@ export function LeavePage() {
   // filter select still lists inactive doctors to find them).
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
 
-  const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
+  // The table/entitlement filter opens on the login's own doctor (staff
+  // linking) when there is one, so "my leave" is the first thing on
+  // screen. An initial value only - "All doctors" and every other choice
+  // sticks - and the *form* below deliberately does not get the same
+  // treatment: defaulting a write form to yourself is one mis-click from
+  // booking leave for the wrong person.
+  const [filterDoctorId, setFilterDoctorId] = useState<number | null>(linkedDoctorId);
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const { data: entries, isLoading, isError } = useLeave(filterDoctorId);
   // Entitlement shares the calendar's year control: the balance and the

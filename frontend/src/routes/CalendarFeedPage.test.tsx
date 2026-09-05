@@ -23,6 +23,13 @@ function render(accessLevel: AccessLevel = "manager") {
   return renderWithProviders(<CalendarFeedPage />, { accessLevel });
 }
 
+/** Logged in as the user linked to doctor 1 ("AB"). */
+function renderLinked() {
+  return renderWithProviders(<CalendarFeedPage />, {
+    authUser: { linked_doctor: { id: 1, code: "AB", active: true } },
+  });
+}
+
 async function pickDoctor(code: string) {
   // Wait for the options to arrive before selecting: the <select> renders
   // immediately with only the placeholder, so selecting straight away
@@ -148,6 +155,49 @@ describe("CalendarFeedPage", () => {
 
     expect(await screen.findByRole("status")).toHaveTextContent("New link issued");
     expect(rotatedId).toBe("2");
+  });
+
+  it("opens on the linked doctor and marks them as you", async () => {
+    setUpServer();
+    server.use(
+      http.get("/api/v1/doctors/1/calendar-feed", () =>
+        HttpResponse.json({ doctor_id: 1, token: "mine", feed_path: "/api/v1/calendar/mine.ics" }),
+      ),
+    );
+    renderLinked();
+
+    expect(
+      await screen.findByText(`${window.location.origin}/api/v1/calendar/mine.ics`),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "AB (you)" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your calendar link" })).toBeInTheDocument();
+  });
+
+  it("shows no link and no (you) marker for an unlinked user", async () => {
+    setUpServer();
+    render();
+
+    expect(await screen.findByRole("option", { name: "AB" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /\(you\)/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a linked user's own choice of another doctor across a re-render", async () => {
+    setUpServer();
+    renderLinked();
+
+    await pickDoctor("CD");
+
+    expect(
+      await screen.findByRole("heading", { name: "Calendar link for CD" }),
+    ).toBeInTheDocument();
+
+    // A re-render (the toast state changing) must not re-apply the link
+    // default over the user's own pick.
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Link copied");
+    expect(screen.getByRole("heading", { name: "Calendar link for CD" })).toBeInTheDocument();
   });
 
   it("does not rotate when the confirm is declined", async () => {

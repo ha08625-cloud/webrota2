@@ -736,4 +736,54 @@ describe("LeavePage", () => {
       expect(screen.queryByTestId("leave-entitlement")).not.toBeInTheDocument();
     });
   });
+
+  describe("the linked doctor default", () => {
+    const LINKED_AB = { linked_doctor: { id: 1, code: "AB", active: true } };
+
+    it("opens the filter on the doctor this login is linked to", async () => {
+      setUpServer();
+      captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
+
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      await waitFor(() => expect(filter).toHaveValue("1"));
+      expect(await screen.findByTestId("leave-year-calendar")).toBeInTheDocument();
+    });
+
+    it("opens on All doctors for an unlinked user", async () => {
+      setUpServer();
+      captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      renderWithProviders(<LeavePage />);
+
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      expect(filter).toHaveValue("");
+      expect(screen.queryByTestId("leave-year-calendar")).not.toBeInTheDocument();
+    });
+
+    it("leaves the add/remove form's doctor unselected for a linked user", async () => {
+      setUpServer();
+      captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
+
+      // Deliberate: defaulting a *write* form to yourself is one mis-click
+      // from booking leave for the wrong person.
+      const form = await screen.findByLabelText("Doctor", { selector: "#leave-range-doctor" });
+      expect(form).toHaveValue("");
+    });
+
+    it("lets a linked user filter back to All doctors", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
+
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      await waitFor(() => expect(filter).toHaveValue("1"));
+
+      await user.selectOptions(filter, within(filter).getByRole("option", { name: "All doctors" }));
+
+      expect(filter).toHaveValue("");
+      expect(screen.queryByTestId("leave-year-calendar")).not.toBeInTheDocument();
+    });
+  });
 });

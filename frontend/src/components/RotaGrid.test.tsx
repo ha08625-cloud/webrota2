@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import { useRota } from "@/api/rota";
-import type { AccessLevel, ClosedSlot, Rota } from "@/api/types";
+import type { AccessLevel, AuthUser, ClosedSlot, Rota } from "@/api/types";
 import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -59,8 +59,9 @@ function renderRotaGrid(
     onMutationError?: () => void;
   },
   accessLevel: AccessLevel = "manager",
+  authUser: Partial<AuthUser> = {},
 ) {
-  return renderWithProviders(<RotaGridHarness {...props} />, { accessLevel });
+  return renderWithProviders(<RotaGridHarness {...props} />, { accessLevel, authUser });
 }
 
 function setUpServer({
@@ -679,5 +680,59 @@ describe("RotaGrid for a read-only user", () => {
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Duty"));
     expect(await screen.findByLabelText("Working from home")).toBeInTheDocument();
+  });
+});
+
+describe("RotaGrid: the linked doctor's own row", () => {
+  const TWO_DOCTORS = [makeDoctor({ id: 1, code: "AB" }), makeDoctor({ id: 2, code: "CD" })];
+
+  function twoDoctorRota(): Rota {
+    return makeRota({
+      status: "committed",
+      num_weeks: 1,
+      sessions: [
+        makeRotaSession({ doctor_id: 1, day: "Monday", period: "AM", role: "duty_primary" }),
+        makeRotaSession({ doctor_id: 2, day: "Monday", period: "AM", role: "clinic" }),
+      ],
+    });
+  }
+
+  it("marks only the row of the doctor this login is linked to", async () => {
+    setUpServer({ doctors: TWO_DOCTORS });
+
+    renderRotaGrid({ rota: twoDoctorRota() }, "doctor", {
+      linked_doctor: { id: 2, code: "CD", active: true },
+    });
+
+    const mine = await screen.findByTestId("doctor-row-header-2");
+    expect(mine).toHaveAttribute("data-linked-doctor", "true");
+    expect(within(mine).getByText("(you)")).toBeInTheDocument();
+
+    const theirs = screen.getByTestId("doctor-row-header-1");
+    expect(theirs).not.toHaveAttribute("data-linked-doctor");
+    expect(within(theirs).queryByText("(you)")).not.toBeInTheDocument();
+  });
+
+  it("marks no row for an unlinked user", async () => {
+    setUpServer({ doctors: TWO_DOCTORS });
+
+    renderRotaGrid({ rota: twoDoctorRota() });
+
+    await screen.findByTestId("doctor-row-header-1");
+    expect(screen.queryByText("(you)")).not.toBeInTheDocument();
+  });
+
+  it("leaves the cells themselves untouched", async () => {
+    setUpServer({ doctors: TWO_DOCTORS });
+
+    renderRotaGrid({ rota: twoDoctorRota() }, "manager", {
+      linked_doctor: { id: 1, code: "AB", active: true },
+    });
+
+    // The marker lives on the row header only - cell colouring is
+    // unchanged, so no state becomes unreadable.
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+    expect(cell.className).toContain("bg-red-100");
+    expect(within(cell).queryByText("(you)")).not.toBeInTheDocument();
   });
 });
