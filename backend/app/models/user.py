@@ -28,19 +28,60 @@ accidental viewer is recoverable, an accidental manager is a silent
 security hole. The API never relies on that default (UserIn requires
 access_level), so the server_default only ever applies to rows inserted
 by direct SQL, e.g. by a script or a manual psql session.
+
+doctor_id / reception_staff_id optionally link a login to the person it
+belongs to on each rota. Both are nullable: a practice manager has a login
+and no rota presence, and a locum may have a Doctor row and no login, so
+"unlinked" is a normal, permanent state on both sides rather than a gap to
+be filled in.
+
+The columns live here, on users, and not on doctors/reception_staff,
+because the link is a privilege grant -- it decides whose rota is "yours"
+and, in any later feature, what you may act on. Users are manager-only to
+edit, while the Doctors page is writable by any admin; a doctor_user_id
+column on doctors would therefore let an admin hand themselves a clinical
+identity.
+
+They are two typed foreign keys rather than one polymorphic
+(staff_kind, staff_id) pair. The polymorphic form saves a column and gives
+up referential integrity to do it, in a schema that has exactly two staff
+types and no prospect of a third.
+
+Each column carries its own unique index, and that -- not any constraint on
+the staff tables -- is what makes the relationship 0..1 on both sides: at
+most one user per staff row, at most one staff row per user. It works
+because SQLite and Postgres both treat NULLs as distinct in a unique index,
+so any number of users may sit unlinked while no two users can claim the
+same doctor. Setting both columns on one user is allowed: a nurse who also
+covers reception is real, and permitting it costs nothing.
+
+The link is orthogonal to access_level; neither derives the other. A
+partner who runs the rota needs the manager tier and a doctor link, a
+practice manager needs neither. AccessLevel.DOCTOR stays what its docstring
+says it is -- a label, permission-identical to NURSE.
 """
 import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .enums import AccessLevel, enum_col
 
+if TYPE_CHECKING:
+    from .doctor import Doctor
+    from .reception import ReceptionStaff
+
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_users_email"),
+        # Named explicitly: the migration's downgrade drops them by name.
+        Index("uq_users_doctor_id", "doctor_id", unique=True),
+        Index("uq_users_reception_staff_id", "reception_staff_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String, nullable=False)
@@ -53,11 +94,25 @@ class User(Base):
         default=AccessLevel.NURSE,
         server_default=AccessLevel.NURSE.value,
     )
+    # The rota person this login belongs to, if any. See the module
+    # docstring for why these sit here and why each is uniquely indexed.
+    doctor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("doctors.id"), nullable=True
+    )
+    reception_staff_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reception_staff.id"), nullable=True
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.datetime.now(datetime.timezone.utc),
     )
+
+    # No back_populates on either: nothing on the staff side needs to
+    # navigate to a user, and a back-reference would put a user-shaped
+    # attribute on Doctor -- exactly what keeping the columns here avoids.
+    doctor: Mapped["Doctor | None"] = relationship()
+    reception_staff: Mapped["ReceptionStaff | None"] = relationship()
 
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

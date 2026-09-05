@@ -6,7 +6,7 @@ TestPermanentDelete below.
 """
 import datetime
 
-from app.api.routers.reception_staff import PURGED_MODELS
+from app.api.routers.reception_staff import NULLED_TABLES, PURGED_MODELS
 from app.database import Base
 from app.models import (
     ReceptionLeaveEntry,
@@ -14,6 +14,7 @@ from app.models import (
     ReceptionRota,
     ReceptionRotaSession,
     ReceptionStaff,
+    User,
 )
 from app.models.enums import Day, ReceptionRole
 
@@ -239,6 +240,32 @@ class TestPermanentDelete:
     def test_404_on_unknown_id(self, client, seeded_reception):
         assert client.delete(f"{STAFF}/999999").status_code == 404
 
+    def test_linked_user_is_nulled_not_deleted(
+        self, client, db_session, seeded_reception
+    ):
+        """users references reception_staff but is nulled, not purged: the
+        login survives the staff member it pointed at, and the null-out is
+        not reported among the destroyed-history counts."""
+        staff_id = seeded_reception["staff_ra"]
+        linked = User(
+            email="linked@example.com",
+            name="Linked",
+            password_hash="x",
+            reception_staff_id=staff_id,
+        )
+        db_session.add(linked)
+        db_session.commit()
+        _deactivate(client, staff_id)
+
+        resp = client.delete(f"{STAFF}/{staff_id}")
+        assert resp.status_code == 200, resp.text
+        assert "users" not in resp.json()["deleted"]
+
+        db_session.expire_all()
+        survivor = db_session.get(User, linked.id)
+        assert survivor is not None
+        assert survivor.reception_staff_id is None
+
 
 class TestPermanentDeleteIsManagerOnly:
     """One client fixture per test -- they share app.dependency_overrides,
@@ -278,8 +305,11 @@ def test_purged_models_covers_every_fk_to_reception_staff():
                 if fk.column.table.name == "reception_staff":
                     referencing.add(table.name)
 
-    assert referencing == {m.__tablename__ for m in PURGED_MODELS}, (
-        "a table references reception_staff but is not purged when a staff "
-        "member is deleted -- add its model to PURGED_MODELS in "
+    assert referencing == {m.__tablename__ for m in PURGED_MODELS} | set(
+        NULLED_TABLES
+    ), (
+        "a table references reception_staff but is neither purged nor nulled "
+        "when a staff member is deleted -- add its model to PURGED_MODELS "
+        "(or its table to NULLED_TABLES) in "
         "app/api/routers/reception_staff.py"
     )
