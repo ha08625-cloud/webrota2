@@ -9,7 +9,7 @@ import { useLeave, useLeaveEntitlements } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
 import type { ApiError, PlanningBulkOut } from "@/api/types";
-import { useWriteGate } from "@/auth/AuthContext";
+import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { toClosedSlotSet } from "@/lib/closedSlots";
@@ -108,6 +108,7 @@ function summariseSave(result: PlanningBulkOut): string {
 
 export function LeavePlanningPage() {
   const writeGate = useWriteGate();
+  const linkedDoctorId = useLinkedDoctorId();
   const today = new Date();
   const [{ year, month }, setMonth] = useState({
     year: today.getFullYear(),
@@ -117,7 +118,10 @@ export function LeavePlanningPage() {
   // Which doctor's row is highlighted, and whose leave balance is shown.
   // A reading aid only - it never affects an edit. Kept across month
   // changes: following one doctor through the year is the point of it.
-  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+  // Seeded from the login's linked doctor (staff linking) as an initial
+  // value only, never re-applied by an effect: the page opens on your own
+  // row, and Clear or a click on another doctor sticks.
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(linkedDoctorId);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSummary, setSaveSummary] = useState<string | null>(null);
 

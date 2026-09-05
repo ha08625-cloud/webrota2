@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import type { AccessLevel } from "@/api/types";
+import type { AccessLevel, AuthUser } from "@/api/types";
 import { AuthProvider } from "@/auth/AuthContext";
 
 import { makeAuthUser } from "./fixtures/reference";
@@ -28,10 +28,24 @@ interface RenderWithProvidersOptions {
    * what a read-only user gets, or "admin" for writes-but-not-users.
    */
   accessLevel?: AccessLevel;
+  /**
+   * Any other field of the logged-in user the tree sees. Mostly for the
+   * staff link (`linked_doctor` / `linked_reception_staff`), which the
+   * self-service defaults read through useLinkedDoctorId(): a test for
+   * "opens on my own row" supplies one here, and the fixture's unlinked
+   * default keeps every other test seeing the pre-link behaviour.
+   */
+  authUser?: Partial<AuthUser>;
 }
 
 export function renderWithProviders(ui: ReactElement, options: RenderWithProvidersOptions = {}) {
-  const { route = "/", path = "/", additionalRoutes = [], accessLevel = "manager" } = options;
+  const {
+    route = "/",
+    path = "/",
+    additionalRoutes = [],
+    accessLevel = "manager",
+    authUser = {},
+  } = options;
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -41,7 +55,7 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <AuthProvider user={makeAuthUser({ access_level: accessLevel })}>
+        <AuthProvider user={makeAuthUser({ access_level: accessLevel, ...authUser })}>
           <MemoryRouter initialEntries={[route]}>
             <Routes>
               <Route path={path} element={ui} />
@@ -62,8 +76,12 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
  * because the component consults the auth context. Pass as
  * `render(ui, { wrapper: authWrapper("nurse") })`.
  */
-export function authWrapper(accessLevel: AccessLevel = "manager") {
+export function authWrapper(accessLevel: AccessLevel = "manager", authUser: Partial<AuthUser> = {}) {
   return function AuthWrapper({ children }: { children: ReactNode }) {
-    return <AuthProvider user={makeAuthUser({ access_level: accessLevel })}>{children}</AuthProvider>;
+    return (
+      <AuthProvider user={makeAuthUser({ access_level: accessLevel, ...authUser })}>
+        {children}
+      </AuthProvider>
+    );
   };
 }

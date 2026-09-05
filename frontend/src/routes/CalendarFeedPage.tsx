@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useCalendarFeed, useRotateCalendarFeed } from "@/api/calendarFeed";
 import { useDoctors } from "@/api/doctors";
 import type { ApiError } from "@/api/types";
-import { useIsManager } from "@/auth/AuthContext";
+import { useIsManager, useLinkedDoctorId } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 
 /** Tooltip for the rotate control when the user is below manager. */
@@ -53,11 +53,14 @@ function SubscriptionInstructions() {
 /**
  * Where a doctor comes to get the URL of their own .ics feed.
  *
- * The feed is identified by its token, not by who is logged in - there is
- * no link between a User and a Doctor row - so this page asks the user to
- * pick themselves from the list and copies that doctor's URL. Picking the
- * wrong one puts the wrong rota in your calendar, which is immediately
- * obvious and fixed by re-subscribing.
+ * The feed is identified by its token, not by who is logged in, so the
+ * page is a doctor picker. A login linked to a Doctor row (staff
+ * linking) opens on that doctor, marked "(you)", which is the whole
+ * point: the page's one real failure mode is picking someone else and
+ * putting a colleague's rota in your calendar. The picker stays for an
+ * unlinked user, and for a manager fetching someone else's URL - there
+ * the wrong pick is still possible, immediately obvious, and fixed by
+ * re-subscribing.
  *
  * The absolute URL is composed here from window.location.origin rather
  * than server-side: behind a proxy the server sees whatever scheme was
@@ -68,7 +71,13 @@ function SubscriptionInstructions() {
 export function CalendarFeedPage() {
   // Active doctors only - a leaver is not being handed a subscription link.
   const { data: doctors, isLoading, isError } = useDoctors(true);
-  const [doctorId, setDoctorId] = useState<number | undefined>(undefined);
+  const linkedDoctorId = useLinkedDoctorId();
+  // An initial value, not an effect: the link seeds the picker once, and
+  // a later choice of another doctor is never overwritten by a re-render.
+  // An unlinked user starts on the placeholder exactly as before. A link
+  // to a deactivated doctor still yields their feed, though the select
+  // shows the placeholder - the list here is active doctors only.
+  const [doctorId, setDoctorId] = useState<number | undefined>(linkedDoctorId ?? undefined);
   const { data: feed } = useCalendarFeed(doctorId);
   const rotate = useRotateCalendarFeed();
   const isManager = useIsManager();
@@ -117,7 +126,10 @@ export function CalendarFeedPage() {
       <h1 className="text-lg font-semibold">Calendar Feed</h1>
       <p className="mt-2 text-sm text-ink/70">
         Subscribe to your own sessions from committed rotas in Google Calendar, Apple Calendar or
-        Outlook. Pick your name to see your private link.
+        Outlook.{" "}
+        {linkedDoctorId === null
+          ? "Pick your name to see your private link - picking the wrong one puts someone else's rota in your calendar."
+          : "Your own name is selected by default; pick another doctor to see their link instead."}
       </p>
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
@@ -135,7 +147,7 @@ export function CalendarFeedPage() {
           <option value="">Select a doctor...</option>
           {(doctors ?? []).map((doctor) => (
             <option key={doctor.id} value={doctor.id}>
-              {doctor.code}
+              {doctor.id === linkedDoctorId ? `${doctor.code} (you)` : doctor.code}
             </option>
           ))}
         </select>
@@ -143,7 +155,14 @@ export function CalendarFeedPage() {
 
       {url ? (
         <div className="mt-6">
-          <h2 className="text-sm font-medium text-ink">Your calendar link</h2>
+          <h2 className="text-sm font-medium text-ink">
+            {/* "Your" unless a linked user has deliberately picked
+                someone else - an unlinked user has only ever been
+                fetching their own link here. */}
+            {linkedDoctorId !== null && doctorId !== linkedDoctorId
+              ? `Calendar link for ${selectedDoctor?.code ?? "this doctor"}`
+              : "Your calendar link"}
+          </h2>
           <div className="mt-2 flex items-start gap-3">
             <code className="min-w-0 flex-1 break-all rounded border border-border bg-surface px-2 py-1 text-xs">
               {url}

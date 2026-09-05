@@ -17,7 +17,7 @@ import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
 import type { ClinicType, Day, Period, Room, Rota, RotaSession } from "@/api/types";
-import { useCanWrite } from "@/auth/AuthContext";
+import { useCanWrite, useLinkedDoctorId } from "@/auth/AuthContext";
 import { CellEditPopover, type RoleTriple } from "@/components/CellEditPopover";
 import { mutationAppliedMessage } from "@/components/Toast";
 import { WeekTabs } from "@/components/WeekTabs";
@@ -85,6 +85,16 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
   // (role-based auth, Task 3).
   const canWrite = useCanWrite();
   const editable = rota.status === "draft" && canWrite;
+
+  // "Which row is me" (staff linking). Read from the auth context rather
+  // than taken as a prop, so no page has to thread identity down into the
+  // grid. Presentation only: it changes nothing about what is editable,
+  // draggable or clickable, and a user with no link - or whose doctor has
+  // no row in this rota - sees the grid exactly as before. The treatment
+  // is a left edge and a "(you)" label on the sticky doctor column,
+  // deliberately not a background fill: cell backgrounds already carry
+  // Q13's colouring and must stay readable.
+  const linkedDoctorId = useLinkedDoctorId();
 
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
@@ -308,6 +318,8 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
       <tbody>
         {grid.rows.map(({ doctor, inactiveWithSessions }, rowIndex) => {
           const isLastDoctor = rowIndex === grid.rows.length - 1;
+          const isLinkedDoctor = doctor.id === linkedDoctorId;
+          const linkedEdgeClass = isLinkedDoctor ? "border-l-4 border-l-accent" : "";
           // Computed independently of periodIndex: the doctor cell only
           // renders once (rowSpan, at periodIndex 0) but its bottom edge
           // sits at the PM row regardless, so it can't reuse the
@@ -326,9 +338,14 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
                 {periodIndex === 0 ? (
                   <td
                     rowSpan={PERIODS.length}
-                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass}`}
+                    data-testid={`doctor-row-header-${doctor.id}`}
+                    data-linked-doctor={isLinkedDoctor ? "true" : undefined}
+                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass} ${linkedEdgeClass}`}
                   >
-                    <div>{doctor.code}</div>
+                    <div>
+                      {doctor.code}
+                      {isLinkedDoctor ? <span className="ml-1 text-xs font-normal text-accent">(you)</span> : null}
+                    </div>
                     {inactiveWithSessions ? (
                       <div className="text-xs text-ink/50">(inactive)</div>
                     ) : null}
