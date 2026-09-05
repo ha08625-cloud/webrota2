@@ -39,6 +39,12 @@ unrelated future code path could trigger. The cost is that a table added
 later with a staff FK would not be purged, so PURGED_MODELS below is asserted
 against the metadata by tests/test_api/test_reception_staff.py.
 
+`users.reception_staff_id` is the one referencing column the delete nulls
+rather than purges: a user row is a login, not history of the staff member.
+NULLED_TABLES below records that, so the FK-coverage tripwire covers it
+without the delete ever destroying a login. The null-out is not reported in
+the response counts, which exist to report destroyed history.
+
 `reception_rotas` headers are left standing even when the purge empties one:
 an empty header already means "generated, then every row deleted", as
 distinct from "never generated" (see models/reception.py), and deleting it
@@ -51,7 +57,7 @@ surface here, so it must also offer a way back to reactivate someone.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, distinct, func, select
+from sqlalchemy import delete, distinct, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -85,6 +91,16 @@ PURGED_MODELS = (
     ReceptionMasterSession,
     ReceptionRotaSession,
 )
+
+# Tables that reference reception_staff but are *nulled*, not purged, by the
+# delete. `users` is the only one: a user row is a login, not history of the
+# staff member, so destroying it would be catastrophic rather than merely
+# wrong, and it has no staff_id column for the purge loop to key on. It is
+# kept out of PURGED_MODELS (and out of the response counts, which report
+# destroyed history) but named here so the FK-coverage tripwire in
+# tests/test_api/test_reception_staff.py still has exactly one correct
+# answer for every table that references reception_staff.
+NULLED_TABLES = ("users",)
 
 
 def _get_or_404(db: Session, staff_id: int) -> ReceptionStaff:
@@ -209,6 +225,15 @@ def delete_staff(
     # time: ReceptionRota.sessions carries cascade="all, delete-orphan", so a
     # bulk delete that tried to synchronise a loaded parent's collection is a
     # footgun worth ruling out explicitly.
+    # Drop the login link first (NULLED_TABLES): users are not purged, and
+    # the FK would otherwise block the delete of the staff row below.
+    db.execute(
+        update(User)
+        .where(User.reception_staff_id == staff.id)
+        .values(reception_staff_id=None)
+        .execution_options(synchronize_session=False)
+    )
+
     counts: dict[str, int] = {}
     for model in PURGED_MODELS:
         result = db.execute(
