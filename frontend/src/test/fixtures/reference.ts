@@ -256,6 +256,10 @@ export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
     // Manager by default so fixtures keep exercising the full UI; tests
     // about a lower tier pass an override (role-based auth, Task 3).
     access_level: "manager",
+    // Unlinked by default: the link is opt-in, and a test that cares
+    // about "my rota" supplies one via overrides.
+    linked_doctor: null,
+    linked_reception_staff: null,
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
