@@ -89,7 +89,7 @@ describe("AuthContext tiers", () => {
 
 // The link is identity, not permission: these tests deliberately use a
 // nurse-tier user with a doctor link, the combination that would break if
-// anyone ever derived one from the other (staff linking, D3).
+// anyone ever derived one from the other.
 describe("AuthContext staff links", () => {
   it("unwraps both linked ids for a linked user", () => {
     render(

@@ -653,7 +653,8 @@ class TestStaffLinks:
         assert resp.json()["linked_doctor"]["id"] == doctor.id
 
     def test_patching_access_level_leaves_the_link_alone(self, client, db_session):
-        """D3: neither derives the other."""
+        """Identity and permission are orthogonal: neither derives the
+        other, so changing the tier must not disturb the link."""
         doctor = self._doctor(db_session)
         created = _create_user(client, email="tier@example.com", access_level="manager")
         _create_user(client, email="spare-manager@example.com")
@@ -666,7 +667,7 @@ class TestStaffLinks:
         assert resp.json()["linked_doctor"]["id"] == doctor.id
 
     def test_linking_does_not_change_access_level(self, client, db_session):
-        """D3, the other direction: a doctor link is not the DOCTOR tier."""
+        """The other direction: a doctor link is not the DOCTOR tier."""
         doctor = self._doctor(db_session)
         created = _create_user(client, email="nurse-link@example.com", access_level="nurse")
         resp = client.patch(f"{USERS}/{created['id']}", json={"doctor_id": doctor.id})
@@ -692,7 +693,7 @@ class TestStaffLinks:
     def test_link_to_an_inactive_doctor_serialises_as_inactive(
         self, client, db_session
     ):
-        """D4: a soft-deleted doctor never clears the link -- it is shown as
+        """A soft-deleted doctor never clears the link -- it is shown as
         inactive instead, so the record of whose login it is survives."""
         doctor = self._doctor(db_session)
         created = _create_user(client, email="retired@example.com")

@@ -40,7 +40,8 @@ interface StaffOption {
  *
  * Inactive rows are included for the same reason and suffixed, because a
  * link to a soft-deleted doctor is a supported state, not a mistake to
- * hide (staff linking, D4).
+ * hide: a doctor DELETE is a soft delete, so clearing the link would lose
+ * the record of whose login this is.
  */
 function staffOptions(
   staff: readonly { id: number; code: string; active: boolean }[] | undefined,
@@ -178,8 +179,9 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
 
             {/* Identity, not permission: this is what makes "my rota" and
                 the calendar page know who you are, and it is deliberately
-                independent of the access level above (staff linking, D3).
-                Neither handler touches access_level. */}
+                independent of the access level above: access_level is what
+                you may do, the link is who you are on the rota, and neither
+                derives the other. Neither handler touches access_level. */}
             <div>
               <label className="block text-sm font-medium" htmlFor="user-doctor-id">
                 Linked doctor
