@@ -4,8 +4,8 @@ import type { AccessLevel, AuthUser } from "@/api/types";
 
 /**
  * The logged-in user, plus the four derived values everything else in the
- * UI actually asks about: the two permission booleans (role-based auth,
- * Task 3) and the two staff-link ids (staff linking, Task 3).
+ * UI actually asks about: the two permission booleans and the two
+ * staff-link ids.
  *
  * The tier comparisons live here and nowhere else: components ask
  * `useCanWrite()` / `useIsManager()` rather than comparing

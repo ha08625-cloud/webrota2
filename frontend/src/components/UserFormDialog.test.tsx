@@ -233,8 +233,8 @@ describe("UserFormDialog - staff links", () => {
     await user.type(screen.getByLabelText("Password"), "password1");
     await user.selectOptions(screen.getByLabelText("Linked doctor"), "3");
 
-    // D3: identity and permission are orthogonal - picking a doctor must
-    // not nudge the access level towards "doctor".
+    // Identity and permission are orthogonal - picking a doctor must not
+    // nudge the access level towards "doctor".
     expect(screen.getByLabelText("Access level")).toHaveValue("nurse");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
