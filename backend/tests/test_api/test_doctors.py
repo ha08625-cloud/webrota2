@@ -256,24 +256,24 @@ class TestCalendarFeed:
             "/api/v1/doctors/9999/calendar-feed/rotate"
         ).status_code == 404
 
-    def test_viewer_can_read_but_not_rotate(self, viewer_client, db_session):
+    def test_viewer_can_read_but_not_rotate(self, readonly_client, db_session):
         doctor_id = self._make_doctor(db_session)
-        assert viewer_client.get(
+        assert readonly_client.get(
             f"/api/v1/doctors/{doctor_id}/calendar-feed"
         ).status_code == 200
-        assert viewer_client.post(
+        assert readonly_client.post(
             f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
         ).status_code == 403
 
-    def test_a_rota_admin_cannot_rotate(self, admin_client, db_session):
+    def test_a_rota_admin_cannot_rotate(self, rota_admin_client, db_session):
         """The router's clinical gate admits every rota editor; the
         endpoint's `user_admin` one is what stops them, which is the whole
         reason it hangs off this endpoint as well."""
         doctor_id = self._make_doctor(db_session)
-        assert admin_client.get(
+        assert rota_admin_client.get(
             f"/api/v1/doctors/{doctor_id}/calendar-feed"
         ).status_code == 200
-        assert admin_client.post(
+        assert rota_admin_client.post(
             f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
         ).status_code == 403
 

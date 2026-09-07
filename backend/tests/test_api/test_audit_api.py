@@ -11,7 +11,7 @@ both the seeded values and the `since`/`until` query values are UTC
 wall-clock and read back naive. Assertions compare on ids, not datetimes,
 wherever they can.
 
-The gate tests each take exactly one client fixture: `client_at_tier` and
+The gate tests each take exactly one client fixture: `client_with_permissions` and
 its wrappers write to the single `app.dependency_overrides` dict, so two in
 one test would give both the same identity (see conftest.py).
 """
@@ -237,15 +237,15 @@ def test_manager_can_read(manager_client):
     assert manager_client.get(AUDIT).status_code == 200
 
 
-def test_a_rota_admin_cannot_read(admin_client):
+def test_a_rota_admin_cannot_read(rota_admin_client):
     """Unlike the rota sections, write access to them is not enough here --
     this router sits in the `user_admin` area, and that permission being a
     boolean is what covers its GETs too."""
-    assert admin_client.get(AUDIT).status_code == 403
+    assert rota_admin_client.get(AUDIT).status_code == 403
 
 
-def test_nurse_cannot_read(viewer_client):
-    assert viewer_client.get(AUDIT).status_code == 403
+def test_nurse_cannot_read(readonly_client):
+    assert readonly_client.get(AUDIT).status_code == 403
 
 
 def test_unauthenticated_cannot_read(client_no_auth):

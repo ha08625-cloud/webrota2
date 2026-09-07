@@ -14,16 +14,22 @@ to a real row instead of widening the stub.
 `client_no_auth` is identical but WITHOUT the get_current_user override --
 it exercises the real auth path and is what test_auth.py uses.
 
-`client_at_tier` is a factory for the same thing at a chosen access level
-(and, optionally, an explicit permission set for a login no tier
-corresponds to), plus the ready-made `viewer_client` / `admin_client` /
-`manager_client` built on it. All of these share the
+`client_with_permissions` is a factory for the same thing carrying a
+chosen permission set -- which is what the gates read -- plus one
+ready-made fixture per preset (`manager_client`, `rota_admin_client`,
+`reception_admin_client`, `documents_client`, `readonly_client`) and
+`no_access_client` for the deny-everything set. All of these share the
 single-client-per-test rule described under `client_no_auth` below: they
 write to the same `app.dependency_overrides` dict on the same shared `app`,
 so requesting two of them (or one of them plus `client` or
 `client_no_auth`) in one test means whichever ran last silently decides the
-identity for EVERY request through EITHER client. `client_at_tier` refuses
-a second call to make that failure loud rather than mysterious.
+identity for EVERY request through EITHER client. `client_with_permissions`
+refuses a second call to make that failure loud rather than mysterious.
+
+The factory takes a permission set and not an access level because
+`access_level` is decorative under this model: nothing consults it at
+request time, so a fixture keyed on it would name something the API does
+not read. The stub carries a label anyway, since a User row has one.
 
 `_audit_to_test_engine` is autouse and points the audit middleware's
 session factory at the per-test engine, so API tests exercise the audit
@@ -66,7 +72,15 @@ from app.models import (
     Room,
     SystemCounter,
 )
-from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
+from app.models.permissions import (
+    DOCUMENTS_PRESET,
+    MANAGER_PRESET,
+    READ_ONLY_PRESET,
+    RECEPTION_ADMIN_PRESET,
+    ROTA_ADMIN_PRESET,
+    default_permissions,
+    preset,
+)
 from app.models.enums import (
     AccessLevel,
     Day,
@@ -87,25 +101,25 @@ class _StubUser:
     PATCH /users/me, which fetches its own row; tests for that endpoint use
     `client_no_auth` and real logins instead of a stub.
 
-    access_level defaults to MANAGER, and `permissions` defaults to the
-    preset that tier maps to (models/permissions.py), so every test file
-    that is not about authorization keeps exercising the full API surface.
-    access_level itself is decorative now -- the gates read `permissions`
-    -- so the mapping is what makes `client_at_tier(AccessLevel.ADMIN)`
-    still mean something: it is a login with the Rota admin permission set,
-    which notably does NOT include signatures or study_eoi. Pass
-    `permissions` explicitly to describe a set no tier corresponds to."""
+    `permissions` is the only field the gates read; it defaults to the
+    Manager preset so every test file that is not about authorization keeps
+    exercising the full API surface. `access_level` is carried because a
+    User row has one and because the audit snapshot records it as a label,
+    but nothing consults it at request time -- do not reach for it to
+    describe what a stub can do.
 
-    def __init__(self, access_level=AccessLevel.MANAGER, permissions=None):
+    The permission set is copied, not aliased: a preset dict handed
+    straight in would be mutated for the whole process by anything that
+    edited it (see models/permissions.preset)."""
+
+    def __init__(self, permissions=None, access_level=AccessLevel.MANAGER):
         self.id = 1
         self.email = "test@example.com"
         self.name = "Test User"
         self.active = True
         self.access_level = access_level
         self.permissions = (
-            preset(PRESET_FOR_ACCESS_LEVEL[access_level.value])
-            if permissions is None
-            else dict(permissions)
+            preset(MANAGER_PRESET) if permissions is None else dict(permissions)
         )
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
@@ -218,12 +232,11 @@ def client_no_auth(session_factory):
 
 
 @pytest.fixture
-def client_at_tier(session_factory):
-    """Factory: `client_at_tier(AccessLevel.NURSE)` -> an authenticated
-    TestClient whose get_current_user stub carries that tier's permission
-    preset. `client_at_tier(permissions={...})` describes a login no preset
-    matches -- a documents-only one, say -- which is what the gates
-    actually read.
+def client_with_permissions(session_factory):
+    """Factory: `client_with_permissions(preset(DOCUMENTS_PRESET))` -> an
+    authenticated TestClient whose get_current_user stub carries exactly
+    that permission set. The set is what every gate reads, so this is the
+    only knob that decides what the client can reach.
 
     Callable once per test, and mutually exclusive with `client` /
     `client_no_auth`, for the reason spelled out in `client_no_auth`'s
@@ -243,15 +256,15 @@ def client_at_tier(session_factory):
             db.close()
 
     with contextlib.ExitStack() as stack:
-        def _make(access_level=AccessLevel.MANAGER, permissions=None):
+        def _make(permissions=None, access_level=AccessLevel.MANAGER):
             if made:
                 raise RuntimeError(
-                    "client_at_tier is single-use per test: overrides live on "
-                    "one shared app, so a second client would change the "
-                    "identity of the first. Split the test."
+                    "client_with_permissions is single-use per test: "
+                    "overrides live on one shared app, so a second client "
+                    "would change the identity of the first. Split the test."
                 )
-            made.append(access_level)
-            stub = _StubUser(access_level, permissions)
+            made.append(True)
+            stub = _StubUser(permissions, access_level)
             app.dependency_overrides[get_db] = _override_get_db
             app.dependency_overrides[get_current_user] = lambda: stub
             stack.callback(app.dependency_overrides.pop, get_current_user, None)
@@ -261,21 +274,47 @@ def client_at_tier(session_factory):
         yield _make
 
 
+# One fixture per preset (models/permissions.PRESETS), plus the
+# deny-everything set. Presets are starting points for the admin form
+# rather than roles, but they are also the permission sets a real
+# deployment will mostly hold, so they are what the sweeps run over.
 @pytest.fixture
-def viewer_client(client_at_tier):
-    """Nurse tier. DOCTOR and NURSE are permission-identical, so the tier is
-    tested once here and the equivalence is pinned separately."""
-    return client_at_tier(AccessLevel.NURSE)
-
-
-@pytest.fixture
-def admin_client(client_at_tier):
-    return client_at_tier(AccessLevel.ADMIN)
+def manager_client(client_with_permissions):
+    return client_with_permissions(preset(MANAGER_PRESET))
 
 
 @pytest.fixture
-def manager_client(client_at_tier):
-    return client_at_tier(AccessLevel.MANAGER)
+def rota_admin_client(client_with_permissions):
+    """Both rota areas at write, and none of the three flags -- notably not
+    signatures, which the old `admin` tier did have."""
+    return client_with_permissions(preset(ROTA_ADMIN_PRESET))
+
+
+@pytest.fixture
+def reception_admin_client(client_with_permissions):
+    """Reception at write, clinical at read: the reception rota is built
+    against the clinical one."""
+    return client_with_permissions(preset(RECEPTION_ADMIN_PRESET))
+
+
+@pytest.fixture
+def documents_client(client_with_permissions):
+    """The signature and EOI tools, and no rota access at all -- the
+    tightly scoped login the permission model exists to make possible."""
+    return client_with_permissions(preset(DOCUMENTS_PRESET))
+
+
+@pytest.fixture
+def readonly_client(client_with_permissions):
+    return client_with_permissions(preset(READ_ONLY_PRESET))
+
+
+@pytest.fixture
+def no_access_client(client_with_permissions):
+    """The deny-everything set. Refused on save by the API (plan D15), but
+    it is the column's server default, so it is exactly the state a row
+    inserted outside the app lands in and the gates have to handle it."""
+    return client_with_permissions(default_permissions())
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ The second half covers enrichment: the acting user, the HTTPException
 detail behind a 401/403, the field-level detail behind a 422, and the user
 recorded by a successful login. Every one of those tests goes through
 `client_no_auth` with a directly-seeded user and a real login, and it has to
--- `client`, `client_at_tier` and the tier fixtures all override
+-- `client`, `client_with_permissions` and the tier fixtures all override
 get_current_user, which is where the identity is recorded, so a test written
 against them would assert nothing while appearing to pass. That also means
 no `seeded` fixture in the second half (it depends on `client`): those tests
