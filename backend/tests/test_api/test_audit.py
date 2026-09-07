@@ -150,9 +150,20 @@ def boom_route():
     """Register a route that raises an unhandled exception, for the duration
     of one test. FastAPI caches route matching per app, so the route is
     removed again on teardown to keep it out of every other test's OpenAPI
-    schema."""
+    schema.
+
+    It is moved to the FRONT of app.routes rather than left where
+    include_router appends it. Starlette matches in list order, and
+    main.py mounts the built frontend at "/" as the last route, so a route
+    appended afterwards sits behind a catch-all and never matches -- but
+    only when a frontend HAS been built, which is production and a
+    developer machine and never CI. Every route registered the normal way
+    is ahead of the mount, so this restores the ordering the app really
+    has rather than working around one.
+    """
     app.include_router(_boom_router, prefix=API_PREFIX)
-    added = app.routes[-1]
+    added = app.routes.pop()
+    app.routes.insert(0, added)
     try:
         yield f"{API_PREFIX}/audit-test/boom"
     finally:
