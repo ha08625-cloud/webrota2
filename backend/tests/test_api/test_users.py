@@ -39,10 +39,15 @@ from app.models.enums import AccessLevel, DoctorType
 from app.models.permissions import (
     DEFAULT_PERMISSIONS,
     PRESET_FOR_ACCESS_LEVEL,
+    ROTA_ADMIN_PRESET,
     preset,
 )
 
 USERS = "/api/v1/users"
+
+# A valid, non-empty permission set that does NOT hold `user_admin` -- what
+# the lock-out guard tests patch someone down to.
+_ROTA_ADMIN = preset(ROTA_ADMIN_PRESET)
 
 
 def _session_count(db_session, user_id):
@@ -308,10 +313,14 @@ class TestPasswordReset:
 
 
 class TestLockOutGuard:
-    """The guard counts active MANAGERS, not active users. Both
-    routes to zero of them -- deactivation and
-    demotion -- are blocked, because guarding only the first would leave an
-    identical lock-out one PATCH away."""
+    """The guard counts active holders of `user_admin`, not active users
+    and not the MANAGER label. Both routes to zero of them -- deactivation
+    and clearing the permission -- are blocked, because guarding only the
+    first would leave an identical lock-out one PATCH away.
+
+    `_create_user` defaults to the manager tier and so to the Manager
+    preset, which holds `user_admin`; "manager" below therefore means "a
+    login that can administer users", which is what the guard is about."""
 
     def test_deactivating_the_last_active_manager_409s(self, client):
         created = _create_user(client, email="only@example.com")
@@ -349,59 +358,74 @@ class TestLockOutGuard:
         resp = client.patch(f"{USERS}/{first['id']}", json={"active": False})
         assert resp.status_code == 409
 
-    def test_other_active_non_managers_do_not_satisfy_the_guard(self, client):
-        """The case the old active-user count got wrong: plenty of active
-        users left, none of whom can administer anything."""
+    def test_other_active_non_admins_do_not_satisfy_the_guard(self, client):
+        """The case a plain active-user count would get wrong: plenty of
+        active users left, none of whom can administer anything."""
         manager = _create_user(client, email="mgr@example.com", access_level="manager")
         _create_user(client, email="adm@example.com", access_level="admin")
         _create_user(client, email="doc@example.com", access_level="doctor")
         resp = client.patch(f"{USERS}/{manager['id']}", json={"active": False})
         assert resp.status_code == 409
 
-    def test_demoting_the_last_active_manager_409s(self, client):
-        manager = _create_user(client, email="mgr@example.com", access_level="manager")
+    def test_clearing_the_last_user_admin_permission_409s(self, client):
+        admin = _create_user(client, email="mgr@example.com", access_level="manager")
         _create_user(client, email="adm@example.com", access_level="admin")
         resp = client.patch(
-            f"{USERS}/{manager['id']}", json={"access_level": "admin"}
+            f"{USERS}/{admin['id']}", json={"permissions": _ROTA_ADMIN}
         )
         assert resp.status_code == 409
 
-    def test_demoting_a_non_last_manager_succeeds(self, client, db_session):
-        first = _create_user(client, email="mgr1@example.com", access_level="manager")
-        _create_user(client, email="mgr2@example.com", access_level="manager")
-        resp = client.patch(
-            f"{USERS}/{first['id']}", json={"access_level": "nurse"}
-        )
+    def test_changing_the_access_level_alone_is_never_guarded(self, client):
+        """access_level is a label now: demoting the only user administrator
+        off `manager` leaves their permissions -- and so their access --
+        exactly as they were, so there is nothing for the guard to stop.
+        Pinned because this test used to assert the opposite."""
+        admin = _create_user(client, email="only@example.com")
+        resp = client.patch(f"{USERS}/{admin['id']}", json={"access_level": "nurse"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["access_level"] == "nurse"
-        db_session.expire_all()
-        assert db_session.get(User, first["id"]).access_level == AccessLevel.NURSE
+        assert resp.json()["permissions"]["user_admin"] is True
 
-    def test_demoting_an_inactive_manager_is_not_blocked(self, client):
-        """An inactive manager is not propping anything up, so demoting one
-        is not a lock-out even when they are the only manager left."""
+    def test_clearing_a_non_last_user_admin_succeeds(self, client, db_session):
+        first = _create_user(client, email="mgr1@example.com")
+        _create_user(client, email="mgr2@example.com")
+        resp = client.patch(
+            f"{USERS}/{first['id']}", json={"permissions": _ROTA_ADMIN}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["permissions"] == _ROTA_ADMIN
+        db_session.expire_all()
+        assert db_session.get(User, first["id"]).permissions == _ROTA_ADMIN
+
+    def test_clearing_an_inactive_user_admin_is_not_blocked(self, client):
+        """An inactive administrator is not propping anything up, so
+        clearing their permission is not a lock-out even when they are the
+        only other holder."""
         _create_user(client, email="keeper@example.com")
         spare = _create_user(client, email="spare@example.com")
         assert client.patch(
             f"{USERS}/{spare['id']}", json={"active": False}
         ).status_code == 200
-        # keeper is the sole ACTIVE manager; spare is inactive.
-        resp = client.patch(f"{USERS}/{spare['id']}", json={"access_level": "nurse"})
-        assert resp.status_code == 200, resp.text
-
-    def test_promoting_is_never_blocked(self, client):
-        nurse = _create_user(client, email="nurse@example.com", access_level="nurse")
+        # keeper is the sole ACTIVE administrator; spare is inactive.
         resp = client.patch(
-            f"{USERS}/{nurse['id']}", json={"access_level": "manager"}
+            f"{USERS}/{spare['id']}", json={"permissions": _ROTA_ADMIN}
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["access_level"] == "manager"
 
-    def test_deactivate_and_demote_in_one_patch_is_still_guarded(self, client):
-        manager = _create_user(client, email="mgr@example.com")
+    def test_granting_is_never_blocked(self, client):
+        nurse = _create_user(client, email="nurse@example.com", access_level="nurse")
         resp = client.patch(
-            f"{USERS}/{manager['id']}",
-            json={"active": False, "access_level": "nurse"},
+            f"{USERS}/{nurse['id']}",
+            json={"permissions": preset(PRESET_FOR_ACCESS_LEVEL["manager"])},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["permissions"]["user_admin"] is True
+
+    def test_deactivate_and_clear_in_one_patch_is_still_guarded(self, client):
+        admin = _create_user(client, email="mgr@example.com")
+        resp = client.patch(
+            f"{USERS}/{admin['id']}",
+            json={"active": False, "permissions": _ROTA_ADMIN},
         )
         assert resp.status_code == 409
 
@@ -824,6 +848,9 @@ class TestPermissions:
         assert created["permissions"] == {**DEFAULT_PERMISSIONS, "clinical": "read"}
 
     def test_patch_replaces_the_whole_set(self, client, db_session):
+        # A second administrator, so replacing the first one's set is not
+        # blocked by the lock-out guard -- see TestLockOutGuard.
+        _create_user(client, email="keeper@example.com")
         created = _create_user(client, email="repatch@example.com")
         resp = client.patch(
             f"{USERS}/{created['id']}", json={"permissions": self._CLINICAL_ONLY}

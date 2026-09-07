@@ -12,7 +12,7 @@ Why middleware rather than per-endpoint calls
 There are ~81 non-GET endpoints across 22 routers. Instrumenting them one
 by one would be default-OPEN: the next POST anyone adds is unaudited until
 somebody remembers the call, and no test catches it. This is the same
-argument main.py already makes for attaching require_write_access at
+argument main.py already makes for attaching the permission gates at
 include_router time. It is also why the request body is captured here
 rather than by per-endpoint enrichment: 81 hand-written calls would
 reintroduce exactly the property this design exists to avoid.

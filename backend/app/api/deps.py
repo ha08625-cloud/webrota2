@@ -14,41 +14,69 @@ X-API-Token handling have been removed entirely. Every router endpoint
 requires a valid session. /health, /docs, and /openapi.json live outside
 the routers (registered directly on the app in main.py) and stay open.
 
-Authentication is not the whole story any more: since the role-based auth
-plan (Task 2) a valid session also carries a permission tier, and this
-module owns the three gates that read it.
+Authentication is not the whole story: a valid session also carries a
+permission set (models/permissions.py), and this module owns the two gates
+that read it. Nothing here consults `access_level` any more -- it is a
+label, not a permission (fine-grained permissions plan, D4).
 
-`require_write_access` is method-aware and attached ONCE, in main.py's
-include_router loop, to every router except auth and users. It is not a
-per-endpoint dependency: with ~78 non-GET endpoints across 22 routers,
-per-endpoint gating would be default-OPEN -- the next POST anyone adds
-would be world-writable until somebody remembered the dependency, and no
-test would catch it. Attaching it at inclusion time makes a new router,
-and a new endpoint on an existing router, default-DENY for viewers.
-Router-level `dependencies=` on the APIRouter objects themselves would
-not work either: every router mixes reads and writes, so the
-discrimination has to happen inside the dependency, off request.method.
+`require_access(area)` is a dependency FACTORY, not a dependency. It is
+called once per router in main.py's include_router loop, closing over the
+area that router belongs to, and the closure it returns is what runs per
+request. The factory shape is what makes the area lookup possible at all:
+the dependency receives a `Request`, and there is no router-module handle
+at request time -- FastAPI wraps each `include_router` call in an opaque
+`_IncludedRouter`, so `app.routes` yields exactly one `APIRoute`
+(`/health`) and a request cannot ask "which router served me?".
 
-`require_manager` is method-agnostic and applied per-endpoint in
-routers/users.py, which cannot take the global gate because PATCH
-/users/me has to stay open to every tier.
+Attaching it at registration time, rather than per endpoint, is what makes
+the API default-DENY. With ~40 GET paths and ~83 non-GET operations across
+23 gated routers, a per-endpoint dependency would be default-OPEN: the next
+endpoint anyone adds would be reachable by every login until somebody
+remembered the decorator, and no test would catch it. Registration-time
+attachment means a new endpoint -- and a new router, which cannot be
+registered at all until it is classified (see main.py's `_AREA`) -- is
+gated the moment it exists.
 
-`require_admin` is the same shape one tier down, and exists for the two
-signature reads. The global gate lets every tier read, which for
-GET /signatures and GET /signatures/{doctor_id}/image meant handing a
-scanned signature image to every authenticated login, nurse tier
-included. Those two endpoints carry this dependency instead, so the
-people who can read a signature are exactly the people who can upload
-one.
+Router-level `dependencies=` on the APIRouter objects themselves would not
+work either: for the two levelled areas every router mixes reads and
+writes, so the read/write discrimination has to happen inside the
+dependency, off request.method.
 
-Reads are open to all four tiers, preserving the pre-existing "everyone
-sees everything" behaviour, bar the two signature reads above. MANAGER and ADMIN both write; DOCTOR and
-NURSE are permission-identical viewer labels.
+The two levelled areas (clinical, reception) admit safe methods at `read`
+or `write` and everything else at `write` only. The three boolean areas
+(signatures, study_eoi, user_admin) admit every method when the flag is
+true and nothing when it is false -- there is no meaningful read-only view
+of a document generator or of user administration, and for signatures the
+point is precisely that reading is the sensitive part: a scanned signature
+image is the one asset in this API worth more outside it than in, so the
+people who may read one are exactly the people who may upload one.
 
-The gates raise 403, not 404. For the two write gates the resource
-plainly exists -- the caller can GET it -- so hiding its existence buys
-nothing, and `require_admin` follows suit for consistency rather than
-pretending a doctor with no signature on file is the same as a doctor
+`_SHARED_READ` is the one exception to "the router decides the area", and
+it is a real cost: it is a permanent, per-endpoint hole in the default-deny
+property, so it holds exactly two entries and each carries the caller that
+needs it. It has to be per-endpoint rather than per-router because `GET
+/doctors/{id}/calendar-feed` stays clinical while `GET /doctors` does not.
+
+`require_capability(name)` is the per-endpoint gate for a boolean, used in
+the three places a router's own area gate is not the whole answer:
+
+  routers/users.py       -- the router is UNGATED (PATCH /users/me must
+                            stay open to every permission set), so its
+                            three admin endpoints gate themselves.
+  POST /doctors/{id}/calendar-feed/rotate
+  DELETE /reception/staff/{id}
+                         -- both keep a narrower guard ON TOP of their
+                            router's area gate, so the effective rule is
+                            the conjunction (clinical:write AND user_admin,
+                            reception:write AND user_admin). Mapping either
+                            to plain area:write would widen it to every
+                            rota editor, and both are destructive in ways
+                            routine data entry is not. See their docstrings.
+
+The gates raise 403, not 404. The resource plainly exists as far as the
+caller is concerned, and for the levelled areas they can often GET it, so
+hiding its existence buys nothing; the signature reads follow suit rather
+than pretending a doctor with no signature on file is the same as a doctor
 whose signature you may not see.
 
 get_current_user is also where the acting user reaches the audit log. It
@@ -74,7 +102,7 @@ backends, not just a SQLite workaround.
 import datetime
 import hashlib
 import json
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
@@ -82,31 +110,56 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import User, UserSession
-from ..models.enums import AccessLevel
+from ..models.permissions import AREA_KEYS, PERMISSION_KEYS, READ, WRITE
 from .audit import current_audit_context
 
 _UNAUTHORIZED_DETAIL = "Not authenticated"
-
-# Explicit tier ordering. DOCTOR and NURSE are deliberately equal: they are
-# labels, not distinct permission sets. Comparing these ints, rather than
-# the enum members, keeps the ordering visible in one place instead of
-# implied by declaration order in AccessLevel.
-_TIER = {
-    AccessLevel.NURSE: 0,
-    AccessLevel.DOCTOR: 0,
-    AccessLevel.ADMIN: 1,
-    AccessLevel.MANAGER: 2,
-}
-_WRITE_TIER = 1
-_MANAGER_TIER = 2
 
 # OPTIONS is here for correctness rather than effect: CORSMiddleware answers
 # preflight before routing, so an OPTIONS request never reaches a gate.
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-_FORBIDDEN_WRITE_DETAIL = "Your access level does not permit changes"
-_FORBIDDEN_MANAGER_DETAIL = "User management requires manager access"
-_FORBIDDEN_ADMIN_DETAIL = "Your access level does not permit this"
+# (method, path) pairs that ANY authenticated login may call, whatever
+# their permission set. Both are list endpoints that populate a picker in a
+# section other than their own, and neither payload carries a token or
+# personal data (DoctorOut is code/type/sessions/active/dates;
+# ReceptionStaffOut is id/code/active). The calendar-feed token lives on a
+# different endpoint, which stays clinical.
+#
+# Paths are as `request.scope["route"].path` reports them, which is the
+# route's path WITHOUT main.py's /api/v1 prefix: include_router mounts the
+# sub-router, and what lands in the scope is the sub-router's own route.
+# The router's own prefix IS included, so these stay unambiguous.
+#
+# This is a hole in the default-deny property, so it earns its entries one
+# at a time -- a third needs the same kind of justification, not a
+# convenient import:
+_SHARED_READ = frozenset({
+    # SignaturesPage's Partner/Salaried picker, and UserFormDialog's
+    # linked-doctor picker -- without which a user_admin-only login, the
+    # tightly scoped login this feature exists to make possible, cannot
+    # create or edit a user.
+    ("GET", "/doctors"),
+    # UserFormDialog's linked-reception-staff picker, same argument.
+    ("GET", "/reception/staff"),
+})
+
+_FORBIDDEN_DETAIL = {
+    "clinical": "Your permissions do not include the clinical rota",
+    "reception": "Your permissions do not include the reception rota",
+    "signatures": "Your permissions do not include signatures",
+    "study_eoi": "Your permissions do not include the study EOI tool",
+    "user_admin": "User management requires the user administration permission",
+}
+
+# The narrower message for a levelled area the caller can read but not
+# write. Worth distinguishing: "you may not touch this section" and "you
+# may look but not change" are different problems for the person reading
+# the toast.
+_READ_ONLY_DETAIL = {
+    "clinical": "Your access to the clinical rota is read-only",
+    "reception": "Your access to the reception rota is read-only",
+}
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -174,52 +227,68 @@ def record_audit_actor(user: User) -> None:
     )
 
 
-def _tier(user: User) -> int:
-    return _TIER.get(user.access_level, 0)
+def require_access(area: str) -> Callable[..., User]:
+    """Build the gate for one permission area. See the module docstring.
 
+    Called at registration time, once per router, and the returned closure
+    is the actual dependency. `area` is validated here rather than in the
+    closure so a typo in main.py's `_AREA` map is an import-time failure
+    rather than a 500 on the first request to that router.
 
-def require_write_access(
-    request: Request,
-    user: User = Depends(get_current_user),
-) -> User:
-    """Allow reads for every tier; allow writes for admin and manager only.
-
-    Attached globally in main.py, so "write" here means "any request whose
-    method is not GET/HEAD/OPTIONS". That is a proxy, and it is exact
-    everywhere in this codebase bar one endpoint: POST
-    /signatures/{doctor_id}/apply mutates nothing -- it splices a stored
-    signature into an uploaded document and returns a PDF. It is gated as a
-    write anyway: producing an officially signed document is not obviously a
-    viewer action, and an exemption list is a permanent hole in the
-    default-deny property for the sake of one route. If doctors turn out to
-    need self-service signed certificates, the fix is an exempt (method,
-    path) set checked here -- one line, one place.
+    "Write" means "any request whose method is not GET/HEAD/OPTIONS". That
+    is a proxy, and it is exact everywhere in this codebase bar one
+    endpoint: POST /signatures/{doctor_id}/apply mutates nothing -- it
+    splices a stored signature into an uploaded document and returns a PDF.
+    It is gated as a write anyway: producing an officially signed document
+    is not obviously a read-only action, and every exemption is a permanent
+    hole in the default-deny property. (It is moot under the current model
+    -- `signatures` is a boolean, so read and write are the same
+    permission -- but the argument outlives that.)
     """
-    if request.method in _SAFE_METHODS:
+    if area not in PERMISSION_KEYS:
+        raise ValueError(f"unknown permission area: {area!r}")
+    levelled = area in AREA_KEYS
+    denied = _FORBIDDEN_DETAIL[area]
+    read_only = _READ_ONLY_DETAIL.get(area, denied)
+
+    def dependency(
+        request: Request,
+        user: User = Depends(get_current_user),
+    ) -> User:
+        route = request.scope.get("route")
+        if (request.method, getattr(route, "path", None)) in _SHARED_READ:
+            return user
+
+        granted = (user.permissions or {}).get(area)
+        if levelled:
+            if granted == WRITE:
+                return user
+            if granted == READ:
+                if request.method in _SAFE_METHODS:
+                    return user
+                raise HTTPException(status_code=403, detail=read_only)
+        elif granted:
+            return user
+        raise HTTPException(status_code=403, detail=denied)
+
+    return dependency
+
+
+def require_capability(name: str) -> Callable[..., User]:
+    """Build a method-agnostic gate for one boolean permission.
+
+    The per-endpoint counterpart to `require_access`, for the three places
+    listed in the module docstring. Unlike `require_access` it never
+    consults the method and never consults `_SHARED_READ`: a capability
+    either applies to the whole endpoint or does not belong here.
+    """
+    if name not in PERMISSION_KEYS or name in AREA_KEYS:
+        raise ValueError(f"not a boolean permission: {name!r}")
+    denied = _FORBIDDEN_DETAIL[name]
+
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if not (user.permissions or {}).get(name):
+            raise HTTPException(status_code=403, detail=denied)
         return user
-    if _tier(user) < _WRITE_TIER:
-        raise HTTPException(status_code=403, detail=_FORBIDDEN_WRITE_DETAIL)
-    return user
 
-
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Admin or manager, regardless of method -- this gates reads too.
-
-    Used by the two signature read endpoints, where "may read" and "may
-    upload" are the same question. `require_write_access` cannot serve
-    that purpose: it is method-aware by design and returns
-    unconditionally on a GET.
-    """
-    if _tier(user) < _WRITE_TIER:
-        raise HTTPException(status_code=403, detail=_FORBIDDEN_ADMIN_DETAIL)
-    return user
-
-
-def require_manager(user: User = Depends(get_current_user)) -> User:
-    """Manager-only, regardless of method -- this gates reads too.
-
-    Used by routers/users.py, where even listing users is manager business.
-    """
-    if _tier(user) < _MANAGER_TIER:
-        raise HTTPException(status_code=403, detail=_FORBIDDEN_MANAGER_DETAIL)
-    return user
+    return dependency

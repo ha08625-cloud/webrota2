@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import Doctor, User, UserSession
 from app.models.enums import AccessLevel, DoctorType
+from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 
 PROTECTED = "/api/v1/rooms"  # any get_current_user-gated GET works here
 
@@ -36,6 +37,11 @@ def _make_user(
         password_hash=hash_password(password),
         active=active,
         access_level=access_level,
+        # The gates read `permissions`, not the tier, and the column
+        # defaults to deny-everything -- so a row seeded without one can
+        # authenticate but reach nothing. Mirror what the form does and
+        # give it the preset its tier maps to.
+        permissions=preset(PRESET_FOR_ACCESS_LEVEL[access_level.value]),
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add(user)

@@ -355,7 +355,7 @@ def test_forbidden_write_records_the_user_and_the_reason(client_no_auth, db_sess
     # runs after get_current_user, which is where identity is captured.
     assert row.user_id == user.id
     assert row.user_access_level == "nurse"
-    assert row.outcome_detail == "Your access level does not permit changes"
+    assert row.outcome_detail == "Your access to the clinical rota is read-only"
 
 
 def test_validation_error_records_the_field_and_the_message(
