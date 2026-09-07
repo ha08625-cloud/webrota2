@@ -757,6 +757,7 @@ dependencies = [
     { name = "alembic" },
     { name = "bcrypt" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "icalendar" },
     { name = "psycopg2-binary" },
     { name = "python-docx" },
@@ -767,7 +768,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -776,7 +776,7 @@ requires-dist = [
     { name = "alembic" },
     { name = "bcrypt" },
     { name = "fastapi" },
-    { name = "httpx", marker = "extra == 'dev'" },
+    { name = "httpx" },
     { name = "icalendar", specifier = ">=7.3.0" },
     { name = "psycopg2-binary" },
     { name = "pytest", marker = "extra == 'dev'" },
