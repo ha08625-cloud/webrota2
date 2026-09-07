@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { formatDate } from "@/lib/date";
-import { makeDoctor, makeLeaveEntitlement } from "@/test/fixtures/reference";
+import {
+  PERMISSION_PRESETS,
+  makeDoctor,
+  makeLeaveEntitlement,
+} from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -291,20 +295,20 @@ describe("DoctorsPage for a read-only user", () => {
   // stops offering buttons that only ever fail.
   it("disables every write control and says why", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
-    renderWithProviders(<DoctorsPage />, { accessLevel: "nurse" });
+    renderWithProviders(<DoctorsPage />, { permissions: PERMISSION_PRESETS.readOnly });
     await screen.findByText("AB");
 
     const newDoctor = screen.getByRole("button", { name: "New Doctor" });
     expect(newDoctor).toBeDisabled();
-    expect(newDoctor).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(newDoctor).toHaveAttribute("title", expect.stringContaining("do not allow changes"));
     expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
     expect(screen.getByLabelText("Supervision preference for AB")).toBeDisabled();
   });
 
-  it("leaves them enabled for an admin, who may write everything but users", async () => {
+  it("leaves them enabled for a rota administrator, who may write both rotas", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
-    renderWithProviders(<DoctorsPage />, { accessLevel: "admin" });
+    renderWithProviders(<DoctorsPage />, { permissions: PERMISSION_PRESETS.rotaAdmin });
     await screen.findByText("AB");
 
     expect(screen.getByRole("button", { name: "New Doctor" })).toBeEnabled();

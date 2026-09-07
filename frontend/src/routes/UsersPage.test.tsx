@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeAuthUser } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -184,22 +184,25 @@ describe("UsersPage below manager", () => {
   // The nav entry is hidden for these users (App.tsx), but the route stays
   // registered, so a deep link has to land on something sane rather than
   // on a list that just 403s.
-  it.each(["admin", "doctor", "nurse"] as const)("tells a %s they have no access", async (level) => {
-    let listed = false;
-    server.use(
-      http.get("/api/v1/users", () => {
-        listed = true;
-        return HttpResponse.json([]);
-      }),
-    );
+  it.each(["rotaAdmin", "receptionAdmin", "readOnly"] as const)(
+    "tells a %s, who has no user administration permission, they have no access",
+    async (presetName) => {
+      let listed = false;
+      server.use(
+        http.get("/api/v1/users", () => {
+          listed = true;
+          return HttpResponse.json([]);
+        }),
+      );
 
-    renderWithProviders(<UsersPage />, { accessLevel: level });
+      renderWithProviders(<UsersPage />, { permissions: PERMISSION_PRESETS[presetName] });
 
-    expect(await screen.findByText(/do not have access to user management/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New User" })).not.toBeInTheDocument();
-    // Not even the list request goes out - the backend would 403 it.
-    expect(listed).toBe(false);
-  });
+      expect(await screen.findByText(/do not have access to user management/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "New User" })).not.toBeInTheDocument();
+      // Not even the list request goes out - the backend would 403 it.
+      expect(listed).toBe(false);
+    },
+  );
 
   it("shows the linked staff codes, marking inactive ones, and a dash when unlinked", async () => {
     setUpServer([

@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { AuditLogEntry } from "@/api/types";
-import { makeAuthUser } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -243,20 +243,23 @@ describe("AuditLogPage below manager", () => {
   // The nav entry is hidden for these users (App.tsx), but the route stays
   // registered, so a deep link has to land on something sane rather than on
   // a list that just 403s.
-  it.each(["admin", "doctor", "nurse"] as const)("tells a %s they have no access", async (level) => {
-    let listed = false;
-    server.use(
-      http.get("/api/v1/audit", () => {
-        listed = true;
-        return HttpResponse.json({ items: [], total: 0 });
-      }),
-    );
+  it.each(["rotaAdmin", "receptionAdmin", "readOnly"] as const)(
+    "tells a %s, who has no user administration permission, they have no access",
+    async (presetName) => {
+      let listed = false;
+      server.use(
+        http.get("/api/v1/audit", () => {
+          listed = true;
+          return HttpResponse.json({ items: [], total: 0 });
+        }),
+      );
 
-    renderWithProviders(<AuditLogPage />, { accessLevel: level });
+      renderWithProviders(<AuditLogPage />, { permissions: PERMISSION_PRESETS[presetName] });
 
-    expect(await screen.findByText(/do not have access to the audit log/i)).toBeInTheDocument();
-    expect(screen.queryByRole("table", { name: "Audit log" })).not.toBeInTheDocument();
-    // Not even the list request goes out - the backend would 403 it.
-    expect(listed).toBe(false);
-  });
+      expect(await screen.findByText(/do not have access to the audit log/i)).toBeInTheDocument();
+      expect(screen.queryByRole("table", { name: "Audit log" })).not.toBeInTheDocument();
+      // Not even the list request goes out - the backend would 403 it.
+      expect(listed).toBe(false);
+    },
+  );
 });

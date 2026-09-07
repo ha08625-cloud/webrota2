@@ -1,16 +1,30 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
+import type { PermissionArea } from "@/auth/AuthContext";
+import { usePermissions } from "@/auth/AuthContext";
+
 /**
  * The two document-tooling pages behind the /signatures entry on the landing
  * page, switched between with the sub-tab bar below. Same pattern as
  * SessionManagementTabs, with one difference: the first tab is the index
  * route of the section rather than a sibling path, so /signatures itself
  * still resolves and any existing bookmark keeps working.
+ *
+ * The two are separate permissions, not one "documents" permission - the
+ * point of the signature one is that a scanned signature reaches as few
+ * logins as possible - so each tab carries the one it needs and the bar
+ * below shows only the tabs held.
  */
-export const SIGNATURES_TABS = [
-  { to: "/signatures", label: "Signatures" },
-  { to: "/signatures/eoi", label: "Study EOI" },
-] as const;
+interface SignaturesTab {
+  to: string;
+  label: string;
+  permission: PermissionArea;
+}
+
+export const SIGNATURES_TABS: readonly SignaturesTab[] = [
+  { to: "/signatures", label: "Signatures", permission: "signatures" },
+  { to: "/signatures/eoi", label: "Study EOI", permission: "study_eoi" },
+];
 
 export const SIGNATURES_PATHS: readonly string[] = SIGNATURES_TABS.map((tab) => tab.to);
 
@@ -23,11 +37,13 @@ export const SIGNATURES_PATHS: readonly string[] = SIGNATURES_TABS.map((tab) => 
  */
 export function SignaturesTabs() {
   const { pathname } = useLocation();
+  const permissions = usePermissions();
   const normalised = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  const tabs = SIGNATURES_TABS.filter((tab) => permissions[tab.permission]);
 
   return (
     <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Documents">
-      {SIGNATURES_TABS.map((tab) => {
+      {tabs.map((tab) => {
         const isActive = normalised === tab.to;
 
         return (

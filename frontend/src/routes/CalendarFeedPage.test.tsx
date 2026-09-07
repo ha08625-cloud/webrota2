@@ -3,8 +3,8 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AccessLevel } from "@/api/types";
-import { makeDoctor } from "@/test/fixtures/reference";
+import type { Permissions } from "@/api/types";
+import { PERMISSION_PRESETS, makeDoctor } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -19,8 +19,8 @@ function setUpServer(doctors = DOCTORS) {
   server.use(http.get("/api/v1/doctors", () => HttpResponse.json(doctors)));
 }
 
-function render(accessLevel: AccessLevel = "manager") {
-  return renderWithProviders(<CalendarFeedPage />, { accessLevel });
+function render(permissions: Permissions = PERMISSION_PRESETS.manager) {
+  return renderWithProviders(<CalendarFeedPage />, { permissions });
 }
 
 /** Logged in as the user linked to doctor 1 ("AB"). */
@@ -122,11 +122,14 @@ describe("CalendarFeedPage", () => {
     expect(screen.getByText("Outlook")).toBeInTheDocument();
   });
 
-  it.each(["admin", "doctor", "nurse"] as const)(
-    "disables the rotate control for %s",
-    async (level) => {
+  // The backend puts require_capability("user_admin") on the rotate
+  // endpoint on top of the clinical gate: reissuing revokes someone's live
+  // subscription, so writing the clinical rota is not enough.
+  it.each(["rotaAdmin", "receptionAdmin", "readOnly"] as const)(
+    "disables the rotate control without the user administration permission (%s)",
+    async (presetName) => {
       setUpServer();
-      render(level);
+      render(PERMISSION_PRESETS[presetName]);
 
       await pickDoctor("AB");
 
@@ -134,7 +137,7 @@ describe("CalendarFeedPage", () => {
     },
   );
 
-  it("rotates the token for a manager who confirms", async () => {
+  it("rotates the token for a user administrator who confirms", async () => {
     setUpServer();
     let rotatedId = "";
     server.use(

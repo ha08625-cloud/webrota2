@@ -4,11 +4,11 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AccessLevel, SchoolHoliday } from "@/api/types";
+import type { Permissions, SchoolHoliday } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import { formatHolidayRange } from "@/lib/date";
 import { type PendingEdit, planningCellKey } from "@/lib/planningMonth";
-import { makeDoctor, makeSchoolHoliday } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeDoctor, makeSchoolHoliday } from "@/test/fixtures/reference";
 import { authWrapper } from "@/test/renderWithProviders";
 
 import { LeavePlanningGrid } from "./LeavePlanningGrid";
@@ -21,7 +21,7 @@ const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
 
 function renderGrid(
   overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]> = {},
-  accessLevel: AccessLevel = "manager",
+  permissions: Permissions = PERMISSION_PRESETS.manager,
 ) {
   const onApply = vi.fn();
   const onSelectDoctor = vi.fn();
@@ -47,7 +47,7 @@ function renderGrid(
       onApply={onApply}
       {...overrides}
     />,
-    { wrapper: authWrapper(accessLevel) },
+    { wrapper: authWrapper("manager", { permissions }) },
   );
   return { onApply, onSelectDoctor };
 }
@@ -690,7 +690,7 @@ describe("LeavePlanningGrid", () => {
 
 describe("LeavePlanningGrid for a read-only user", () => {
   it("renders the month but starts no selection, so the editor never opens", async () => {
-    renderGrid({}, "nurse");
+    renderGrid({}, PERMISSION_PRESETS.readOnly);
 
     const cell = screen.getByTestId(`planning-cell-1-${MONDAY}-AM`);
     fireEvent.mouseDown(cell, { button: 0 });

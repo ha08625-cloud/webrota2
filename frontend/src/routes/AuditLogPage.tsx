@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useAuditLog } from "@/api/audit";
 import { useUsers } from "@/api/users";
 import type { AuditLogEntry, AuditLogFilters } from "@/api/types";
-import { useIsManager } from "@/auth/AuthContext";
+import { useCanAdminUsers } from "@/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 
 /** Fixed page size. The backend caps `limit` at 200; 50 keeps a page scannable. */
@@ -18,18 +18,19 @@ const PAGE_SIZE = 50;
 const METHODS = ["POST", "PATCH", "PUT", "DELETE"] as const;
 
 export function AuditLogPage() {
-  // Manager-only, matching the backend: the whole /audit router hangs off
-  // require_manager, so a lower tier would otherwise get a bare "Could not
-  // load". The nav entry is hidden for them too (App.tsx), but the route
-  // stays registered so a bookmarked link lands somewhere sane.
-  const isManager = useIsManager();
+  // Matching the backend, where the whole /audit router is gated on the
+  // user administration permission - reads included, so without it this
+  // would be a bare "Could not load". AdminShell redirects such a login
+  // away; this covers the page being mounted outside it.
+  const canAdminUsers = useCanAdminUsers();
 
-  if (!isManager) {
+  if (!canAdminUsers) {
     return (
       <div>
         <h1 className="text-lg font-semibold">Audit Log</h1>
         <p className="mt-4 text-sm text-ink/70">
-          You do not have access to the audit log. Ask a manager if you need to know what changed.
+          You do not have access to the audit log. Ask a user administrator if you need to know
+          what changed.
         </p>
       </div>
     );

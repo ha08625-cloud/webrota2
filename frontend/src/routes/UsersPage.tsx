@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useUpdateUser, useUsers } from "@/api/users";
 import type { AccessLevel, ApiError, AuthUser, StaffLink } from "@/api/types";
-import { useIsManager } from "@/auth/AuthContext";
+import { useCanAdminUsers } from "@/auth/AuthContext";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { ACCESS_LEVELS, accessLevelLabel } from "@/lib/accessLevels";
@@ -13,19 +13,20 @@ interface DialogState {
 }
 
 export function UsersPage() {
-  // Manager-only, matching the backend: GET /users itself 403s below that
-  // tier, so a non-manager would otherwise get a bare "Could not load
-  // users". The nav entry is hidden for them too (App.tsx), but the route
-  // stays registered, so a bookmarked link has to land somewhere sane
-  // rather than on a broken list.
-  const isManager = useIsManager();
+  // Matching the backend, which 403s GET /users without the user
+  // administration permission - otherwise this would be a bare "Could not
+  // load users". AdminShell already redirects such a login away, so this is
+  // the belt to that braces: the state to render if the page is ever
+  // mounted outside the shell.
+  const canAdminUsers = useCanAdminUsers();
 
-  if (!isManager) {
+  if (!canAdminUsers) {
     return (
       <div>
         <h1 className="text-lg font-semibold">Users</h1>
         <p className="mt-4 text-sm text-ink/70">
-          You do not have access to user management. Ask a manager if you need an account changed.
+          You do not have access to user management. Ask a user administrator if you need an
+          account changed.
         </p>
         <p className="mt-2 text-sm text-ink/70">
           You can change your own password from "Change password" in the header.

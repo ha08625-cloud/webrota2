@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useParams } from "react-router-dom";
 
-import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeStaging, makeStagingSession } from "@/test/fixtures/staging";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -170,11 +170,11 @@ describe("StagingPage for a read-only user", () => {
       http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging({ staging_id: 3 }))),
     );
 
-    renderWithProviders(<StagingPage />, { accessLevel: "doctor" });
+    renderWithProviders(<StagingPage />, { permissions: PERMISSION_PRESETS.readOnly });
 
     const complete = await screen.findByRole("button", { name: "Complete and generate" });
     expect(complete).toBeDisabled();
-    expect(complete).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(complete).toHaveAttribute("title", expect.stringContaining("do not allow changes"));
     expect(screen.getByRole("button", { name: "Abandon" })).toBeDisabled();
   });
 });

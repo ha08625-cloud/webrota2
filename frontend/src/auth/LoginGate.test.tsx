@@ -19,17 +19,24 @@ const AUTH_USER = {
   name: "Jo Bloggs",
   active: true,
   access_level: "admin",
+  permissions: {
+    clinical: "write",
+    reception: "write",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
   created_at: "2026-07-01T00:00:00Z",
 };
 
-/** Reads what LoginGate published to the auth context (role-based auth, Task 3). */
+/** Reads what LoginGate published to the auth context. */
 function AccessProbe() {
-  const { user, canWrite } = useAuth();
+  const { user, permissions } = useAuth();
   return (
     <div>
       protected content
       <span data-testid="probe-level">{user?.access_level ?? "none"}</span>
-      <span data-testid="probe-can-write">{String(canWrite)}</span>
+      <span data-testid="probe-clinical">{permissions.clinical}</span>
     </div>
   );
 }
@@ -129,14 +136,14 @@ describe("LoginGate", () => {
     expect(getToken()).toBeNull();
   });
 
-  it("publishes the /auth/me user's access level to the auth context", async () => {
+  it("publishes the /auth/me user's label and permissions to the auth context", async () => {
     setToken("valid-token");
     server.use(http.get("/api/v1/auth/me", () => HttpResponse.json(AUTH_USER)));
 
     renderGate();
 
     expect(await screen.findByTestId("probe-level")).toHaveTextContent("admin");
-    expect(screen.getByTestId("probe-can-write")).toHaveTextContent("true");
+    expect(screen.getByTestId("probe-clinical")).toHaveTextContent("write");
   });
 
   it("publishes the login response's user when there was no stored token to check", async () => {
@@ -144,7 +151,11 @@ describe("LoginGate", () => {
       http.post("/api/v1/auth/login", () =>
         HttpResponse.json({
           token: "new-session-token",
-          user: { ...AUTH_USER, access_level: "nurse" },
+          user: {
+            ...AUTH_USER,
+            access_level: "nurse",
+            permissions: { ...AUTH_USER.permissions, clinical: "read", reception: "none" },
+          },
         }),
       ),
     );
@@ -156,7 +167,7 @@ describe("LoginGate", () => {
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
     expect(await screen.findByTestId("probe-level")).toHaveTextContent("nurse");
-    expect(screen.getByTestId("probe-can-write")).toHaveTextContent("false");
+    expect(screen.getByTestId("probe-clinical")).toHaveTextContent("read");
   });
 
   it("shows the reason on the login form when the sign-out was expected", async () => {

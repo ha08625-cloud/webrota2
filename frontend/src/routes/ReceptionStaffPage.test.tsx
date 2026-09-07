@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { makeReceptionStaff } from "@/test/fixtures/reception";
+import { PERMISSION_PRESETS } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -164,9 +165,15 @@ describe("ReceptionStaffPage", () => {
     expect(within(inactiveRow as HTMLElement).getByRole("button", { name: "Delete" })).toBeInTheDocument();
   });
 
-  it("hides Delete below manager, even on an inactive row", async () => {
+  // The backend puts require_capability("user_admin") on this DELETE on top
+  // of the reception gate, so writing the reception rota is not enough: the
+  // delete is irreversible and destroys history.
+  it("hides Delete from a reception writer without user administration", async () => {
     setUpServer({ staff: [makeReceptionStaff({ id: 2, code: "CD", active: false })] });
-    renderWithProviders(<ReceptionStaffPage />, { accessLevel: "admin" });
+    renderWithProviders(<ReceptionStaffPage />, {
+      area: "reception",
+      permissions: PERMISSION_PRESETS.receptionAdmin,
+    });
     await screen.findByText("CD");
 
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
@@ -203,12 +210,15 @@ describe("ReceptionStaffPage for a read-only user", () => {
   // the same way, since the backend gate is one global dependency.
   it("disables the write controls and says why", async () => {
     setUpServer({ staff: [makeReceptionStaff({ id: 1, code: "AB" })] });
-    renderWithProviders(<ReceptionStaffPage />, { accessLevel: "nurse" });
+    renderWithProviders(<ReceptionStaffPage />, {
+      area: "reception",
+      permissions: PERMISSION_PRESETS.readOnly,
+    });
     await screen.findByText("AB");
 
     const create = screen.getByRole("button", { name: "New Reception Staff" });
     expect(create).toBeDisabled();
-    expect(create).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(create).toHaveAttribute("title", expect.stringContaining("do not allow changes"));
     expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
   });

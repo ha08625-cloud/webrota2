@@ -6,8 +6,14 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import { useRota } from "@/api/rota";
-import type { AccessLevel, AuthUser, ClosedSlot, Rota } from "@/api/types";
-import { makeClinicType, makeClosure, makeDoctor, makeRoom } from "@/test/fixtures/reference";
+import type { AuthUser, ClosedSlot, Permissions, Rota } from "@/api/types";
+import {
+  PERMISSION_PRESETS,
+  makeClinicType,
+  makeClosure,
+  makeDoctor,
+  makeRoom,
+} from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -58,10 +64,10 @@ function renderRotaGrid(
     onMutationApplied?: (entry: UndoEntry, message: string) => void;
     onMutationError?: () => void;
   },
-  accessLevel: AccessLevel = "manager",
+  permissions: Permissions = PERMISSION_PRESETS.manager,
   authUser: Partial<AuthUser> = {},
 ) {
-  return renderWithProviders(<RotaGridHarness {...props} />, { accessLevel, authUser });
+  return renderWithProviders(<RotaGridHarness {...props} />, { permissions, authUser });
 }
 
 function setUpServer({
@@ -650,7 +656,7 @@ describe("RotaGrid for a read-only user", () => {
     });
     const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
 
-    renderRotaGrid({ rota }, "nurse");
+    renderRotaGrid({ rota }, PERMISSION_PRESETS.readOnly);
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     // Everything still displays - reads are open to every tier.
@@ -664,7 +670,7 @@ describe("RotaGrid for a read-only user", () => {
     expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
   });
 
-  it("still edits a draft rota for an admin", async () => {
+  it("still edits a draft rota for a rota administrator", async () => {
     setUpServer();
     const session = makeRotaSession({
       doctor_id: 1,
@@ -674,7 +680,7 @@ describe("RotaGrid for a read-only user", () => {
     });
     const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
 
-    renderRotaGrid({ rota }, "admin");
+    renderRotaGrid({ rota }, PERMISSION_PRESETS.rotaAdmin);
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
     const user = userEvent.setup();
@@ -700,7 +706,7 @@ describe("RotaGrid: the linked doctor's own row", () => {
   it("marks only the row of the doctor this login is linked to", async () => {
     setUpServer({ doctors: TWO_DOCTORS });
 
-    renderRotaGrid({ rota: twoDoctorRota() }, "doctor", {
+    renderRotaGrid({ rota: twoDoctorRota() }, PERMISSION_PRESETS.readOnly, {
       linked_doctor: { id: 2, code: "CD", active: true },
     });
 
@@ -725,7 +731,7 @@ describe("RotaGrid: the linked doctor's own row", () => {
   it("leaves the cells themselves untouched", async () => {
     setUpServer({ doctors: TWO_DOCTORS });
 
-    renderRotaGrid({ rota: twoDoctorRota() }, "manager", {
+    renderRotaGrid({ rota: twoDoctorRota() }, PERMISSION_PRESETS.manager, {
       linked_doctor: { id: 1, code: "AB", active: true },
     });
 

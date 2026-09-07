@@ -4,8 +4,9 @@ import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import type { AccessLevel, AuthUser } from "@/api/types";
-import { AuthProvider } from "@/auth/AuthContext";
+import type { AccessLevel, AuthUser, Permissions } from "@/api/types";
+import type { PermissionArea } from "@/auth/AuthContext";
+import { AuthProvider, PermissionAreaProvider } from "@/auth/AuthContext";
 
 import { makeAuthUser } from "./fixtures/reference";
 
@@ -22,12 +23,24 @@ interface RenderWithProvidersOptions {
    */
   additionalRoutes?: { path: string; element: ReactElement }[];
   /**
-   * Access level of the logged-in user the tree sees (role-based auth,
-   * Task 3). Defaults to "manager" so every pre-existing test keeps
-   * seeing the full set of controls; pass "doctor" or "nurse" to assert
-   * what a read-only user gets, or "admin" for writes-but-not-users.
+   * Access level of the logged-in user the tree sees. A LABEL only -
+   * nothing gates on it. Pass `permissions` to change what the tree may do.
    */
   accessLevel?: AccessLevel;
+  /**
+   * What the logged-in user may do. Defaults to the Manager preset -
+   * everything granted - so a test that says nothing sees the full set of
+   * controls; pass a narrower set (PERMISSION_PRESETS in the fixtures) to
+   * assert what a restricted login gets.
+   */
+  permissions?: Permissions;
+  /**
+   * The section the component under test is mounted in, which is what
+   * useCanWrite() resolves against. Defaults to "clinical", matching most
+   * pages; pass "reception" or a capability for a component that lives
+   * elsewhere. In the running app each shell provides this.
+   */
+  area?: PermissionArea;
   /**
    * Any other field of the logged-in user the tree sees. Mostly for the
    * staff link (`linked_doctor` / `linked_reception_staff`), which the
@@ -44,6 +57,8 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
     path = "/",
     additionalRoutes = [],
     accessLevel = "manager",
+    permissions,
+    area = "clinical",
     authUser = {},
   } = options;
 
@@ -55,32 +70,60 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <AuthProvider user={makeAuthUser({ access_level: accessLevel, ...authUser })}>
-          <MemoryRouter initialEntries={[route]}>
-            <Routes>
-              <Route path={path} element={ui} />
-              {additionalRoutes.map((r) => (
-                <Route key={r.path} path={r.path} element={r.element} />
-              ))}
-            </Routes>
-          </MemoryRouter>
+        <AuthProvider
+          user={makeAuthUser({
+            access_level: accessLevel,
+            ...(permissions ? { permissions } : {}),
+            ...authUser,
+          })}
+        >
+          <PermissionAreaProvider area={area}>
+            <MemoryRouter initialEntries={[route]}>
+              <Routes>
+                <Route path={path} element={ui} />
+                {additionalRoutes.map((r) => (
+                  <Route key={r.path} path={r.path} element={r.element} />
+                ))}
+              </Routes>
+            </MemoryRouter>
+          </PermissionAreaProvider>
         </AuthProvider>
       </QueryClientProvider>,
     ),
   };
 }
 
+interface AuthWrapperOptions {
+  /** What the tree may do. Defaults to the fixture's everything-granted set. */
+  permissions?: Permissions;
+  /** The section the tree is mounted in. Defaults to "clinical". */
+  area?: PermissionArea;
+  /** Any other field of the logged-in user, e.g. a staff link. */
+  authUser?: Partial<AuthUser>;
+}
+
 /**
- * Wrapper for tests that render a component with plain RTL `render()` -
- * no query client and no router, but still needing an access level
- * because the component consults the auth context. Pass as
- * `render(ui, { wrapper: authWrapper("nurse") })`.
+ * Wrapper for tests that render a component with plain RTL `render()` - no
+ * query client and no router, but still needing an auth context because the
+ * component consults it. Pass as `render(ui, { wrapper: authWrapper() })`.
+ *
+ * `accessLevel` is a label, like the option of the same name above; nothing
+ * gates on it. Pass `{ permissions }` to change what the tree may do.
  */
-export function authWrapper(accessLevel: AccessLevel = "manager", authUser: Partial<AuthUser> = {}) {
+export function authWrapper(
+  accessLevel: AccessLevel = "manager",
+  { permissions, area = "clinical", authUser = {} }: AuthWrapperOptions = {},
+) {
   return function AuthWrapper({ children }: { children: ReactNode }) {
     return (
-      <AuthProvider user={makeAuthUser({ access_level: accessLevel, ...authUser })}>
-        {children}
+      <AuthProvider
+        user={makeAuthUser({
+          access_level: accessLevel,
+          ...(permissions ? { permissions } : {}),
+          ...authUser,
+        })}
+      >
+        <PermissionAreaProvider area={area}>{children}</PermissionAreaProvider>
       </AuthProvider>
     );
   };
