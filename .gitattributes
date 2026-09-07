@@ -1,0 +1,15 @@
+# Normalise line endings in the repository.
+#
+# The repo previously held a mix of LF and CRLF files, so any tool that
+# rewrote a file could silently flip all of its line endings and turn a
+# one-line edit into a whole-file diff. Git now stores every text file
+# with LF; `text=auto` lets git decide what is text, so binaries
+# (documentation/reference/*.docx, images, fonts) are left untouched.
+#
+# Working-copy endings are not forced: a Windows checkout still gets CRLF
+# if core.autocrlf says so. Only what is committed is normalised.
+* text=auto
+
+# Document fixtures whose bytes the tests read directly -- left exactly as
+# they are rather than normalised.
+backend/tests/fixtures/*.rtf -text
