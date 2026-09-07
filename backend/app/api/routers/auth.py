@@ -1,4 +1,4 @@
-"""Auth router: login, logout, me (auth plan, Task 2).
+"""Auth router: login, logout, me, and the self-service password reset pair.
 
 POST /login is the one endpoint in this router that does NOT depend on
 get_current_user -- it is how a client obtains a token in the first place.

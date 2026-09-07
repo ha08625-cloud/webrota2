@@ -1,4 +1,4 @@
-"""User management router (auth plan, Task 3; gated by the permission set).
+"""User management router, gated by the permission set.
 
 `user_admin`-only, with one exception. `GET /users`, `POST /users`, and
 `PATCH /users/{user_id}` each carry
@@ -28,7 +28,7 @@ cannot be used for self-promotion.
 PATCH also accepts an optional write-only `password` field. When present,
 the password is re-hashed and every existing session belonging to that
 user is deleted, so a password reset immediately invalidates any token
-obtained under the old password (auth plan, Task 3). It also deletes that
+obtained under the old password. It also deletes that
 user's outstanding self-service reset tokens -- see
 _invalidate_reset_tokens for why that is not optional. This applies to
 `/users/me` too: changing your own password signs you out everywhere,

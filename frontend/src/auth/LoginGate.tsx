@@ -54,7 +54,7 @@ function readResetToken(): string | null {
 
 /**
  * Wraps the app (renamed from TokenGate now that this is a real login
- * screen, not a shared-token prompt - auth plan, Task 5).
+ * screen, not a shared-token prompt).
  *
  * On mount:
  * - A /reset-password/<token> pathname -> show the reset view, whatever
@@ -78,15 +78,15 @@ function readResetToken(): string | null {
  * silently break if LoginGate were ever restructured to keep children
  * mounted underneath the form.
  *
- * It also owns the app-wide AuthProvider (role-based auth, Task 3): it
+ * It also owns the app-wide AuthProvider: it
  * already has the current user from /auth/me or the login response, so
  * nothing else has to re-fetch it to find out what the user may do. The
  * user is held in state rather than read straight off meQuery.data
  * because that query is only ever enabled during the stored-token check -
  * after a fresh login there is no /auth/me result to read.
  *
- * WHY THE RESET PAGE IS A VIEW HERE AND NOT A ROUTE (password reset,
- * Task 4). main.tsx renders QueryClientProvider > LoginGate > App, and
+ * WHY THE RESET PAGE IS A VIEW HERE AND NOT A ROUTE. main.tsx renders
+ * QueryClientProvider > LoginGate > App, and
  * BrowserRouter lives inside App. LoginGate renders the login form
  * *instead of* its children when there is no valid token, so a
  * <Route path="reset-password/:token"> in App would never render for the
