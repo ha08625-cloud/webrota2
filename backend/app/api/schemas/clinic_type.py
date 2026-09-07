@@ -1,4 +1,10 @@
-"""ClinicType schemas: full nested create/replace (M3 plan design decision)."""
+"""ClinicType schemas: full nested create/replace.
+
+POST/PUT carry the schedules, doctor eligibilities and room eligibilities
+inline and the router replaces the children wholesale, rather than each
+child having its own endpoint: a clinic type is only ever edited as a
+whole on the frontend, and a partial save would leave it inconsistent.
+"""
 from pydantic import BaseModel, Field, model_validator
 
 from ...models.enums import Day, Period, RoomType

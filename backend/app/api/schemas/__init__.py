@@ -1,4 +1,4 @@
-"""Pydantic schemas for the M3 API."""
+"""Pydantic schemas for the API."""
 from .common import ValidationIssueOut
 from .rota import (
     GenerateRotaIn,

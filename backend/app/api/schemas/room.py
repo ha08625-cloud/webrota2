@@ -1,4 +1,4 @@
-"""Room schemas. Rooms are read-only in M3."""
+"""Room schemas. Rooms are read-only over the API -- there is no RoomIn."""
 from pydantic import BaseModel
 
 from ...models.enums import RoomType, Site

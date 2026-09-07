@@ -1,4 +1,4 @@
-"""Leave entitlement and balance schemas (leave entitlement and balances plan).
+"""Leave entitlement and balance schemas.
 
 Every session figure is a `Decimal` serialised as a JSON string, matching
 `DoctorOut.sessions_per_week`'s existing treatment -- these are quantities an
