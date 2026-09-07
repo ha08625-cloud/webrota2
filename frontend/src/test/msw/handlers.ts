@@ -21,6 +21,19 @@ export const handlers: HttpHandler[] = [
     HttpResponse.json({ detail: "Invalid email or password" }, { status: 401 }),
   ),
   http.post("/api/v1/auth/logout", () => new HttpResponse(null, { status: 204 })),
+  // Password reset. forgot-password 204s unconditionally, which is what
+  // the real endpoint does for every outcome it has - unknown address,
+  // inactive user, throttled, Mailgun failure - so there is no
+  // "not found" variant for a test to stub. reset-password 400s by
+  // default (the stale-link case, and the one the frontend has to handle
+  // specially); tests about a successful reset stub a 204.
+  http.post("/api/v1/auth/forgot-password", () => new HttpResponse(null, { status: 204 })),
+  http.post("/api/v1/auth/reset-password", () =>
+    HttpResponse.json(
+      { detail: "This reset link is invalid or has expired. Please request a new one." },
+      { status: 400 },
+    ),
+  ),
   http.get("/api/v1/rooms", () => HttpResponse.json([])),
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),

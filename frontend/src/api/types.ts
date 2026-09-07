@@ -119,6 +119,27 @@ export interface LoginOut {
 }
 
 /**
+ * POST /auth/forgot-password body (ForgotPasswordIn in schemas/auth.py).
+ * The address is matched exactly and case-sensitively, the way login
+ * matches it, so this is sent verbatim - no trimming or lower-casing on
+ * the way out, or an address could request a reset it could never log in
+ * with. The endpoint answers 204 whatever happens.
+ */
+export interface ForgotPasswordIn {
+  email: string;
+}
+
+/**
+ * POST /auth/reset-password body (ResetPasswordIn in schemas/auth.py).
+ * The token goes in the body, never the path - api/audit.py redacts
+ * `token` out of captured bodies but records the path verbatim.
+ */
+export interface ResetPasswordIn {
+  token: string;
+  password: string;
+}
+
+/**
  * POST /users body (UserIn in schemas/auth.py). Always creates an active
  * user - `active` is not settable here. `access_level` is required, not
  * defaulted: the backend deliberately makes granting a tier an explicit
