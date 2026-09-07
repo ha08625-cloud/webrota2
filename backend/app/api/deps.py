@@ -16,7 +16,7 @@ the routers (registered directly on the app in main.py) and stay open.
 
 Authentication is not the whole story any more: since the role-based auth
 plan (Task 2) a valid session also carries a permission tier, and this
-module owns the two gates that read it.
+module owns the three gates that read it.
 
 `require_write_access` is method-aware and attached ONCE, in main.py's
 include_router loop, to every router except auth and users. It is not a
@@ -33,12 +33,23 @@ discrimination has to happen inside the dependency, off request.method.
 routers/users.py, which cannot take the global gate because PATCH
 /users/me has to stay open to every tier.
 
+`require_admin` is the same shape one tier down, and exists for the two
+signature reads. The global gate lets every tier read, which for
+GET /signatures and GET /signatures/{doctor_id}/image meant handing a
+scanned signature image to every authenticated login, nurse tier
+included. Those two endpoints carry this dependency instead, so the
+people who can read a signature are exactly the people who can upload
+one.
+
 Reads are open to all four tiers, preserving the pre-existing "everyone
-sees everything" behaviour. MANAGER and ADMIN both write; DOCTOR and
+sees everything" behaviour, bar the two signature reads above. MANAGER and ADMIN both write; DOCTOR and
 NURSE are permission-identical viewer labels.
 
-Both gates raise 403, not 404: the resource plainly exists (the caller
-can GET it), so hiding its existence buys nothing.
+The gates raise 403, not 404. For the two write gates the resource
+plainly exists -- the caller can GET it -- so hiding its existence buys
+nothing, and `require_admin` follows suit for consistency rather than
+pretending a doctor with no signature on file is the same as a doctor
+whose signature you may not see.
 
 get_current_user is also where the acting user reaches the audit log. It
 already holds the User row, so recording the identity here costs nothing --
@@ -94,6 +105,7 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _FORBIDDEN_WRITE_DETAIL = "Your access level does not permit changes"
 _FORBIDDEN_MANAGER_DETAIL = "User management requires manager access"
+_FORBIDDEN_ADMIN_DETAIL = "Your access level does not permit this"
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -180,6 +192,19 @@ def require_write_access(
         return user
     if _tier(user) < _WRITE_TIER:
         raise HTTPException(status_code=403, detail=_FORBIDDEN_WRITE_DETAIL)
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Admin or manager, regardless of method -- this gates reads too.
+
+    Used by the two signature read endpoints, where "may read" and "may
+    upload" are the same question. `require_write_access` cannot serve
+    that purpose: it is method-aware by design and returns
+    unconditionally on a GET.
+    """
+    if _tier(user) < _WRITE_TIER:
+        raise HTTPException(status_code=403, detail=_FORBIDDEN_ADMIN_DETAIL)
     return user
 
 

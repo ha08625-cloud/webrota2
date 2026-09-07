@@ -7,6 +7,10 @@ Auth coverage for this router (and every other router) now lives centrally
 in test_auth.py (auth plan, Task 4) -- the per-router TestAuth class that
 used to live here tested the M3.5 API_TOKEN shim, which get_current_user no
 longer implements, and was removed rather than rewritten.
+
+The exception is TestReadAccess at the foot of this file. The two GETs
+here are the only reads in the API that are not open to every tier, so
+the central sweeps -- which assert the general rule -- cannot carry them.
 """
 import base64
 import datetime
@@ -20,7 +24,7 @@ from docx.oxml.ns import qn
 
 from app.documents.errors import ConversionError
 from app.models import Doctor
-from app.models.enums import DoctorType
+from app.models.enums import AccessLevel, DoctorType
 
 SAMPLE_RTF_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
@@ -368,3 +372,42 @@ class TestApplyRtf:
         assert "Could not convert this document to PDF" in detail
         assert "/tmp" not in detail
         assert "soffice" not in detail
+
+
+class TestReadAccess:
+    """Both reads are admin-and-above, not merely authenticated.
+
+    The signature image is the one asset in this API worth more outside it
+    than in, so it is not covered by the global gate's "every tier may
+    read" rule -- see the router docstring and deps.require_admin.
+
+    Assertions are `== 403`, never "not 2xx": a broken gate would answer
+    404 on the image path for a doctor with nothing stored, and "not 2xx"
+    would accept that as a pass.
+    """
+
+    def test_viewer_cannot_list_signatures(self, viewer_client):
+        resp = viewer_client.get("/api/v1/signatures")
+        assert resp.status_code == 403, resp.text
+
+    def test_viewer_cannot_fetch_a_signature_image(self, viewer_client):
+        resp = viewer_client.get("/api/v1/signatures/1/image")
+        assert resp.status_code == 403, resp.text
+
+    def test_doctor_tier_cannot_fetch_a_signature_image(self, client_at_tier):
+        """The tier most likely to be given a login for its own sake, and
+        the one this gate exists to keep out."""
+        client = client_at_tier(AccessLevel.DOCTOR)
+        assert client.get("/api/v1/signatures/1/image").status_code == 403
+
+    def test_admin_can_list_signatures(self, admin_client):
+        resp = admin_client.get("/api/v1/signatures")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == []
+
+    def test_admin_gets_the_ordinary_404_for_a_missing_image(self, admin_client):
+        """Past the gate, the endpoint behaves as it always did."""
+        assert admin_client.get("/api/v1/signatures/1/image").status_code == 404
+
+    def test_manager_can_list_signatures(self, manager_client):
+        assert manager_client.get("/api/v1/signatures").status_code == 200

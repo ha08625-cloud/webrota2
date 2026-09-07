@@ -78,6 +78,18 @@ _UNAUTHENTICATED_GET_PATHS = {"/api/v1/calendar/1.ics"}
 # _MIN_SWEPT_ROUTES above.
 _MIN_SWEPT_GET_ROUTES = 30
 
+# GETs that need MORE than a session: "/api/v1/signatures" and
+# "/api/v1/signatures/1/image" carry require_admin, so a viewer gets 403
+# where every other read gives 200. They are named here for the reader's
+# benefit only -- the sweep above tests authentication (401 with no
+# credentials), which is unchanged for them, and TestReadsAreOpenToEveryTier
+# below tests two named reads rather than sweeping. The tier assertions for
+# these two live in test_signatures.py's TestReadAccess.
+_ADMIN_ONLY_GET_PATHS = {
+    "/api/v1/signatures",
+    "/api/v1/signatures/1/image",
+}
+
 # A write that succeeds on its own merits, for the targeted tier tests --
 # the sweep sends empty bodies, so it can only ever prove a 403.
 DOCTORS = "/api/v1/doctors"
@@ -189,6 +201,9 @@ def test_admin_is_not_blocked_by_the_write_gate(admin_client, method, path):
 
 
 class TestReadsAreOpenToEveryTier:
+    """With one deliberate exception: the two signature reads. See
+    _ADMIN_ONLY_GET_PATHS above and test_signatures.py's TestReadAccess."""
+
     @pytest.mark.parametrize("level", list(AccessLevel))
     def test_every_tier_can_read(self, client_at_tier, level):
         client = client_at_tier(level)
