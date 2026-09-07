@@ -14,15 +14,19 @@ nothing is ever pruned. The single reader is a manager-only list endpoint.
 
 Two conventions follow from that:
 
-1. `user_email` and `user_access_level` are **frozen snapshots**, copied in
-   at write time rather than joined from `users` at read time, so an entry
-   still reads correctly after the user is renamed or demoted (the same
+1. `user_email`, `user_access_level` and `user_permissions` are **frozen
+   snapshots**, copied in at write time rather than joined from `users` at
+   read time, so an entry still reads correctly after the user is renamed,
+   demoted or re-permissioned (the same
    "frozen prose, never re-derived" convention as
    `RotaGenerationLogEntry`). `user_access_level` is a plain `String` and
    deliberately **not** `enum_col(AccessLevel)`: a native Postgres enum
    would turn any future tier rename or removal into a migration against
    historical rows that are, by definition, meant to be immutable, and it
    would put a `DROP TYPE` in the migration's `downgrade()`.
+   `user_permissions` is a `String` for a related reason: it is the
+   compact JSON of the permission set as it stood, and the shape of that
+   set is expected to change as permissions are added.
 
    `user_id` does carry a real FK to `users.id`, unlike
    `RotaGenerationLogEntry`'s deliberately FK-free ids: there is no delete
@@ -68,6 +72,13 @@ class AuditLogEntry(Base):
     )
     user_email: Mapped[str | None] = mapped_column(String, nullable=True)
     user_access_level: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The acting user's permission set as compact JSON, so "why was this
+    # allowed?" is answerable after the fact -- permissions change, and the
+    # row has to say what they were at the time. A String beside
+    # user_access_level rather than a JSON column: it is a frozen snapshot
+    # displayed as text, never queried into. Nullable for the same reason
+    # the two fields above are -- an unauthenticated request has no actor.
+    user_permissions: Mapped[str | None] = mapped_column(String, nullable=True)
 
     method: Mapped[str] = mapped_column(String(10), nullable=False)
     # Templated and router-local, e.g. "/rota/{rota_id}/sessions/{session_id}".

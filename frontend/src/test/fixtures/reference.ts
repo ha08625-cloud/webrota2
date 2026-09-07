@@ -256,6 +256,17 @@ export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
     // Manager by default so fixtures keep exercising the full UI; tests
     // about a lower tier pass an override (role-based auth, Task 3).
     access_level: "manager",
+    // Everything granted, for the same reason and ahead of anything
+    // reading it: when the UI moves off access_level, a fixture user
+    // should still see the whole app unless a test says otherwise
+    // (fine-grained permissions, Task 1).
+    permissions: {
+      clinical: "write",
+      reception: "write",
+      signatures: true,
+      study_eoi: true,
+      user_admin: true,
+    },
     // Unlinked by default: the link is opt-in, and a test that cares
     // about "my rota" supplies one via overrides.
     linked_doctor: null,

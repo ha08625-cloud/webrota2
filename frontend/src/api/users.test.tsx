@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { server } from "@/test/msw/server";
+import { permissionPreset } from "@/lib/permissionPresets";
 import { makeAuthUser } from "@/test/fixtures/reference";
 
 import { useCreateUser, useUpdateSelf, useUpdateUser, useUsers } from "./users";
@@ -48,10 +49,12 @@ describe("useCreateUser", () => {
     );
 
     const { result } = renderHook(() => useCreateUser(), { wrapper: makeWrapper(freshClient()) });
+    const permissions = permissionPreset("rota_admin");
     result.current.mutate({
       email: "cara@example.com",
       name: "Cara",
       access_level: "admin",
+      permissions,
       password: "password1",
     });
 
@@ -60,6 +63,7 @@ describe("useCreateUser", () => {
       email: "cara@example.com",
       name: "Cara",
       access_level: "admin",
+      permissions,
       password: "password1",
     });
   });

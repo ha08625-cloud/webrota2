@@ -55,8 +55,8 @@ get_current_user is also where the acting user reaches the audit log. It
 already holds the User row, so recording the identity here costs nothing --
 the alternative, re-resolving the bearer token inside the audit middleware,
 would be a second indexed SELECT on every write request. The row's identity
-fields are frozen snapshots, so the email and access level are copied in as
-plain values rather than left to be joined at read time. The 401 paths
+fields are frozen snapshots, so the email, access level and permission set
+are copied in as plain values rather than left to be joined at read time. The 401 paths
 record nothing, which is correct: there was no user. Note that this mutates
 the context object in place and never calls ContextVar.set() -- this
 dependency runs threadpooled on a copied context, so a set() here would be
@@ -73,6 +73,7 @@ backends, not just a SQLite workaround.
 """
 import datetime
 import hashlib
+import json
 from collections.abc import Generator
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -165,6 +166,12 @@ def record_audit_actor(user: User) -> None:
     ctx.user_id = user.id
     ctx.user_email = user.email
     ctx.user_access_level = user.access_level.value
+    # sort_keys so two rows with the same permissions compare equal as
+    # strings; `or None` because a row with no permission set at all is a
+    # data problem worth seeing as NULL rather than as "{}".
+    ctx.user_permissions = (
+        json.dumps(user.permissions, sort_keys=True) if user.permissions else None
+    )
 
 
 def _tier(user: User) -> int:

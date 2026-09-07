@@ -26,6 +26,12 @@ from seed.seed_doctors import seed_doctors
 from seed.seed_system_counters import seed_system_counters
 from seed.seed_master_rota import seed_master_rota
 from seed.seed_users import seed_users
+from app.models.permissions import (
+    MANAGER_PRESET,
+    READ_ONLY_PRESET,
+    ROTA_ADMIN_PRESET,
+    preset,
+)
 
 SETUP_HEADER = [
     "Doctor code", "Type", "Preferred Room", "Alt Room 1", "Alt Room 2",
@@ -240,6 +246,32 @@ def test_seed_users_honours_explicit_access_level(
     seed_user_env.setenv("SEED_USER_ACCESS_LEVEL", raw)
     user = seed_users(session)
     assert user.access_level == expected
+
+
+def test_seed_users_defaults_permissions_to_the_manager_preset(
+    session, seed_user_env
+):
+    """The seeded account is the one that administers everyone else, so it
+    gets everything -- derived from the tier, not from a second env var."""
+    user = seed_users(session)
+    assert user.permissions == preset(MANAGER_PRESET)
+
+
+@pytest.mark.parametrize(
+    "raw,expected_preset",
+    [
+        ("manager", MANAGER_PRESET),
+        ("admin", ROTA_ADMIN_PRESET),
+        ("doctor", READ_ONLY_PRESET),
+        ("nurse", READ_ONLY_PRESET),
+    ],
+)
+def test_seed_users_derives_permissions_from_the_tier(
+    session, seed_user_env, raw, expected_preset
+):
+    seed_user_env.setenv("SEED_USER_ACCESS_LEVEL", raw)
+    user = seed_users(session)
+    assert user.permissions == preset(expected_preset)
 
 
 def test_seed_users_rejects_unknown_access_level(session, seed_user_env):

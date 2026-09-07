@@ -36,6 +36,7 @@ import pytest
 
 from app.api.main import app
 from app.models.enums import AccessLevel
+from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 _PARAM = re.compile(r"\{[^}]+\}")
@@ -267,6 +268,7 @@ class TestManagerTier:
             json={
                 "email": "new@example.com", "name": "New",
                 "password": "password123", "access_level": "admin",
+                "permissions": preset(PRESET_FOR_ACCESS_LEVEL["admin"]),
             },
         )
         assert resp.status_code == 201, resp.text

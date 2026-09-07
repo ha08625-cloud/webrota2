@@ -86,6 +86,8 @@ from .signature import SignatureMetaOut
 from .auth import (
     LoginIn,
     LoginOut,
+    PermissionSet,
+    PermissionSetIn,
     StaffLinkOut,
     UserIn,
     UserOut,
@@ -147,7 +149,8 @@ __all__ = [
     "StagingSessionPatchIn", "StagingSessionCreateIn", "StagingSessionWriteOut",
     "SignatureMetaOut",
     "SchoolIn", "SchoolOut", "SchoolHolidayIn", "SchoolHolidayOut",
-    "LoginIn", "LoginOut", "StaffLinkOut", "UserOut", "UserIn", "UserPatch",
+    "LoginIn", "LoginOut", "PermissionSet", "PermissionSetIn",
+    "StaffLinkOut", "UserOut", "UserIn", "UserPatch",
     "UserSelfPatch",
     "AuditLogEntryOut", "AuditLogListOut",
     "RecurringNoteIn", "RecurringNoteOut",

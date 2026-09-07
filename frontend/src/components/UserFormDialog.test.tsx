@@ -7,6 +7,7 @@ import { makeAuthUser, makeDoctor } from "@/test/fixtures/reference";
 import { makeReceptionStaff } from "@/test/fixtures/reception";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
+import { permissionPreset } from "@/lib/permissionPresets";
 
 import { UserFormDialog } from "./UserFormDialog";
 
@@ -61,6 +62,8 @@ describe("UserFormDialog - create mode", () => {
       // Not touched by the test, so this is the form's own default - the
       // least privileged level.
       access_level: "nurse",
+      // Derived from that level (userSchema.ts): the Read-only preset.
+      permissions: permissionPreset("read_only"),
       // Always sent, explicitly null when the form says "Not linked".
       doctor_id: null,
       reception_staff_id: null,

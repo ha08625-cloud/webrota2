@@ -53,6 +53,30 @@ export interface FastApiValidationError {
 export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
 
 /**
+ * A levelled permission (models/permissions.py). "none" is no access at
+ * all, including reads.
+ */
+export type AccessArea = "none" | "read" | "write";
+
+/**
+ * What a login may do (PermissionSet in schemas/auth.py). Two areas with
+ * three levels each and three flags; for the flags, true grants reads and
+ * writes on that area and false denies both.
+ *
+ * This is what authorization is moving to; `access_level` above stays as a
+ * label. Every field is required on the wire in both directions - the
+ * backend fills omitted keys with "denied" and returns the complete set,
+ * so a client never has to reason about a missing permission.
+ */
+export interface Permissions {
+  clinical: AccessArea;
+  reception: AccessArea;
+  signatures: boolean;
+  study_eoi: boolean;
+  user_admin: boolean;
+}
+
+/**
  * The staff row a login is linked to (StaffLinkOut in schemas/auth.py).
  * `active` rides along so a client can render "AB (inactive)" without a
  * second lookup - a link to a soft-deleted doctor is a supported state,
@@ -70,6 +94,7 @@ export interface AuthUser {
   name: string;
   active: boolean;
   access_level: AccessLevel;
+  permissions: Permissions;
   /**
    * The optional link from this login to the person it belongs to on the
    * rota. Independent of `access_level`, which is a permission tier and
@@ -104,6 +129,12 @@ export interface UserIn {
   name: string;
   password: string;
   access_level: AccessLevel;
+  /**
+   * Required, like `access_level`. A set that grants nothing at all is
+   * rejected with 422 - "no access" is spelled `active: false` on a PATCH,
+   * not an empty permission set.
+   */
+  permissions: Permissions;
   /** null (or omitted) = not linked. A staff row already claimed by another user is a 409. */
   doctor_id?: number | null;
   reception_staff_id?: number | null;
@@ -123,6 +154,8 @@ export interface UserPatch {
   name?: string;
   active?: boolean;
   access_level?: AccessLevel;
+  /** Replaces the whole set; omitting the key leaves it alone. */
+  permissions?: Permissions;
   password?: string;
   /**
    * Explicit `null` clears the link; omitting the key leaves it alone.
@@ -135,7 +168,8 @@ export interface UserPatch {
 /**
  * PATCH /users/me body (UserSelfPatch in schemas/auth.py). Open to every
  * tier, and deliberately not a subset of UserPatch: `access_level` is
- * absent so it cannot be used for self-promotion, `active` so nobody can
+ * absent so it cannot be used for self-promotion, `permissions` for the
+ * same reason, `active` so nobody can
  * deactivate themselves past the lock-out guard, and `email` because
  * changing your own login identity is a manager action. A supplied
  * `password` signs the caller out everywhere, including the session making
