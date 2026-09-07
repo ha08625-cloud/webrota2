@@ -1,4 +1,4 @@
-"""Leave entitlement router (leave entitlement and balances plan).
+"""Leave entitlement router: entitlements and balances.
 
 Three endpoints under `/leave/entitlement`:
 
@@ -40,7 +40,7 @@ from ...leave_entitlement import (
     year_bounds,
 )
 from ...master_template import load_week_one_template
-from ...models import Doctor, LeaveEntitlement, LeaveEntry, PracticeClosure
+from ...models import Doctor, LeaveEntitlement, LeaveEntry, PracticeClosure, User
 from ..deps import get_current_user, get_db
 from ..schemas import (
     LeaveEntitlementIn,
@@ -164,7 +164,7 @@ def _get_stored(db: Session, doctor_id: int, year: int) -> LeaveEntitlement | No
 def list_entitlements(
     year: int | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveEntitlementYearOut:
     """Balances for every doctor the practice tracks leave for.
 
@@ -214,7 +214,7 @@ def get_entitlement(
     doctor_id: int,
     year: int | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveEntitlementOut:
     """One doctor's balance, including doctor types with no entitlement.
 
@@ -244,7 +244,7 @@ def upsert_entitlement(
     payload: LeaveEntitlementIn,
     year: int | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveEntitlementOut:
     """Store one doctor's deviations from the rules for one year.
 
@@ -306,7 +306,7 @@ def delete_entitlement(
     doctor_id: int,
     year: int | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Drop the stored row, reverting the doctor to the rule figure.
 

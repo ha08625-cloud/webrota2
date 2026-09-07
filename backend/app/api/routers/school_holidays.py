@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from ...models import User
 from ...models.school import School, SchoolHoliday
 from ..deps import get_current_user, get_db
 from ..schemas import SchoolHolidayIn, SchoolHolidayOut, SchoolIn, SchoolOut
@@ -40,7 +41,7 @@ def _get_holiday(db: Session, school_id: int, holiday_id: int) -> SchoolHoliday:
 @router.get("", response_model=list[SchoolOut])
 def list_schools(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[School]:
     stmt = (
         select(School)
@@ -54,7 +55,7 @@ def list_schools(
 def create_school(
     payload: SchoolIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> School:
     school = School(name=payload.name)
     db.add(school)
@@ -74,7 +75,7 @@ def rename_school(
     school_id: int,
     payload: SchoolIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> School:
     school = _get_school(db, school_id)
     school.name = payload.name
@@ -93,7 +94,7 @@ def rename_school(
 def delete_school(
     school_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     school = _get_school(db, school_id)
     db.delete(school)
@@ -105,7 +106,7 @@ def create_holiday(
     school_id: int,
     payload: SchoolHolidayIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SchoolHoliday:
     _get_school(db, school_id)
     holiday = SchoolHoliday(
@@ -126,7 +127,7 @@ def update_holiday(
     holiday_id: int,
     payload: SchoolHolidayIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SchoolHoliday:
     holiday = _get_holiday(db, school_id, holiday_id)
     holiday.start_date = payload.start_date
@@ -142,7 +143,7 @@ def delete_holiday(
     school_id: int,
     holiday_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     holiday = _get_holiday(db, school_id, holiday_id)
     db.delete(holiday)

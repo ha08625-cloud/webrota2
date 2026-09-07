@@ -1,7 +1,7 @@
 """Reception staff router: CRUD plus a permanent delete.
 
 **DELETE means delete.** Deactivation is `PATCH {"active": false}`, and the
-two are no longer the same call. This diverges from routers/doctors.py,
+two are not the same call. This diverges from routers/doctors.py,
 where DELETE is a soft delete that 409s against committed rotas -- a reader
 moving between the two routers should expect the difference rather than
 assume it.
@@ -118,7 +118,7 @@ def _get_or_404(db: Session, staff_id: int) -> ReceptionStaff:
 def list_staff(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ReceptionStaff]:
     stmt = select(ReceptionStaff).order_by(ReceptionStaff.code)
     if not include_inactive:
@@ -130,7 +130,7 @@ def list_staff(
 def create_staff(
     payload: ReceptionStaffIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionStaff:
     staff = ReceptionStaff(code=payload.code, active=True)
     db.add(staff)
@@ -151,7 +151,7 @@ def patch_staff(
     staff_id: int,
     payload: ReceptionStaffPatch,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionStaff:
     staff = _get_or_404(db, staff_id)
     fields = payload.model_fields_set

@@ -1,21 +1,20 @@
 """Staging router: create, read, edit, complete, and abandon an editable
-copy of the active template's rows for a date range (staging plan, Tasks
-3-4).
+copy of the active template's rows for a date range.
 
 Editing mirrors the master rota template's contract verbatim (see
 routers/master_rota.py) -- pair setter, same-slot room displacement
 including the PRE_ASSIGNED -> REQUIRES_ROOM demotion, permissive verbatim
-writer with no eligibility checks. The one addition: session create 422s when week exceeds this
-staging's own num_weeks.
+writer with no eligibility checks. The one addition: session create 422s
+when `week` exceeds this staging's own num_weeks.
 
 Complete (POST /staging/{staging_id}/complete) runs the existing Phase
 0-12 pipeline against the staged copy's config, exactly as
 routers/rota.py's generate_rota does against a directly-submitted
 config.
 
-`create_staging`'s copy loop is no longer a pure copy, for two reasons.
+`create_staging`'s copy loop is not a pure copy, for two reasons.
 
-First (extra sessions plan, Task 2): a template row that lands on a planned
+First: a template row that lands on a planned
 `ExtraSessionEntry` is written to the staged copy per the override table,
 and a planned extra session with no template row at all creates a new
 staged row. The override is skipped wherever leave already exists for the
@@ -57,6 +56,7 @@ from ...models import (
     RotaConfig,
     RotaStaging,
     RotaStagingSession,
+    User,
 )
 from ...models.enums import MasterSessionType, RotaStatus
 from ..deps import get_current_user, get_db
@@ -114,9 +114,10 @@ def _leave_lookup(
 def _extra_session_lookup(
     db: Session, config: RotaConfig
 ) -> set[tuple[int, datetime.date, object]]:
-    """Identical shape to _leave_lookup, over ExtraSessionEntry instead
-    (extra sessions plan, Task 2). Used both to derive is_extra_session on
-    read and to drive the override in create_staging's copy loop."""
+    """Identical shape to _leave_lookup, over ExtraSessionEntry instead.
+
+    Used both to derive is_extra_session on read and to drive the override
+    in create_staging's copy loop."""
     range_start = config.start_date
     range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
     rows = db.execute(
@@ -127,9 +128,9 @@ def _extra_session_lookup(
     return {(e.doctor_id, e.date, e.period) for e in rows}
 
 
-# Template types a planned extra session can override (extra sessions
-# plan, override table). WFH is included deliberately -- remove
-# it from this set to leave WFH template rows untouched by the override.
+# Template types a planned extra session can override. WFH is included
+# deliberately -- remove it from this set to leave WFH template rows
+# untouched by the override.
 _OVERRIDABLE_TYPES = frozenset({
     MasterSessionType.NO_SURGERY,
     MasterSessionType.ADMIN_TIME,
@@ -251,7 +252,7 @@ def _find_room_holder(
 def create_staging(
     payload: StagingCreateIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> StagingOut:
     """Copy the active template's rows for [start_date, start_date +
     num_weeks) into a new run-scoped editable staging.
@@ -328,8 +329,8 @@ def create_staging(
     for row in template_rows:
         rows_by_week.setdefault(row.week, []).append(row)
 
-    # extra sessions plan, Task 2: the copy loop applies the override
-    # table instead of copying verbatim.
+    # The copy loop applies the extra-session override (see the module
+    # docstring) instead of copying verbatim.
     extra = _extra_session_lookup(db, config)
     leave = _leave_lookup(db, config)
     week_dates = build_week_dates(payload.start_date, payload.num_weeks)
@@ -426,7 +427,7 @@ def create_staging(
 @router.get("/active", response_model=StagingOut)
 def get_active_staging_endpoint(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> StagingOut:
     staging = get_active_staging(db)
     if staging is None:
@@ -438,7 +439,7 @@ def get_active_staging_endpoint(
 def complete_staging(
     staging_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> GenerateRotaOut:
     """Run the Phase 0-12 pipeline against the staged copy and mark the
     staging completed.
@@ -507,7 +508,7 @@ def patch_session(
     session_id: int,
     payload: StagingSessionPatchIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> StagingSessionWriteOut:
     """Verbatim (session_type, room_id) pair setter with room displacement,
     mirroring master_rota.patch_session exactly (see its docstring)."""
@@ -560,7 +561,7 @@ def create_session(
     staging_id: int,
     payload: StagingSessionCreateIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> StagingSessionWriteOut:
     """Create a new slot in the staging, mirroring master_rota.create_session
     (see its docstring). Additionally 422s when week exceeds this staging's
@@ -646,7 +647,7 @@ def delete_session(
     staging_id: int,
     session_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Delete a slot from the staging, mirroring master_rota.delete_session."""
     staging = _staging_or_404(db, staging_id)
@@ -666,7 +667,7 @@ def delete_session(
 def abandon_staging(
     staging_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Abandon an active staging: hard-delete the staging (sessions cascade)
     and its RotaConfig.

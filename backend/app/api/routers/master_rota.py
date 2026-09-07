@@ -1,12 +1,11 @@
-"""Master rota router: read-only view of the active template, the M4.3
-Task 1 per-session PATCH, and the M4.4 Task 1 POST/DELETE (session
-create/delete).
+"""Master rota router: read-only view of the active template, plus
+per-session PATCH and POST/DELETE (session create/delete).
 
 Editing is deliberately not draft-gated the way rota-session edits are --
 the template has no draft/committed concept (see MasterRotaSession's
 docstring). Edits affect future generations only: RotaSession snapshots
-template_type at generation time (M3.6), so existing drafts and committed
-rotas are untouched by a template edit made afterwards. Phase 12 does not
+template_type at generation time, so existing drafts and committed rotas
+are untouched by a template edit made afterwards. Phase 12 does not
 run on the template; the endpoint's own displacement rule is the only
 conflict-avoidance mechanism here.
 """
@@ -16,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models import Doctor, MasterRotaSession, MasterRotaTemplate, Room
+from ...models import Doctor, MasterRotaSession, MasterRotaTemplate, Room, User
 from ...models.enums import MasterSessionType
 from ..deps import get_current_user, get_db
 from ..schemas import (
@@ -95,7 +94,7 @@ def _find_room_holder(
 @router.get("/active", response_model=MasterRotaTemplateOut)
 def get_active_template(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> MasterRotaTemplateOut:
     # is_active is not enforced unique at the schema level (see
     # MasterRotaTemplate's docstring), so this deliberately picks the
@@ -129,10 +128,9 @@ def patch_session(
     session_id: int,
     payload: MasterSessionPatchIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> MasterSessionWriteOut:
-    """Verbatim (session_type, room_id) pair setter with room displacement
-    (M4.3 Task 1).
+    """Verbatim (session_type, room_id) pair setter with room displacement.
 
     Works on any template, active or not -- the frontend only ever passes
     the active one, but there's no reason to hard-couple the endpoint to
@@ -195,14 +193,14 @@ def create_session(
     template_id: int,
     payload: MasterSessionCreateIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> MasterSessionWriteOut:
-    """Create a new slot in the template (M4.4 Task 1).
+    """Create a new slot in the template.
 
     Same displacement rule as PATCH (see patch_session's docstring), run
     before insert since there's no self row to exclude yet. No
     doctor-active check here -- the server stays a permissive verbatim
-    writer (the M4.3 philosophy); the frontend gates the "add session"
+    writer, as PATCH is; the frontend gates the "add session"
     affordance to active doctors. This also keeps undo-recreate working
     if a doctor is deactivated mid-session.
     """
@@ -281,14 +279,14 @@ def delete_session(
     template_id: int,
     session_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
-    """Delete a slot from the template (M4.4 Task 1).
+    """Delete a slot from the template.
 
     Hard delete -- MasterRotaSession has no children and the template has
     no draft/committed lifecycle, so there's nothing to cascade or gate.
     No response body: the frontend captures undo data from the in-memory
-    session before issuing the request (the M4.3 convention), and
+    session before issuing the request, as it does for PATCH, and
     apiClient's request() already special-cases 204 to return undefined.
     """
     if db.get(MasterRotaTemplate, template_id) is None:

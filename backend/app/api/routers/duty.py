@@ -2,16 +2,16 @@
 
 DutyAssignment is a template input to generation, not an audit trail:
 session-level duty swaps on a generated rota deliberately do not write back
-here (finalised M3 plan).
+here.
 
-M5 (bank-holiday weeks): two closure-aware checks live here rather than in
-schemas_duty.py, since both need PracticeClosure data that a stateless
-pydantic validator cannot see:
+Two closure-aware checks live here rather than in schemas_duty.py, since
+both need PracticeClosure data that a stateless pydantic validator cannot
+see:
 
 - A duty (primary or secondary) on its own closed period is rejected
   (422), mirroring Phase 0's duty_on_closed_date hard error, keyed on
-  (payload.date, payload.period) since closures are half-day granularity
-  (closures plan). The Duty page is expected to prevent this at entry, but
+  (payload.date, payload.period) since closures are half-day granularity.
+  The Duty page is expected to prevent this at entry, but
   the API must not rely on that - a closure can be added after a duty
   assignment already exists, and Phase 0 is the last line of defence for
   that case at generation time; this is the API-level line of defence for
@@ -19,17 +19,17 @@ pydantic validator cannot see:
 - Secondary duty must land on the week's first *fully open* weekday --
   neither AM nor PM closed (mirrors
   engine.week_map.build_first_open_weekday). With no closures in effect
-  that is always Monday - the pre-M5 rule this generalises - and degrades
-  to "no secondary duty assignable" for a week with no fully open weekday.
+  that is always Monday, and it degrades to "no secondary duty assignable"
+  for a week with no fully open weekday.
   That is no longer always the same week as one where payload.date itself
   is closed: a fully closed Monday plus half closures Tuesday-Friday gives
   no fully open weekday even though an open AM/PM slot exists on several
   of those days.
 
-Annual leave planning adds a third check in the same place and for the same
-reason - it needs the `Doctor` row, which a stateless validator cannot see:
-a duty on a date outside the doctor's employment window is rejected (422),
-mirroring Phase 0's new duty_outside_doctor_dates hard error.
+A third check sits in the same place for the same reason - it needs the
+`Doctor` row, which a stateless validator cannot see: a duty on a date
+outside the doctor's employment window is rejected (422), mirroring Phase
+0's duty_outside_doctor_dates hard error.
 
 All three checks return a plain string `detail` (an HTTPException, not a
 pydantic validation error), consistent with this router's existing 404/409
@@ -41,15 +41,15 @@ from __future__ import annotations
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window, window_error_detail
-from ...models import Doctor, DutyAssignment, PracticeClosure
+from ...models import Doctor, DutyAssignment, PracticeClosure, User
 from ...models.enums import DutyType, Period
 from ..deps import get_current_user, get_db
-from ..schemas import DutyIn, DutyOut, DutyCountOut
+from ..schemas import DutyCountOut, DutyIn, DutyOut
 
 router = APIRouter(prefix="/duty", tags=["duty"])
 
@@ -87,7 +87,7 @@ def duty_counts(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[DutyCountOut]:
     join_cond = DutyAssignment.doctor_id == Doctor.id
     if from_date is not None:
@@ -114,7 +114,7 @@ def list_duty(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[DutyAssignment]:
     stmt = select(DutyAssignment).order_by(DutyAssignment.date, DutyAssignment.period)
     if from_date is not None:
@@ -128,7 +128,7 @@ def list_duty(
 def create_duty(
     payload: DutyIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> DutyAssignment:
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -201,7 +201,7 @@ def create_duty(
 def delete_duty(
     duty_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     duty = db.get(DutyAssignment, duty_id)
     if duty is None:

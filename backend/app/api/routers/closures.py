@@ -1,4 +1,4 @@
-"""Practice closures router (M5 Task 2): global bank-holiday planning data.
+"""Practice closures router: global bank-holiday planning data.
 
 PracticeClosure is entered independently of any generation run -- the Duty
 page needs to know about a closure weeks before a RotaConfig exists, and the
@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, PracticeClosure
+from ...models import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, PracticeClosure, User
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
 from ..schemas import BankHolidayOut, BankHolidaySetIn, ClosureIn, ClosureOut
@@ -36,7 +36,7 @@ def list_closures(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[PracticeClosure]:
     stmt = select(PracticeClosure).order_by(
         PracticeClosure.date, PracticeClosure.period
@@ -52,7 +52,7 @@ def list_closures(
 def create_closure(
     payload: ClosureIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> PracticeClosure:
     """Weekend dates are rejected by ClosureIn's validator (422) before this
     ever runs -- weekends are never in the grid, so a closure on one would
@@ -80,7 +80,7 @@ def create_closure(
 def delete_closure(
     closure_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     closure = db.get(PracticeClosure, closure_id)
     if closure is None:
@@ -93,7 +93,7 @@ def delete_closure(
 def list_bank_holidays(
     year: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[BankHolidayOut]:
     """The fixed named list merged with whichever have a date set for
     `year`. A holiday with no PracticeClosure yet comes back with date=None
@@ -118,7 +118,7 @@ def set_bank_holiday(
     year: int,
     payload: BankHolidaySetIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> BankHolidayOut:
     """Setting `date` replaces whichever full-day closure (AM+PM pair) was
     previously tagged with this key for `year`, if any; `date=None` clears

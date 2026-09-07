@@ -9,8 +9,10 @@ routers package, so nothing here is mistaken for a module with a
 a Content-Disposition header, and neither may echo a client-supplied
 path or quote character while doing it.
 
-The two constants are here for the same reason, though signatures.py
-keeps its own copies -- see the note in the EOI endpoint commit.
+The two constants are here for the same reason. signatures.py still
+keeps private copies of both (`_MAX_DOCX_BYTES`, `_DOCX_MEDIA_TYPE`);
+they are the same values, and collapsing the duplication is a tidy-up
+nobody has needed yet.
 """
 from __future__ import annotations
 
