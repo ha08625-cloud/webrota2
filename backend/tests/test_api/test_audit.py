@@ -106,6 +106,29 @@ def test_login_body_is_captured_with_password_redacted(
     }
 
 
+def test_reset_password_body_is_captured_with_the_token_redacted(
+    client_no_auth, db_session
+):
+    """`token` is already in audit.py's _REDACTED_KEYS, so this endpoint
+    inherits the behaviour rather than adding it -- which is exactly why it
+    is pinned here. A reset token is a bearer credential for one password
+    change; an audit row holding it verbatim would let anyone who can read
+    the audit log take over the account. The 400 path is used because it
+    needs no valid token to reach, and the redaction happens before the
+    handler runs either way.
+    """
+    resp = client_no_auth.post(f"{API_PREFIX}/auth/reset-password", json={
+        "token": "a-real-looking-reset-token", "password": "new-password",
+    })
+    assert resp.status_code == 400, resp.text
+
+    rows = _entries(db_session)
+    assert len(rows) == 1
+    assert rows[0].request_body == {
+        "token": "[redacted]", "password": "[redacted]",
+    }
+
+
 def test_multipart_upload_is_not_buffered_and_still_works(
     client, db_session, seeded
 ):

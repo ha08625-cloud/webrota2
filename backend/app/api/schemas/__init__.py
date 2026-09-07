@@ -84,10 +84,12 @@ from .staging import (
 from .school import SchoolHolidayIn, SchoolHolidayOut, SchoolIn, SchoolOut
 from .signature import SignatureMetaOut
 from .auth import (
+    ForgotPasswordIn,
     LoginIn,
     LoginOut,
     PermissionSet,
     PermissionSetIn,
+    ResetPasswordIn,
     StaffLinkOut,
     UserIn,
     UserOut,
@@ -150,6 +152,7 @@ __all__ = [
     "SignatureMetaOut",
     "SchoolIn", "SchoolOut", "SchoolHolidayIn", "SchoolHolidayOut",
     "LoginIn", "LoginOut", "PermissionSet", "PermissionSetIn",
+    "ForgotPasswordIn", "ResetPasswordIn",
     "StaffLinkOut", "UserOut", "UserIn", "UserPatch",
     "UserSelfPatch",
     "AuditLogEntryOut", "AuditLogListOut",

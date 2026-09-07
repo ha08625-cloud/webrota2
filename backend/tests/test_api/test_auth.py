@@ -7,11 +7,15 @@ deps.py logic, not a test stub. `client` (the overridden fixture used by
 every other test file) is deliberately not used in this file.
 """
 import datetime
+import logging
 
+import pytest
 from sqlalchemy import func, select
 
 from app.api.auth_utils import hash_password, hash_token, new_session_token
-from app.models import Doctor, User, UserSession
+from app.api.deps import get_email_sender
+from app.api.main import app
+from app.models import Doctor, PasswordResetToken, User, UserSession
 from app.models.enums import AccessLevel, DoctorType
 from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 
@@ -242,3 +246,359 @@ class TestSessionLifecycle:
         assert resp.status_code == 200, resp.text
         assert resp.json()["linked_doctor"] is None
         assert resp.json()["linked_reception_staff"] is None
+
+
+FORGOT = "/api/v1/auth/forgot-password"
+RESET = "/api/v1/auth/reset-password"
+
+
+@pytest.fixture
+def sent_emails():
+    """Capture reset emails instead of sending them.
+
+    Overrides the get_email_sender dependency (api/deps.py) rather than
+    monkeypatching app.email, so the test exercises the same wiring
+    production uses. BackgroundTasks run to completion inside TestClient
+    before the response reaches the test, so asserting on this list
+    immediately after a request needs no synchronisation -- including when
+    the assertion is that nothing was sent.
+    """
+    sent: list[tuple[str, str, str]] = []
+
+    def _fake_sender(to_email, name, reset_url):
+        sent.append((to_email, name, reset_url))
+        return True
+
+    app.dependency_overrides[get_email_sender] = lambda: _fake_sender
+    try:
+        yield sent
+    finally:
+        app.dependency_overrides.pop(get_email_sender, None)
+
+
+def _tokens_for(db_session, user_id):
+    return list(db_session.execute(
+        select(PasswordResetToken).where(PasswordResetToken.user_id == user_id)
+    ).scalars())
+
+
+def _token_count(db_session):
+    return db_session.execute(
+        select(func.count()).select_from(PasswordResetToken)
+    ).scalar_one()
+
+
+def _issue_token(db_session, user, age=datetime.timedelta(0),
+                 lifetime=datetime.timedelta(hours=1)):
+    """Put a reset token in the DB directly and return the raw token.
+
+    `age` backdates created_at (and expires_at with it), which is how the
+    throttle and expiry tests move time without patching a clock.
+    """
+    token = new_session_token()
+    created = datetime.datetime.now(datetime.timezone.utc) - age
+    db_session.add(PasswordResetToken(
+        token_hash=hash_token(token),
+        user_id=user.id,
+        created_at=created,
+        expires_at=created + lifetime,
+    ))
+    db_session.commit()
+    return token
+
+
+def _reset_token_from_url(url):
+    return url.rsplit("/", 1)[-1]
+
+
+class TestForgotPassword:
+    def test_known_active_user_gets_an_email_and_a_token_row(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        user = _make_user(db_session, email="a@example.com")
+
+        resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        assert resp.status_code == 204, resp.text
+
+        assert len(sent_emails) == 1
+        to_email, name, reset_url = sent_emails[0]
+        assert to_email == "a@example.com"
+        assert name == user.name
+        assert "/reset-password/" in reset_url
+
+        rows = _tokens_for(db_session, user.id)
+        assert len(rows) == 1
+        # The raw token is never stored -- only its digest.
+        assert rows[0].token_hash == hash_token(_reset_token_from_url(reset_url))
+
+    def test_reset_url_comes_from_app_base_url_not_the_host_header(
+        self, client_no_auth, db_session, sent_emails, monkeypatch
+    ):
+        """Host-header injection is the whole reason APP_BASE_URL exists --
+        see _reset_url in routers/auth.py."""
+        _make_user(db_session, email="a@example.com")
+        monkeypatch.setenv("APP_BASE_URL", "https://rota.example.org/")
+
+        resp = client_no_auth.post(
+            FORGOT,
+            json={"email": "a@example.com"},
+            headers={"Host": "attacker.example"},
+        )
+        assert resp.status_code == 204, resp.text
+        assert sent_emails[0][2].startswith("https://rota.example.org/reset-password/")
+
+    def test_unknown_email_is_204_and_sends_nothing(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        resp = client_no_auth.post(FORGOT, json={"email": "nobody@example.com"})
+        assert resp.status_code == 204
+        assert sent_emails == []
+        assert _token_count(db_session) == 0
+
+    def test_inactive_user_is_204_and_sends_nothing(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        _make_user(db_session, email="gone@example.com", active=False)
+        resp = client_no_auth.post(FORGOT, json={"email": "gone@example.com"})
+        assert resp.status_code == 204
+        assert sent_emails == []
+        assert _token_count(db_session) == 0
+
+    def test_email_match_is_case_sensitive_like_login(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        _make_user(db_session, email="a@example.com")
+        resp = client_no_auth.post(FORGOT, json={"email": "A@Example.com"})
+        assert resp.status_code == 204
+        assert sent_emails == []
+
+    def test_second_request_within_the_throttle_sends_nothing(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        user = _make_user(db_session, email="a@example.com")
+
+        assert client_no_auth.post(
+            FORGOT, json={"email": "a@example.com"}
+        ).status_code == 204
+        assert client_no_auth.post(
+            FORGOT, json={"email": "a@example.com"}
+        ).status_code == 204
+
+        assert len(sent_emails) == 1
+        assert len(_tokens_for(db_session, user.id)) == 1
+
+    def test_request_after_the_throttle_window_sends_again(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        user = _make_user(db_session, email="a@example.com")
+        _issue_token(db_session, user, age=datetime.timedelta(minutes=5))
+
+        resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        assert resp.status_code == 204
+        assert len(sent_emails) == 1
+        # The 5-minute-old token is still valid, so both rows are live.
+        assert len(_tokens_for(db_session, user.id)) == 2
+
+    def test_global_hourly_cap_suppresses_the_send(
+        self, client_no_auth, db_session, sent_emails, caplog
+    ):
+        """The per-user throttle protects inboxes; this protects the Mailgun
+        quota. Rows are spread across other users so the per-user throttle
+        is provably not what refuses the request."""
+        from app.api.routers.auth import _GLOBAL_HOURLY_CAP
+
+        for i in range(_GLOBAL_HOURLY_CAP):
+            other = _make_user(db_session, email=f"filler{i}@example.com")
+            _issue_token(db_session, other, age=datetime.timedelta(minutes=30))
+
+        user = _make_user(db_session, email="a@example.com")
+        with caplog.at_level(logging.WARNING, logger="app.api.routers.auth"):
+            resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+
+        assert resp.status_code == 204
+        assert sent_emails == []
+        assert _tokens_for(db_session, user.id) == []
+        assert "global cap" in caplog.text
+
+    def test_tokens_older_than_the_window_do_not_count_towards_the_cap(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        from app.api.routers.auth import _GLOBAL_HOURLY_CAP
+
+        for i in range(_GLOBAL_HOURLY_CAP):
+            other = _make_user(db_session, email=f"filler{i}@example.com")
+            _issue_token(db_session, other, age=datetime.timedelta(hours=2))
+
+        _make_user(db_session, email="a@example.com")
+        resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        assert resp.status_code == 204
+        assert len(sent_emails) == 1
+
+    def test_expired_tokens_for_that_user_are_swept(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        user = _make_user(db_session, email="a@example.com")
+        stale = _issue_token(db_session, user, age=datetime.timedelta(hours=2))
+
+        resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        assert resp.status_code == 204
+
+        db_session.expire_all()
+        rows = _tokens_for(db_session, user.id)
+        assert len(rows) == 1
+        assert rows[0].token_hash != hash_token(stale)
+
+    def test_mailgun_failure_is_invisible_to_the_caller(
+        self, client_no_auth, db_session
+    ):
+        """The response has already been sent by the time the background
+        task runs, so a failed send cannot change the status code. The
+        sender logs its own errors (app/email.py); what is pinned here is
+        that a False return -- or a raise -- does not become a 500."""
+        def _failing_sender(to_email, name, reset_url):
+            return False
+
+        app.dependency_overrides[get_email_sender] = lambda: _failing_sender
+        try:
+            _make_user(db_session, email="a@example.com")
+            resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+            assert resp.status_code == 204
+        finally:
+            app.dependency_overrides.pop(get_email_sender, None)
+
+    def test_no_auth_required(self, client_no_auth, db_session, sent_emails):
+        """Pinned explicitly: the route sweep in test_authorization.py
+        exempts the whole /auth prefix, so nothing else covers this."""
+        resp = client_no_auth.post(FORGOT, json={"email": "nobody@example.com"})
+        assert resp.status_code == 204
+
+
+class TestResetPassword:
+    def test_valid_token_sets_the_password_and_clears_everything(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        user = _make_user(db_session, email="a@example.com", password="old-password")
+        _make_session(db_session, user)
+        _make_session(db_session, user)
+        assert _session_count(db_session, user.id) == 2
+
+        client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        token = _reset_token_from_url(sent_emails[0][2])
+        # A second live token, to prove redemption clears them all.
+        _issue_token(db_session, user, age=datetime.timedelta(minutes=10))
+
+        resp = client_no_auth.post(
+            RESET, json={"token": token, "password": "new-password"}
+        )
+        assert resp.status_code == 204, resp.text
+
+        db_session.expire_all()
+        assert _session_count(db_session, user.id) == 0
+        assert _tokens_for(db_session, user.id) == []
+
+        assert client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "a@example.com", "password": "new-password"},
+        ).status_code == 200
+        assert client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "a@example.com", "password": "old-password"},
+        ).status_code == 401
+
+    def test_unknown_token_400(self, client_no_auth, db_session):
+        resp = client_no_auth.post(
+            RESET, json={"token": "not-a-real-token", "password": "new-password"}
+        )
+        assert resp.status_code == 400
+
+    def test_expired_token_400_and_the_row_is_dropped(
+        self, client_no_auth, db_session
+    ):
+        user = _make_user(db_session, email="a@example.com")
+        token = _issue_token(db_session, user, age=datetime.timedelta(hours=2))
+
+        resp = client_no_auth.post(
+            RESET, json={"token": token, "password": "new-password"}
+        )
+        assert resp.status_code == 400
+        db_session.expire_all()
+        assert _tokens_for(db_session, user.id) == []
+
+    def test_a_redeemed_token_cannot_be_used_twice(
+        self, client_no_auth, db_session
+    ):
+        user = _make_user(db_session, email="a@example.com")
+        token = _issue_token(db_session, user)
+
+        first = client_no_auth.post(
+            RESET, json={"token": token, "password": "new-password"}
+        )
+        assert first.status_code == 204, first.text
+
+        second = client_no_auth.post(
+            RESET, json={"token": token, "password": "newer-password"}
+        )
+        assert second.status_code == 400
+        # ...and the second attempt changed nothing.
+        assert client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "a@example.com", "password": "new-password"},
+        ).status_code == 200
+
+    def test_token_for_a_user_deactivated_since_400(
+        self, client_no_auth, db_session
+    ):
+        user = _make_user(db_session, email="a@example.com", password="old-password")
+        token = _issue_token(db_session, user)
+
+        user.active = False
+        db_session.commit()
+
+        resp = client_no_auth.post(
+            RESET, json={"token": token, "password": "new-password"}
+        )
+        assert resp.status_code == 400
+        db_session.expire_all()
+        # The password is untouched, so reactivating the account restores
+        # the old login rather than one the requester chose.
+        refreshed = db_session.get(User, user.id)
+        assert refreshed.password_hash == user.password_hash
+
+    def test_never_401_so_the_frontend_does_not_bounce_to_login(
+        self, client_no_auth, db_session
+    ):
+        """frontend/src/api/client.ts fires onUnauthorized on ANY 401,
+        which would replace the reset view with the login form exactly when
+        the user needs to read "this link has expired"."""
+        resp = client_no_auth.post(
+            RESET, json={"token": "stale", "password": "new-password"}
+        )
+        assert resp.status_code != 401
+
+    def test_short_password_is_rejected(self, client_no_auth, db_session):
+        user = _make_user(db_session, email="a@example.com")
+        token = _issue_token(db_session, user)
+        resp = client_no_auth.post(
+            RESET, json={"token": token, "password": "short"}
+        )
+        assert resp.status_code == 422
+        # The token survives a 422 -- the user gets to try again.
+        assert len(_tokens_for(db_session, user.id)) == 1
+
+    def test_full_round_trip_from_forgot_to_login(
+        self, client_no_auth, db_session, sent_emails
+    ):
+        _make_user(db_session, email="a@example.com", password="old-password")
+
+        assert client_no_auth.post(
+            FORGOT, json={"email": "a@example.com"}
+        ).status_code == 204
+        url = sent_emails[0][2]
+        assert client_no_auth.post(
+            RESET,
+            json={"token": _reset_token_from_url(url), "password": "brand-new-pw"},
+        ).status_code == 204
+        assert client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "a@example.com", "password": "brand-new-pw"},
+        ).status_code == 200
