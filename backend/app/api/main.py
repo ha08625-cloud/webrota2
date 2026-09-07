@@ -231,14 +231,48 @@ def health() -> dict:
 # Frontend static serving
 # ---------------------------------------------------------------------------
 
+def _is_api_path(path: str) -> bool:
+    """True for anything the API owns, so the mount can decline it.
+
+    Segment-aware rather than a bare prefix test: /api and /api/... are the
+    API's, /apifoo.js is a static file. Takes the path in either shape --
+    with the leading slash as `scope["path"]` carries it, or without as
+    StaticFiles hands it to get_response.
+    """
+    return path.lstrip("/").split("/", 1)[0] == "api"
+
+
 class SPAStaticFiles(StaticFiles):
-    """StaticFiles with an index.html fallback for unknown non-API paths."""
+    """StaticFiles with an index.html fallback for unknown non-API paths.
+
+    Two guards, and both are needed. `get_response` withholds the SPA
+    fallback from /api/* so a mistyped API path gets a real JSON 404
+    rather than an HTML page a client cannot parse -- but it only ever
+    runs for GET and HEAD, because StaticFiles answers every other method
+    405 before calling it. For a static file that 405 is right; for an
+    unmatched API path it is not, and it is what an unmatched
+    `POST /api/v1/...` used to return once a dist was mounted, in
+    production but never in CI, which never builds one.
+
+    So `__call__` declines /api/* outright, before the method check, and
+    lets the 404 propagate to the app's exception handlers -- the same
+    answer an unmatched API path gets when no frontend is mounted at all,
+    audit row included. The `get_response` guard stays as the backstop for
+    the GET path: it works off the relative path StaticFiles resolved
+    rather than off the raw scope, so it still holds if a future mount
+    prefix or root_path changes the shape of `scope["path"]`.
+    """
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and _is_api_path(scope.get("path", "")):
+            raise HTTPException(status_code=404, detail="Not Found")
+        await super().__call__(scope, receive, send)
 
     async def get_response(self, path, scope):
         try:
             return await super().get_response(path, scope)
         except HTTPException as exc:
-            if exc.status_code == 404 and not path.startswith("api"):
+            if exc.status_code == 404 and not _is_api_path(path):
                 return await super().get_response("index.html", scope)
             raise
 

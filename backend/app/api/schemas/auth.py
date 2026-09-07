@@ -8,8 +8,8 @@ permissions, for the same reason nobody sets their own access level.
 
 Within the set, each field defaults to denied, so a body that omits a
 permission grants nothing rather than inheriting something. What is
-refused outright is the set that grants NOTHING (plan D15): it is never
-what anyone means, and "no access" is spelled `active: false`. The check
+refused outright is the set that grants NOTHING: it is never what anyone
+means, and "no access" is spelled `active: false`. The check
 lives on the write shape (PermissionSetIn) so POST /users and PATCH
 /users/{id} both 422 without either router knowing about it, and the
 frontend mirrors it with the same message. It is deliberately NOT on the
@@ -49,7 +49,7 @@ from ...models.permissions import (
 
 
 class PermissionSet(BaseModel):
-    """What a login may do (fine-grained permissions plan, D2).
+    """What a login may do: the wire shape of the permission set.
 
     Two levelled areas and three flags. Each field defaults to denied so an
     incomplete body under-grants rather than over-grants.
@@ -76,8 +76,8 @@ class PermissionSetIn(PermissionSet):
     """The write shape: a permission set that grants something.
 
     Inherited by both POST /users and PATCH /users/{id}, so neither router
-    has to know the rule (plan D15). The message is written to be shown to
-    the user verbatim, and the frontend mirrors it with the same text.
+    has to know the rule. The message is written to be shown to the user
+    verbatim, and the frontend mirrors it with the same text.
     """
 
     @model_validator(mode="after")

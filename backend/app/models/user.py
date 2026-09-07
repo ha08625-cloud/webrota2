@@ -22,13 +22,11 @@ password_hash stores a bcrypt hash. bcrypt silently truncates input at 72
 bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
 -- nothing about that truncation is visible from the model itself.
 
-`permissions` is the per-user permission set (fine-grained permissions
-plan, D2/D3), which replaces `access_level` as the thing authorization
-reads; `access_level` survives beside it as a decorative label -- see
-below. As of this commit the column is written, validated and returned but
-not yet consulted: the gates in api/deps.py still read `access_level`
-until the gate rework lands. The set is a small JSON object, always read
-whole and never joined against, so it is one column rather than five or an
+`permissions` is the per-user permission set (models/permissions.py) and
+is what authorization reads -- the gates in api/deps.py consult it and
+nothing else; `access_level` survives beside it as a decorative label, see
+below. The set is a small JSON object, always read whole and never joined
+against, so it is one column rather than five or an
 association table; adding a sixth permission is then a code change, not a
 migration.
 

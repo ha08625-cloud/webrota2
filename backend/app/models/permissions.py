@@ -1,10 +1,9 @@
 """The per-user permission set: its shape, its default, and the presets.
 
 Five permissions replace the single `access_level` tier as the thing the
-API actually consults (fine-grained permissions plan, D2). Two of them are
-levels rather than flags -- "clinical rota, read only" is not a separate
-permission from "clinical rota", it is the same permission at a lower
-level -- and three are booleans, because there is no meaningful read-only
+API actually consults. Two of them are levels rather than flags -- "clinical
+rota, read only" is not a separate permission from "clinical rota", it is
+the same permission at a lower level -- and three are booleans, because there is no meaningful read-only
 view of a document generator or of user administration:
 
     clinical    none / read / write   the whole /clinical section
@@ -99,7 +98,7 @@ PRESETS: dict[str, PermissionSetDict] = {
         "user_admin": False,
     },
     # Reception's rota is built against the clinical one, so a reception
-    # administrator gets clinical READ by default -- see the plan's Q3.
+    # administrator gets clinical READ by default.
     RECEPTION_ADMIN_PRESET: {
         "clinical": READ,
         "reception": WRITE,
@@ -147,8 +146,8 @@ def default_permissions() -> PermissionSetDict:
 def is_empty(permissions: PermissionSetDict) -> bool:
     """True when the set grants nothing at all.
 
-    An empty set is refused on save (plan D15): it is never what anyone
-    means, and a login that can reach nothing but its own password form is
+    An empty set is refused on save: it is never what anyone means, and a
+    login that can reach nothing but its own password form is
     indistinguishable from a bug. Deactivating the user is the way to say
     "no access".
     """

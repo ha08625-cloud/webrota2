@@ -4,9 +4,9 @@ Revision ID: 010
 Revises: 009
 Create Date: 2026-09-07 00:00:00
 
-Adds the per-user permission set (fine-grained permissions plan, D3) and
-the audit log's snapshot of it (D13). Until now the only thing that decided
-what a login could do was `access_level`, a single four-value tier; see
+Adds the per-user permission set and the audit log's snapshot of it. Until
+now the only thing that decided what a login could do was `access_level`,
+a single four-value tier; see
 app/models/permissions.py for the shape that replaces it and why it is one
 JSON column rather than five boolean ones or an association table.
 
