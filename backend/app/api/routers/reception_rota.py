@@ -1,5 +1,5 @@
 """Reception day rota router: generation, assignment, editing, and coverage
-validation (reception rota, Task 4).
+validation.
 
 The day grid is a straight copy-then-edit, not a generation pipeline: POST
 "" copies the weekday's master template rows onto a date (active staff
@@ -34,13 +34,14 @@ from ...models import (
     ReceptionRota,
     ReceptionRotaSession,
     ReceptionStaff,
+    User,
 )
 from ...models.enums import Day, ReceptionRole
 from ...models.reception import (
-    min_phones_for_hour,
     RECEPTION_HOURS,
     format_hour,
     format_hour_range,
+    min_phones_for_hour,
 )
 from ...reception_counters import assignment_counter_window, compute_role_counters
 from ...reception_front_desk import (
@@ -111,14 +112,14 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     min_phones_for_hour -- which varies by hour of day (no cover needed
     before the lines open at 8:00, one person from 17:00, two in between)
     but not by weekday; there is no coverage-rules table and no UI to edit
-    it. Counts come off
-    `rota.sessions` (already loaded, not re-queried per hour). Always
-    severity="warning" -- nothing in this feature blocks.
+    it. Counts come off `rota.sessions` (already loaded, not re-queried
+    per hour). Always severity="warning" -- nothing here blocks.
 
     Staff on leave for the rota's date are excluded from the headcount,
-    which is the whole of what reception leave does. Their session rows are untouched and still
-    returned by every read -- ReceptionRotaOut.staff_on_leave carries the
-    same ids so the grid can dim them, since a warning counting fewer
+    which is the whole of what reception leave does. Their session rows
+    are untouched and still returned by every read --
+    ReceptionRotaOut.staff_on_leave carries the same ids so the grid can
+    dim them, since a warning counting fewer
     staff than the grid visibly shows would otherwise read as a bug.
 
     Also emits one `front_desk_gap` per *contiguous* uncovered range in
@@ -126,9 +127,7 @@ def compute_coverage_issues(db: Session, rota: ReceptionRota) -> list[Validation
     twenty per-hour warnings stacked on top of the phones ones would swamp
     the panel and "08:00-13:00: no front desk cover" says the same thing
     once. Leave is excluded the same way it is for phones: a desk assigned
-    to someone later marked off is not covered. Note this fires on every day
-    generated before front desk assignment existed, since none of them have
-    a front_desk role anywhere."""
+    to someone later marked off is not covered."""
     day = _DAY_BY_WEEKDAY[rota.date.weekday()]
     on_leave = _staff_on_leave(db, rota.date)
 
@@ -202,7 +201,7 @@ def _rota_out(db: Session, rota: ReceptionRota) -> ReceptionRotaOut:
 def generate_rota(
     payload: ReceptionRotaGenerateIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionRotaOut:
     """Copy the weekday's master template onto `date`, active staff only.
     Weekend dates are rejected by ReceptionRotaGenerateIn's validator
@@ -247,7 +246,7 @@ def generate_rota(
 def get_rota_by_date(
     date: datetime.date,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionRotaOut:
     """How the day page decides between offering "Generate" (404) and
     "you are editing an existing day" (200)."""
@@ -263,7 +262,7 @@ def get_rota_by_date(
 def get_rota(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionRotaOut:
     rota = _get_rota_or_404(db, rota_id)
     return _rota_out(db, rota)
@@ -273,7 +272,7 @@ def get_rota(
 def assign_rota(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionRotaOut:
     """Assign the day: one transaction doing reset -> front desk -> phones
     top-up. No request body; returns the whole day with freshly recomputed
@@ -319,7 +318,7 @@ def assign_rota(
     #    fairness input for the assignment replacing them.
     #
     #    This single RoleCounters is deliberately passed to both selectors and
-    #    must not be recomputed after step 4 (D10): recomputing would need a
+    #    must not be recomputed after step 4: recomputing would need a
     #    second flush and would fold the just-written front_desk slots into the
     #    denominator, so the two selectors in one transaction would disagree
     #    about what the day looked like.
@@ -348,7 +347,7 @@ def assign_rota(
     phones_blocks = select_phones_blocks(rota, on_leave, counters)
 
     # 6. Apply the top-up. Same displaced_role bookkeeping as the desk, and
-    #    `note` is left alone exactly as the desk leaves it (D11).
+    #    `note` is left alone exactly as the desk leaves it.
     for block in phones_blocks:
         for hour in block.slot_hours:
             session = by_slot[(block.staff_id, hour)]
@@ -368,7 +367,7 @@ def create_session(
     rota_id: int,
     payload: ReceptionRotaSessionIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionSessionWriteOut:
     """Add a staff member to an hour. 409 on a duplicate
     (rota_id, staff_id, hour), 404 on unknown staff."""
@@ -418,7 +417,7 @@ def patch_session(
     session_id: int,
     payload: ReceptionRotaSessionPatchIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionSessionWriteOut:
     """Verbatim (role, note) pair setter, same contract as the master
     template's PATCH.
@@ -448,7 +447,7 @@ def delete_session(
     rota_id: int,
     session_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Remove a staff member from an hour -- still the per-slot absence
     mechanism, and the only one with half-hour precision: reception leave
@@ -468,7 +467,7 @@ def delete_session(
 def delete_rota(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Delete the whole day; sessions cascade (ORM
     cascade="all, delete-orphan" on ReceptionRota.sessions). Backs the

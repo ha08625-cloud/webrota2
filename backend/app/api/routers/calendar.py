@@ -1,5 +1,5 @@
 """The public per-doctor `.ics` feed -- the ONLY unauthenticated endpoint in
-the app (calendar feed plan, Task 3).
+the app.
 
 Everything else behind /api/v1 requires a valid session (see api/deps.py).
 This router is the one deliberate exception, and it is a separate module

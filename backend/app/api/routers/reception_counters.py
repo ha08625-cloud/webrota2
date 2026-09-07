@@ -1,5 +1,5 @@
 """Reception role counter router: one read-only endpoint over the shared
-compute module (reception counters, Task 2).
+compute module.
 
 A separate module from reception_rota.py purely so the router boundary
 matches the URL prefix -- that one is prefixed /reception/rota and this is
@@ -7,14 +7,15 @@ matches the URL prefix -- that one is prefixed /reception/rota and this is
 reason to merge them.
 
 There is deliberately no arithmetic here. The window rule and the
-aggregation both live in app/reception_counters.py, because the future
-front-desk-rotation generator calls them directly and must not be able to
-disagree with this endpoint about what a counter means. This router
+aggregation both live in app/reception_counters.py, because the
+front-desk assigner (app/reception_front_desk.py, via
+`POST /reception/rota/{id}/assign-roles`) calls them directly and must not
+be able to disagree with this endpoint about what a counter means. This router
 resolves the window, calls the function, and maps dataclasses onto
 schemas; anything more that appears here belongs in that module instead.
 
 No access-level gate beyond authentication: reception endpoints have none
-today and this ticket does not introduce the first one. The global write
+today. The global write
 gate in main.py is inert here anyway -- GET only.
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from ...models import User
 from ...reception_counters import compute_role_counters, default_counter_window
 from ..deps import get_current_user, get_db
 from ..schemas import ReceptionCounterRowOut, ReceptionCountersOut
@@ -48,7 +50,7 @@ def get_reception_counters(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionCountersOut:
     """Per-staff role slot counts, hours worked and days present over
     [from_date, to_date] inclusive.

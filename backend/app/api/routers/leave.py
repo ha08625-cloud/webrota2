@@ -1,6 +1,5 @@
-"""Leave router (M3 Task 6; bulk add/remove added post-M4; draft room release
-added post-M4.3 - see M4.3 Task 3; GET /leave/chargeable-count added by the
-no-surgery leave exemption plan, Task 3)."""
+"""Leave router: per-slot CRUD, bulk add/remove over a date range, and the
+chargeable-session count behind the entitlement balances."""
 from __future__ import annotations
 
 import datetime
@@ -15,8 +14,16 @@ from ...doctor_window import is_within_window, window_error_detail
 from ...engine.generate import get_active_draft
 from ...engine.week_map import build_date_to_genslot, build_week_dates
 from ...leave_charging import summarise_leave_charging
-from ...master_template import WEEKDAY_MAX as _WEEKDAY_MAX, load_week_one_template
-from ...models import Doctor, ExtraSessionEntry, LeaveEntry, PracticeClosure, RotaSession
+from ...master_template import WEEKDAY_MAX as _WEEKDAY_MAX
+from ...master_template import load_week_one_template
+from ...models import (
+    Doctor,
+    ExtraSessionEntry,
+    LeaveEntry,
+    PracticeClosure,
+    RotaSession,
+    User,
+)
 from ...models.enums import Period
 from ..deps import get_current_user, get_db
 from ..schemas import (
@@ -90,7 +97,7 @@ def list_leave(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[LeaveEntry]:
     stmt = select(LeaveEntry).order_by(LeaveEntry.date, LeaveEntry.doctor_id)
     if doctor_id is not None:
@@ -106,7 +113,7 @@ def list_leave(
 def create_leave(
     payload: LeaveIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveEntry:
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -138,7 +145,7 @@ def create_leave(
 def create_leave_bulk(
     payload: LeaveBulkIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveBulkOut:
     """Add leave across a date range in one call.
 
@@ -151,7 +158,7 @@ def create_leave_bulk(
     Draft rooms are released for every weekday candidate pair, including
     duplicates - a duplicate skip means the leave already existed, and
     releasing again is a harmless no-op or a heal of stale state (leave
-    added before this feature shipped). See M4.3 Task 3, design decision 4.
+    added before draft room release existed).
 
     Any planned extra session covered by this range is reported in
     `superseded_extra_sessions` - never deleted, never blocked.
@@ -268,7 +275,7 @@ def create_leave_bulk(
 def delete_leave_bulk(
     payload: LeaveBulkDeleteIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveBulkDeleteOut:
     """Remove all leave for a doctor within a date range.
 
@@ -277,7 +284,7 @@ def delete_leave_bulk(
     this range."
 
     Rooms are never restored on removal - matching the existing WFH
-    asymmetry (see M4.3 plan, Scope).
+    asymmetry.
     """
     if db.get(Doctor, payload.doctor_id) is None:
         raise HTTPException(
@@ -303,11 +310,11 @@ def get_chargeable_count(
     from_date: datetime.date,
     to_date: datetime.date,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> LeaveChargeableCountOut:
     """How many of a doctor's booked leave sessions in range were actually
     chargeable, versus exempt because the doctor was never due to work the
-    slot (no-surgery leave exemption plan).
+    slot.
 
     `db.get` rather than a query filtered on `Doctor.active`: an inactive
     doctor's historical leave is still historical leave, and an active
@@ -366,7 +373,7 @@ def get_chargeable_count(
 def delete_leave(
     leave_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     entry = db.get(LeaveEntry, leave_id)
     if entry is None:

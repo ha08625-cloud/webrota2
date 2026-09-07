@@ -1,4 +1,4 @@
-"""RecurringNote router (recurring notes plan, Task 2).
+"""RecurringNote router.
 
 Writes accept the full nested object (parent + doctor_ids + template_weeks)
 in one payload, mirroring clinic_types.py's replace-children pattern:
@@ -25,7 +25,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ...engine.week_map import DAY_ORDER
-from ...models import Doctor, RecurringNote, RecurringNoteDoctor, RecurringNoteWeek
+from ...models import (
+    Doctor,
+    RecurringNote,
+    RecurringNoteDoctor,
+    RecurringNoteWeek,
+    User,
+)
 from ..deps import get_current_user, get_db
 from ..schemas import RecurringNoteIn, RecurringNoteOut
 
@@ -81,7 +87,7 @@ def _apply(db: Session, note: RecurringNote, payload: RecurringNoteIn) -> None:
 @router.get("", response_model=list[RecurringNoteOut])
 def list_recurring_notes(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[RecurringNoteOut]:
     notes = db.execute(
         select(RecurringNote).options(
@@ -98,7 +104,7 @@ def list_recurring_notes(
 def create_recurring_note(
     payload: RecurringNoteIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RecurringNoteOut:
     _validate_doctor_ids(db, payload.doctor_ids)
     note = RecurringNote()
@@ -114,7 +120,7 @@ def replace_recurring_note(
     note_id: int,
     payload: RecurringNoteIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RecurringNoteOut:
     note = _get_or_404(db, note_id)
     _validate_doctor_ids(db, payload.doctor_ids)
@@ -128,7 +134,7 @@ def replace_recurring_note(
 def delete_recurring_note(
     note_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     note = _get_or_404(db, note_id)
     db.delete(note)  # ORM cascade removes both child tables' rows

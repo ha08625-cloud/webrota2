@@ -1,7 +1,6 @@
-"""Rota router: generation lifecycle and session swaps (M3 Task 3).
+"""Rota router: generation lifecycle and session swaps.
 
-Lifecycle rules (finalised M3 plan, extended M3.7; staging lock added by
-the staging plan, Task 4):
+Lifecycle rules:
 - One draft globally: generate returns 409 while any draft exists.
 - generate also returns 409 while a staging session is in progress
   (routers/staging.py) -- staged edits run through POST
@@ -10,13 +9,13 @@ the staging plan, Task 4):
 - generate also returns 409 if the requested date range overlaps a
   COMMITTED rota's range -- a committed week cannot be redrafted. Scrapped
   rotas are deleted outright and so never block a re-generation.
-- Commit sets committed_at and keeps the counter snapshot (M3.7 -- it no
-  longer deletes it); the live counters become the baseline for future
-  generations regardless.
+- Commit sets committed_at and keeps the counter snapshot (rollback needs
+  it); the live counters become the baseline for future generations
+  regardless.
 - Scrap (DELETE) restores counters to their snapshotted pre-generation
   values -- including undoing swap edits made during the draft -- then
   deletes the rota and its snapshot. 409 on committed rotas.
-- Rollback (POST .../rollback-commit, M3.7) undoes a commit one step at a
+- Rollback (POST .../rollback-commit) undoes a commit one step at a
   time: restores the rota's counters from its snapshot and flips it back
   to DRAFT, re-entering the normal draft lifecycle (editable, scrappable,
   re-committable). Only the most recently committed rota can be rolled
@@ -50,19 +49,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models import (
-    ClinicCounter,
-    ClinicType,
-    Doctor,
-    GeneratedRota,
-    LeaveEntry,
-    Room,
-    RotaClosure,
-    RotaConfig,
-    RotaGenerationLogEntry,
-    RotaSession,
-)
-from ...models.enums import MasterSessionType, RotaStatus, SessionRole
 from ...engine.generate import (
     commit_rota,
     find_overlapping_committed_rota,
@@ -75,6 +61,20 @@ from ...engine.generate import (
 )
 from ...engine.grid_utils import run_phase12_for_rota
 from ...engine.week_map import build_week_dates
+from ...models import (
+    ClinicCounter,
+    ClinicType,
+    Doctor,
+    GeneratedRota,
+    LeaveEntry,
+    Room,
+    RotaClosure,
+    RotaConfig,
+    RotaGenerationLogEntry,
+    RotaSession,
+    User,
+)
+from ...models.enums import MasterSessionType, RotaStatus, SessionRole
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ClosedSlotOut,
@@ -188,7 +188,7 @@ def _issues_out(db: Session, rota_id: int) -> list[ValidationIssueOut]:
 def _closed_slots_out(db: Session, rota_id: int) -> list[ClosedSlotOut]:
     """A rota's closed slots, from its own RotaClosure snapshot -- not the
     live PracticeClosure table, so a closure added or removed after
-    generation cannot change what this endpoint reports (M5)."""
+    generation cannot change what this endpoint reports."""
     rows = db.execute(
         select(RotaClosure.date, RotaClosure.period)
         .where(RotaClosure.rota_id == rota_id)
@@ -205,7 +205,7 @@ def _adjust_clinic_counter(
     """Get-or-create upsert; raw_count floored at 0 on decrement.
 
     Row creation on demand supports force-swapping to a previously-untracked
-    doctor (M3 plan, resolution: counter rows for non-eligible doctors).
+    doctor, who has no counter row yet.
     Rows created during a draft are deleted again if the draft is scrapped.
     """
     row = db.execute(
@@ -248,7 +248,7 @@ def _find_room_holder(
     Ordered by id for determinism and fetched with .first() rather than
     scalar_one_or_none(): duplicate holders should be impossible by
     construction, but a raised exception on dirty data is worse than
-    displacing one of them (M4.1 plan).
+    displacing one of them.
     """
     return db.execute(
         select(RotaSession)
@@ -300,7 +300,7 @@ def _find_role_holder(
 def generate_rota(
     payload: GenerateRotaIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> GenerateRotaOut:
     if get_active_draft(db) is not None:
         raise HTTPException(
@@ -360,13 +360,13 @@ def generate_rota(
 @router.get("", response_model=list[RotaSummaryOut])
 def list_rotas(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[RotaSummaryOut]:
-    """All rotas, newest first (M3.5 Task 1). The frontend derives the
+    """All rotas, newest first. The frontend derives the
     active draft (at most one by design) and the committed history from
     this list. No pagination: volume is tens per year.
 
-    Archived rotas (M6) are deliberately included, unfiltered -- the
+    Archived rotas are deliberately included, unfiltered -- the
     Committed/Archived tab split on RotaPage, and the rollback-eligibility
     scan of the full list, both depend on it. There is no query parameter
     to filter them out; that split is client-side by design."""
@@ -394,7 +394,7 @@ def list_rotas(
 def get_rota(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RotaOut:
     rota = _get_rota_or_404(db, rota_id)
     config = db.get(RotaConfig, rota.config_id)
@@ -419,9 +419,10 @@ def get_rota(
 def get_rota_issues(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ValidationIssueOut]:
-    # Works on drafts and committed rotas (M3 plan, resolution 6).
+    # Works on drafts and committed rotas, deliberately: validation is a
+    # read, and a committed rota's warnings are still worth seeing.
     _get_rota_or_404(db, rota_id)
     return _issues_out(db, rota_id)
 
@@ -430,7 +431,7 @@ def get_rota_issues(
 def get_rota_log(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[GenerationLogEntryOut]:
     """The generation decision log, in the order the engine recorded it.
 
@@ -455,7 +456,7 @@ def get_rota_log(
 def commit(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RotaOut:
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
@@ -468,9 +469,9 @@ def commit(
 def rollback_commit_endpoint(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RotaOut:
-    """Undo a commit, one step back through commit history (M3.7).
+    """Undo a commit, one step back through commit history.
 
     Unlike the other endpoints in this router, the 404/409 distinctions
     here are delegated to engine.generate.rollback_commit() rather than
@@ -500,9 +501,9 @@ def rollback_commit_endpoint(
 def archive(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RotaOut:
-    """Hide a committed rota from the default "Committed" list (M6).
+    """Hide a committed rota from the default "Committed" list.
 
     Metadata-only: no engine involvement, no counter/session effect. Draft
     rotas cannot be archived (409 via _require_committed); an
@@ -523,9 +524,9 @@ def archive(
 def unarchive(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> RotaOut:
-    """Reverse of archive() (M6).
+    """Reverse of archive().
 
     No _require_committed guard here: a draft can never have archived_at
     set (only archive() sets it, and only on committed rotas), so the
@@ -546,7 +547,7 @@ def unarchive(
 def scrap(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
@@ -558,7 +559,7 @@ def scrap(
 def force_delete(
     rota_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Permanently delete a committed rota; counters are left untouched.
 
@@ -600,12 +601,11 @@ def patch_session(
     session_id: int,
     payload: SessionPatchIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SessionPatchOut:
-    """Draft-only partial update: is_wfh, notes, and/or is_supervising
-    (M3.5 Task 2; is_supervising added by the Phase 9C plan, section 4).
+    """Draft-only partial update: is_wfh, notes, and/or is_supervising.
 
-    Setting is_wfh true also clears room_id (Q3 decision); the freed room
+    Setting is_wfh true also clears room_id; the freed room
     is immediately free for that week/day/period since freeness is derived
     from session rows. Setting is_wfh false does NOT restore a room -- the
     slot warns unresolved_room until a room is dragged on. is_supervising
@@ -654,11 +654,11 @@ def swap_roles(
     rota_id: int,
     payload: SwapIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SwapOut:
     """Swap or move (role, clinic_type_id) between two draft sessions.
 
-    M3.5 Tasks 3-4: one side may have no role, making this a move -- the
+    One side may have no role, making this a move -- the
     counter guards below already handle an empty half correctly (decrement
     the source's clinic counter, increment the target's). Both sides empty
     is a 422: nothing to move. Eligibility is not checked server-side
@@ -678,8 +678,8 @@ def swap_roles(
     a.role, b.role = old_b_role, old_a_role
     a.clinic_type_id, b.clinic_type_id = old_b_ct, old_a_ct
 
-    # Counter updates (finalised M3 plan, Task 3). The != guard on the
-    # second block makes a same-clinic-type swap a counter no-op.
+    # Counter updates. The != guard on the second block makes a
+    # same-clinic-type swap a counter no-op.
     if old_a_role == SessionRole.CLINIC and old_a_ct is not None:
         _adjust_clinic_counter(db, a.doctor_id, old_a_ct, -1)
         _adjust_clinic_counter(db, b.doctor_id, old_a_ct, +1)
@@ -705,11 +705,11 @@ def swap_rooms(
     rota_id: int,
     payload: SwapIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SwapOut:
     """Swap or move room_id between two draft sessions (no counter effect).
 
-    M3.5 Tasks 3-4: one side may have no room, making this a move. The
+    One side may have no room, making this a move. The
     deliberate consequence of a move is an unresolved_room warning on the
     source if its slot is REQUIRES_ROOM -- the signal to reassign. Both
     sides empty is a 422.
@@ -738,9 +738,9 @@ def set_room(
     session_id: int,
     payload: SetRoomIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SetRoomOut:
-    """One-sided room assign/clear with displacement (M4.1 Task 1).
+    """One-sided room assign/clear with displacement.
 
     room_id=None clears the target's room -- no displacement lookup, no
     is_wfh change. room_id set: any other session in the same slot already
@@ -798,10 +798,10 @@ def set_role(
     session_id: int,
     payload: SetRoleIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> SetRoleOut:
     """Verbatim (role, clinic_type_id, template_type) triple setter with
-    displacement, for the M4.1 cell-edit menu and its undo replay.
+    displacement, for the cell-edit menu and its undo replay.
 
     The endpoint does not distinguish menu shapes from undo-restoration
     calls -- it always writes the given triple exactly. Displacement only
@@ -815,9 +815,9 @@ def set_role(
     with no warning). Counter adjustments mirror swap-roles, with the
     same != guard making a same-clinic-type reassignment a no-op. Draft-only.
 
-    is_supervising is untouched by this endpoint (Phase 9C plan, section
-    4): an edit that invalidates a supervisor -- assigning them a clinic,
-    moving them off a D/SR room, swapping their role -- is caught by Phase
+    is_supervising is untouched by this endpoint: an edit that invalidates
+    a supervisor -- assigning them a clinic, moving them off a D/SR room,
+    swapping their role -- is caught by Phase
     12's supervision_on_incompatible_slot check on the re-run this endpoint
     already triggers, not by any special-casing here.
     """

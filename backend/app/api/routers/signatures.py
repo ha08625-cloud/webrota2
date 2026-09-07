@@ -1,4 +1,4 @@
-"""Signatures router (signatures feature, Task 3).
+"""Signatures router.
 
 Endpoints are deliberately unscoped by doctor_type -- any doctor_id is
 accepted; the Partner/Salaried filter is frontend-only. No processed
@@ -140,7 +140,7 @@ def upload_signature(
     doctor_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> DoctorSignature:
     _get_doctor_or_404(db, doctor_id)
 
@@ -182,7 +182,7 @@ def upload_signature(
 def delete_signature(
     doctor_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     signature = _get_signature_or_404(db, doctor_id)
     db.delete(signature)
@@ -194,7 +194,7 @@ def apply_signature(
     doctor_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Response:
     _get_doctor_or_404(db, doctor_id)
 

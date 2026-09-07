@@ -1,4 +1,4 @@
-"""EOI router (study EOI autofill, Task 2).
+"""EOI router: study EOI autofill.
 
 One endpoint: POST /eoi/fill takes an NIHR Site Identification form as a
 .docx and returns the same document with its eleven standard sections
@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from ...documents import DocumentFormatError, fill_eoi
+from ...models import User
 from ..deps import get_current_user
 from ._uploads import DOCX_MEDIA_TYPE, MAX_DOCX_BYTES, safe_filename_stem
 
@@ -35,7 +36,7 @@ router = APIRouter(prefix="/eoi", tags=["eoi"])
 @router.post("/fill")
 def fill_form(
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Response:
     # The declared content type is not checked -- browsers are inconsistent
     # about document MIME types, and a renamed file would sail past it

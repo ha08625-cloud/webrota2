@@ -1,10 +1,9 @@
 """Extra sessions router: plan a doctor working a normally non-working
-slot (extra sessions plan, Task 1).
+slot.
 
 The override that turns a planned extra session into a working staged
-slot happens once, at `POST /staging` creation time (extra sessions plan,
-Task 2) - this router only owns the CRUD record of intent, not the
-override itself.
+slot happens once, at `POST /staging` creation time - this router only
+owns the CRUD record of intent, not the override itself.
 
 Weekday-only and blocked by existing leave are both checked here rather
 than in the schema, since both need request context - the leave check
@@ -22,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window, window_error_detail
-from ...models import Doctor, ExtraSessionEntry, LeaveEntry
+from ...models import Doctor, ExtraSessionEntry, LeaveEntry, User
 from ..deps import get_current_user, get_db
 from ..schemas import ExtraSessionIn, ExtraSessionOut
 
@@ -37,7 +36,7 @@ def list_extra_sessions(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ExtraSessionEntry]:
     stmt = select(ExtraSessionEntry).order_by(
         ExtraSessionEntry.date, ExtraSessionEntry.doctor_id
@@ -55,7 +54,7 @@ def list_extra_sessions(
 def create_extra_session(
     payload: ExtraSessionIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ExtraSessionEntry:
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -117,7 +116,7 @@ def create_extra_session(
 def delete_extra_session(
     entry_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     entry = db.get(ExtraSessionEntry, entry_id)
     if entry is None:

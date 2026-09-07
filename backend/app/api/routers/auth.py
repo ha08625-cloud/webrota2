@@ -5,8 +5,8 @@ get_current_user -- it is how a client obtains a token in the first place.
 Bad email and bad password return the same 401 detail, so a client cannot
 enumerate which emails exist by timing or message content. Timing-attack
 hardening for the unknown-email case (a constant-time bcrypt comparison
-against a dummy hash) is explicitly out of scope for this project (auth
-plan, Task 2, final bullet): a plain early return is fine here.
+against a dummy hash) is explicitly out of scope for this project: a
+plain early return is fine here.
 
 Because login does not depend on get_current_user, it is also the one
 endpoint that has to put the acting user on its own audit row. It does so

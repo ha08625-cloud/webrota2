@@ -12,9 +12,9 @@ regardless of doctor_type. Trainee/AHP rows sit unused at zero -- the cost
 of a handful of dead rows buys a single unconditional invariant, closing
 the PATCH edge case where a doctor's type changes to Partner/Salaried after
 creation. `generate._write_counters` relies on this invariant via a strict
-`.scalar_one()` and 500s the generation if it is ever violated (this
-happened in production when doctors created through this router predated
-the invariant -- see seed/backfill_system_counters.py for the repair).
+`.scalar_one()` and 500s the generation if it is ever violated. It has
+been violated before, by doctor rows created before the invariant existed
+-- seed/backfill_system_counters.py is the repair for that case.
 
 Calendar-token invariant: every doctor row also has a unique, unguessable
 `calendar_token` from creation, set here explicitly. It is the identifier of
@@ -90,7 +90,7 @@ def _get_or_404(db: Session, doctor_id: int) -> Doctor:
 def list_doctors(
     active_only: bool = True,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[Doctor]:
     stmt = select(Doctor).order_by(Doctor.code)
     if active_only:
@@ -102,7 +102,7 @@ def list_doctors(
 def create_doctor(
     payload: DoctorIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Doctor:
     _validate_window(payload.start_date, payload.end_date)
     doctor = Doctor(
@@ -141,7 +141,7 @@ def create_doctor(
 def get_doctor(
     doctor_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Doctor:
     return _get_or_404(db, doctor_id)
 
@@ -151,7 +151,7 @@ def patch_doctor(
     doctor_id: int,
     payload: DoctorPatch,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
     updates = payload.model_dump(exclude_unset=True)
@@ -180,7 +180,7 @@ def replace_preferred_rooms(
     doctor_id: int,
     payload: list[PreferredRoomIn],
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
     # Replace-all pattern, but as two explicit statements rather than an
@@ -225,7 +225,7 @@ def _feed_out(doctor: Doctor) -> CalendarFeedOut:
 def get_calendar_feed(
     doctor_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> CalendarFeedOut:
     """The doctor's feed token and path, readable at every access tier.
 
@@ -270,7 +270,7 @@ def rotate_calendar_feed(
 def soft_delete_doctor(
     doctor_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
     has_committed_sessions = db.execute(

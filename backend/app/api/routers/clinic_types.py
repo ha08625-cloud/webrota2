@@ -1,11 +1,11 @@
 """ClinicType router.
 
 Writes accept the full nested object (parent + schedules +
-doctor_eligibilities + room_eligibilities) in one transaction, per the M3
-plan. PUT uses the replace-children pattern: all existing child rows are
-deleted and the new set inserted -- simpler than diffing, and safe for
+doctor_eligibilities + room_eligibilities) in one transaction. PUT uses the
+replace-children pattern: all existing child rows are deleted and the new
+set inserted -- simpler than diffing, and safe for
 counter history because ClinicCounter is keyed on values, never on child-row
-FKs (M1 design decision).
+FKs.
 
 Children are cleared and flushed before the replacement set is attached
 (see `_apply`) -- SQLAlchemy does not guarantee that the DELETEs for
@@ -38,6 +38,7 @@ from ...models import (
     ClinicTypeDoctorEligibility,
     ClinicTypeRoomEligibility,
     ClinicTypeSchedule,
+    User,
 )
 from ..deps import get_current_user, get_db
 from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypePatch, ClinicTypeReorderIn
@@ -161,7 +162,7 @@ def _integrity_guard(db: Session, detail: str):
 @router.get("", response_model=list[ClinicTypeOut])
 def list_clinic_types(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ClinicType]:
     return db.execute(
         select(ClinicType).order_by(ClinicType.clinic_priority, ClinicType.name)
@@ -172,7 +173,7 @@ def list_clinic_types(
 def create_clinic_type(
     payload: ClinicTypeIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ClinicType:
     ct = ClinicType()
     detail = (
@@ -197,7 +198,7 @@ def create_clinic_type(
 def get_clinic_type(
     clinic_type_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ClinicType:
     return _get_or_404(db, clinic_type_id)
 
@@ -206,7 +207,7 @@ def get_clinic_type(
 def reorder_clinic_types(
     payload: ClinicTypeReorderIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ClinicType]:
     # Registered before PUT /{clinic_type_id}: if that route were declared
     # first, "reorder" would be attempted as the int path parameter and
@@ -265,7 +266,7 @@ def replace_clinic_type(
     clinic_type_id: int,
     payload: ClinicTypeIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ClinicType:
     ct = _get_or_404(db, clinic_type_id)
     # Captured before _apply() overwrites is_enabled.
@@ -307,7 +308,7 @@ def patch_clinic_type(
     clinic_type_id: int,
     payload: ClinicTypePatch,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ClinicType:
     """Partial update for is_enabled / room_required only.
 
@@ -357,18 +358,17 @@ def patch_clinic_type(
 def delete_clinic_type(
     clinic_type_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     ct = _get_or_404(db, clinic_type_id)
     was_enabled = ct.is_enabled
     priority = ct.clinic_priority
-    # "counter or rota rows" already covers two distinct blockers: a live
-    # ClinicCounter row, and (as of M3.7, since commit_rota() no longer
-    # deletes snapshots) a RotaClinicCounterSnapshot row belonging to any
-    # committed rota's counter-restore history. In practice a snapshot row
-    # only exists where a live ClinicCounter row also exists, so this was
-    # already blocked either way -- but the FK violation can now originate
-    # from either table, not just the live one.
+    # "counter or rota rows" covers two distinct blockers: a live
+    # ClinicCounter row, and a RotaClinicCounterSnapshot row belonging to a
+    # committed rota's counter-restore history (commit_rota() keeps its
+    # snapshots). In practice a snapshot row only exists where a live
+    # ClinicCounter row also exists, so either one alone would block the
+    # delete -- but the FK violation can originate from either table.
     detail = (
         f"ClinicType {clinic_type_id} is referenced by counter or rota "
         "rows and cannot be deleted"

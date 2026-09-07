@@ -18,8 +18,7 @@ POST) put on a weekend.
 
 Leave changes nothing about generation or row editing. It is read in
 exactly one place -- compute_coverage_issues in reception_rota.py -- where
-it filters the phones headcount, resolving the absence limitation that
-router documented.
+it filters the phones headcount.
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import ReceptionLeaveEntry, ReceptionStaff
+from ...models import ReceptionLeaveEntry, ReceptionStaff, User
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ReceptionLeaveBulkDeleteIn,
@@ -66,7 +65,7 @@ def list_reception_leave(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ReceptionLeaveEntry]:
     stmt = select(ReceptionLeaveEntry).order_by(
         ReceptionLeaveEntry.date, ReceptionLeaveEntry.staff_id
@@ -84,7 +83,7 @@ def list_reception_leave(
 def create_reception_leave(
     payload: ReceptionLeaveIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionLeaveEntry:
     """404 on unknown staff, 409 on a duplicate (staff, date). Unlike bulk,
     a weekend date is accepted here: a single deliberate POST is taken at
@@ -108,7 +107,7 @@ def create_reception_leave(
 def create_reception_leave_bulk(
     payload: ReceptionLeaveBulkIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionLeaveBulkOut:
     """Add whole-day leave across a date range, weekdays only.
 
@@ -171,7 +170,7 @@ def create_reception_leave_bulk(
 def delete_reception_leave_bulk(
     payload: ReceptionLeaveBulkDeleteIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionLeaveBulkDeleteOut:
     """Remove every entry for a staff member within a range, weekends
     included -- see the module docstring for why this is not weekday-
@@ -191,7 +190,7 @@ def delete_reception_leave_bulk(
 def delete_reception_leave(
     leave_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     entry = db.get(ReceptionLeaveEntry, leave_id)
     if entry is None:

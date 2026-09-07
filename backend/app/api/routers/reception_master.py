@@ -8,8 +8,8 @@ staff sharing a (day, hour) slot is the normal case, not a conflict. Do
 not port that logic here.
 
 No coverage validation runs against the template. Coverage warnings are a
-property of a dated day grid (see routers/reception_rota.py, once it
-exists), not of the template -- the template has no date, so a shortfall
+property of a dated day grid (see routers/reception_rota.py), not of the
+template -- the template has no date, so a shortfall
 computed against it would not be actionable.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...engine.week_map import DAY_ORDER
-from ...models import ReceptionMasterSession, ReceptionStaff
+from ...models import ReceptionMasterSession, ReceptionStaff, User
 from ..deps import get_current_user, get_db
 from ..schemas.reception import (
     ReceptionMasterSessionCreateIn,
@@ -54,7 +54,7 @@ def _get_session_or_404(db: Session, session_id: int) -> ReceptionMasterSession:
 @router.get("", response_model=list[ReceptionMasterSessionOut])
 def list_master_sessions(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[ReceptionMasterSessionOut]:
     """The full flat template, one fetch -- at most a few hundred rows, and
     the grid pivots it client-side, exactly as GET /master-rota/active
@@ -74,7 +74,7 @@ def list_master_sessions(
 def create_master_session(
     payload: ReceptionMasterSessionCreateIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionMasterSessionOut:
     """Create one (staff_id, day, hour) template slot. Pre-checks the slot
     and returns a descriptive 409 rather than letting the unique constraint
@@ -128,7 +128,7 @@ def patch_master_session(
     session_id: int,
     payload: ReceptionMasterSessionPatchIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ReceptionMasterSessionOut:
     """Verbatim (role, note) pair setter -- both fields are always present
     in the request body, not a partial update, matching PATCH
@@ -145,7 +145,7 @@ def patch_master_session(
 def delete_master_session(
     session_id: int,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
     """Hard delete -- ReceptionMasterSession has no children and the
     template has no draft/committed lifecycle, so there is nothing to

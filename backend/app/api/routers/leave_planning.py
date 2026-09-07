@@ -1,4 +1,4 @@
-"""Leave planning router (annual leave planning, Task 3).
+"""Leave planning router.
 
 Two endpoints backing the month-at-a-time planning grid:
 
@@ -15,13 +15,13 @@ untouched by this file.
 Two asymmetries this module inherits and must not paper over:
 
 * Leave and extra sessions are not equivalent. Leave is read live by the
-engine on every run; an extra session is applied *once*, in the `POST
-/staging` copy loop, and is conditional on the template row being
-overridable. So the coverage calculation applies the same override table
-`routers/staging.py` does -- importing its `_OVERRIDABLE_TYPES` rather
-than redeclaring it -- instead of a flat +1.
-* Adding leave releases draft rooms; clearing it does not restore
-them, matching both `/leave/bulk-delete` and the WFH behaviour.
+  engine on every run; an extra session is applied *once*, in the `POST
+  /staging` copy loop, and is conditional on the template row being
+  overridable. So the coverage calculation applies the same override table
+  `routers/staging.py` does -- importing its `_OVERRIDABLE_TYPES` rather
+  than redeclaring it -- instead of a flat +1.
+* Adding leave releases draft rooms; clearing it does not restore them,
+  matching both `/leave/bulk-delete` and the WFH behaviour.
 
 Blocked (clinical rota, "Blocked" annual planner option) is a third,
 independent cell state for things like a whole-day training session: the
@@ -55,6 +55,7 @@ from ...models import (
     ExtraSessionEntry,
     LeaveEntry,
     PracticeClosure,
+    User,
 )
 from ...models.enums import DoctorType, MasterSessionType, Period
 from ..deps import get_current_user, get_db
@@ -121,7 +122,7 @@ def get_coverage(
     from_date: datetime.date,
     to_date: datetime.date,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[CoverageSlotOut]:
     """Clinical headcount per (date, period) across the weekday range.
 
@@ -214,7 +215,7 @@ def list_blocked(
     from_date: datetime.date | None = None,
     to_date: datetime.date | None = None,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[BlockedEntry]:
     """All `BlockedEntry` rows, optionally filtered -- the read side the
     Annual Planner grid needs to render blocked cells and their notes,
@@ -235,7 +236,7 @@ def list_blocked(
 def apply_planning_bulk(
     payload: PlanningBulkIn,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> PlanningBulkOut:
     """Apply a batch of planning-grid edits in one transaction.
 
