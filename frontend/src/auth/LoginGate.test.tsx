@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HttpResponse, http } from "msw";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -57,6 +57,9 @@ function renderGate() {
 describe("LoginGate", () => {
   afterEach(() => {
     clearToken();
+    // Every test that lands on a reset link changes the URL; leaving it
+    // there would put the next test straight into the reset view.
+    window.history.replaceState(null, "", "/");
   });
 
   it("shows the login form immediately when there is no stored token, without calling /auth/me", async () => {
@@ -201,5 +204,151 @@ describe("LoginGate", () => {
 
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(getToken()).toBeNull();
+  });
+
+  describe("password reset", () => {
+    it("shows the forgot form from the login form and confirms without saying whether the address exists", async () => {
+      renderGate();
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole("button", { name: "Forgot password?" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Reset your password" }),
+      ).toBeInTheDocument();
+      await user.type(screen.getByLabelText("Email"), "jo@example.com");
+      await user.click(screen.getByRole("button", { name: "Email me a link" }));
+
+      const known = (await screen.findByRole("status")).textContent;
+      expect(known).toContain("If that address is registered");
+      // The one sentence that stops a typo becoming a silent dead end -
+      // the backend matches the address exactly, so a wrong one is
+      // indistinguishable from success.
+      expect(known).toContain("the one you log in with");
+
+      // The backend answers 204 for an unknown address too, so the
+      // rendered confirmation must be byte-identical - anything else
+      // would be the enumeration oracle the 204 exists to deny.
+      cleanup();
+      renderGate();
+      await user.click(await screen.findByRole("button", { name: "Forgot password?" }));
+      await user.type(await screen.findByLabelText("Email"), "nobody@example.com");
+      await user.click(screen.getByRole("button", { name: "Email me a link" }));
+
+      expect((await screen.findByRole("status")).textContent).toBe(known);
+    });
+
+    it("sends the address exactly as typed", async () => {
+      let sent: unknown = null;
+      server.use(
+        http.post("/api/v1/auth/forgot-password", async ({ request }) => {
+          sent = await request.json();
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+
+      renderGate();
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Forgot password?" }));
+      await user.type(await screen.findByLabelText("Email"), "Jo@Example.com");
+      await user.click(screen.getByRole("button", { name: "Email me a link" }));
+
+      await waitFor(() => expect(sent).toEqual({ email: "Jo@Example.com" }));
+    });
+
+    it("shows the reset view on a reset link even when a stored token is valid", async () => {
+      // The common case: a 30-day session is still live in this browser
+      // and the user has forgotten the password they need elsewhere. If
+      // the stored-token check won, they would be dropped into the app
+      // and never see the reset form.
+      setToken("valid-token");
+      let meCalled = false;
+      server.use(
+        http.get("/api/v1/auth/me", () => {
+          meCalled = true;
+          return HttpResponse.json(AUTH_USER);
+        }),
+      );
+      window.history.replaceState(null, "", "/reset-password/emailed-token");
+
+      renderGate();
+
+      expect(
+        await screen.findByRole("heading", { name: "Set a new password" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+      expect(meCalled).toBe(false);
+      expect(getToken()).toBeNull();
+    });
+
+    it("posts the token from the URL and returns to the login form on success", async () => {
+      let sent: unknown = null;
+      server.use(
+        http.post("/api/v1/auth/reset-password", async ({ request }) => {
+          sent = await request.json();
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      window.history.replaceState(null, "", "/reset-password/emailed-token");
+
+      renderGate();
+      const user = userEvent.setup();
+
+      await user.type(await screen.findByLabelText("New password"), "new-password");
+      await user.type(screen.getByLabelText("Confirm new password"), "new-password");
+      await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+      expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+      expect(sent).toEqual({ token: "emailed-token", password: "new-password" });
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "Your password has been reset.",
+      );
+      // The spent token is off the URL, so a refresh does not re-submit it.
+      expect(window.location.pathname).toBe("/");
+    });
+
+    it("renders the expiry message on a 400 and stays on the reset form", async () => {
+      // A 401 here would fire apiClient's global onUnauthorized listener
+      // and swap this view for a bare login form at the exact moment the
+      // user needs to read why their link failed - which is why the
+      // backend answers 400 and this test pins the consequence.
+      window.history.replaceState(null, "", "/reset-password/stale-token");
+
+      renderGate();
+      const user = userEvent.setup();
+
+      await user.type(await screen.findByLabelText("New password"), "new-password");
+      await user.type(screen.getByLabelText("Confirm new password"), "new-password");
+      await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "This reset link is invalid or has expired.",
+      );
+      expect(screen.getByRole("heading", { name: "Set a new password" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Log in" })).not.toBeInTheDocument();
+    });
+
+    it("rejects a mismatched confirmation without calling the endpoint", async () => {
+      let posted = false;
+      server.use(
+        http.post("/api/v1/auth/reset-password", () => {
+          posted = true;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      window.history.replaceState(null, "", "/reset-password/emailed-token");
+
+      renderGate();
+      const user = userEvent.setup();
+
+      await user.type(await screen.findByLabelText("New password"), "new-password");
+      await user.type(screen.getByLabelText("Confirm new password"), "different-password");
+      await user.click(screen.getByRole("button", { name: "Set new password" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "The two passwords do not match.",
+      );
+      expect(posted).toBe(false);
+    });
   });
 });

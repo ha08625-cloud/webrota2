@@ -1,7 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { AuthUser, LoginIn, LoginOut } from "./types";
+import type {
+  AuthUser,
+  ForgotPasswordIn,
+  LoginIn,
+  LoginOut,
+  ResetPasswordIn,
+} from "./types";
 
 export const authKeys = {
   me: ["auth", "me"] as const,
@@ -38,5 +44,34 @@ export function useMe(enabled: boolean) {
     queryFn: () => apiClient.get<AuthUser>("/auth/me"),
     enabled,
     retry: false,
+  });
+}
+
+/**
+ * POST /auth/forgot-password - 204 on every path the backend takes:
+ * unknown address, inactive user, throttled, or a Mailgun failure alike
+ * (see routers/auth.py). So a resolved promise means "the request was
+ * accepted", never "an email is on its way", and the caller must not
+ * word its success message as though it did.
+ */
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: (body: ForgotPasswordIn) =>
+      apiClient.post<void>("/auth/forgot-password", body),
+  });
+}
+
+/**
+ * POST /auth/reset-password - 204 on success, 400 for a token that is
+ * unknown, expired, already redeemed, or issued to a user since
+ * deactivated. Deliberately not a 401: apiClient fires the global
+ * onUnauthorized listener on any 401, which would clear the stored token
+ * and swap the reset view for a bare login form at the exact moment the
+ * user submitted a stale link.
+ */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: (body: ResetPasswordIn) =>
+      apiClient.post<void>("/auth/reset-password", body),
   });
 }
