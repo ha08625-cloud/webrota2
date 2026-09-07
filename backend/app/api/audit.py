@@ -1,75 +1,43 @@
 """Audit capture: the request context, the ASGI middleware, and redaction.
 
-One row per non-GET request that reaches the app, written automatically so
-that coverage cannot drift as endpoints are added. The purpose is
-debugging -- reconstructing "the rota looks wrong, what happened to it?"
-from the sequence of requests that touched it -- so entries are HTTP-shaped
-(method, templated route, path params, request body, status) rather than
-field-level before/after diffs.
+One row per non-GET request, written by middleware rather than per-endpoint
+calls so that coverage cannot drift as endpoints are added. Entries are
+HTTP-shaped (method, templated route, path params, request body, status)
+rather than field-level diffs -- the purpose is reconstructing "what
+happened to this rota?" from the requests that touched it.
 
-Why middleware rather than per-endpoint calls
----------------------------------------------
-There are ~81 non-GET endpoints across 22 routers. Instrumenting them one
-by one would be default-OPEN: the next POST anyone adds is unaudited until
-somebody remembers the call, and no test catches it. This is the same
-argument main.py already makes for attaching the permission gates at
-include_router time. It is also why the request body is captured here
-rather than by per-endpoint enrichment: 81 hand-written calls would
-reintroduce exactly the property this design exists to avoid.
-
-Why pure ASGI rather than BaseHTTPMiddleware
---------------------------------------------
-BaseHTTPMiddleware runs the downstream app in a spawned anyio task, which
-complicates both contextvar propagation and request-body handling. A plain
-`async def __call__(self, scope, receive, send)` avoids both. The status
-code is read off the `http.response.start` message via a wrapped `send`,
-and `scope["route"]` / `scope["path_params"]` are read AFTER awaiting
+Pure ASGI, not BaseHTTPMiddleware: the latter runs downstream in a spawned
+anyio task, complicating contextvar propagation and body handling. The
+status code is read off `http.response.start` via a wrapped `send`;
+`scope["route"]` and `scope["path_params"]` are read AFTER awaiting
 downstream, because routing mutates the same scope dict.
 
-`scope["route"]` is set by *FastAPI* (`APIRoute.matches`), not by Starlette
--- so the version risk here is a FastAPI risk. It is read defensively
-(`getattr(route, "path", None)`) so a FastAPI upgrade degrades the log
-rather than breaking requests. Note also that `route.path` is router-local:
-the value for `PATCH /api/v1/rota/12/sessions/45` is
-`/rota/{rota_id}/sessions/{session_id}`, because `include_router(prefix=)`
-prefixes are not part of it and `scope["root_path"]` is "". `path` carries
-the real requested path, prefix included.
+`scope["route"]` is set by FastAPI (`APIRoute.matches`), not Starlette, and
+is read defensively so a FastAPI upgrade degrades the log rather than
+breaking requests. `route.path` is router-local -- no `include_router`
+prefix -- while `path` carries the full requested path.
 
 THE CONTEXTVAR RULE: MUTATE, NEVER `.set()` FROM AN ENDPOINT
 ------------------------------------------------------------
-Every router in this codebase is `def`, not `async def`, so FastAPI runs
-endpoints in a threadpool. anyio's `run_sync_in_worker_thread` executes the
-function via `context.run(func)` on a **copy** of the context, which means
-a `ContextVar.set()` performed inside an endpoint (or inside a dependency
-that runs threadpooled) is **invisible** to this middleware afterwards.
+Routers here are `def`, so FastAPI runs them threadpooled, and anyio
+executes them on a *copy* of the context: a `ContextVar.set()` inside an
+endpoint or threadpooled dependency is invisible to this middleware. The
+middleware therefore `.set()`s a mutable `AuditContext` once; everything
+downstream reaches it via `current_audit_context()` and mutates its fields.
+Getting this backwards logs nothing extra, with tests that still pass.
 
-Therefore the middleware calls `.set()` exactly once, with a mutable
-`AuditContext`, before calling downstream. Endpoints, dependencies and
-exception handlers reach it via `current_audit_context()` and **mutate its
-fields**. Mutation is visible because it is the same object; rebinding is
-not. Getting this backwards produces a log that silently records nothing
-extra, with tests that pass.
+Writes are best-effort: own session and transaction, after the response is
+flushed, with every exception logged and swallowed. Losing entries beats an
+audit outage taking down rota generation.
 
-Best-effort, never fatal
-------------------------
-The row is written in its own session and transaction, after the endpoint's
-transaction has committed and after the response has been flushed, so it
-adds no user-visible latency. Any exception during the write is logged and
-swallowed: a database problem loses entries silently, which is far better
-than an audit outage taking down rota generation.
+A request that 500s still produces a row, but only via the
+`try/except BaseException` around the downstream await: `add_middleware`
+places this inside Starlette's ServerErrorMiddleware but outside its
+ExceptionMiddleware, so an unhandled exception arrives here with
+`http.response.start` never sent.
 
-A request that 500s still produces a row, but only because the downstream
-await is wrapped in `try/except BaseException`. `app.add_middleware` places
-this middleware *inside* Starlette's ServerErrorMiddleware but *outside*
-its ExceptionMiddleware, so an unhandled endpoint exception propagates up
-through here as an exception -- `http.response.start` is never sent and the
-wrapped `send` never fires. Without the explicit catch there would be no
-row at all.
-
-This module must NOT import `deps` -- `deps` imports it (to record the
-acting user from `get_current_user`), and the reverse dependency would be a
-circular import. The safe-method set is therefore defined locally rather
-than reused from `deps._SAFE_METHODS`.
+This module must NOT import `deps` -- `deps` imports it, so the reverse
+would be circular. Hence the local safe-method set.
 """
 import contextvars
 import datetime
@@ -92,15 +60,10 @@ _MAX_BODY_BYTES = 16 * 1024
 
 _MAX_DETAIL_CHARS = 2000
 
-# Keys whose values are replaced with "[redacted]", matched case-insensitively
-# and recursively through dicts and lists. Every password field across
-# LoginIn, UserIn, UserPatch and UserSelfPatch is named `password`, so this
-# covers the current surface; keep it as the single place a new
-# secret-bearing schema registers itself.
-#
-# Residual leak, stated rather than defended: a user who types their
-# password into the email box on the login form puts it in `email`, which is
-# not redacted. Bodies are "what was sent", and that includes mistakes.
+# Values under these keys become "[redacted]", matched case-insensitively and
+# recursively through dicts and lists. The single place a new secret-bearing
+# schema registers itself. Note a password typed into the login form's email
+# box lands in `email` and is not redacted: bodies are "what was sent".
 _REDACTED_KEYS = frozenset({
     "password",
     "new_password",
@@ -116,10 +79,7 @@ _REDACTED = "[redacted]"
 class AuditContext:
     """Per-request scratch space for the audit row.
 
-    MUTATE, DO NOT REBIND. The middleware sets this object on the contextvar
-    once; everything downstream mutates its fields in place. A
-    `ContextVar.set()` from an endpoint is invisible here because endpoints
-    run threadpooled on a copied context. See the module docstring.
+    MUTATE, DO NOT REBIND -- see the contextvar rule in the module docstring.
     """
 
     method: str
@@ -133,8 +93,8 @@ class AuditContext:
     status_code: int | None = None
     duration_ms: int | None = None
 
-    # Filled downstream: get_current_user (identity), the exception handlers
-    # and the login endpoint (outcome_detail / identity). See Task 2b.
+    # Filled downstream by get_current_user (identity), the exception
+    # handlers and the login endpoint (outcome_detail / identity).
     user_id: int | None = None
     user_email: str | None = None
     user_access_level: str | None = None
@@ -161,14 +121,11 @@ def current_audit_context() -> AuditContext | None:
 # ---------------------------------------------------------------------------
 # Session factory
 # ---------------------------------------------------------------------------
-# Middleware runs outside FastAPI's dependency system, so it cannot use
-# `get_db` or benefit from `app.dependency_overrides` -- which is the entire
-# reason this module-level indirection exists. main.py points it at
-# SessionLocal; the API test suite points it at the per-test engine.
-#
-# None means DISABLED: the middleware does everything else and skips the
-# write. That is the default, so importing this module never writes anywhere
-# by accident.
+# Middleware runs outside the dependency system, so it can use neither
+# `get_db` nor `app.dependency_overrides` -- hence this module-level
+# indirection. main.py points it at SessionLocal; tests point it at the
+# per-test engine. None means DISABLED (the default), so importing this
+# module never writes anywhere by accident.
 _session_factory: Callable[[], Any] | None = None
 
 
@@ -327,10 +284,9 @@ class AuditMiddleware:
             try:
                 await self.app(scope, downstream_receive, send_wrapper)
             except BaseException as exc:
-                # See the module docstring: this middleware sits outside
-                # ExceptionMiddleware, so an unhandled endpoint exception
-                # arrives here as an exception with no response started. A
-                # 500 produces no row without this branch.
+                # This middleware sits outside ExceptionMiddleware, so an
+                # unhandled endpoint exception arrives here with no response
+                # started. Without this branch a 500 produces no row.
                 ctx.status_code = 500
                 if ctx.outcome_detail is None:
                     ctx.outcome_detail = _truncate(f"{type(exc).__name__}: {exc}")
@@ -345,18 +301,16 @@ class AuditMiddleware:
         ctx.duration_ms = int((time.monotonic() - started) * 1000)
 
         # Routing mutates the same scope dict, so these are only meaningful
-        # once the downstream call has returned. `route` is set by FastAPI,
-        # not Starlette, and is read defensively so a FastAPI upgrade
-        # degrades the log rather than breaking requests. It is absent for a
-        # request that matched no route.
+        # after the downstream call. `route` is absent for a request that
+        # matched no route, hence the defensive read.
         route = scope.get("route")
         ctx.route = getattr(route, "path", None)
         path_params = scope.get("path_params")
         ctx.path_params = dict(path_params) if path_params else None
 
         # The session is synchronous, so the write goes to a worker thread
-        # rather than blocking the event loop. The response has already been
-        # flushed by this point either way, so this costs the client nothing.
+        # rather than blocking the event loop. The response is already
+        # flushed, so this costs the client nothing.
         await anyio.to_thread.run_sync(self._write, ctx)
 
     def _write(self, ctx: AuditContext) -> None:
@@ -364,9 +318,8 @@ class AuditMiddleware:
         if factory is None:
             return
         try:
-            # Imported here rather than at module scope: app.models imports
-            # a good deal of the ORM layer, and this module is imported by
-            # deps.py.
+            # Imported here, not at module scope: app.models pulls in much
+            # of the ORM layer and deps.py imports this module.
             from ..models import AuditLogEntry
 
             db = factory()
