@@ -311,9 +311,9 @@ def readonly_client(client_with_permissions):
 
 @pytest.fixture
 def no_access_client(client_with_permissions):
-    """The deny-everything set. Refused on save by the API (plan D15), but
-    it is the column's server default, so it is exactly the state a row
-    inserted outside the app lands in and the gates have to handle it."""
+    """The deny-everything set. Refused on save by the API, but it is the
+    column's server default, so it is exactly the state a row inserted
+    outside the app lands in and the gates have to handle it."""
     return client_with_permissions(default_permissions())
 
 

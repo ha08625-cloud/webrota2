@@ -449,7 +449,7 @@ describe("UserFormDialog - permissions", () => {
   });
 
   /**
-   * The regression guard for the shared-read allowlist (plan D6a): GET
+   * The regression guard for the shared-read allowlist: GET
    * /doctors and GET /reception/staff are readable without the clinical or
    * reception permission *because* this dialog needs them. A user_admin-only
    * login is exactly the tightly scoped login the feature exists to make

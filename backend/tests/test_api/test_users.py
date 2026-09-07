@@ -782,11 +782,11 @@ class TestStaffLinks:
 
 
 class TestPermissions:
-    """The permission set as DATA (fine-grained permissions plan, Task 1).
+    """The permission set as DATA, over the API.
 
-    Nothing authorizes off it yet -- these tests are about the column
-    round-tripping, the empty-set rule, and the two ways the value could
-    quietly fail to persist.
+    Not what it authorizes (test_authorization.py sweeps that) but the
+    column round-tripping, the empty-set rule, and the two ways the value
+    could quietly fail to persist.
     """
 
     _CLINICAL_ONLY = {
@@ -879,7 +879,7 @@ class TestPermissions:
     def test_in_place_key_edits_persist(self, client, db_session):
         """The column is MutableDict-wrapped, so mutating one key is
         tracked. Without that wrapper this commits nothing and the failure
-        looks like a gating bug, not a persistence one (plan D3)."""
+        looks like a gating bug, not a persistence one."""
         created = _create_user(client, email="mutable@example.com")
         row = db_session.get(User, created["id"])
         row.permissions["clinical"] = "read"

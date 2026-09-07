@@ -315,7 +315,7 @@ def test_authenticated_write_records_the_acting_user(client_no_auth, db_session)
     assert row.user_access_level == "manager"
     # And the permission set that actually allowed it, as compact sorted
     # JSON: "why was this allowed?" has to stay answerable after the user's
-    # permissions change (plan D13).
+    # permissions change.
     assert row.user_permissions == json.dumps(
         preset(MANAGER_PRESET), sort_keys=True
     )

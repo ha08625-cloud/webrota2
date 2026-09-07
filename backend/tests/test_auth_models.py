@@ -296,7 +296,7 @@ def test_linking_does_not_change_access_level(session):
 
 
 class TestPermissionSets:
-    """The permission set as stored (fine-grained permissions plan, D3)."""
+    """The permission set as stored on the User row."""
 
     def test_defaults_to_denying_everything(self, session):
         u = _user(session, email="default-perms@example.com")

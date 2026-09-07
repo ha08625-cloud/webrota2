@@ -1,4 +1,4 @@
-"""Authorization tests (fine-grained permissions plan, Task 3).
+"""Authorization tests: the permission gates, swept route by route.
 
 The load-bearing tests here are sweeps over every route the app registers,
 not per-router enumerations. That is deliberate: the gates' whole value is
@@ -41,8 +41,8 @@ counts: a new endpoint should not fail them, a silently emptied sweep
 should.
 
 `test_get_requires_authentication` is about authentication rather than
-permissions, and it exists because of the calendar feed (calendar feed
-plan, Decision 4). That feature opened the app's first and only
+permissions, and it exists because of the calendar feed, whose path token
+is its credential. That feature opened the app's first and only
 unauthenticated endpoint; this sweep is what makes "we opened one hole,
 not a class of them" a checked property rather than a claim. It calls
 every GET in the schema with no credentials and asserts 401, with
@@ -494,8 +494,8 @@ class TestSharedReads:
 class TestTheConjunctions:
     """The two endpoints gated on `user_admin` as well as their router's
     area. Swept above, and named here because the conjunction is a design
-    decision (plan D12) rather than a consequence of the area rules: both
-    are destructive in ways routine data entry is not."""
+    decision rather than a consequence of the area rules: both are
+    destructive in ways routine data entry is not."""
 
     def test_a_rota_editor_passes_the_area_gate_and_fails_the_capability(
         self, rota_admin_client
