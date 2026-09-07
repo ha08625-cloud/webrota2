@@ -1,8 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 
+import { Blob, File } from "node:buffer";
+
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
-import { fetch, FormData, Headers, Request, Response } from "undici";
 
 import { server } from "./msw/server";
 
@@ -26,8 +27,39 @@ import { server } from "./msw/server";
  * interceptor agree on a single set of classes. A real browser only ever
  * has one implementation of each, so this only affects the test
  * environment - production code is untouched.
+ *
+ * File is Node's rather than jsdom's for the same reason, one level
+ * down: undici decides whether a FormData value is a file part with
+ * `webidl.is.Blob`, which it builds *once*, at module-evaluation time,
+ * from whatever `Blob` is global at that moment (its
+ * lib/web/webidl/index.js closes over the binding). A value that fails
+ * that check is not rejected, it is stringified: append() stores
+ * "[object File]" and the handler side sees a plain text field with no
+ * `.name`. A jsdom File fails it whenever undici captured Node's Blob,
+ * which is how this surfaced in CI (the eoi and signatures upload
+ * tests) - and which of the two undici captured used to hang on nothing
+ * more than npm's hoisting. While jsdom carried its own nested copy of
+ * undici, the copy this file imports was first evaluated here, after
+ * jsdom had installed its globals; once npm deduped the two copies,
+ * jsdom's own import - which happens while the environment is still
+ * being built - won instead, and the check silently switched to Node's
+ * Blob.
+ *
+ * So rather than depend on that ordering, pin it: swap Node's Blob in,
+ * import undici (dynamically - a static import would be hoisted above
+ * this and defeat the point), then put jsdom's Blob back. undici now
+ * always brands against Node's Blob, and Node's File - which extends it
+ * - is always accepted as a file part. jsdom's Blob has to be the one
+ * left in place afterwards because jsdom's own FileReader only accepts
+ * its own Blobs, and that is what reads a fetched signature image into
+ * a data URL (api/signatures.ts).
  */
-Object.assign(globalThis, { fetch, FormData, Headers, Request, Response });
+const jsdomBlob = globalThis.Blob;
+Object.assign(globalThis, { Blob, File });
+
+const { fetch, FormData, Headers, Request, Response } = await import("undici");
+
+Object.assign(globalThis, { Blob: jsdomBlob, fetch, FormData, Headers, Request, Response });
 
 /**
  * jsdom has no ResizeObserver implementation. Radix's Popover (and every
