@@ -41,7 +41,7 @@ from .bank_holidays import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, BankHoliday
 from .recurring_note import RecurringNote, RecurringNoteDoctor, RecurringNoteWeek
 from .generation_log import RotaGenerationLogEntry
 from .signature import DoctorSignature
-from .user import User, UserSession
+from .user import PasswordResetToken, User, UserSession
 from .audit import AuditLogEntry
 from .reception import (
     ReceptionStaff,
@@ -67,7 +67,8 @@ __all__ = [
     "School", "SchoolHoliday",
     "BANK_HOLIDAYS", "BANK_HOLIDAYS_BY_KEY", "BankHoliday",
     "RecurringNote", "RecurringNoteDoctor", "RecurringNoteWeek",
-    "DoctorSignature", "User", "UserSession", "AuditLogEntry",
+    "DoctorSignature", "User", "UserSession", "PasswordResetToken",
+    "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
     "ReceptionRotaSession",
 ]
