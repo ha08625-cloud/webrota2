@@ -1,1 +1,1 @@
-"""FastAPI application package (M3). See api/main.py for the app factory."""
+"""FastAPI application package. See api/main.py for the app factory."""

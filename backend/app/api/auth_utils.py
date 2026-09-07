@@ -1,10 +1,9 @@
 """Shared auth primitives: password hashing and session token handling.
 
-Split out from routers/auth.py so the seed script (seed/seed_users.py) and
-the test suite can hash a password or a token identically to the router
-without importing FastAPI route code. bcrypt truncates input silently at
-72 bytes; the max-length-72 rule is enforced separately, at the Pydantic
-schema layer -- these functions do not re-check length themselves.
+Kept out of routers/auth.py so the seed script and tests can hash a password
+or a token without importing route code. bcrypt truncates silently at 72
+bytes; the max-length-72 rule is enforced at the Pydantic schema layer, not
+here.
 """
 import hashlib
 import secrets

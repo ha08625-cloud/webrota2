@@ -1,53 +1,37 @@
 """FastAPI app: CORS, router registration, health check, frontend mount.
 
-CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
-"*" for development. All routers are registered under /api/v1.
+CORS origins come from CORS_ORIGINS (comma-separated), defaulting to "*" for
+development. All routers are registered under /api/v1.
 
-Router registration is also where authorization is enforced (fine-grained
-permissions plan, D5). Every router except the three in _UNGATED is
-included with `dependencies=[Depends(require_access(_AREA[module]))]` --
-the gate for the permission area that router belongs to. The area is
-resolved HERE, at registration time, because there is no way to resolve it
-per request: FastAPI wraps each include_router call in an opaque
-_IncludedRouter, so a running request cannot ask which router served it.
-See deps.py for what each area admits.
+Registration is also where authorization is enforced. Every router except
+the three in _UNGATED is included with
+`dependencies=[Depends(require_access(_AREA[module]))]`. The area is
+resolved HERE because it cannot be resolved per request: FastAPI wraps each
+include_router call in an opaque _IncludedRouter, so a running request
+cannot ask which router served it. See deps.py for what each area admits.
 
-Attaching the gate here rather than per-endpoint is what makes the API
-default-DENY: a new POST on an existing router is gated the moment it is
-written, without anyone having to remember a dependency. `_AREA[module]`
-is a direct subscript rather than a `.get()` for the other half of that
-property -- a new router is a KeyError at import until somebody classifies
-it, so the app fails to start rather than serving an unguarded section.
-The assertion below covers the reverse mistake, a stale entry for a router
-that no longer exists. Adding a router to _UNGATED is the only way to opt
-out, and doing so needs a reason as specific as the three already there.
+Gating here rather than per endpoint makes the API default-DENY: a new POST
+on an existing router is gated the moment it is written. `_AREA[module]` is
+a direct subscript, not `.get()`, for the other half of that property -- a
+new router is a KeyError at import until somebody classifies it. The
+assertions below catch the reverse, a stale entry for a router that no
+longer exists.
 
-Audit capture is registered the same way and for the same reason. The
-AuditMiddleware writes one row per non-GET request that reaches the app, so
-a new router -- or a new POST on an existing one -- is audited the moment it
-exists, with nobody having to remember a call. Registering it here is also
-where its database session factory is set: middleware runs outside the
-dependency system and cannot use get_db, so app.api.audit holds a
-module-level factory that defaults to None (disabled) and is pointed at
-SessionLocal explicitly below. See app/api/audit.py.
+AuditMiddleware is registered here for the same reason: one row per non-GET
+request that reaches the app, so new endpoints are audited without anyone
+remembering a call. Its DB session factory is set here too, since middleware
+runs outside the dependency system and cannot use get_db (see api/audit.py).
+The rows are read back through the audit router, gated in the normal loop
+under `user_admin`.
 
-The rows are read back through the audit router, which is registered in the
-normal gated loop like everything else, in the `user_admin` area: that
-permission is a boolean, so the gate covers its reads as well as any
-non-GET added to it later.
+The two exception handlers enrich that log: without them a 4xx row records
+the status and nothing about the reason. Each records into the audit context
+and delegates to FastAPI's own handler, so response behaviour is unchanged.
 
-The two exception handlers below exist for the same log: without them a 4xx
-row records the status and nothing about the reason, and "my edit was
-rejected and I don't know why" is exactly the question the log is meant to
-answer. Each records into the audit context and then delegates to FastAPI's
-own handler, so response behaviour is unchanged.
-
-If a built frontend exists (FRONTEND_DIST env var, defaulting
-to <repo root>/frontend/dist), it is mounted at "/" AFTER all API routes,
-so /api/v1/* and /health always win. The mount serves index.html as an SPA
-fallback for unknown non-API paths (client-side routes survive a refresh)
-but lets /api/* 404s stay real 404s. Guarded by directory existence: until
-M4 produces a build, the backend runs exactly as before.
+If a built frontend exists (FRONTEND_DIST, defaulting to
+<repo root>/frontend/dist) it is mounted at "/" AFTER all API routes, with
+an index.html SPA fallback for unknown non-API paths. /api/* 404s stay real
+404s, and the mount is skipped entirely when the directory is absent.
 """
 import os
 from pathlib import Path
@@ -106,21 +90,15 @@ app.add_middleware(
     allow_credentials=False if _origins == ["*"] else True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # Both are read by the frontend off a download response, and neither is
-    # a CORS-safelisted response header, so without this the browser hides
-    # them cross-origin. X-EOI-Unmatched is what the EOI tab needs; listing
-    # Content-Disposition also fixes a pre-existing bug in the signature
-    # flow, whose filename parsing silently fell back to a client-side
-    # guess whenever the frontend was served from a different origin than
-    # the API.
+    # Neither is CORS-safelisted, so without this the browser hides them
+    # cross-origin: the EOI tab needs X-EOI-Unmatched, and the signature
+    # flow's filename parsing needs Content-Disposition.
     expose_headers=["Content-Disposition", "X-EOI-Unmatched"],
 )
 
-# add_middleware PREPENDS, so registering audit after CORS makes the audit
-# middleware the OUTER of the two -- it wraps CORS rather than sitting
-# inside it. Deliberate: either order works (preflight OPTIONS is a safe
-# method and skipped regardless), and being outermost means the status code
-# recorded is the one actually sent to the client.
+# add_middleware PREPENDS, so registering audit after CORS makes audit the
+# OUTER of the two. Deliberate: either order works, but outermost means the
+# status recorded is the one actually sent to the client.
 app.add_middleware(AuditMiddleware)
 
 # Middleware cannot use the get_db dependency, so the audit session factory
@@ -131,10 +109,9 @@ set_session_factory(SessionLocal)
 # ---------------------------------------------------------------------------
 # Audit enrichment: why a 4xx happened
 # ---------------------------------------------------------------------------
-# Both handlers run inside Starlette's ExceptionMiddleware, which is inside
-# the audit middleware and on the same task, so mutating the context object
-# is visible to it. Neither truncates: the middleware truncates
-# outcome_detail once, at write time, which keeps the limit in one place.
+# Both run inside Starlette's ExceptionMiddleware, itself inside the audit
+# middleware and on the same task, so mutating the context object is visible
+# to it. Neither truncates -- the middleware does that once, at write time.
 
 
 @app.exception_handler(HTTPException)
@@ -143,11 +120,10 @@ async def audit_http_exception_handler(
 ) -> Response:
     """Record the detail of an HTTPException, then behave exactly as before.
 
-    Registered against STARLETTE's HTTPException, not FastAPI's: FastAPI
-    registers its own default handler under the Starlette class, and its
-    subclass is what endpoints raise. Registering for the subclass would
-    leave the 401s, 403s and 404s that the framework itself raises --
-    including every unmatched route -- with no detail recorded.
+    Registered against STARLETTE's HTTPException, not FastAPI's subclass:
+    registering for the subclass would leave the 401s, 403s and 404s the
+    framework itself raises -- every unmatched route included -- with no
+    detail recorded.
     """
     ctx = current_audit_context()
     if ctx is not None:
@@ -161,10 +137,9 @@ async def audit_validation_exception_handler(
 ) -> Response:
     """Record which field failed validation and why (the 422 case).
 
-    A separate handler because an HTTPException handler never sees a
-    RequestValidationError. The errors are rendered as text rather than
-    stored as JSON: `exc.errors()` can carry non-serialisable exception
-    objects in its `ctx` entries.
+    Separate because an HTTPException handler never sees a
+    RequestValidationError. Rendered as text, not JSON: `exc.errors()` can
+    carry non-serialisable exception objects in its `ctx` entries.
     """
     ctx = current_audit_context()
     if ctx is not None:
@@ -187,25 +162,20 @@ _ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, lea
 #            "user_admin")) on the three admin endpoints), because PATCH
 #            /users/me is a write every login must be able to make on
 #            their own row.
-#   calendar -- the per-doctor .ics feed is fetched by Google/Outlook with
-#            no way to present a bearer token, so its single GET must be
-#            reachable unauthenticated; the token in the path is the
-#            credential. It is in _UNGATED rather than listed as a shared
-#            read because the gate depends on get_current_user and so 401s
-#            even a GET. The router holds exactly one endpoint and must
-#            never gain a non-GET one -- test_authorization.py's sweeps
-#            enforce both halves. See routers/calendar.py.
-# Everything else is classified below. See routers/users.py and deps.py.
+#   calendar -- Google/Outlook fetch the per-doctor .ics feed with no way to
+#            present a bearer token, so its single GET must be reachable
+#            unauthenticated; the path token is the credential. _UNGATED
+#            rather than _SHARED_READ because the gate depends on
+#            get_current_user and so 401s even a GET. The router must never
+#            gain a non-GET endpoint -- test_authorization.py enforces both
+#            halves. See routers/calendar.py.
 _UNGATED = (auth, users, calendar)
 
-# Router -> permission area. Every gated router appears here exactly once;
-# the section a router belongs to is a property of the router, so this is
-# the one place it is written down. Nothing here is a judgement call except
-# the last three, which are one router each:
-#   signatures -- the whole point of the feature; see models/permissions.py
-#   eoi        -- the study EOI autofill tool, `study_eoi`
-#   audit      -- reading who did what is user-administration business, and
-#                 `user_admin` being a boolean is what gates its GETs too
+# Router -> permission area, the one place a router's section is recorded.
+# Every gated router appears exactly once. Only the last three are judgement
+# calls: signatures (see models/permissions.py), eoi (the study EOI autofill
+# tool), and audit -- reading who did what is user-administration business,
+# and `user_admin` being a boolean is what gates its GETs too.
 _AREA = {
     rota: "clinical",
     clinic_types: "clinical",
@@ -232,10 +202,8 @@ _AREA = {
     audit_router: "user_admin",
 }
 
-# The KeyError in the loop below catches a new router nobody classified;
-# this catches the reverse, a stale entry for a router that was deleted or
-# renamed, which would otherwise sit here reading as coverage it no longer
-# provides.
+# The KeyError in the loop below catches an unclassified router; these catch
+# the reverse, a stale entry reading as coverage it no longer provides.
 assert set(_AREA) | set(_UNGATED) == set(_ALL_ROUTERS), (
     "every router must be classified in _AREA or listed in _UNGATED"
 )
@@ -246,8 +214,8 @@ assert not set(_AREA) & set(_UNGATED), (
 )
 
 for module in _ALL_ROUTERS:
-    # _AREA[module], not .get(): an unclassified router is an ImportError
-    # here rather than an unguarded section at runtime.
+    # _AREA[module], not .get(): an unclassified router fails at import
+    # rather than serving an unguarded section.
     dependencies = (
         [] if module in _UNGATED else [Depends(require_access(_AREA[module]))]
     )
@@ -281,10 +249,9 @@ def _default_dist() -> Path:
 
 
 def mount_frontend(application: FastAPI, dist_dir: Path | None = None) -> bool:
-    """Mount the built frontend at "/" if dist_dir exists. Returns whether
-    a mount happened. Mounts are matched after registered routes, so the
-    API routes and /health always take precedence. Split out as a helper
-    so tests can exercise it against a temp directory."""
+    """Mount the built frontend at "/" if dist_dir exists, returning whether
+    a mount happened. Mounts match after registered routes, so API routes and
+    /health always win. A helper so tests can point it at a temp directory."""
     dist = Path(dist_dir) if dist_dir is not None else Path(
         os.environ.get("FRONTEND_DIST", _default_dist())
     )
