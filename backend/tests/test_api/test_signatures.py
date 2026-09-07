@@ -25,7 +25,7 @@ from docx.oxml.ns import qn
 from app.documents.errors import ConversionError
 from app.models import Doctor
 from app.models.enums import AccessLevel, DoctorType
-from app.models.permissions import DOCUMENTS_PRESET, preset
+from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 
 SAMPLE_RTF_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
@@ -396,32 +396,36 @@ class TestReadAccess:
     would accept that as a pass.
     """
 
-    def test_viewer_cannot_list_signatures(self, viewer_client):
-        resp = viewer_client.get("/api/v1/signatures")
+    def test_a_read_only_login_cannot_list_signatures(self, readonly_client):
+        resp = readonly_client.get("/api/v1/signatures")
         assert resp.status_code == 403, resp.text
 
-    def test_viewer_cannot_fetch_a_signature_image(self, viewer_client):
-        resp = viewer_client.get("/api/v1/signatures/1/image")
+    def test_a_read_only_login_cannot_fetch_an_image(self, readonly_client):
+        resp = readonly_client.get("/api/v1/signatures/1/image")
         assert resp.status_code == 403, resp.text
 
-    def test_doctor_tier_cannot_fetch_a_signature_image(self, client_at_tier):
+    def test_the_doctor_tier_preset_cannot_fetch_an_image(
+        self, client_with_permissions
+    ):
         """The tier most likely to be given a login for its own sake, and
-        the one this gate exists to keep out."""
-        client = client_at_tier(AccessLevel.DOCTOR)
+        the one this gate exists to keep out. Asserted through the preset
+        its label maps to, since the label itself is not consulted."""
+        client = client_with_permissions(
+            preset(PRESET_FOR_ACCESS_LEVEL[AccessLevel.DOCTOR.value])
+        )
         assert client.get("/api/v1/signatures/1/image").status_code == 403
 
-    def test_a_rota_admin_cannot_list_signatures(self, admin_client):
+    def test_a_rota_admin_cannot_list_signatures(self, rota_admin_client):
         """Rota write access is not signature access any more."""
-        assert admin_client.get("/api/v1/signatures").status_code == 403
+        assert rota_admin_client.get("/api/v1/signatures").status_code == 403
 
-    def test_a_rota_admin_cannot_fetch_a_signature_image(self, admin_client):
-        assert admin_client.get("/api/v1/signatures/1/image").status_code == 403
+    def test_a_rota_admin_cannot_fetch_a_signature_image(self, rota_admin_client):
+        assert rota_admin_client.get("/api/v1/signatures/1/image").status_code == 403
 
-    def test_a_documents_login_can_list_signatures(self, client_at_tier):
+    def test_a_documents_login_can_list_signatures(self, documents_client):
         """No rota access at all, but `signatures` -- the login the
         permission split exists to make possible."""
-        client = client_at_tier(permissions=preset(DOCUMENTS_PRESET))
-        resp = client.get("/api/v1/signatures")
+        resp = documents_client.get("/api/v1/signatures")
         assert resp.status_code == 200, resp.text
         assert resp.json() == []
 
@@ -429,6 +433,5 @@ class TestReadAccess:
         """Past the gate, the endpoint behaves as it always did."""
         assert manager_client.get("/api/v1/signatures/1/image").status_code == 404
 
-    def test_manager_can_list_signatures(self, client_at_tier):
-        client = client_at_tier(AccessLevel.MANAGER)
-        assert client.get("/api/v1/signatures").status_code == 200
+    def test_manager_can_list_signatures(self, manager_client):
+        assert manager_client.get("/api/v1/signatures").status_code == 200
