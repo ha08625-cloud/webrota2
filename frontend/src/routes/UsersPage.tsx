@@ -6,6 +6,7 @@ import { useCanAdminUsers } from "@/auth/AuthContext";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { ACCESS_LEVELS, accessLevelLabel } from "@/lib/accessLevels";
+import { permissionsSummary } from "@/lib/permissionPresets";
 
 interface DialogState {
   open: boolean;
@@ -127,6 +128,7 @@ function UsersTable() {
               <th className="py-1 pr-4 font-medium">Name</th>
               <th className="py-1 pr-4 font-medium">Email</th>
               <th className="py-1 pr-4 font-medium">Access level</th>
+              <th className="py-1 pr-4 font-medium">Permissions</th>
               <th className="py-1 pr-4 font-medium">Linked to</th>
               <th className="py-1" />
             </tr>
@@ -154,6 +156,11 @@ function UsersTable() {
                     ))}
                   </select>
                 </td>
+                {/* Read-only here. Permissions are edited in the dialog
+                    only: five controls do not fit a table row, and an
+                    inline widget that can save a set the API refuses (the
+                    empty one) would have nowhere to show the error. */}
+                <td className="py-1 pr-4">{permissionsSummary(u.permissions)}</td>
                 <td className="py-1 pr-4">{linkedLabel(u)}</td>
                 <td className="py-1">
                   <button type="button" onClick={() => openEdit(u)} className="mr-3 text-xs text-accent">
