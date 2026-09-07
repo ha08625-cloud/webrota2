@@ -28,7 +28,9 @@ cannot be used for self-promotion.
 PATCH also accepts an optional write-only `password` field. When present,
 the password is re-hashed and every existing session belonging to that
 user is deleted, so a password reset immediately invalidates any token
-obtained under the old password (auth plan, Task 3). This applies to
+obtained under the old password (auth plan, Task 3). It also deletes that
+user's outstanding self-service reset tokens -- see
+_invalidate_reset_tokens for why that is not optional. This applies to
 `/users/me` too: changing your own password signs you out everywhere,
 including the request's own session, so the very next call 401s. That is
 the correct behaviour for a password change, and the frontend handles the
@@ -77,7 +79,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import Doctor, ReceptionStaff, User, UserSession
+from ...models import (
+    Doctor,
+    PasswordResetToken,
+    ReceptionStaff,
+    User,
+    UserSession,
+)
 from ..auth_utils import hash_password
 from ..deps import get_current_user, get_db, require_capability
 from ..schemas import UserIn, UserOut, UserPatch, UserSelfPatch
@@ -197,6 +205,20 @@ def create_user(
     return new_user
 
 
+def _invalidate_reset_tokens(db: Session, user_id: int) -> None:
+    """Drop any outstanding self-service reset tokens for this user.
+
+    Called wherever a password changes, on the same condition as the
+    session delete beside it. Without this, an attacker who requested a
+    reset for an account keeps a live token for up to an hour AFTER the
+    account holder or an admin changes the password -- so the very action
+    taken to lock them out would leave them a way back in.
+    """
+    db.execute(
+        delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id)
+    )
+
+
 @router.patch("/me", response_model=UserOut)
 def patch_me(
     payload: UserSelfPatch,
@@ -220,6 +242,7 @@ def patch_me(
     if new_password is not None:
         target.password_hash = hash_password(new_password)
         db.execute(delete(UserSession).where(UserSession.user_id == target.id))
+        _invalidate_reset_tokens(db, target.id)
 
     db.commit()
     db.refresh(target)
@@ -267,6 +290,7 @@ def patch_user(
     if reset_password:
         target.password_hash = hash_password(new_password)
         db.execute(delete(UserSession).where(UserSession.user_id == target.id))
+        _invalidate_reset_tokens(db, target.id)
 
     try:
         db.commit()

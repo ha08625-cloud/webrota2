@@ -69,6 +69,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
+from ..email import send_password_reset
 from ..models import User, UserSession
 from ..models.permissions import AREA_KEYS, PERMISSION_KEYS, READ, WRITE
 from .audit import current_audit_context
@@ -117,6 +118,22 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+EmailSender = Callable[[str, str, str], bool]
+
+
+def get_email_sender() -> EmailSender:
+    """The outbound-email function, as a dependency so tests can swap it.
+
+    A dependency rather than a module-global setter (the shape audit.py
+    uses) because nothing forces the indirection here: audit.py needs one
+    only because middleware runs outside the dependency system. An endpoint
+    does not, and this codebase already overrides dependencies in tests --
+    so `app.dependency_overrides[get_email_sender]` is all a test needs to
+    capture a send instead of making one.
+    """
+    return send_password_reset
 
 
 def get_current_user(

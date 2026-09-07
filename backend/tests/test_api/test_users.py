@@ -34,7 +34,13 @@ from sqlalchemy import func, select
 import pytest
 
 from app.api.auth_utils import hash_password, hash_token, new_session_token
-from app.models import Doctor, ReceptionStaff, User, UserSession
+from app.models import (
+    Doctor,
+    PasswordResetToken,
+    ReceptionStaff,
+    User,
+    UserSession,
+)
 from app.models.enums import AccessLevel, DoctorType
 from app.models.permissions import (
     DEFAULT_PERMISSIONS,
@@ -48,6 +54,25 @@ USERS = "/api/v1/users"
 # A valid, non-empty permission set that does NOT hold `user_admin` -- what
 # the lock-out guard tests patch someone down to.
 _ROTA_ADMIN = preset(ROTA_ADMIN_PRESET)
+
+
+def _reset_token_count(db_session, user_id):
+    return db_session.execute(
+        select(func.count())
+        .select_from(PasswordResetToken)
+        .where(PasswordResetToken.user_id == user_id)
+    ).scalar_one()
+
+
+def _issue_reset_token(db_session, user_id):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db_session.add(PasswordResetToken(
+        token_hash=hash_token(new_session_token()),
+        user_id=user_id,
+        created_at=now,
+        expires_at=now + datetime.timedelta(hours=1),
+    ))
+    db_session.commit()
 
 
 def _session_count(db_session, user_id):
@@ -312,6 +337,38 @@ class TestPasswordReset:
         assert _session_count(db_session, user.id) == 1
 
 
+    def test_password_reset_invalidates_outstanding_reset_tokens(
+        self, client, db_session
+    ):
+        """The hole this closes: an attacker requests a reset, an admin
+        notices and changes the password, and the attacker's emailed token
+        is still live for the rest of the hour -- so the very action taken
+        to lock them out hands the account back."""
+        created = _create_user(client, email="pending@example.com")
+        _issue_reset_token(db_session, created["id"])
+        assert _reset_token_count(db_session, created["id"]) == 1
+
+        resp = client.patch(
+            f"{USERS}/{created['id']}", json={"password": "new-password"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        db_session.expire_all()
+        assert _reset_token_count(db_session, created["id"]) == 0
+
+    def test_patch_without_password_leaves_reset_tokens_alone(
+        self, client, db_session
+    ):
+        created = _create_user(client, email="renamed@example.com")
+        _issue_reset_token(db_session, created["id"])
+
+        resp = client.patch(f"{USERS}/{created['id']}", json={"name": "Renamed"})
+        assert resp.status_code == 200, resp.text
+
+        db_session.expire_all()
+        assert _reset_token_count(db_session, created["id"]) == 1
+
+
 class TestLockOutGuard:
     """The guard counts active holders of `user_admin`, not active users
     and not the MANAGER label. Both routes to zero of them -- deactivation
@@ -495,6 +552,27 @@ class TestPatchMe:
             "/api/v1/auth/login",
             json={"email": "nurse@example.com", "password": "old-password"},
         ).status_code == 401
+
+    def test_password_change_invalidates_outstanding_reset_tokens(
+        self, client_no_auth, db_session
+    ):
+        """Same hole as the admin path, reached from the user's own side:
+        someone who changes their password because they suspect compromise
+        must not leave a live reset link behind them."""
+        headers = self._nurse(client_no_auth, db_session)
+        me = db_session.execute(
+            select(User).where(User.email == "nurse@example.com")
+        ).scalar_one()
+        _issue_reset_token(db_session, me.id)
+        assert _reset_token_count(db_session, me.id) == 1
+
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers, json={"password": "new-password"}
+        )
+        assert resp.status_code == 200, resp.text
+
+        db_session.expire_all()
+        assert _reset_token_count(db_session, me.id) == 0
 
     def test_cannot_self_promote(self, client_no_auth, db_session):
         headers = self._nurse(client_no_auth, db_session)

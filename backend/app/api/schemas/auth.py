@@ -168,3 +168,31 @@ class UserSelfPatch(BaseModel):
 
     name: str | None = Field(default=None, min_length=1)
     password: str | None = Field(default=None, min_length=8, max_length=72)
+
+
+class ForgotPasswordIn(BaseModel):
+    """Body for POST /auth/forgot-password.
+
+    The address is matched exactly, the way login matches it: normalising
+    here and not there would let an address request a reset it could never
+    log in with. The endpoint answers 204 whatever happens, so a typo is
+    indistinguishable from success -- which is why the forget form's copy
+    has to tell the user to enter the address they log in with.
+    """
+
+    email: str = Field(min_length=1)
+
+
+class ResetPasswordIn(BaseModel):
+    """Body for POST /auth/reset-password.
+
+    The token travels in the BODY, never in the path: api/audit.py redacts
+    `token` out of captured request bodies but records the path verbatim,
+    and a token in the URL would also reach Railway's access logs.
+
+    The password constraint matches UserIn/UserPatch. The 72-byte cap is
+    bcrypt's silent truncation point, not a style choice.
+    """
+
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=72)
