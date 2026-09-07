@@ -180,6 +180,24 @@ describe("UsersPage access levels", () => {
   });
 });
 
+describe("UsersPage permissions column", () => {
+  it("summarises what each user may do, leaving out what they may not", async () => {
+    setUpServer([
+      makeAuthUser({ id: 1, name: "Ann", permissions: { ...PERMISSION_PRESETS.receptionAdmin } }),
+      makeAuthUser({ id: 2, name: "Bob", permissions: { ...PERMISSION_PRESETS.documents } }),
+    ]);
+    renderWithProviders(<UsersPage />);
+
+    const annRow = (await screen.findByText("Ann")).closest("tr");
+    expect(annRow?.textContent).toContain("Clinical rota: read, Reception rota: edit");
+    expect(annRow?.textContent).not.toContain("Signatures");
+
+    const bobRow = (await screen.findByText("Bob")).closest("tr");
+    // No rota access at all, so only the two document tools are listed.
+    expect(bobRow?.textContent).toContain("Signatures, Study EOI");
+  });
+});
+
 describe("UsersPage below manager", () => {
   // The nav entry is hidden for these users (App.tsx), but the route stays
   // registered, so a deep link has to land on something sane rather than

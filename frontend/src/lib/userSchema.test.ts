@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { makeAuthUser } from "@/test/fixtures/reference";
-import { permissionPreset } from "@/lib/permissionPresets";
+import { EMPTY_PERMISSIONS_MESSAGE, permissionPreset } from "@/lib/permissionPresets";
 
 import {
   emptyFormValues,
@@ -25,6 +25,7 @@ describe("userFormSchema - create mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "short",
@@ -37,6 +38,7 @@ describe("userFormSchema - create mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "x".repeat(73),
@@ -49,6 +51,7 @@ describe("userFormSchema - create mode", () => {
       email: "not-an-email",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "password1",
@@ -61,6 +64,7 @@ describe("userFormSchema - create mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "password1",
@@ -77,6 +81,7 @@ describe("userFormSchema - edit mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "",
@@ -89,6 +94,7 @@ describe("userFormSchema - edit mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "short",
@@ -101,11 +107,70 @@ describe("userFormSchema - edit mode", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "password1",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("userFormSchema - permissions", () => {
+  const values = {
+    email: "a@example.com",
+    name: "Ann",
+    access_level: "admin" as const,
+    doctor_id: "" as const,
+    reception_staff_id: "" as const,
+    password: "password1",
+  };
+
+  // The backend refuses this set with a 422 (PermissionSetIn); refusing it
+  // here as well is what turns that into a message next to the controls
+  // rather than a banner after a round trip.
+  it("rejects a set that grants nothing, with the message the API would send", () => {
+    const result = userFormSchema("create").safeParse({
+      ...values,
+      permissions: {
+        clinical: "none",
+        reception: "none",
+        signatures: false,
+        study_eoi: false,
+        user_admin: false,
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(mapZodFieldErrors(result.error).permissions).toBe(EMPTY_PERMISSIONS_MESSAGE);
+    }
+  });
+
+  it.each([
+    ["a single flag", { signatures: true }],
+    ["read on one area", { clinical: "read" as const }],
+  ])("accepts a set granting only %s", (_label, granted) => {
+    const result = userFormSchema("create").safeParse({
+      ...values,
+      permissions: {
+        clinical: "none" as const,
+        reception: "none" as const,
+        signatures: false,
+        study_eoi: false,
+        user_admin: false,
+        ...granted,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("formValuesFromUser copies the set rather than sharing the cached user's", () => {
+    const user = makeAuthUser({ permissions: permissionPreset("documents") });
+    const values = formValuesFromUser(user);
+
+    expect(values.permissions).toEqual(permissionPreset("documents"));
+    values.permissions.user_admin = true;
+    expect(user.permissions.user_admin).toBe(false);
   });
 });
 
@@ -115,6 +180,7 @@ describe("field errors", () => {
       email: "",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "",
       reception_staff_id: "",
       password: "password1",
@@ -132,6 +198,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin" as const,
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "" as const,
       reception_staff_id: "" as const,
       password: "password1",
@@ -140,8 +207,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
-      // Derived from the tier until the permission editor lands; "admin"
-      // maps to the Rota admin preset, which notably excludes signatures.
+      // Straight through from the form - nothing derives it from the tier.
       permissions: permissionPreset("rota_admin"),
       doctor_id: null,
       reception_staff_id: null,
@@ -153,7 +219,13 @@ describe("toCreatePayload / toPatchPayload", () => {
   // reads "sent null" as "clear the link" and a missing key as "leave it",
   // so an omitted key would make unlinking impossible from the edit form.
   it("maps the empty 'Not linked' option to an explicit null, and an id straight through", () => {
-    const base = { email: "a@example.com", name: "Ann", access_level: "admin" as const, password: "" };
+    const base = {
+      email: "a@example.com",
+      name: "Ann",
+      access_level: "admin" as const,
+      permissions: permissionPreset("rota_admin"),
+      password: "",
+    };
     expect(toPatchPayload({ ...base, doctor_id: "", reception_staff_id: "" })).toMatchObject({
       doctor_id: null,
       reception_staff_id: null,
@@ -169,6 +241,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin" as const,
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "" as const,
       reception_staff_id: "" as const,
       password: "",
@@ -177,6 +250,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: null,
       reception_staff_id: null,
     });
@@ -187,6 +261,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "manager" as const,
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "" as const,
       reception_staff_id: "" as const,
       password: "",
@@ -199,6 +274,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin" as const,
+      permissions: permissionPreset("rota_admin"),
       doctor_id: "" as const,
       reception_staff_id: "" as const,
       password: "password1",
@@ -207,6 +283,7 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      permissions: permissionPreset("rota_admin"),
       doctor_id: null,
       reception_staff_id: null,
       password: "password1",
@@ -221,6 +298,9 @@ describe("formValuesFromUser", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "doctor",
+      // Whatever the user has, not anything derived from the tier - the
+      // fixture user is on the Manager preset.
+      permissions: permissionPreset("manager"),
       doctor_id: "",
       reception_staff_id: "",
       password: "",
@@ -246,6 +326,7 @@ describe("access_level", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "superuser",
+      permissions: permissionPreset("rota_admin"),
       password: "password1",
     });
     expect(result.success).toBe(false);

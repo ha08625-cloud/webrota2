@@ -1,9 +1,9 @@
 import { HttpResponse, http } from "msw";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeAuthUser, makeDoctor } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeAuthUser, makeDoctor } from "@/test/fixtures/reference";
 import { makeReceptionStaff } from "@/test/fixtures/reception";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -62,7 +62,7 @@ describe("UserFormDialog - create mode", () => {
       // Not touched by the test, so this is the form's own default - the
       // least privileged level.
       access_level: "nurse",
-      // Derived from that level (userSchema.ts): the Read-only preset.
+      // The form's own default (userSchema.ts): the Read-only preset.
       permissions: permissionPreset("read_only"),
       // Always sent, explicitly null when the form says "Not linked".
       doctor_id: null,
@@ -166,6 +166,8 @@ describe("UserFormDialog - edit mode", () => {
       email: "ann@example.com",
       name: "Ann",
       access_level: "manager",
+      // Re-sent unchanged: the form was seeded with the user's own set.
+      permissions: { ...PERMISSION_PRESETS.manager },
       doctor_id: null,
       reception_staff_id: null,
     });
@@ -190,6 +192,7 @@ describe("UserFormDialog - edit mode", () => {
       email: "ann@example.com",
       name: "Ann",
       access_level: "manager",
+      permissions: { ...PERMISSION_PRESETS.manager },
       doctor_id: null,
       reception_staff_id: null,
       password: "newpassword1",
@@ -314,6 +317,168 @@ describe("UserFormDialog - staff links", () => {
 
     expect(
       await screen.findByText("Doctor 'AB' is already linked to another user"),
+    ).toBeInTheDocument();
+  });
+});
+/** The radios for one area, which share their option labels across groups. */
+function areaGroup(name: string) {
+  return within(screen.getByRole("group", { name }));
+}
+
+describe("UserFormDialog - permissions", () => {
+  it("a new user starts on the Read-only preset", async () => {
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+
+    await screen.findByRole("heading", { name: "New User" });
+    expect(areaGroup("Clinical rota").getByRole("radio", { name: "Read only" })).toBeChecked();
+    expect(areaGroup("Reception rota").getByRole("radio", { name: "Read only" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Signatures" })).not.toBeChecked();
+  });
+
+  it("a preset button fills every control", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("heading", { name: "New User" });
+
+    await user.click(screen.getByRole("button", { name: "Reception admin" }));
+
+    expect(areaGroup("Clinical rota").getByRole("radio", { name: "Read only" })).toBeChecked();
+    expect(areaGroup("Reception rota").getByRole("radio", { name: "Can edit" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Reception admin" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  // A preset is a starting point, not a stored value: once a control moves
+  // away from it, the row must stop claiming to describe the set.
+  it("touching a control clears the selected preset", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("heading", { name: "New User" });
+
+    await user.click(screen.getByRole("button", { name: "Manager" }));
+    await user.click(screen.getByRole("checkbox", { name: "Signatures" }));
+
+    expect(screen.getByRole("button", { name: "Manager" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("checkbox", { name: "Signatures" })).not.toBeChecked();
+  });
+
+  it("sends the edited set on create", async () => {
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/users", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeAuthUser({ id: 9 }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+    await user.type(screen.getByLabelText("Email"), "cara@example.com");
+    await user.type(screen.getByLabelText("Name"), "Cara");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(screen.getByRole("button", { name: "Rota admin" }));
+    await user.click(screen.getByRole("checkbox", { name: "Study EOI" }));
+    await user.click(areaGroup("Reception rota").getByRole("radio", { name: "None" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(capturedBody).toMatchObject({
+        permissions: {
+          clinical: "write",
+          reception: "none",
+          signatures: false,
+          study_eoi: true,
+          user_admin: false,
+        },
+      }),
+    );
+  });
+
+  it("pre-fills an existing user's set and PATCHes the change", async () => {
+    const existingUser = makeAuthUser({
+      id: 5,
+      name: "Ann",
+      permissions: { ...PERMISSION_PRESETS.receptionAdmin },
+    });
+    setUpStaff({ users: [existingUser] });
+    let capturedBody: unknown;
+    server.use(
+      http.patch("/api/v1/users/5", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(existingUser);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog user={existingUser} open onOpenChange={() => {}} />);
+    await screen.findByRole("heading", { name: "Edit Ann" });
+    expect(areaGroup("Reception rota").getByRole("radio", { name: "Can edit" })).toBeChecked();
+
+    await user.click(areaGroup("Clinical rota").getByRole("radio", { name: "Can edit" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(capturedBody).toMatchObject({
+        permissions: { ...PERMISSION_PRESETS.receptionAdmin, clinical: "write" },
+      }),
+    );
+  });
+
+  it("refuses to save a set that grants nothing, without a request", async () => {
+    let posted = false;
+    server.use(
+      http.post("/api/v1/users", () => {
+        posted = true;
+        return HttpResponse.json(makeAuthUser({ id: 1 }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />);
+    await user.type(screen.getByLabelText("Email"), "cara@example.com");
+    await user.type(screen.getByLabelText("Name"), "Cara");
+    await user.type(screen.getByLabelText("Password"), "password1");
+    await user.click(areaGroup("Clinical rota").getByRole("radio", { name: "None" }));
+    await user.click(areaGroup("Reception rota").getByRole("radio", { name: "None" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(/needs at least one permission/)).toBeInTheDocument();
+    expect(posted).toBe(false);
+  });
+
+  /**
+   * The regression guard for the shared-read allowlist (plan D6a): GET
+   * /doctors and GET /reception/staff are readable without the clinical or
+   * reception permission *because* this dialog needs them. A user_admin-only
+   * login is exactly the tightly scoped login the feature exists to make
+   * possible, and if that allowlist is ever tightened, both pickers here go
+   * empty and this test fails.
+   */
+  it("populates both staff pickers for a user_admin-only login", async () => {
+    setUpStaff({
+      doctors: [makeDoctor({ id: 3, code: "AB" })],
+      receptionStaff: [makeReceptionStaff({ id: 7, code: "Emily M" })],
+    });
+
+    renderWithProviders(<UserFormDialog open onOpenChange={() => {}} />, {
+      permissions: {
+        clinical: "none",
+        reception: "none",
+        signatures: false,
+        study_eoi: false,
+        user_admin: true,
+      },
+    });
+
+    expect(
+      await within(screen.getByLabelText("Linked doctor")).findByRole("option", { name: "AB" }),
+    ).toBeInTheDocument();
+    expect(
+      await within(screen.getByLabelText("Linked reception staff")).findByRole("option", {
+        name: "Emily M",
+      }),
     ).toBeInTheDocument();
   });
 });

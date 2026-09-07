@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { AccessLevel, AuthUser, UserIn, UserPatch } from "@/api/types";
 import { ACCESS_LEVELS } from "./accessLevels";
-import { PRESET_FOR_ACCESS_LEVEL, permissionPreset } from "./permissionPresets";
+import { EMPTY_PERMISSIONS_MESSAGE, isEmptyPermissions, permissionPreset } from "./permissionPresets";
 
 /**
  * Mirrors the backend exactly (schemas/auth.py UserIn/UserPatch): min 8,
@@ -37,6 +37,21 @@ const accessLevelField = z.enum(ACCESS_LEVELS as readonly [AccessLevel, ...Acces
  * permission, and neither derives the other.
  */
 const staffLinkField = z.union([z.number(), z.literal("")]);
+/**
+ * Mirrors PermissionSetIn (schemas/auth.py): all five keys required, so
+ * the form can never send a partial set and have the backend fill the
+ * gaps with "denied" behind the user's back. The non-empty rule that
+ * schema enforces is applied below, on the whole form object, because a
+ * Zod refinement on a nested object reports its path there and
+ * mapZodFieldErrors only reads the first path segment.
+ */
+const permissionsField = z.object({
+  clinical: z.enum(["none", "read", "write"]),
+  reception: z.enum(["none", "read", "write"]),
+  signatures: z.boolean(),
+  study_eoi: z.boolean(),
+  user_admin: z.boolean(),
+});
 /** Exported for ChangePasswordDialog, which validates a bare password with no surrounding form. */
 export const passwordRule = z
   .string()
@@ -44,21 +59,43 @@ export const passwordRule = z
   .max(PASSWORD_MAX, `Must be ${PASSWORD_MAX} characters or fewer`);
 
 export function userFormSchema(mode: "create" | "edit") {
-  return z.object({
-    email: emailField,
-    name: nameField,
-    access_level: accessLevelField,
-    doctor_id: staffLinkField,
-    reception_staff_id: staffLinkField,
-    password: mode === "create" ? passwordRule : z.union([z.literal(""), passwordRule]),
-  });
+  return z
+    .object({
+      email: emailField,
+      name: nameField,
+      access_level: accessLevelField,
+      permissions: permissionsField,
+      doctor_id: staffLinkField,
+      reception_staff_id: staffLinkField,
+      password: mode === "create" ? passwordRule : z.union([z.literal(""), passwordRule]),
+    })
+    // Plan D15, mirroring the backend's model_validator with the same
+    // message: a login that can reach nothing is never what anyone meant,
+    // and "no access" is spelled by deactivating the user.
+    .superRefine((values, ctx) => {
+      if (isEmptyPermissions(values.permissions)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["permissions"],
+          message: EMPTY_PERMISSIONS_MESSAGE,
+        });
+      }
+    });
 }
 
 export type UserFormValues = z.infer<ReturnType<typeof userFormSchema>>;
 
-/** New users start as "nurse" for the same reason the migration defaults to it: an accidental viewer is recoverable, an accidental manager is a silent hole. */
+/** New users start as "nurse" on the Read-only preset, for the same reason the migration defaults low: an accidental viewer is recoverable, an accidental manager is a silent hole. */
 export function emptyFormValues(): UserFormValues {
-  return { email: "", name: "", access_level: "nurse", doctor_id: "", reception_staff_id: "", password: "" };
+  return {
+    email: "",
+    name: "",
+    access_level: "nurse",
+    permissions: permissionPreset("read_only"),
+    doctor_id: "",
+    reception_staff_id: "",
+    password: "",
+  };
 }
 
 /** Password is never pre-filled - UserOut carries no password_hash to show, and a blank field is exactly what "leave blank to keep current" needs. */
@@ -67,6 +104,9 @@ export function formValuesFromUser(user: AuthUser): UserFormValues {
     email: user.email,
     name: user.name,
     access_level: user.access_level,
+    // Copied, not shared: the editor mutates this object as controls are
+    // touched, and the cached user from the list must not move with it.
+    permissions: { ...user.permissions },
     doctor_id: user.linked_doctor?.id ?? "",
     reception_staff_id: user.linked_reception_staff?.id ?? "",
     password: "",
@@ -79,22 +119,21 @@ function staffLinkPayload(value: number | ""): number | null {
 }
 
 /**
- * `permissions` is required on create and is not on the form yet, so it is
- * derived from the chosen tier via the preset that matches it - the same
- * mapping the 010 migration backfilled existing users with. A new user
- * therefore gets exactly what their tier granted before permissions
- * existed, bar signatures for an admin (see permissionPresets.ts). The
- * permission editor that replaces this derivation is a later task.
+ * `permissions` comes straight from the editor in both payloads. It is
+ * required on create, and the PATCH sends the whole set because the
+ * backend replaces rather than merges - the form always holds the user's
+ * current set (formValuesFromUser), so an edit that never touches the
+ * permission controls re-sends exactly what was there.
  *
- * The PATCH payload below deliberately does NOT send permissions: it would
- * reset a hand-tuned set every time someone fixed a typo in a name.
+ * Nothing derives permissions from `access_level` any more: the tier is a
+ * label, and the presets are a button in the form, not a mapping.
  */
 export function toCreatePayload(values: UserFormValues): UserIn {
   return {
     email: values.email,
     name: values.name,
     access_level: values.access_level,
-    permissions: permissionPreset(PRESET_FOR_ACCESS_LEVEL[values.access_level]),
+    permissions: values.permissions,
     doctor_id: staffLinkPayload(values.doctor_id),
     reception_staff_id: staffLinkPayload(values.reception_staff_id),
     password: values.password,
@@ -107,6 +146,7 @@ export function toPatchPayload(values: UserFormValues): UserPatch {
     email: values.email,
     name: values.name,
     access_level: values.access_level,
+    permissions: values.permissions,
     doctor_id: staffLinkPayload(values.doctor_id),
     reception_staff_id: staffLinkPayload(values.reception_staff_id),
   };

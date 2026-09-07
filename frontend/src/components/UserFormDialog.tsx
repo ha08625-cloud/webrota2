@@ -5,8 +5,22 @@ import type { FormEvent } from "react";
 import { useDoctors } from "@/api/doctors";
 import { useReceptionStaff } from "@/api/reception";
 import { useCreateUser, useUpdateUser, useUsers } from "@/api/users";
-import type { AccessLevel, ApiError, AuthUser } from "@/api/types";
+import type { AccessArea, AccessLevel, ApiError, AuthUser, Permissions } from "@/api/types";
 import { ACCESS_LEVELS, accessLevelDescription, accessLevelLabel } from "@/lib/accessLevels";
+import {
+  PERMISSION_AREAS,
+  PERMISSION_FLAGS,
+  PRESET_ORDER,
+  type PermissionAreaKey,
+  type PermissionFlagKey,
+  type PermissionPresetName,
+  accessAreaLabel,
+  permissionAreaLabel,
+  permissionFlagDescription,
+  permissionFlagLabel,
+  permissionPreset,
+  presetLabel,
+} from "@/lib/permissionPresets";
 import {
   type UserFormValues,
   emptyFormValues,
@@ -66,6 +80,14 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
   const [values, setValues] = useState<UserFormValues>(() =>
     user ? formValuesFromUser(user) : emptyFormValues(),
   );
+  /**
+   * Which preset button is highlighted. A preset is a starting point, not
+   * a stored value: nothing is sent for it, and touching any control
+   * clears the highlight so the row never claims to describe a set it no
+   * longer matches. An existing user therefore opens with none selected,
+   * however their set was built.
+   */
+  const [preset, setPreset] = useState<PermissionPresetName | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -83,6 +105,16 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
     new Set(otherUsers.flatMap((u) => (u.linked_reception_staff ? [u.linked_reception_staff.id] : []))),
     values.reception_staff_id,
   );
+
+  function applyPreset(name: PermissionPresetName) {
+    setPreset(name);
+    setValues((v) => ({ ...v, permissions: permissionPreset(name) }));
+  }
+
+  function setPermission<K extends keyof Permissions>(key: K, value: Permissions[K]) {
+    setPreset(null);
+    setValues((v) => ({ ...v, permissions: { ...v.permissions, [key]: value } }));
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -117,7 +149,7 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-ink/30" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-96 -translate-x-1/2 -translate-y-1/2 rounded bg-surface p-5 shadow-lg">
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[90vh] w-[28rem] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded bg-surface p-5 shadow-lg">
           <Dialog.Title className="text-lg font-semibold">{user ? `Edit ${user.name}` : "New User"}</Dialog.Title>
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -155,6 +187,9 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
               <label className="block text-sm font-medium" htmlFor="user-access-level">
                 Access level
               </label>
+              <p className="mt-1 text-xs text-ink/50">
+                A label for who this person is. What they may do is set under Permissions below.
+              </p>
               <select
                 id="user-access-level"
                 value={values.access_level}
@@ -176,6 +211,78 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
                 <p className="mt-1 text-xs text-red-700">{fieldErrors.access_level}</p>
               ) : null}
             </div>
+
+            {/* What the user may actually do. The tier above is a label;
+                these five controls are what the API consults, and they are
+                deliberately independent of it - see permissionPresets.ts. */}
+            <fieldset className="border-t border-border pt-3">
+              <legend className="text-sm font-medium">Permissions</legend>
+
+              <div className="mt-2">
+                <p className="text-xs text-ink/50">Start from preset</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {PRESET_ORDER.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-pressed={preset === name}
+                      onClick={() => applyPreset(name)}
+                      className={`rounded border px-2 py-1 text-xs ${
+                        preset === name
+                          ? "border-accent bg-accent text-white"
+                          : "border-border text-ink/70"
+                      }`}
+                    >
+                      {presetLabel(name)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {PERMISSION_AREAS.map((area) => (
+                <fieldset key={area} className="mt-3">
+                  <legend className="text-xs font-medium text-ink/70">
+                    {permissionAreaLabel(area)}
+                  </legend>
+                  <div className="mt-1 flex gap-4">
+                    {(["none", "read", "write"] as const).map((level) => (
+                      <label key={level} className="flex items-center gap-1 text-sm">
+                        <input
+                          type="radio"
+                          name={`permission-${area}`}
+                          value={level}
+                          checked={values.permissions[area] === level}
+                          onChange={() => setPermission(area as PermissionAreaKey, level as AccessArea)}
+                        />
+                        {accessAreaLabel(level)}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+
+              <div className="mt-3 space-y-2">
+                {PERMISSION_FLAGS.map((flag) => (
+                  <div key={flag}>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={values.permissions[flag]}
+                        onChange={(e) => setPermission(flag as PermissionFlagKey, e.target.checked)}
+                      />
+                      {permissionFlagLabel(flag)}
+                    </label>
+                    <p className="ml-6 text-xs text-ink/50">{permissionFlagDescription(flag)}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* The API refuses a set that grants nothing (422); the same
+                  message is shown here before the request goes out. */}
+              {fieldErrors.permissions ? (
+                <p className="mt-2 text-xs text-red-700">{fieldErrors.permissions}</p>
+              ) : null}
+            </fieldset>
 
             {/* Identity, not permission: this is what makes "my rota" and
                 the calendar page know who you are, and it is deliberately
