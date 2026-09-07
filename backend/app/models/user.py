@@ -1,4 +1,4 @@
-"""User and UserSession models: DB-backed authentication (auth plan Task 1).
+"""User, UserSession and PasswordResetToken: DB-backed authentication.
 
 The session table is named UserSession at the ORM layer, not Session -- a
 model class literally called Session would shadow sqlalchemy.orm.Session,
@@ -80,6 +80,27 @@ The link is orthogonal to access_level; neither derives the other. A
 partner who runs the rota needs the manager tier and a doctor link, a
 practice manager needs neither. AccessLevel.DOCTOR stays what its docstring
 says it is -- a label, permission-identical to NURSE.
+
+PasswordResetToken backs self-service password reset. It deliberately
+mirrors UserSession rather than inventing a second set of conventions:
+only the SHA-256 digest of the token is stored (the raw token goes out in
+one email and is never persisted), the FK is indexed, the cascade is
+ORM-level, and the timestamps are timezone-aware. api/auth_utils.py's
+new_session_token()/hash_token() generate and hash these too -- the same
+reuse doctors.calendar_token already makes of new_session_token.
+
+created_at is indexed here, unlike on sessions, because it is queried:
+the reset endpoint enforces a global cap of N emails per hour by counting
+rows created inside the last hour, on every request, from an
+unauthenticated caller. expires_at is not indexed -- expired rows are
+swept lazily for one user at a time, always alongside the user_id filter.
+
+Rows are short-lived by design: one hour of validity, deleted on
+redemption along with every other outstanding token for that user, and
+swept when a later request for the same user notices them. There is no
+"used" flag, so the absence of a row is the only record that a token was
+spent -- which is the point, since a redeemed token must leave nothing
+behind that could be replayed.
 """
 import datetime
 from typing import TYPE_CHECKING
@@ -161,6 +182,9 @@ class User(Base):
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<User {self.email}>"
@@ -188,3 +212,40 @@ class UserSession(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<UserSession user_id={self.user_id}>"
+
+
+class PasswordResetToken(Base):
+    """A single-use, one-hour ticket to set a new password without logging in.
+
+    See the module docstring for why this mirrors UserSession, why
+    created_at is indexed and expires_at is not, and why there is no
+    "used" column.
+    """
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "token_hash", name="uq_password_reset_tokens_token_hash"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    # Indexed: the global hourly send cap counts rows by this column.
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        index=True,
+    )
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="password_reset_tokens")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<PasswordResetToken user_id={self.user_id}>"
