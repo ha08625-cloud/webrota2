@@ -2,6 +2,7 @@ import { HttpResponse, http } from "msw";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PERMISSION_PRESETS } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -111,7 +112,10 @@ describe("EoiPage", () => {
 
   it("disables the picker and ignores drops for a read-only user", async () => {
     server.use(fillHandler(""));
-    renderWithProviders(<EoiPage />, { accessLevel: "doctor" });
+    renderWithProviders(<EoiPage />, {
+      area: "study_eoi",
+      permissions: PERMISSION_PRESETS.readOnly,
+    });
 
     expect(screen.getByRole("button", { name: "Choose a form..." })).toBeDisabled();
 

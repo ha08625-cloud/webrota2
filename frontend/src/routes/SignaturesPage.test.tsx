@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { makeDoctor } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeDoctor } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -308,7 +308,10 @@ describe("SignaturesPage for a read-only user", () => {
       doctors: [makeDoctor({ id: 1, code: "PA1", doctor_type: "Partner" })],
       signatures: [makeSignatureMeta({ doctor_id: 1 })],
     });
-    renderWithProviders(<SignaturesPage />, { accessLevel: "doctor" });
+    renderWithProviders(<SignaturesPage />, {
+      area: "signatures",
+      permissions: PERMISSION_PRESETS.readOnly,
+    });
 
     expect(await screen.findByText(/do not have access to signatures/i)).toBeInTheDocument();
     expect(screen.queryByText("PA1")).not.toBeInTheDocument();

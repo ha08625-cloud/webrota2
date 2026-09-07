@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useReceptionStaff, useUpdateReceptionStaff } from "@/api/reception";
 import type { ApiError, ReceptionStaff } from "@/api/types";
-import { useIsManager, useWriteGate } from "@/auth/AuthContext";
+import { useCanAdminUsers, useWriteGate } from "@/auth/AuthContext";
 import { DeleteReceptionStaffDialog } from "@/components/DeleteReceptionStaffDialog";
 import { ReceptionStaffFormDialog } from "@/components/ReceptionStaffFormDialog";
 
@@ -19,7 +19,7 @@ export function ReceptionStaffPage() {
   // convention UsersPage follows.
   const { data: staff, isLoading, isError } = useReceptionStaff(true);
   const updateStaff = useUpdateReceptionStaff();
-  const isManager = useIsManager();
+  const canAdminUsers = useCanAdminUsers();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
   const [deleteTarget, setDeleteTarget] = useState<ReceptionStaff | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -83,10 +83,13 @@ export function ReceptionStaffPage() {
             {s.active ? "Deactivate" : "Reactivate"}
           </button>
           {/* Only on an inactive row (the backend 409s otherwise -
-              deactivate first, delete later) and only for a
-              manager, matching how App.tsx hides Users and Audit
-              Log below manager. The 403 is the real boundary. */}
-          {!s.active && isManager ? (
+              deactivate first, delete later) and only with the user
+              administration permission. That mirrors the backend exactly:
+              this DELETE carries require_capability("user_admin") on top of
+              the reception gate, because it is irreversible and destroys
+              history, so it is deliberately narrower than routine reception
+              editing. The 403 is the real boundary. */}
+          {!s.active && canAdminUsers ? (
             <button
               type="button"
               onClick={() => openDelete(s)}

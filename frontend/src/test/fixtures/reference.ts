@@ -15,6 +15,7 @@ import type {
   School,
   SchoolHoliday,
   SystemCounter,
+  Permissions,
 } from "@/api/types";
 
 let doctorIdCounter = 1;
@@ -245,6 +246,50 @@ export function makeSchool(overrides: Partial<School> = {}): School {
   };
 }
 
+/**
+ * The permission presets the Users form offers, as the wire shape (see
+ * models/permissions.py, where these values are decided). Tests name a
+ * preset rather than spelling five fields out, so a test reads as "what a
+ * reception administrator sees" rather than as a literal.
+ */
+export const PERMISSION_PRESETS = {
+  manager: {
+    clinical: "write",
+    reception: "write",
+    signatures: true,
+    study_eoi: true,
+    user_admin: true,
+  },
+  rotaAdmin: {
+    clinical: "write",
+    reception: "write",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+  receptionAdmin: {
+    clinical: "read",
+    reception: "write",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+  documents: {
+    clinical: "none",
+    reception: "none",
+    signatures: true,
+    study_eoi: true,
+    user_admin: false,
+  },
+  readOnly: {
+    clinical: "read",
+    reception: "read",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+} as const satisfies Record<string, Permissions>;
+
 let authUserIdCounter = 1;
 
 export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
@@ -253,20 +298,12 @@ export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
     email: "ann@example.com",
     name: "Ann",
     active: true,
-    // Manager by default so fixtures keep exercising the full UI; tests
-    // about a lower tier pass an override (role-based auth, Task 3).
+    // A label only - nothing gates on it. Manager by default so a fixture
+    // user reads as the full-access account its permissions make it.
     access_level: "manager",
-    // Everything granted, for the same reason and ahead of anything
-    // reading it: when the UI moves off access_level, a fixture user
-    // should still see the whole app unless a test says otherwise
-    // (fine-grained permissions, Task 1).
-    permissions: {
-      clinical: "write",
-      reception: "write",
-      signatures: true,
-      study_eoi: true,
-      user_admin: true,
-    },
+    // Everything granted, so a fixture user sees the whole app unless a
+    // test says otherwise.
+    permissions: { ...PERMISSION_PRESETS.manager },
     // Unlinked by default: the link is opt-in, and a test that cares
     // about "my rota" supplies one via overrides.
     linked_doctor: null,

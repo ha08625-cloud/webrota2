@@ -3,11 +3,14 @@ import { useState } from "react";
 import { useCalendarFeed, useRotateCalendarFeed } from "@/api/calendarFeed";
 import { useDoctors } from "@/api/doctors";
 import type { ApiError } from "@/api/types";
-import { useIsManager, useLinkedDoctorId } from "@/auth/AuthContext";
+import { useCanAdminUsers, useLinkedDoctorId } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 
 /** Tooltip for the rotate control when the user is below manager. */
-const NOT_MANAGER_TITLE = "Only a manager can issue a new link.";
+// The rotate endpoint carries require_capability("user_admin") on top of
+// the clinical gate: reissuing revokes someone's live subscription, so it
+// is deliberately narrower than routine clinical editing.
+const NO_ROTATE_TITLE = "Only a user administrator can issue a new link.";
 
 function errorMessage(err: ApiError, fallback: string): string {
   return typeof err.detail === "string" ? err.detail : fallback;
@@ -80,7 +83,7 @@ export function CalendarFeedPage() {
   const [doctorId, setDoctorId] = useState<number | undefined>(linkedDoctorId ?? undefined);
   const { data: feed } = useCalendarFeed(doctorId);
   const rotate = useRotateCalendarFeed();
-  const isManager = useIsManager();
+  const canAdminUsers = useCanAdminUsers();
   const { toast, showToast } = useToast();
 
   const selectedDoctor = (doctors ?? []).find((d) => d.id === doctorId);
@@ -179,8 +182,8 @@ export function CalendarFeedPage() {
           <button
             type="button"
             onClick={handleRotate}
-            disabled={rotate.isPending || !isManager}
-            title={isManager ? undefined : NOT_MANAGER_TITLE}
+            disabled={rotate.isPending || !canAdminUsers}
+            title={canAdminUsers ? undefined : NO_ROTATE_TITLE}
             className="mt-4 text-xs text-red-700 disabled:opacity-50"
           >
             Issue a new link

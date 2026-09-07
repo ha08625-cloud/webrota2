@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { useActiveMasterRota } from "@/api/masterRota";
-import { makeDoctor, makeRoom } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeDoctor, makeRoom } from "@/test/fixtures/reference";
 import { makeMasterRotaSession, makeMasterRotaTemplate } from "@/test/fixtures/masterRota";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
@@ -403,7 +403,7 @@ describe("MasterRotaGrid for a read-only user", () => {
       session_type: "pre_assigned", room_id: 5, room_code: "D1",
     });
     renderWithProviders(<MasterRotaGrid sessions={[session]} templateId={5} />, {
-      accessLevel: "nurse",
+      permissions: PERMISSION_PRESETS.readOnly,
     });
 
     const cell = await screen.findByTestId("master-cell-1-1-Monday-AM");

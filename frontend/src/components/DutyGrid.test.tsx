@@ -3,7 +3,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { makeClosure, makeDoctor, makeDutyAssignment, makeFullDayClosure } from "@/test/fixtures/reference";
+import {
+  PERMISSION_PRESETS,
+  makeClosure,
+  makeDoctor,
+  makeDutyAssignment,
+  makeFullDayClosure,
+} from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -363,11 +369,13 @@ describe("DutyGrid for a read-only user", () => {
     setUpServer({
       duty: [makeDutyAssignment({ id: 5, doctor_id: 1, date: MONDAY, period: "AM", duty_type: "primary" })],
     });
-    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />, { accessLevel: "doctor" });
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />, {
+      permissions: PERMISSION_PRESETS.readOnly,
+    });
 
     const chip = await screen.findByTestId("duty-doctor-chip-1");
     expect(chip.className).toContain("cursor-not-allowed");
-    expect(chip).toHaveAttribute("title", expect.stringContaining("does not allow changes"));
+    expect(chip).toHaveAttribute("title", expect.stringContaining("do not allow changes"));
 
     const cell = screen.getByTestId(`duty-cell-${MONDAY}-AM-primary`);
     expect(within(cell).getByRole("button")).toBeDisabled();
