@@ -15,7 +15,6 @@ the central sweeps -- which assert the general rule -- cannot carry them.
 import base64
 import datetime
 import io
-import shutil
 from pathlib import Path
 
 import pytest
@@ -26,17 +25,9 @@ from app.documents.errors import ConversionError
 from app.models import Doctor
 from app.models.enums import AccessLevel, DoctorType
 from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
+from tests.soffice_support import requires_soffice
 
 SAMPLE_RTF_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
-
-# The RTF path shells out to LibreOffice, so the tests that exercise it end to
-# end are skipped where it is absent -- same rule as test_documents/
-# test_pdf_convert.py. The error-path tests below deliberately monkeypatch
-# convert_to_pdf instead, so they run everywhere.
-requires_soffice = pytest.mark.skipif(
-    shutil.which("soffice") is None,
-    reason="LibreOffice (soffice) is not installed",
-)
 
 # Minimal valid 1x1 transparent PNG.
 _TINY_PNG = base64.b64decode(

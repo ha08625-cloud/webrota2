@@ -1,9 +1,11 @@
 """Tests for app.documents.pdf_convert.convert_to_pdf.
 
-The whole module is skipped when LibreOffice is absent, so a developer
-without it can still run the suite. CI installs libreoffice-writer in the
-backend test job precisely so the skip is inert there and these really run --
-if you see them skipped on CI, that install step has regressed.
+The whole module is skipped where LibreOffice cannot actually convert, so a
+developer without it can still run the suite. The guard probes rather than
+checking PATH -- see tests/soffice_support.py for why that distinction
+matters. CI installs libreoffice-writer in the backend test job precisely so
+the skip is inert there and these really run -- if you see them skipped on
+CI, that install step has regressed.
 
 No PDF text-extraction library is a dependency of this project, so the
 content assertions here are structural (magic bytes, size, page count marker)
@@ -13,7 +15,6 @@ where a comparison does the job: a PDF rendered from signed RTF must be
 meaningfully larger than one rendered from the same RTF unsigned, because it
 carries an embedded image the other does not.
 """
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -23,14 +24,13 @@ from app.documents.errors import ConversionError
 from app.documents.pdf_convert import convert_to_pdf
 from app.documents.rtf_signature_insert import insert_signature_rtf
 
+from tests.soffice_support import requires_soffice
+
 from .test_rtf_signature_insert import _png_bytes
 
 SAMPLE_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("soffice") is None,
-    reason="LibreOffice (soffice) is not installed",
-)
+pytestmark = requires_soffice
 
 # The sample is a full multi-page certificate form, so its PDF is tens of KB.
 # This floor only rules out a truncated or empty render.

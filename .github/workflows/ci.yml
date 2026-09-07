@@ -94,12 +94,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # tests/test_documents/test_pdf_convert.py skips itself when soffice is
-      # absent, so a developer without LibreOffice can still run the suite.
-      # This step is what makes that skip inert here - if those tests ever
-      # show as skipped on CI, this is what regressed. Writer specifically:
-      # libreoffice-core alone leaves soffice on PATH but every conversion
-      # fails with a misleading "source file could not be loaded".
+      # The LibreOffice tests skip themselves where conversion does not work,
+      # so a developer without it can still run the suite. This step is what
+      # makes that skip inert here. Writer specifically: libreoffice-core
+      # alone leaves soffice on PATH but every conversion fails with a
+      # misleading "source file could not be loaded", which is why the skip
+      # guard probes a real conversion rather than checking PATH (see
+      # backend/tests/soffice_support.py). REQUIRE_SOFFICE below turns a
+      # failed probe into a hard error, so a regression in this step cannot
+      # show up as a quietly green build.
       - name: Install LibreOffice (for PDF conversion tests)
         run: sudo apt-get update && sudo apt-get install -y libreoffice-writer fonts-liberation
 
@@ -113,6 +116,10 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests
+        # REQUIRE_SOFFICE: fail rather than skip if LibreOffice cannot
+        # convert here. See the install step above.
+        env:
+          REQUIRE_SOFFICE: "1"
         run: uv run pytest -v
 
   # Validates the 001 baseline (incl. the shared-enum-type fix) against a
