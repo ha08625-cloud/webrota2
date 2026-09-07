@@ -20,11 +20,13 @@ though the rows themselves are gone.
 
 Two guards stand in front of it:
 
-- **Manager only.** The reception routers are write-gated globally (admin
-  and manager) at include_router time; this one endpoint additionally carries
-  `Depends(require_manager)`, the per-endpoint pattern routers/users.py and
-  routers/audit.py use. An irreversible, history-destroying action should be
-  the narrower permission. Deactivate stays open to admins.
+- **`user_admin` as well.** The reception routers are gated on the
+  `reception` permission at include_router time; this one endpoint
+  additionally carries `require_capability("user_admin")`, so the effective
+  rule is the conjunction reception:write AND user_admin. An irreversible,
+  history-destroying action should be the narrower permission, and mapping
+  it to plain reception:write would widen it to every reception editor.
+  Deactivating a staff member stays open to them.
 - **409 unless the member is already inactive.** Deleting is a deliberate
   two-step: deactivate, then later delete. This matches the retiring-staff
   workflow and removes the "deleted someone who is on today's rota" case
@@ -69,7 +71,7 @@ from ...models import (
     ReceptionStaff,
     User,
 )
-from ..deps import get_current_user, get_db, require_manager
+from ..deps import get_current_user, get_db, require_capability
 from ..schemas import (
     ReceptionStaffDeletedCounts,
     ReceptionStaffDeleteOut,
@@ -206,11 +208,12 @@ def delete_staff(
     staff_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-    manager: User = Depends(require_manager),
+    admin: User = Depends(require_capability("user_admin")),
 ) -> ReceptionStaffDeleteOut:
     """Permanently remove a staff member and every row that references them.
     Irreversible; see the module docstring for why it purges rather than
-    refuses, and why it is manager-only and inactive-only."""
+    refuses, and why it needs `user_admin` as well as reception:write and
+    only accepts an already-inactive member."""
     staff = _get_or_404(db, staff_id)
     if staff.active:
         raise HTTPException(

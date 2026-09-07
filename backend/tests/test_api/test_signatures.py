@@ -25,6 +25,7 @@ from docx.oxml.ns import qn
 from app.documents.errors import ConversionError
 from app.models import Doctor
 from app.models.enums import AccessLevel, DoctorType
+from app.models.permissions import DOCUMENTS_PRESET, preset
 
 SAMPLE_RTF_PATH = Path(__file__).parent.parent / "fixtures" / "certificate_sample.rtf"
 
@@ -375,11 +376,20 @@ class TestApplyRtf:
 
 
 class TestReadAccess:
-    """Both reads are admin-and-above, not merely authenticated.
+    """Reading a signature needs the `signatures` permission, exactly like
+    uploading one.
 
     The signature image is the one asset in this API worth more outside it
-    than in, so it is not covered by the global gate's "every tier may
-    read" rule -- see the router docstring and deps.require_admin.
+    than in. `signatures` is a boolean rather than a level precisely so
+    that there is no read-only view of it to leak through: the people who
+    may look at a scanned signature are the people who may upload one, and
+    nobody else -- see the router docstring and deps.require_access.
+
+    Note who that now excludes. A Rota admin login writes both rota
+    sections and cannot read these two endpoints; under the old tier model
+    the same person could. That narrowing is the point of the feature
+    rather than a regression, and it is asserted here so that undoing it
+    takes a deliberate edit.
 
     Assertions are `== 403`, never "not 2xx": a broken gate would answer
     404 on the image path for a doctor with nothing stored, and "not 2xx"
@@ -400,14 +410,25 @@ class TestReadAccess:
         client = client_at_tier(AccessLevel.DOCTOR)
         assert client.get("/api/v1/signatures/1/image").status_code == 403
 
-    def test_admin_can_list_signatures(self, admin_client):
-        resp = admin_client.get("/api/v1/signatures")
+    def test_a_rota_admin_cannot_list_signatures(self, admin_client):
+        """Rota write access is not signature access any more."""
+        assert admin_client.get("/api/v1/signatures").status_code == 403
+
+    def test_a_rota_admin_cannot_fetch_a_signature_image(self, admin_client):
+        assert admin_client.get("/api/v1/signatures/1/image").status_code == 403
+
+    def test_a_documents_login_can_list_signatures(self, client_at_tier):
+        """No rota access at all, but `signatures` -- the login the
+        permission split exists to make possible."""
+        client = client_at_tier(permissions=preset(DOCUMENTS_PRESET))
+        resp = client.get("/api/v1/signatures")
         assert resp.status_code == 200, resp.text
         assert resp.json() == []
 
-    def test_admin_gets_the_ordinary_404_for_a_missing_image(self, admin_client):
+    def test_gets_the_ordinary_404_for_a_missing_image(self, manager_client):
         """Past the gate, the endpoint behaves as it always did."""
-        assert admin_client.get("/api/v1/signatures/1/image").status_code == 404
+        assert manager_client.get("/api/v1/signatures/1/image").status_code == 404
 
-    def test_manager_can_list_signatures(self, manager_client):
-        assert manager_client.get("/api/v1/signatures").status_code == 200
+    def test_manager_can_list_signatures(self, client_at_tier):
+        client = client_at_tier(AccessLevel.MANAGER)
+        assert client.get("/api/v1/signatures").status_code == 200

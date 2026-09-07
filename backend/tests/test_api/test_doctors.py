@@ -198,7 +198,7 @@ class TestCalendarFeed:
     The public feed route itself is tested in
     test_calendar_feed_route.py; what is asserted here is that the token
     the doctors router hands out is the one that route resolves, and that
-    rotation is manager-only.
+    rotation needs `user_admin` as well as clinical:write.
 
     The tier tests deliberately do NOT use the `seeded` fixture: `seeded`
     requests `client`, whose MANAGER stub would overwrite the tier client's
@@ -265,9 +265,10 @@ class TestCalendarFeed:
             f"/api/v1/doctors/{doctor_id}/calendar-feed/rotate"
         ).status_code == 403
 
-    def test_admin_cannot_rotate(self, admin_client, db_session):
-        """The global write gate admits admin; require_manager is what stops
-        them, which is the whole reason it hangs off this endpoint."""
+    def test_a_rota_admin_cannot_rotate(self, admin_client, db_session):
+        """The router's clinical gate admits every rota editor; the
+        endpoint's `user_admin` one is what stops them, which is the whole
+        reason it hangs off this endpoint as well."""
         doctor_id = self._make_doctor(db_session)
         assert admin_client.get(
             f"/api/v1/doctors/{doctor_id}/calendar-feed"

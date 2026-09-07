@@ -60,10 +60,10 @@ be filled in.
 
 The columns live here, on users, and not on doctors/reception_staff,
 because the link is a privilege grant -- it decides whose rota is "yours"
-and, in any later feature, what you may act on. Users are manager-only to
-edit, while the Doctors page is writable by any admin; a doctor_user_id
-column on doctors would therefore let an admin hand themselves a clinical
-identity.
+and, in any later feature, what you may act on. Editing users needs
+`user_admin`, while the Doctors page is writable with clinical:write; a
+doctor_user_id column on doctors would therefore let a rota editor hand
+themselves a clinical identity.
 
 They are two typed foreign keys rather than one polymorphic
 (staff_kind, staff_id) pair. The polymorphic form saves a column and gives

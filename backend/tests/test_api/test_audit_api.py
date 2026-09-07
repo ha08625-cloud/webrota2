@@ -229,7 +229,7 @@ def test_paging_bounds_are_enforced(client, params):
 
 
 # ---------------------------------------------------------------------------
-# Access control: manager-only, including the read
+# Access control: `user_admin` only, including the read
 # ---------------------------------------------------------------------------
 
 
@@ -237,9 +237,10 @@ def test_manager_can_read(manager_client):
     assert manager_client.get(AUDIT).status_code == 200
 
 
-def test_admin_cannot_read(admin_client):
-    """Unlike the rest of the API, admin is not enough here -- the gate on
-    this router is require_manager, which covers GET too."""
+def test_a_rota_admin_cannot_read(admin_client):
+    """Unlike the rota sections, write access to them is not enough here --
+    this router sits in the `user_admin` area, and that permission being a
+    boolean is what covers its GETs too."""
     assert admin_client.get(AUDIT).status_code == 403
 
 

@@ -3,15 +3,24 @@
 CORS origins come from the CORS_ORIGINS env var (comma-separated); default is
 "*" for development. All routers are registered under /api/v1.
 
-Router registration is also where write authorization is enforced
-(role-based auth plan, Task 2). Every router except the three in _UNGATED is
-included with `dependencies=[Depends(require_write_access)]`, which 403s a
-viewer-tier user on any non-GET request. Attaching the gate here rather
-than per-endpoint is what makes the API default-DENY: a new router, or a
-new POST on an existing router, is gated the moment it is registered,
-without anyone having to remember a dependency. Adding a router to
-_UNGATED is the only way to opt out, and doing so needs a reason as
-specific as the two already there.
+Router registration is also where authorization is enforced (fine-grained
+permissions plan, D5). Every router except the three in _UNGATED is
+included with `dependencies=[Depends(require_access(_AREA[module]))]` --
+the gate for the permission area that router belongs to. The area is
+resolved HERE, at registration time, because there is no way to resolve it
+per request: FastAPI wraps each include_router call in an opaque
+_IncludedRouter, so a running request cannot ask which router served it.
+See deps.py for what each area admits.
+
+Attaching the gate here rather than per-endpoint is what makes the API
+default-DENY: a new POST on an existing router is gated the moment it is
+written, without anyone having to remember a dependency. `_AREA[module]`
+is a direct subscript rather than a `.get()` for the other half of that
+property -- a new router is a KeyError at import until somebody classifies
+it, so the app fails to start rather than serving an unguarded section.
+The assertion below covers the reverse mistake, a stale entry for a router
+that no longer exists. Adding a router to _UNGATED is the only way to opt
+out, and doing so needs a reason as specific as the three already there.
 
 Audit capture is registered the same way and for the same reason. The
 AuditMiddleware writes one row per non-GET request that reaches the app, so
@@ -23,10 +32,9 @@ module-level factory that defaults to None (disabled) and is pointed at
 SessionLocal explicitly below. See app/api/audit.py.
 
 The rows are read back through the audit router, which is registered in the
-normal gated loop like everything else even though it is manager-only in
-its own right: it currently exposes GET only, so the global write gate is
-inert, and registering it there means a non-GET added to it later is gated
-by default rather than by memory.
+normal gated loop like everything else, in the `user_admin` area: that
+permission is a boolean, so the gate covers its reads as well as any
+non-GET added to it later.
 
 The two exception handlers below exist for the same log: without them a 4xx
 row records the status and nothing about the reason, and "my edit was
@@ -57,7 +65,7 @@ from starlette.exceptions import HTTPException
 
 from ..database import SessionLocal
 from .audit import AuditMiddleware, current_audit_context, set_session_factory
-from .deps import require_write_access
+from .deps import require_access
 from .routers import (
     audit as audit_router,
     auth,
@@ -171,26 +179,78 @@ API_PREFIX = "/api/v1"
 
 _ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar, eoi)
 
-# The ONLY three routers that do not get the global write gate. Do not
+# The ONLY three routers that do not get a permission gate. Do not
 # extend this without a reason as specific as these:
 #   auth  -- POST /auth/login has no authenticated user by definition, and
-#            POST /auth/logout must stay reachable at every tier.
-#   users -- gates itself per-endpoint (Depends(require_manager) on the
-#            three admin endpoints), because PATCH /users/me is a write
-#            that every tier must be able to make on their own row.
+#            POST /auth/logout must stay reachable by every login.
+#   users -- gates itself per-endpoint (Depends(require_capability(
+#            "user_admin")) on the three admin endpoints), because PATCH
+#            /users/me is a write every login must be able to make on
+#            their own row.
 #   calendar -- the per-doctor .ics feed is fetched by Google/Outlook with
 #            no way to present a bearer token, so its single GET must be
 #            reachable unauthenticated; the token in the path is the
-#            credential. It is in _UNGATED rather than merely GET-only
-#            because require_write_access depends on get_current_user and
-#            so 401s even a GET. The router holds exactly one endpoint and
-#            must never gain a non-GET one -- test_authorization.py's
-#            sweeps enforce both halves. See routers/calendar.py.
-# Everything else is gated. See routers/users.py and deps.py.
+#            credential. It is in _UNGATED rather than listed as a shared
+#            read because the gate depends on get_current_user and so 401s
+#            even a GET. The router holds exactly one endpoint and must
+#            never gain a non-GET one -- test_authorization.py's sweeps
+#            enforce both halves. See routers/calendar.py.
+# Everything else is classified below. See routers/users.py and deps.py.
 _UNGATED = (auth, users, calendar)
 
+# Router -> permission area. Every gated router appears here exactly once;
+# the section a router belongs to is a property of the router, so this is
+# the one place it is written down. Nothing here is a judgement call except
+# the last three, which are one router each:
+#   signatures -- the whole point of the feature; see models/permissions.py
+#   eoi        -- the study EOI autofill tool, `study_eoi`
+#   audit      -- reading who did what is user-administration business, and
+#                 `user_admin` being a boolean is what gates its GETs too
+_AREA = {
+    rota: "clinical",
+    clinic_types: "clinical",
+    doctors: "clinical",
+    leave: "clinical",
+    leave_entitlement: "clinical",
+    leave_planning: "clinical",
+    extra_sessions: "clinical",
+    duty: "clinical",
+    rooms: "clinical",
+    counters: "clinical",
+    master_rota: "clinical",
+    staging: "clinical",
+    closures: "clinical",
+    school_holidays: "clinical",
+    recurring_notes: "clinical",
+    reception_staff: "reception",
+    reception_master: "reception",
+    reception_rota: "reception",
+    reception_leave: "reception",
+    reception_counters: "reception",
+    signatures: "signatures",
+    eoi: "study_eoi",
+    audit_router: "user_admin",
+}
+
+# The KeyError in the loop below catches a new router nobody classified;
+# this catches the reverse, a stale entry for a router that was deleted or
+# renamed, which would otherwise sit here reading as coverage it no longer
+# provides.
+assert set(_AREA) | set(_UNGATED) == set(_ALL_ROUTERS), (
+    "every router must be classified in _AREA or listed in _UNGATED"
+)
+assert not set(_AREA) & set(_UNGATED), (
+    "a router in both _UNGATED and _AREA is ungated -- the loop below reads "
+    "_UNGATED first -- so the _AREA entry would read as coverage it does "
+    "not provide"
+)
+
 for module in _ALL_ROUTERS:
-    dependencies = [] if module in _UNGATED else [Depends(require_write_access)]
+    # _AREA[module], not .get(): an unclassified router is an ImportError
+    # here rather than an unguarded section at runtime.
+    dependencies = (
+        [] if module in _UNGATED else [Depends(require_access(_AREA[module]))]
+    )
     app.include_router(module.router, prefix=API_PREFIX, dependencies=dependencies)
 
 

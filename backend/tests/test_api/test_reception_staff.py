@@ -150,8 +150,8 @@ class TestStaffUsage:
         assert client.get(f"{STAFF}/999999/usage").status_code == 404
 
     def test_readable_by_a_viewer(self, viewer_client, db_session):
-        """Usage is a GET, so it is open at every tier even though the
-        delete it describes is manager-only."""
+        """Usage is a GET, so reception:read is enough even though the
+        delete it describes needs `user_admin` on top of reception:write."""
         staff = ReceptionStaff(code="RZ", active=True)
         db_session.add(staff)
         db_session.commit()
@@ -267,7 +267,7 @@ class TestPermanentDelete:
         assert survivor.reception_staff_id is None
 
 
-class TestPermanentDeleteIsManagerOnly:
+class TestPermanentDeleteNeedsUserAdmin:
     """One client fixture per test -- they share app.dependency_overrides,
     so a second would silently change the first's identity."""
 
@@ -282,9 +282,10 @@ class TestPermanentDeleteIsManagerOnly:
         staff_id = self._inactive_staff(db_session)
         assert manager_client.delete(f"{STAFF}/{staff_id}").status_code == 200
 
-    def test_admin_cannot_delete(self, admin_client, db_session):
-        """Admin passes the global write gate but not require_manager: an
-        irreversible, history-destroying action is the narrower permission."""
+    def test_a_rota_admin_cannot_delete(self, admin_client, db_session):
+        """A reception editor passes the router's area gate but not the
+        endpoint's `user_admin` one: an irreversible, history-destroying
+        action is the narrower permission."""
         staff_id = self._inactive_staff(db_session)
         assert admin_client.delete(f"{STAFF}/{staff_id}").status_code == 403
         db_session.expire_all()

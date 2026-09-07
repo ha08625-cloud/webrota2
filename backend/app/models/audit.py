@@ -10,7 +10,8 @@ diffs.
 Rows are written **only** by the audit middleware, in its own session and
 its own transaction, after the endpoint has already committed. There is no
 write API for this table: no router creates, edits or deletes rows, and
-nothing is ever pruned. The single reader is a manager-only list endpoint.
+nothing is ever pruned. The single reader is a list endpoint that needs
+the `user_admin` permission.
 
 Two conventions follow from that:
 

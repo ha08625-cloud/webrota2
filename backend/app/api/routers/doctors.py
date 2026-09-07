@@ -28,8 +28,8 @@ never travels in the rota grid's caches or the audit log's request bodies.
 
 Token management (read the feed URL, rotate the token) lives here rather
 than on the public calendar router, so it sits behind the ordinary session
-gate. Rotation additionally carries `Depends(require_manager)` -- see its
-docstring.
+gate. Rotation additionally carries `require_capability("user_admin")` on
+top of that -- see its docstring.
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ from ...models import (
 )
 from ...models.enums import RotaStatus, SystemCounterType
 from ..auth_utils import new_session_token
-from ..deps import get_current_user, get_db, require_manager
+from ..deps import get_current_user, get_db, require_capability
 from ..schemas import (
     CalendarFeedOut,
     DoctorDetailOut,
@@ -242,19 +242,22 @@ def get_calendar_feed(
 def rotate_calendar_feed(
     doctor_id: int,
     db: Session = Depends(get_db),
-    manager: User = Depends(require_manager),
+    admin: User = Depends(require_capability("user_admin")),
 ) -> CalendarFeedOut:
-    """Issue a fresh token, dead-ending the old URL. Manager-only.
+    """Issue a fresh token, dead-ending the old URL. Needs `user_admin`.
 
-    The global write gate is NOT enough here: it admits admin tier, and this
-    is the revocation path for a doctor's calendar link -- user-management
-    business rather than routine data entry, and silently destructive, since
-    the doctor's calendar simply stops updating with no error anywhere. So
-    `require_manager` hangs off the endpoint on top of the global gate, the
-    same per-endpoint pattern routers/users.py uses.
+    This router's `clinical` gate is not enough on its own: it admits every
+    rota editor, and this is the revocation path for a doctor's calendar
+    link -- user-administration business rather than routine data entry,
+    and silently destructive, since the doctor's calendar simply stops
+    updating with no error anywhere. So `user_admin` hangs off the endpoint
+    on top of the router's area gate, and the effective rule is the
+    conjunction: clinical:write AND user_admin. It is one of only two such
+    conjunctions in the API (see deps.py).
 
-    `test_authorization.py` lists this route in `_MANAGER_ONLY`: its sweep
-    otherwise asserts an admin gets past the gate on every non-GET route.
+    `test_authorization.py` lists this route as needing more than its area:
+    its sweep otherwise asserts a rota editor gets past the gate on every
+    non-GET clinical route.
     """
     doctor = _get_or_404(db, doctor_id)
     doctor.calendar_token = new_session_token()

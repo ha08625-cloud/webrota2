@@ -14,9 +14,10 @@ to a real row instead of widening the stub.
 `client_no_auth` is identical but WITHOUT the get_current_user override --
 it exercises the real auth path and is what test_auth.py uses.
 
-`client_at_tier` is a factory for the same thing at a chosen access level,
-plus the ready-made `viewer_client` / `admin_client` / `manager_client`
-built on it (role-based auth plan, Task 2). All of these share the
+`client_at_tier` is a factory for the same thing at a chosen access level
+(and, optionally, an explicit permission set for a login no tier
+corresponds to), plus the ready-made `viewer_client` / `admin_client` /
+`manager_client` built on it. All of these share the
 single-client-per-test rule described under `client_no_auth` below: they
 write to the same `app.dependency_overrides` dict on the same shared `app`,
 so requesting two of them (or one of them plus `client` or
@@ -65,7 +66,7 @@ from app.models import (
     Room,
     SystemCounter,
 )
-from app.models.permissions import MANAGER_PRESET, preset
+from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 from app.models.enums import (
     AccessLevel,
     Day,
@@ -86,14 +87,14 @@ class _StubUser:
     PATCH /users/me, which fetches its own row; tests for that endpoint use
     `client_no_auth` and real logins instead of a stub.
 
-    access_level defaults to MANAGER so that every existing test file keeps
-    exercising the full API surface now that the write gate reads this
-    attribute (role-based auth plan, Tasks 1 and 2). `permissions` defaults
-    to the Manager preset for exactly the same reason, ahead of anything
-    reading it: when the gates move off access_level, every test file that
-    is not about permissions should carry on exercising the whole API
-    rather than 403ing everywhere at once (fine-grained permissions plan,
-    Task 1 instruction 8)."""
+    access_level defaults to MANAGER, and `permissions` defaults to the
+    preset that tier maps to (models/permissions.py), so every test file
+    that is not about authorization keeps exercising the full API surface.
+    access_level itself is decorative now -- the gates read `permissions`
+    -- so the mapping is what makes `client_at_tier(AccessLevel.ADMIN)`
+    still mean something: it is a login with the Rota admin permission set,
+    which notably does NOT include signatures or study_eoi. Pass
+    `permissions` explicitly to describe a set no tier corresponds to."""
 
     def __init__(self, access_level=AccessLevel.MANAGER, permissions=None):
         self.id = 1
@@ -102,7 +103,9 @@ class _StubUser:
         self.active = True
         self.access_level = access_level
         self.permissions = (
-            preset(MANAGER_PRESET) if permissions is None else dict(permissions)
+            preset(PRESET_FOR_ACCESS_LEVEL[access_level.value])
+            if permissions is None
+            else dict(permissions)
         )
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
@@ -217,8 +220,10 @@ def client_no_auth(session_factory):
 @pytest.fixture
 def client_at_tier(session_factory):
     """Factory: `client_at_tier(AccessLevel.NURSE)` -> an authenticated
-    TestClient whose get_current_user stub sits at that access level
-    (role-based auth plan, Task 2).
+    TestClient whose get_current_user stub carries that tier's permission
+    preset. `client_at_tier(permissions={...})` describes a login no preset
+    matches -- a documents-only one, say -- which is what the gates
+    actually read.
 
     Callable once per test, and mutually exclusive with `client` /
     `client_no_auth`, for the reason spelled out in `client_no_auth`'s
@@ -238,7 +243,7 @@ def client_at_tier(session_factory):
             db.close()
 
     with contextlib.ExitStack() as stack:
-        def _make(access_level):
+        def _make(access_level=AccessLevel.MANAGER, permissions=None):
             if made:
                 raise RuntimeError(
                     "client_at_tier is single-use per test: overrides live on "
@@ -246,8 +251,9 @@ def client_at_tier(session_factory):
                     "identity of the first. Split the test."
                 )
             made.append(access_level)
+            stub = _StubUser(access_level, permissions)
             app.dependency_overrides[get_db] = _override_get_db
-            app.dependency_overrides[get_current_user] = lambda: _StubUser(access_level)
+            app.dependency_overrides[get_current_user] = lambda: stub
             stack.callback(app.dependency_overrides.pop, get_current_user, None)
             stack.callback(app.dependency_overrides.pop, get_db, None)
             return stack.enter_context(TestClient(app))

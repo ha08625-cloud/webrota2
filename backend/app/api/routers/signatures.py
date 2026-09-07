@@ -12,16 +12,15 @@ bytes rather than the extension or the declared MIME type:
   spliced RTF is an intermediate LibreOffice reads and nobody else sees,
   and the PDF is a stronger "do not edit this" than the Word password
 
-Both reads here -- the metadata list and the image itself -- are
-admin-and-above, via an explicit `require_admin` rather than the global
-gate. The global gate is method-aware and lets every tier read, which
-would mean any authenticated login, nurse tier included, could fetch a
-scanned signature image straight from `GET /signatures/{doctor_id}/image`.
-An image of somebody's handwritten signature is the one thing in this API
-worth more outside it than in, so the people who may read it are exactly
-the people who may upload it. The non-GET endpoints below still take the
-global write gate from main.py's include_router loop; nothing about this
-router's registration changed.
+Every endpoint here, the two reads included, needs the `signatures`
+permission -- and that is the whole of the gating: main.py registers this
+router in the `signatures` area, and because that permission is a boolean
+rather than a level there is no read exemption to carve out. An image of
+somebody's handwritten signature is the one thing in this API worth more
+outside it than in, so the people who may read one are exactly the people
+who may upload one. Nothing in this file gates itself; the two GETs
+carried an explicit dependency while the gates still ran off access_level,
+and it came off when they moved to the permission set.
 """
 from __future__ import annotations
 
@@ -47,7 +46,7 @@ from ...documents import (
     save_docx,
 )
 from ...models import Doctor, DoctorSignature, User
-from ..deps import get_current_user, get_db, require_admin
+from ..deps import get_current_user, get_db
 from ..schemas import SignatureMetaOut
 from ._uploads import safe_filename_stem
 
@@ -119,7 +118,7 @@ def _sniff_format(data: bytes) -> str:
 @router.get("", response_model=list[SignatureMetaOut])
 def list_signatures(
     db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ) -> list[DoctorSignature]:
     return db.execute(
         select(DoctorSignature).order_by(DoctorSignature.doctor_id)
@@ -130,7 +129,7 @@ def list_signatures(
 def get_signature_image(
     doctor_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
 ) -> Response:
     signature = _get_signature_or_404(db, doctor_id)
     return Response(content=signature.image, media_type=signature.content_type)

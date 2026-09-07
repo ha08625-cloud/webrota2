@@ -10,12 +10,12 @@ Calendar -- fetches the URL on its own schedule with no way to present a
 bearer token. **The token in the path IS the credential.** It is 256 bits
 from `secrets.token_urlsafe` behind a unique index, and each feed carries
 exactly one doctor, so a leaked URL exposes one person's working pattern
-rather than the practice's. Rotation (manager-only, on the doctors router)
-is the revocation path.
+rather than the practice's. Rotation (needs `user_admin`, on the doctors
+router) is the revocation path.
 
-Why the router is in main.py's `_UNGATED`: `require_write_access` is itself
-declared `user: User = Depends(get_current_user)`, so the global gate 401s
-an unauthenticated request BEFORE it ever reaches the method check. A
+Why the router is in main.py's `_UNGATED`: the permission gate is itself
+declared `user: User = Depends(get_current_user)`, so it 401s an
+unauthenticated request BEFORE it ever reaches the permission check. A
 GET-only router registered in the normal loop would therefore still demand
 a session. `_UNGATED` is the only way out, and this router is the third and
 last entry in it.

@@ -1,19 +1,18 @@
-"""Audit log read API: one manager-only, filtered, paginated list endpoint.
+"""Audit log read API: one user_admin-only, filtered, paginated list endpoint.
 
 There is no write API for this table at all -- no POST, PATCH or DELETE
 exists here or anywhere else, and nothing prunes it. The only writer is the
 audit middleware (see app/api/audit.py), which appends a row per non-GET
 request in its own transaction after the endpoint has committed.
 
-The whole router is manager-only: `require_manager` hangs off the
-`APIRouter` itself rather than each endpoint, because this gates reads too
-and there is no per-endpoint exception to carve out (unlike routers/users.py,
-where PATCH /users/me has to stay open to every tier). It is still
-registered through main.py's normal gated loop rather than `_UNGATED`, so
-that if a non-GET endpoint is ever added here it inherits the global write
-gate as well. That costs no extra query: `require_write_access` and
-`require_manager` both depend on `get_current_user`, which FastAPI caches
-per request.
+The whole router is user-administration business, reads included: knowing
+who changed what, and when, is not something a rota editor needs and is
+exactly what someone covering their tracks would want. It carries no
+dependency of its own -- main.py registers it in the `user_admin` area, and
+because that permission is a boolean rather than a level, that single gate
+covers its GETs as well as any non-GET added here later. A second
+per-endpoint gate would be the pattern the registration-time gate exists to
+avoid (see deps.py).
 
 Filtering `path` is a substring match, which is the query a human debugging
 an incident actually wants -- "show me everything that touched /rota/12/".
@@ -42,14 +41,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...models import AuditLogEntry
-from ..deps import get_db, require_manager
+from ..deps import get_db
 from ..schemas import AuditLogListOut
 
-router = APIRouter(
-    prefix="/audit",
-    tags=["audit"],
-    dependencies=[Depends(require_manager)],
-)
+router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 @router.get("", response_model=AuditLogListOut)
