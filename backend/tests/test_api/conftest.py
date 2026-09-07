@@ -65,6 +65,7 @@ from app.models import (
     Room,
     SystemCounter,
 )
+from app.models.permissions import MANAGER_PRESET, preset
 from app.models.enums import (
     AccessLevel,
     Day,
@@ -87,14 +88,22 @@ class _StubUser:
 
     access_level defaults to MANAGER so that every existing test file keeps
     exercising the full API surface now that the write gate reads this
-    attribute (role-based auth plan, Tasks 1 and 2)."""
+    attribute (role-based auth plan, Tasks 1 and 2). `permissions` defaults
+    to the Manager preset for exactly the same reason, ahead of anything
+    reading it: when the gates move off access_level, every test file that
+    is not about permissions should carry on exercising the whole API
+    rather than 403ing everywhere at once (fine-grained permissions plan,
+    Task 1 instruction 8)."""
 
-    def __init__(self, access_level=AccessLevel.MANAGER):
+    def __init__(self, access_level=AccessLevel.MANAGER, permissions=None):
         self.id = 1
         self.email = "test@example.com"
         self.name = "Test User"
         self.active = True
         self.access_level = access_level
+        self.permissions = (
+            preset(MANAGER_PRESET) if permissions is None else dict(permissions)
+        )
         self.created_at = datetime.datetime.now(datetime.timezone.utc)
 
 

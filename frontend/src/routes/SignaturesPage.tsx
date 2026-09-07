@@ -9,7 +9,7 @@ import {
   useUploadSignature,
 } from "@/api/signatures";
 import type { ApiError, Doctor, SignatureMeta } from "@/api/types";
-import { useWriteGate } from "@/auth/AuthContext";
+import { useCanWrite, useWriteGate } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { useDoctors } from "@/api/doctors";
@@ -219,6 +219,30 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
  * .docx comes back as a read-only .docx, a .rtf as a PDF.
  */
 export function SignaturesPage() {
+  // Admin-and-above, matching the backend: GET /signatures and the image
+  // endpoint now 403 below that tier (deps.require_admin), so a viewer
+  // would otherwise get a page of failed queries. Same shape as the Users
+  // page's manager check, and the same caveat: this is UX, the 403 is the
+  // boundary. `useCanWrite` is the admin-or-manager question the tier
+  // model already answers; the fine-grained permission model replaces it
+  // with a `signatures` capability.
+  const canWrite = useCanWrite();
+
+  if (!canWrite) {
+    return (
+      <div>
+        <h1 className="text-lg font-semibold">Signatures</h1>
+        <p className="mt-4 text-sm text-ink/70">
+          You do not have access to signatures. Ask a manager if you need a document signed.
+        </p>
+      </div>
+    );
+  }
+
+  return <SignaturesTable />;
+}
+
+function SignaturesTable() {
   const { data: doctors, isLoading, isError } = useDoctors(true);
   const { data: signatures } = useSignatures();
   const { toast, showToast } = useToast();

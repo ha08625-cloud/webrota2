@@ -10,6 +10,15 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import Doctor, ReceptionStaff, User, UserSession
 from app.models.enums import AccessLevel, DoctorType
+from app.models.permissions import (
+    DEFAULT_PERMISSIONS,
+    MANAGER_PRESET,
+    PERMISSION_KEYS,
+    PRESET_FOR_ACCESS_LEVEL,
+    PRESETS,
+    is_empty,
+    preset,
+)
 
 
 def _user(session, email="a@example.com", name="Ada", active=True):
@@ -284,3 +293,57 @@ def test_linking_does_not_change_access_level(session):
     session.flush()
     session.expire_all()
     assert session.get(User, u.id).access_level == AccessLevel.MANAGER
+
+
+class TestPermissionSets:
+    """The permission set as stored (fine-grained permissions plan, D3)."""
+
+    def test_defaults_to_denying_everything(self, session):
+        u = _user(session, email="default-perms@example.com")
+        session.commit()
+        session.refresh(u)
+        assert u.permissions == dict(DEFAULT_PERMISSIONS)
+        assert is_empty(u.permissions)
+
+    def test_round_trips_a_set(self, session):
+        u = _user(session, email="round-trip@example.com")
+        u.permissions = preset(MANAGER_PRESET)
+        session.commit()
+        session.expire_all()
+        assert session.get(User, u.id).permissions == preset(MANAGER_PRESET)
+
+    def test_an_in_place_key_edit_is_tracked(self, session):
+        """MutableDict.as_mutable, without which this commits nothing --
+        silently. Pinned here as well as through the API because the
+        failure mode is invisible at the call site."""
+        u = _user(session, email="mutable-model@example.com")
+        session.commit()
+        u.permissions["reception"] = "write"
+        session.commit()
+        session.expire_all()
+        assert session.get(User, u.id).permissions["reception"] == "write"
+
+    def test_preset_hands_out_a_copy(self, session):
+        """A shared dict would let one user's edit rewrite the preset for
+        the whole process."""
+        first = preset(MANAGER_PRESET)
+        first["user_admin"] = False
+        assert preset(MANAGER_PRESET)["user_admin"] is True
+
+    @pytest.mark.parametrize("name", sorted(PRESETS))
+    def test_every_preset_grants_something(self, name):
+        """An empty preset would be a set the API refuses to save, offered
+        by the form as a starting point."""
+        assert not is_empty(PRESETS[name])
+        assert set(PRESETS[name]) == set(PERMISSION_KEYS)
+
+    def test_every_access_level_maps_to_a_preset(self):
+        """The 010 backfill and seed_users.py both index this by tier, so a
+        missing entry is a KeyError at migration time."""
+        assert {level.value for level in AccessLevel} == set(PRESET_FOR_ACCESS_LEVEL)
+        assert set(PRESET_FOR_ACCESS_LEVEL.values()) <= set(PRESETS)
+
+    def test_is_empty_is_false_as_soon_as_anything_is_granted(self):
+        assert is_empty(dict(DEFAULT_PERMISSIONS))
+        assert not is_empty({**DEFAULT_PERMISSIONS, "clinical": "read"})
+        assert not is_empty({**DEFAULT_PERMISSIONS, "study_eoi": True})

@@ -12,7 +12,12 @@ environment and fails loudly (raises) if any is unset -- there is no
 hardcoded fallback credential in this codebase, on purpose.
 
 SEED_USER_ACCESS_LEVEL is optional and defaults to "manager" (role-based
-auth plan, Task 1). It is deliberately NOT in _REQUIRED_VARS: this script
+auth plan, Task 1). The seeded user's permission set is DERIVED from it --
+the preset matching that tier (models/permissions.py) -- rather than read
+from a second env var: this script bootstraps one account, and a
+permissions-shaped env var would be a JSON blob nobody can type correctly
+under pressure. Fine-grained editing is the Users page's job. With the
+default tier that means the Manager preset, i.e. everything. It is deliberately NOT in _REQUIRED_VARS: this script
 exists to bootstrap the account that administers everyone else, and that
 account is a manager in essentially every case. It is also the recovery
 path for a database with no manager in it -- access_level defaults to
@@ -38,6 +43,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import User
 from app.models.enums import AccessLevel
+from app.models.permissions import PRESET_FOR_ACCESS_LEVEL, preset
 
 _REQUIRED_VARS = ("SEED_USER_EMAIL", "SEED_USER_NAME", "SEED_USER_PASSWORD")
 _DEFAULT_ACCESS_LEVEL = AccessLevel.MANAGER
@@ -94,6 +100,7 @@ def seed_users(session: Session) -> User | None:
         password_hash=password_hash,
         active=True,
         access_level=access_level,
+        permissions=preset(PRESET_FOR_ACCESS_LEVEL[access_level.value]),
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     session.add(user)
@@ -109,7 +116,8 @@ def main() -> None:
         if user is not None:
             print(
                 f"Created user {user.email!r} (id={user.id}, "
-                f"access_level={user.access_level.value})."
+                f"access_level={user.access_level.value}, "
+                f"permissions={user.permissions})."
             )
     except Exception:
         session.rollback()

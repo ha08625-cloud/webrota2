@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { makeAuthUser } from "@/test/fixtures/reference";
+import { permissionPreset } from "@/lib/permissionPresets";
 
 import {
   emptyFormValues,
@@ -139,6 +140,9 @@ describe("toCreatePayload / toPatchPayload", () => {
       email: "a@example.com",
       name: "Ann",
       access_level: "admin",
+      // Derived from the tier until the permission editor lands; "admin"
+      // maps to the Rota admin preset, which notably excludes signatures.
+      permissions: permissionPreset("rota_admin"),
       doctor_id: null,
       reception_staff_id: null,
       password: "password1",

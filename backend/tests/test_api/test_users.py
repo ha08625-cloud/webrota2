@@ -36,6 +36,11 @@ import pytest
 from app.api.auth_utils import hash_password, hash_token, new_session_token
 from app.models import Doctor, ReceptionStaff, User, UserSession
 from app.models.enums import AccessLevel, DoctorType
+from app.models.permissions import (
+    DEFAULT_PERMISSIONS,
+    PRESET_FOR_ACCESS_LEVEL,
+    preset,
+)
 
 USERS = "/api/v1/users"
 
@@ -52,10 +57,17 @@ def _create_user(
     name="A User",
     password="password123",
     access_level="manager",
+    permissions=None,
 ):
+    """`permissions` defaults to the preset matching `access_level`, which
+    is what the form's presets do and what the 010 migration backfilled --
+    so a test that only cares about the tier does not have to think about
+    the permission set, and one that does can pass it."""
+    if permissions is None:
+        permissions = preset(PRESET_FOR_ACCESS_LEVEL[access_level])
     resp = client.post(USERS, json={
         "email": email, "name": name, "password": password,
-        "access_level": access_level,
+        "access_level": access_level, "permissions": permissions,
     })
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -75,6 +87,7 @@ def _seed_user_directly(
         password_hash=hash_password(password),
         active=active,
         access_level=access_level,
+        permissions=preset(PRESET_FOR_ACCESS_LEVEL[access_level.value]),
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add(user)
@@ -122,6 +135,7 @@ class TestCrudHappyPaths:
             json={
                 "email": "dupe@example.com", "name": "Someone Else",
                 "password": "password123", "access_level": "admin",
+                "permissions": preset(PRESET_FOR_ACCESS_LEVEL["admin"]),
             },
         )
         assert resp.status_code == 409
@@ -213,6 +227,7 @@ class TestPasswordReset:
             json={
                 "email": "reset@example.com", "name": "Reset Target",
                 "password": "old-password", "access_level": "doctor",
+                "permissions": preset(PRESET_FOR_ACCESS_LEVEL["doctor"]),
             },
         )
         assert create_resp.status_code == 201, create_resp.text
@@ -550,6 +565,7 @@ class TestStaffLinks:
         resp = client.post(USERS, json={
             "email": "linked@example.com", "name": "Linked",
             "password": "password123", "access_level": "doctor",
+            "permissions": preset(PRESET_FOR_ACCESS_LEVEL["doctor"]),
             "doctor_id": doctor.id, "reception_staff_id": staff.id,
         })
         assert resp.status_code == 201, resp.text
@@ -570,6 +586,7 @@ class TestStaffLinks:
         resp = client.post(USERS, json={
             "email": "ghost@example.com", "name": "Ghost",
             "password": "password123", "access_level": "doctor",
+            "permissions": preset(PRESET_FOR_ACCESS_LEVEL["doctor"]),
             "doctor_id": 999999,
         })
         assert resp.status_code == 404, resp.text
@@ -578,6 +595,7 @@ class TestStaffLinks:
         resp = client.post(USERS, json={
             "email": "ghost2@example.com", "name": "Ghost",
             "password": "password123", "access_level": "nurse",
+            "permissions": preset(PRESET_FOR_ACCESS_LEVEL["nurse"]),
             "reception_staff_id": 999999,
         })
         assert resp.status_code == 404, resp.text
@@ -592,6 +610,7 @@ class TestStaffLinks:
         resp = client.post(USERS, json={
             "email": "second@example.com", "name": "Second",
             "password": "password123", "access_level": "doctor",
+            "permissions": preset(PRESET_FOR_ACCESS_LEVEL["doctor"]),
             "doctor_id": doctor.id,
         })
         assert resp.status_code == 409, resp.text
@@ -736,3 +755,156 @@ class TestStaffLinks:
             select(User).where(User.email == "selflink@example.com")
         ).scalar_one()
         assert row.doctor_id is None
+
+
+class TestPermissions:
+    """The permission set as DATA (fine-grained permissions plan, Task 1).
+
+    Nothing authorizes off it yet -- these tests are about the column
+    round-tripping, the empty-set rule, and the two ways the value could
+    quietly fail to persist.
+    """
+
+    _CLINICAL_ONLY = {
+        "clinical": "write",
+        "reception": "none",
+        "signatures": False,
+        "study_eoi": False,
+        "user_admin": False,
+    }
+
+    def test_create_persists_and_returns_the_set(self, client, db_session):
+        created = _create_user(
+            client, email="perm@example.com", permissions=self._CLINICAL_ONLY
+        )
+        assert created["permissions"] == self._CLINICAL_ONLY
+        row = db_session.get(User, created["id"])
+        assert row.permissions == self._CLINICAL_ONLY
+        # A plain dict, not a Pydantic object: the router hands the column
+        # model_dump()'s output, and anything else would fail to serialise
+        # at commit rather than at the boundary.
+        assert isinstance(row.permissions, dict)
+        assert all(
+            isinstance(value, (str, bool)) for value in row.permissions.values()
+        )
+
+    def test_create_without_permissions_422s(self, client):
+        resp = client.post(USERS, json={
+            "email": "nope@example.com", "name": "Nope",
+            "password": "password123", "access_level": "admin",
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_create_with_an_empty_set_422s(self, client):
+        """Plan D15: "no access" is spelled `active: false`, not an empty
+        permission set."""
+        resp = client.post(USERS, json={
+            "email": "empty@example.com", "name": "Empty",
+            "password": "password123", "access_level": "nurse",
+            "permissions": dict(DEFAULT_PERMISSIONS),
+        })
+        assert resp.status_code == 422, resp.text
+        assert "at least one permission" in resp.text
+
+    def test_create_with_an_unknown_level_422s(self, client):
+        resp = client.post(USERS, json={
+            "email": "bogus@example.com", "name": "Bogus",
+            "password": "password123", "access_level": "nurse",
+            "permissions": {**DEFAULT_PERMISSIONS, "clinical": "everything"},
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_omitted_keys_deny_rather_than_grant(self, client):
+        """A partial set is legal and under-grants: the fields default to
+        denied, so a client that has not caught up with a new permission
+        cannot accidentally hand it out."""
+        created = _create_user(
+            client, email="partial@example.com", permissions={"clinical": "read"}
+        )
+        assert created["permissions"] == {**DEFAULT_PERMISSIONS, "clinical": "read"}
+
+    def test_patch_replaces_the_whole_set(self, client, db_session):
+        created = _create_user(client, email="repatch@example.com")
+        resp = client.patch(
+            f"{USERS}/{created['id']}", json={"permissions": self._CLINICAL_ONLY}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["permissions"] == self._CLINICAL_ONLY
+        db_session.expire_all()
+        assert db_session.get(User, created["id"]).permissions == self._CLINICAL_ONLY
+
+    def test_patch_with_an_empty_set_422s(self, client):
+        created = _create_user(client, email="unperm@example.com")
+        resp = client.patch(
+            f"{USERS}/{created['id']}",
+            json={"permissions": dict(DEFAULT_PERMISSIONS)},
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_patch_leaves_permissions_alone_when_unset(self, client, db_session):
+        created = _create_user(
+            client, email="untouched@example.com", permissions=self._CLINICAL_ONLY
+        )
+        resp = client.patch(f"{USERS}/{created['id']}", json={"name": "Renamed"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["permissions"] == self._CLINICAL_ONLY
+
+    def test_in_place_key_edits_persist(self, client, db_session):
+        """The column is MutableDict-wrapped, so mutating one key is
+        tracked. Without that wrapper this commits nothing and the failure
+        looks like a gating bug, not a persistence one (plan D3)."""
+        created = _create_user(client, email="mutable@example.com")
+        row = db_session.get(User, created["id"])
+        row.permissions["clinical"] = "read"
+        db_session.commit()
+        db_session.expire_all()
+        assert db_session.get(User, created["id"]).permissions["clinical"] == "read"
+
+    def test_patch_me_cannot_change_own_permissions(
+        self, client_no_auth, db_session
+    ):
+        """UserSelfPatch has no `permissions`, so the key is dropped rather
+        than 422ing -- the same shape as the access-level and staff-link
+        tests above."""
+        _seed_user_directly(
+            db_session, "selfperm@example.com", "old-password",
+            access_level=AccessLevel.NURSE,
+        )
+        login = client_no_auth.post(
+            "/api/v1/auth/login",
+            json={"email": "selfperm@example.com", "password": "old-password"},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+        before = preset(PRESET_FOR_ACCESS_LEVEL["nurse"])
+        resp = client_no_auth.patch(
+            f"{USERS}/me", headers=headers,
+            json={"name": "Sneaky", "permissions": {"user_admin": True}},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["permissions"] == before
+        db_session.expire_all()
+        row = db_session.execute(
+            select(User).where(User.email == "selfperm@example.com")
+        ).scalar_one()
+        assert row.permissions == before
+
+    def test_a_row_with_no_permissions_still_reads(self, client, db_session):
+        """The deny-everything set is refused on save but IS what the
+        column server-defaults to, so a row inserted by hand must still
+        list rather than 500 the whole page."""
+        db_session.add(User(
+            email="handmade@example.com",
+            name="Handmade",
+            password_hash=hash_password("password123"),
+            active=True,
+            access_level=AccessLevel.NURSE,
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        ))
+        db_session.commit()
+
+        resp = client.get(USERS)
+        assert resp.status_code == 200, resp.text
+        listed = {u["email"]: u["permissions"] for u in resp.json()}
+        assert listed["handmade@example.com"] == dict(DEFAULT_PERMISSIONS)

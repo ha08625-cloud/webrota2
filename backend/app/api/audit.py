@@ -138,6 +138,8 @@ class AuditContext:
     user_id: int | None = None
     user_email: str | None = None
     user_access_level: str | None = None
+    # Compact JSON of the acting user's permission set; see models/audit.py.
+    user_permissions: str | None = None
     outcome_detail: str | None = None
 
     at: datetime.datetime = field(
@@ -374,6 +376,7 @@ class AuditMiddleware:
                     user_id=ctx.user_id,
                     user_email=ctx.user_email,
                     user_access_level=ctx.user_access_level,
+                    user_permissions=ctx.user_permissions,
                     method=ctx.method,
                     route=ctx.route,
                     path=ctx.path,

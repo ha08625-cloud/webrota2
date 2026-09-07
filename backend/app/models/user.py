@@ -22,7 +22,30 @@ password_hash stores a bcrypt hash. bcrypt silently truncates input at 72
 bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
 -- nothing about that truncation is visible from the model itself.
 
-access_level is the permission tier. It defaults to NURSE -- the lowest
+`permissions` is the per-user permission set (fine-grained permissions
+plan, D2/D3), which replaces `access_level` as the thing authorization
+reads; `access_level` survives beside it as a decorative label -- see
+below. As of this commit the column is written, validated and returned but
+not yet consulted: the gates in api/deps.py still read `access_level`
+until the gate rework lands. The set is a small JSON object, always read
+whole and never joined against, so it is one column rather than five or an
+association table; adding a sixth permission is then a code change, not a
+migration.
+
+The column type is portable `sqlalchemy.JSON`, not `JSONB`: the test suite
+builds SQLite straight from these models via `create_all`. It is wrapped
+in `MutableDict.as_mutable` because a plain JSON column is not
+change-tracked -- `user.permissions["clinical"] = "write"` would be
+silently dropped at commit, and the failure would look like a gating bug
+rather than a persistence one. The server_default denies everything, for
+the same reason access_level's does.
+
+access_level is the legacy permission tier, on its way to being a label
+only. Once the gates move across, nothing will authorize off it -- but it
+stays, because the audit log snapshots it, "Manager" is
+still a useful word in the UI, and AccessLevel is a native Postgres enum
+type, so removing a value would cost an ALTER TYPE migration for no
+functional gain. It defaults to NURSE -- the lowest
 tier -- as both the Python-side default and the server_default: an
 accidental viewer is recoverable, an accidental manager is a silent
 security hole. The API never relies on that default (UserIn requires
@@ -63,11 +86,26 @@ says it is -- a label, permission-identical to NURSE.
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
 from .enums import AccessLevel, enum_col
+from .permissions import (
+    DEFAULT_PERMISSIONS_JSON,
+    PermissionSetDict,
+    default_permissions,
+)
 
 if TYPE_CHECKING:
     from .doctor import Doctor
@@ -93,6 +131,14 @@ class User(Base):
         nullable=False,
         default=AccessLevel.NURSE,
         server_default=AccessLevel.NURSE.value,
+    )
+    # What this login may actually do. See the module docstring for the
+    # column type, and models/permissions.py for the shape.
+    permissions: Mapped[PermissionSetDict] = mapped_column(
+        MutableDict.as_mutable(JSON),
+        nullable=False,
+        default=default_permissions,
+        server_default=text(f"'{DEFAULT_PERMISSIONS_JSON}'"),
     )
     # The rota person this login belongs to, if any. See the module
     # docstring for why these sit here and why each is uniquely indexed.

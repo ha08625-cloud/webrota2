@@ -33,6 +33,18 @@ including the request's own session, so the very next call 401s. That is
 the correct behaviour for a password change, and the frontend handles the
 401 by sending the user back to the login screen.
 
+Permissions: `permissions` (models/permissions.py) is settable on POST
+and on `PATCH /{user_id}`, and never on `PATCH /users/me`. It arrives as a
+validated `PermissionSet` and is stored as a plain dict -- `model_dump()`
+on the outer payload converts the nested model recursively, so the value
+`setattr` sees below is JSON-serialisable. Handing the column a Pydantic
+object instead would fail at commit, so a test pins the round trip. The
+empty set is refused by the schema, not here (see schemas/auth.py).
+
+As of this commit nothing authorizes off `permissions`; the gates still
+read `access_level`. It is persisted, validated and returned so the gate
+rework has real data to read.
+
 Staff links: `doctor_id` and `reception_staff_id` (models/user.py) are
 settable on POST and on `PATCH /{user_id}`, both manager-only, and never on
 `PATCH /users/me` -- linking yourself to a rota identity is self-promotion
@@ -149,6 +161,7 @@ def create_user(
         password_hash=hash_password(payload.password),
         active=True,
         access_level=payload.access_level,
+        permissions=payload.permissions.model_dump(),
         doctor_id=payload.doctor_id,
         reception_staff_id=payload.reception_staff_id,
     )

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { AccessLevel, AuthUser, UserIn, UserPatch } from "@/api/types";
 import { ACCESS_LEVELS } from "./accessLevels";
+import { PRESET_FOR_ACCESS_LEVEL, permissionPreset } from "./permissionPresets";
 
 /**
  * Mirrors the backend exactly (schemas/auth.py UserIn/UserPatch): min 8,
@@ -77,11 +78,23 @@ function staffLinkPayload(value: number | ""): number | null {
   return value === "" ? null : value;
 }
 
+/**
+ * `permissions` is required on create and is not on the form yet, so it is
+ * derived from the chosen tier via the preset that matches it - the same
+ * mapping the 010 migration backfilled existing users with. A new user
+ * therefore gets exactly what their tier granted before permissions
+ * existed, bar signatures for an admin (see permissionPresets.ts). The
+ * permission editor that replaces this derivation is a later task.
+ *
+ * The PATCH payload below deliberately does NOT send permissions: it would
+ * reset a hand-tuned set every time someone fixed a typo in a name.
+ */
 export function toCreatePayload(values: UserFormValues): UserIn {
   return {
     email: values.email,
     name: values.name,
     access_level: values.access_level,
+    permissions: permissionPreset(PRESET_FOR_ACCESS_LEVEL[values.access_level]),
     doctor_id: staffLinkPayload(values.doctor_id),
     reception_staff_id: staffLinkPayload(values.reception_staff_id),
     password: values.password,

@@ -26,6 +26,7 @@ assertion on the 200 would fail before the null-body assertion was reached.
 """
 import datetime
 import io
+import json
 
 import pytest
 from fastapi import APIRouter
@@ -36,6 +37,11 @@ from app.api.auth_utils import hash_password
 from app.api.main import API_PREFIX, app
 from app.models import AuditLogEntry, User
 from app.models.enums import AccessLevel
+from app.models.permissions import (
+    MANAGER_PRESET,
+    PRESET_FOR_ACCESS_LEVEL,
+    preset,
+)
 
 
 def _entries(db_session):
@@ -265,6 +271,7 @@ def _seed_user(db_session, email, password, access_level=AccessLevel.MANAGER):
         password_hash=hash_password(password),
         active=True,
         access_level=access_level,
+        permissions=preset(PRESET_FOR_ACCESS_LEVEL[access_level.value]),
         created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add(user)
@@ -306,6 +313,12 @@ def test_authenticated_write_records_the_acting_user(client_no_auth, db_session)
     # A plain string, not an enum -- historical rows must survive a tier
     # being renamed.
     assert row.user_access_level == "manager"
+    # And the permission set that actually allowed it, as compact sorted
+    # JSON: "why was this allowed?" has to stay answerable after the user's
+    # permissions change (plan D13).
+    assert row.user_permissions == json.dumps(
+        preset(MANAGER_PRESET), sort_keys=True
+    )
 
 
 def test_unauthenticated_write_records_a_row_with_no_user(client_no_auth, db_session):
@@ -319,6 +332,7 @@ def test_unauthenticated_write_records_a_row_with_no_user(client_no_auth, db_ses
     assert row.user_id is None
     assert row.user_email is None
     assert row.user_access_level is None
+    assert row.user_permissions is None
     assert row.outcome_detail == "Not authenticated"
 
 
