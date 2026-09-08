@@ -107,10 +107,20 @@ def _load_counter_state(db: Session) -> CounterState:
     -- `CounterState.weighted_clinic_score` and `.increment_clinic` both treat
     a missing key as `raw=0`, and `_write_to_db` (step 9) uses
     `is_new_clinic_key` to decide INSERT vs UPDATE for those.
+
+    Opening balances travel with the counts, from the same rows. They are
+    converted to `float` here: the columns are `Numeric(5,1)`, so they arrive
+    as `Decimal`, and every downstream consumer does float arithmetic --
+    `Decimal / float` raises `TypeError`. The precision `Decimal` would buy
+    is worthless in what is only an in-memory sort key.
     """
     counters = CounterState()
     for row in db.execute(select(ClinicCounter)).scalars().all():
-        counters.clinic[(row.doctor_id, row.clinic_type_id)] = row.raw_count
+        key = (row.doctor_id, row.clinic_type_id)
+        counters.clinic[key] = row.raw_count
+        counters.clinic_balance[key] = float(row.opening_balance)
     for row in db.execute(select(SystemCounter)).scalars().all():
-        counters.system[(row.doctor_id, row.counter_type)] = row.raw_count
+        key = (row.doctor_id, row.counter_type)
+        counters.system[key] = row.raw_count
+        counters.system_balance[key] = float(row.opening_balance)
     return counters

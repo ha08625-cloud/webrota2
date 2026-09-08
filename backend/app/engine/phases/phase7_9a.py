@@ -872,7 +872,10 @@ def _room_move_score_text(
     spw = context.spw_by_id.get(doctor_id, 0.0)
     raw = counters.system.get((doctor_id, SystemCounterType.ROOM_MOVE), 0)
     return rat.score(
-        raw, spw, counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw)
+        raw,
+        spw,
+        counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw),
+        counters.system_opening_balance(doctor_id, SystemCounterType.ROOM_MOVE),
     )
 
 

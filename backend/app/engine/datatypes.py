@@ -240,14 +240,33 @@ class CounterState:
 
     clinic: dict[tuple[int, int], int] = field(default_factory=dict)
     system: dict[tuple[int, SystemCounterType], int] = field(default_factory=dict)
+    clinic_balance: dict[tuple[int, int], float] = field(default_factory=dict)
+    system_balance: dict[tuple[int, SystemCounterType], float] = field(default_factory=dict)
     _new_clinic_keys: set[tuple[int, int]] = field(default_factory=set, repr=False)
 
+    def clinic_opening_balance(self, doctor_id: int, clinic_type_id: int) -> float:
+        """The credited opening balance, 0.0 when none is stored."""
+        return self.clinic_balance.get((doctor_id, clinic_type_id), 0.0)
+
+    def system_opening_balance(
+        self, doctor_id: int, counter_type: SystemCounterType
+    ) -> float:
+        """The credited opening balance, 0.0 when none is stored."""
+        return self.system_balance.get((doctor_id, counter_type), 0.0)
+
     def weighted_clinic_score(self, doctor_id: int, clinic_type_id: int, spw: float) -> float:
-        """`raw / sessions_per_week`. Missing key treated as raw=0. spw=0 -> inf."""
+        """`(raw + opening balance) / sessions_per_week`.
+
+        Missing key treated as raw=0 and balance=0.0. spw=0 -> inf. The
+        balance is a credit in sessions for a mid-year joiner, so they start
+        level with their peers instead of at zero; `increment_clinic` never
+        touches it, which is what keeps the draft snapshot contract (raw
+        counts only) true.
+        """
         if spw == 0:
             return math.inf
         raw = self.clinic.get((doctor_id, clinic_type_id), 0)
-        return raw / spw
+        return (raw + self.clinic_opening_balance(doctor_id, clinic_type_id)) / spw
 
     def weighted_system_score(
         self,
@@ -256,16 +275,19 @@ class CounterState:
         spw: float,
         multiplier: float = 1.0,
     ) -> float:
-        """`raw / spw`, scaled by `multiplier`. `spw=0` -> inf regardless of
-        `multiplier` -- an undefined score stays undefined. `multiplier` is
-        currently only passed by Phase 9C (supervision-preference weighting
-        of the SUPERVISION counter); ROOM_MOVE callers pass nothing and get
-        the unscaled score, unchanged from before this parameter existed.
+        """`(raw + opening balance) / spw`, scaled by `multiplier`.
+
+        `spw=0` -> inf regardless of `multiplier` -- an undefined score stays
+        undefined. `multiplier` is currently only passed by Phase 9C
+        (supervision-preference weighting of the SUPERVISION counter);
+        ROOM_MOVE callers pass nothing and get the unscaled score, unchanged
+        from before this parameter existed. See `weighted_clinic_score` for
+        what the opening balance is and why it is held apart from `raw`.
         """
         if spw == 0:
             return math.inf
         raw = self.system.get((doctor_id, counter_type), 0)
-        return (raw / spw) * multiplier
+        return ((raw + self.system_opening_balance(doctor_id, counter_type)) / spw) * multiplier
 
     def increment_clinic(self, doctor_id: int, clinic_type_id: int) -> None:
         key = (doctor_id, clinic_type_id)

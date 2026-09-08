@@ -152,6 +152,7 @@ class _Candidate:
     raw: int
     spw: float
     weighted: float
+    balance: float = 0.0
 
 
 def _score_candidates(
@@ -170,6 +171,7 @@ def _score_candidates(
             weighted=counters.weighted_clinic_score(
                 elig.doctor_id, clinic.id, context.spw_by_id.get(elig.doctor_id, 0.0)
             ),
+            balance=counters.clinic_opening_balance(elig.doctor_id, clinic.id),
         )
         for elig in eligible
     ]
@@ -211,7 +213,7 @@ def _selection_rationale(
         rat.listing(
             "Eligible",
             [
-                f"{c.code} (priority tier {c.tier}, {rat.score(c.raw, c.spw, c.weighted)})"
+                f"{c.code} (priority tier {c.tier}, {rat.score(c.raw, c.spw, c.weighted, c.balance)})"
                 for c in candidates
             ],
         ),
@@ -234,7 +236,7 @@ def _selection_rationale(
 
     lines.append(rat.listing(
         "Weighted clinic counters within that tier",
-        [f"{c.code} {rat.score(c.raw, c.spw, c.weighted)}" for c in top_tier],
+        [f"{c.code} {rat.score(c.raw, c.spw, c.weighted, c.balance)}" for c in top_tier],
     ))
     tied = [c for c in top_tier if c.weighted == chosen.weighted]
     if len(tied) == 1:

@@ -187,6 +187,79 @@ class TestCounterState:
         assert cs2.is_new_clinic_key(2, 1) is False  # already existed
         assert cs2.clinic[(2, 1)] == 4
 
+    def test_opening_balance_is_added_to_the_numerator(self):
+        # The joiner credit: a doctor with raw 0 and a 3.2-session balance
+        # scores exactly as if they had already done 3.2 sessions.
+        cs = CounterState(clinic_balance={(1, 1): 3.2})
+        assert cs.weighted_clinic_score(1, 1, spw=4.0) == pytest.approx(0.8)
+        cs.increment_clinic(1, 1)
+        assert cs.weighted_clinic_score(1, 1, spw=4.0) == pytest.approx(1.05)
+
+    def test_system_opening_balance_is_added_and_then_scaled(self):
+        # The multiplier applies to the whole (raw + balance) / spw score,
+        # not to the raw count alone.
+        cs = CounterState(
+            system={(1, SystemCounterType.SUPERVISION): 2},
+            system_balance={(1, SystemCounterType.SUPERVISION): 2.0},
+        )
+        assert cs.weighted_system_score(
+            1, SystemCounterType.SUPERVISION, spw=4.0
+        ) == pytest.approx(1.0)
+        assert cs.weighted_system_score(
+            1, SystemCounterType.SUPERVISION, spw=4.0, multiplier=1.5
+        ) == pytest.approx(1.5)
+
+    def test_balance_sorts_a_doctor_behind_an_identical_peer(self):
+        # The whole point of the feature: two doctors with the same raw
+        # count and spw are no longer tied once one carries a credit, and
+        # the credited one sorts later (i.e. is picked second).
+        cs = CounterState(
+            clinic={(1, 1): 2, (2, 1): 2},
+            clinic_balance={(2, 1): 1.0},
+        )
+        order = sorted(
+            [1, 2], key=lambda d: cs.weighted_clinic_score(d, 1, spw=4.0)
+        )
+        assert order == [1, 2]
+
+    def test_negative_balance_is_allowed(self):
+        cs = CounterState(clinic={(1, 1): 4}, clinic_balance={(1, 1): -2.0})
+        assert cs.weighted_clinic_score(1, 1, spw=4.0) == pytest.approx(0.5)
+
+    def test_spw_zero_returns_inf_even_with_a_balance(self):
+        cs = CounterState(
+            clinic_balance={(1, 1): 5.0},
+            system_balance={(1, SystemCounterType.ROOM_MOVE): 5.0},
+        )
+        assert cs.weighted_clinic_score(1, 1, spw=0) == math.inf
+        assert cs.weighted_system_score(1, SystemCounterType.ROOM_MOVE, spw=0) == math.inf
+
+    def test_increment_never_touches_the_balance(self):
+        # The snapshot contract: the engine moves raw counts only, so a
+        # balance can never be captured, restored or corrupted by a draft.
+        cs = CounterState(
+            clinic_balance={(1, 1): 3.0},
+            system_balance={(1, SystemCounterType.ROOM_MOVE): 3.0},
+        )
+        cs.increment_clinic(1, 1)
+        cs.increment_system(1, SystemCounterType.ROOM_MOVE)
+        assert cs.clinic[(1, 1)] == 1
+        assert cs.system[(1, SystemCounterType.ROOM_MOVE)] == 1
+        assert cs.clinic_balance == {(1, 1): 3.0}
+        assert cs.system_balance == {(1, SystemCounterType.ROOM_MOVE): 3.0}
+
+    def test_balance_alone_does_not_make_a_clinic_key_new(self):
+        # A balance is loaded from an existing DB row, so its key must not
+        # be reported as needing an INSERT.
+        cs = CounterState(clinic={(1, 1): 0}, clinic_balance={(1, 1): 2.0})
+        cs.increment_clinic(1, 1)
+        assert cs.is_new_clinic_key(1, 1) is False
+
+    def test_missing_balance_key_reads_as_zero(self):
+        cs = CounterState()
+        assert cs.clinic_opening_balance(1, 1) == 0.0
+        assert cs.system_opening_balance(1, SystemCounterType.ROOM_MOVE) == 0.0
+
     def test_separate_doctors_separate_counters(self):
         cs = CounterState()
         cs.increment_clinic(1, 1)

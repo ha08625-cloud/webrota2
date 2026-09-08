@@ -1,4 +1,7 @@
 import datetime
+from decimal import Decimal
+
+import pytest
 
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
@@ -334,6 +337,31 @@ class TestCounterStateLoading:
         # must UPDATE these, not INSERT.
         assert counters.is_new_clinic_key(d.id, ct.id) is False
 
+    def test_opening_balances_loaded_as_floats(self, session, monday):
+        # Numeric(5,1) arrives as Decimal; the engine does float arithmetic
+        # throughout, and Decimal / float raises TypeError -- so the
+        # conversion has to happen here, at the load boundary.
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA", spw="4.0")
+        ct = make_clinic_type(session, name="Dragon")
+        make_clinic_counter(session, d, ct, raw_count=0, opening_balance=Decimal("3.2"))
+        make_system_counter(
+            session, d, SystemCounterType.ROOM_MOVE, raw_count=1,
+            opening_balance=Decimal("-1.5"),
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        ctx = load_context(session, config)
+        grid, counters = run_phase2(ctx, config, session)
+
+        assert counters.clinic_balance[(d.id, ct.id)] == pytest.approx(3.2)
+        assert isinstance(counters.clinic_balance[(d.id, ct.id)], float)
+        assert counters.system_balance[
+            (d.id, SystemCounterType.ROOM_MOVE)
+        ] == pytest.approx(-1.5)
+        # And the score they feed is computable without a TypeError.
+        assert counters.weighted_clinic_score(d.id, ct.id, spw=4.0) == pytest.approx(0.8)
+
     def test_no_counters_yields_empty_counter_state(self, session, monday):
         make_template(session, is_active=True)
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
@@ -342,3 +370,5 @@ class TestCounterStateLoading:
 
         assert counters.clinic == {}
         assert counters.system == {}
+        assert counters.clinic_balance == {}
+        assert counters.system_balance == {}
