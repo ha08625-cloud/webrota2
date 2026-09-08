@@ -12,15 +12,45 @@ import { groupDoctorsByType } from "@/lib/groupDoctors";
 const PAST_PERIOD_COUNT = 1;
 const FUTURE_PERIOD_COUNT = 5;
 
+/**
+ * Past periods offered when "Show previous periods" is ticked. Six 28-day
+ * periods is 24 weeks back, mirroring the 24 weeks the default forward
+ * window already covers - roughly six months either side, not exactly,
+ * since a 28-day period never divides a calendar month evenly. Historical
+ * periods stay fully editable: duty rows are generation inputs, not an
+ * audit trail (manual duty edits on a generated rota never write back to
+ * them), so there is nothing a late edit to a past period can corrupt.
+ */
+const HISTORY_PERIOD_COUNT = 6;
+
 export function DutyPage() {
   const writeGate = useWriteGate();
+  const [showHistory, setShowHistory] = useState(false);
   const periodStarts = useMemo(
-    () => getDutyPeriodStarts(PAST_PERIOD_COUNT, FUTURE_PERIOD_COUNT),
-    [],
+    () => getDutyPeriodStarts(showHistory ? HISTORY_PERIOD_COUNT : PAST_PERIOD_COUNT, FUTURE_PERIOD_COUNT),
+    [showHistory],
   );
-  // Index PAST_PERIOD_COUNT is the period containing today - admins need to
-  // land on the in-progress period by default, not the next upcoming one.
-  const [selectedPeriod, setSelectedPeriod] = useState(periodStarts[PAST_PERIOD_COUNT]);
+  // The period containing today - admins need to land on the in-progress
+  // period by default, not the next upcoming one. Deliberately derived
+  // from the date, not read as periodStarts[PAST_PERIOD_COUNT]: the
+  // history toggle changes how many past entries sit in front of it, so
+  // any fixed index into that array stops meaning "current" the moment
+  // the toggle flips.
+  const currentPeriod = useMemo(() => getDutyPeriodStarts(0, 0)[0], []);
+  const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+
+  /**
+   * Unticking while a now-unlisted past period is selected would leave the
+   * <select> with a value matching no option, which renders blank. Snap
+   * back to the current period instead. Ticking never needs this - the
+   * list only grows.
+   */
+  function handleToggleHistory(checked: boolean) {
+    setShowHistory(checked);
+    if (!checked && selectedPeriod < getDutyPeriodStarts(PAST_PERIOD_COUNT, 0)[0]) {
+      setSelectedPeriod(currentPeriod);
+    }
+  }
 
   const { data: allDoctors } = useDoctors(false);
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
@@ -79,6 +109,15 @@ export function DutyPage() {
             </option>
           ))}
         </select>
+        <label className="ml-3 inline-flex items-center gap-1.5 text-xs text-ink/70">
+          <input
+            type="checkbox"
+            checked={showHistory}
+            onChange={(e) => handleToggleHistory(e.target.checked)}
+            className="rounded border-border"
+          />
+          Show previous periods
+        </label>
       </div>
 
       <div className="mt-4">
