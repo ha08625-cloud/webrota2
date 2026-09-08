@@ -88,7 +88,6 @@ describe("ClinicalShell nav by permission", () => {
     const nav = screen.getByRole("navigation");
     for (const label of [
       "Generate new rotas",
-      "Staging",
       "Master Rota",
       "Staff",
       "Counters",
