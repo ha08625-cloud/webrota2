@@ -12,6 +12,35 @@
   --color-accent: 79 95 166;
 }
 
+/* The three alternative palettes. Each overrides the same five variables and
+   nothing else; anything not in this list is pinned and does not move with a
+   theme (the Q13 rota cell colours, validation red, warning amber, exports).
+   Contrast ratios were measured against the DD7 pair list rather than
+   eyeballed - re-measure before changing any value here. */
+[data-theme="warm"] {
+  --color-background: 250 246 240; /* #FAF6F0 */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-ink: 42 33 24; /* #2A2118 */
+  --color-border: 230 220 205; /* #E6DCCD */
+  --color-accent: 138 75 42; /* #8A4B2A */
+}
+
+[data-theme="slate"] {
+  --color-background: 235 238 242; /* #EBEEF2 */
+  --color-surface: 250 251 252; /* #FAFBFC */
+  --color-ink: 22 32 43; /* #16202B */
+  --color-border: 199 208 218; /* #C7D0DA */
+  --color-accent: 42 101 128; /* #2A6580 */
+}
+
+[data-theme="contrast"] {
+  --color-background: 237 237 237; /* #EDEDED */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-ink: 0 0 0; /* #000000 */
+  --color-border: 107 114 128; /* #6B7280 */
+  --color-accent: 11 79 209; /* #0B4FD1 */
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
