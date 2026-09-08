@@ -27,7 +27,8 @@ def insert_signature(docx_bytes: bytes, image_bytes: bytes) -> Document:
     (not bytes) so the caller can apply protection before a single save.
 
     Raises DocumentFormatError if docx_bytes is not a valid .docx package,
-    or if the first table does not have exactly two columns.
+    if it contains no table, or if the first table does not have exactly
+    two columns.
     """
     try:
         document = Document(io.BytesIO(docx_bytes))

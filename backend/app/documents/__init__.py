@@ -1,31 +1,12 @@
-"""Document manipulation package (signatures feature, Task 2).
+"""Document manipulation package: signature insertion, PDF conversion and
+the Site Identification (EOI) form autofill.
 
 Pure logic, framework-free -- bytes in, bytes out, no FastAPI and no DB
-access, the same convention as app.engine.
+access, the same convention as app.engine. pdf_convert is the exception:
+it shells out to LibreOffice, so it needs libreoffice-writer installed
+(see nixpacks.toml and the CI test job).
 
-  errors.py               DocumentFormatError (the file is wrong) and
-                           ConversionError (our converter failed)
-  signature_insert.py     insert_signature(): insert a signature image
-                           into the bottom-left cell of a docx's first
-                           table; insert_date(): insert today's date into
-                           the cell to its right
-  rtf_signature_insert.py insert_signature_rtf(): splice a signature
-                           image into RTF bytes, beneath the "Signature"
-                           label; insert_date_rtf(): splice today's date
-                           beneath the "Date" label
-  pdf_convert.py          convert_to_pdf(): render RTF/DOCX bytes to PDF
-                           via a headless LibreOffice subprocess
-  restrict_editing.py     apply_read_only_protection(): Word Restrict
-                           Editing (read-only, fixed password);
-                           save_docx(): save an open Document to bytes
-  eoi_rules.py            EoiRule and EOI_RULES: the rule table for the
-                           Site Identification (EOI) form autofill, ported
-                           from the FillResearchSite macro
-  eoi_fill.py             fill_eoi(): apply those rules to an uploaded
-                           form, returning the filled bytes and the ids of
-                           the rules that matched nothing
-
-Usage (the router, Task 3, composes these calls in order):
+The .docx signing path, in the order the router composes it:
 
     document = insert_signature(docx_bytes, image_bytes)
     insert_date(document, date_text)
@@ -39,10 +20,6 @@ password:
     rtf_bytes = insert_signature_rtf(rtf_bytes, image_bytes, content_type)
     rtf_bytes = insert_date_rtf(rtf_bytes, date_text)
     pdf_bytes = convert_to_pdf(rtf_bytes, ".rtf")
-
-convert_to_pdf shells out to LibreOffice, so unlike the rest of this
-package it is not pure -- it needs libreoffice-writer installed (see
-nixpacks.toml and the CI test job).
 """
 from .eoi_fill import fill_eoi
 from .eoi_rules import EOI_RULES, EoiRule
