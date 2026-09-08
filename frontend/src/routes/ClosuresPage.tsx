@@ -190,12 +190,6 @@ export function ClosuresPage() {
 
   return (
     <div>
-      <p className="text-sm text-ink/70">
-        Bank holiday weeks and other whole- or half-day practice closures. A closure applies
-        automatically to any rota generated over it - there is nothing to select on the generate
-        form.
-      </p>
-
       <div className="mt-4">
         <BankHolidaysSection />
       </div>

@@ -510,11 +510,12 @@ export function LeavePage() {
           {mode === "remove" ? "Remove leave" : "Add leave"}
         </button>
 
-        <p className="w-full text-xs text-ink/50">
-          {mode === "remove"
-            ? "Removes every matching entry in the range, including weekends. This cannot be undone from here."
-            : "Weekdays only (Mon-Fri); weekends in the range are skipped."}
-        </p>
+        {mode === "remove" ? (
+          <p className="w-full text-xs text-ink/50">
+            Removes every matching entry in the range, including weekends. This cannot be undone
+            from here.
+          </p>
+        ) : null}
 
         {formDoctorId !== "" && datesValid ? (
           <div className="w-full">
