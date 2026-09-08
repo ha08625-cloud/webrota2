@@ -135,6 +135,61 @@ describe("DutyPage", () => {
     expect(select.value).toBe(options[1].value);
   });
 
+  it("ticking 'Show previous periods' adds 5 further past periods and keeps the current one selected", async () => {
+    setUpServer();
+    const user = userEvent.setup();
+    renderWithProviders(<DutyPage />);
+
+    const select = (await screen.findByLabelText("Duty period")) as HTMLSelectElement;
+    const currentPeriod = select.value;
+
+    await user.click(screen.getByRole("checkbox", { name: "Show previous periods" }));
+
+    const options = Array.from(select.querySelectorAll("option"));
+    // 6 past + current + 5 future.
+    expect(options).toHaveLength(12);
+    expect(options.map((o) => o.value)).toEqual(getDutyPeriodStarts(6, 5));
+    expect(select.value).toBe(currentPeriod);
+  });
+
+  it("unticking while a now-unlisted past period is selected snaps the selection back to the current period", async () => {
+    setUpServer();
+    const user = userEvent.setup();
+    renderWithProviders(<DutyPage />);
+
+    const select = (await screen.findByLabelText("Duty period")) as HTMLSelectElement;
+    const currentPeriod = select.value;
+    const checkbox = screen.getByRole("checkbox", { name: "Show previous periods" });
+
+    await user.click(checkbox);
+    // Six periods back - outside the single past period the default list keeps.
+    const [oldest] = getDutyPeriodStarts(6, 0);
+    await user.selectOptions(select, oldest);
+    expect(select.value).toBe(oldest);
+
+    await user.click(checkbox);
+
+    expect(Array.from(select.querySelectorAll("option"))).toHaveLength(7);
+    expect(select.value).toBe(currentPeriod);
+  });
+
+  it("unticking leaves a still-listed past period selected", async () => {
+    setUpServer();
+    const user = userEvent.setup();
+    renderWithProviders(<DutyPage />);
+
+    const select = (await screen.findByLabelText("Duty period")) as HTMLSelectElement;
+    const checkbox = screen.getByRole("checkbox", { name: "Show previous periods" });
+    // One period back - present in both the default and the extended list.
+    const [previousPeriod] = getDutyPeriodStarts(1, 0);
+
+    await user.click(checkbox);
+    await user.selectOptions(select, previousPeriod);
+    await user.click(checkbox);
+
+    expect(select.value).toBe(previousPeriod);
+  });
+
   it("mounts the duty grid for the selected start week, showing all 4 weeks above the existing table", async () => {
     setUpServer();
     renderWithProviders(<DutyPage />);
