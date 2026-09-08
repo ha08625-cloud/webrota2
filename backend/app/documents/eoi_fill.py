@@ -36,8 +36,8 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from docx import Document
-from docx.oxml.ns import qn
 from docx.opc.exceptions import PackageNotFoundError
+from docx.oxml.ns import qn
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 

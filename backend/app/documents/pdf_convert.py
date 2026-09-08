@@ -12,8 +12,8 @@ exited 1 having *silently written no output file* -- so a request would have
 failed with no diagnosis. -env:UserInstallation gives each run a private
 profile in the same temp directory as its input, which costs about 1.2 s and
 550 KB and removes the need for any mutex. tests/test_documents/
-test_pdf_convert.py::test_concurrent_conversions_both_succeed is the
-regression test for this and fails without it.
+test_pdf_convert.py::TestConvertToPdf::test_concurrent_conversions_both_succeed
+is the regression test for this and fails without it.
 
 Spawning a whole soffice process per document is the worst case for latency
 and it is still cheap enough not to need a resident instance: measured on the

@@ -30,9 +30,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-# Fallback only -- the router (Task 3) reads DOC_LOCK_PASSWORD from the
-# environment and passes it in; this constant is not read from env here,
-# keeping this module configuration-free.
+# Fallback only, for callers that have nothing configured to pass in.
 DEFAULT_LOCK_PASSWORD = "rota-signatures"
 
 _SPIN_COUNT = 100_000
