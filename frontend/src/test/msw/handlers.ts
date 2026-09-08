@@ -164,6 +164,17 @@ export const handlers: HttpHandler[] = [
   http.delete("/api/v1/staging/:stagingId/sessions/:sessionId", () =>
     new HttpResponse(null, { status: 204 }),
   ),
+  // Per-run notes. POST and PATCH echo the whole staging back, as the
+  // real endpoints do; the default is an empty-note staging, so tests
+  // that assert on what the panel renders after a write stub these with
+  // the staging they expect.
+  http.post("/api/v1/staging/:stagingId/notes", () =>
+    HttpResponse.json(makeStaging(), { status: 201 }),
+  ),
+  http.patch("/api/v1/staging/:stagingId/notes/:noteId", () => HttpResponse.json(makeStaging())),
+  http.delete("/api/v1/staging/:stagingId/notes/:noteId", () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
   http.delete("/api/v1/staging/:stagingId", () => new HttpResponse(null, { status: 204 })),
   http.post("/api/v1/staging/:stagingId/complete", () =>
     HttpResponse.json({ rota_id: 1, status: "draft", issues: [] }),

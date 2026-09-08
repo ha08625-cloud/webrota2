@@ -4,6 +4,7 @@ import { useAbandonStaging, useActiveStaging, useCompleteStaging } from "@/api/s
 import { useWriteGate } from "@/auth/AuthContext";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
 import { StagingGrid } from "@/components/StagingGrid";
+import { StagingNotesPanel } from "@/components/StagingNotesPanel";
 import { ToastDisplay, useToast } from "@/components/Toast";
 import { formatDate } from "@/lib/date";
 
@@ -92,6 +93,8 @@ export function StagingPage() {
       </div>
 
       {completeStaging.isError ? <GenerateErrorMessage error={completeStaging.error} /> : null}
+
+      <StagingNotesPanel staging={staging} />
 
       <div className="mt-6">
         <StagingGrid
