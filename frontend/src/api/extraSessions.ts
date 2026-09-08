@@ -5,17 +5,31 @@ import type { ExtraSessionEntry, ExtraSessionIn } from "./types";
 
 export const extraSessionKeys = {
   all: ["extraSessions"] as const,
-  list: (doctorId: number | null) => [...extraSessionKeys.all, "list", doctorId] as const,
+  list: (doctorId: number | null, year: number | null) =>
+    [...extraSessionKeys.all, "list", doctorId, year] as const,
 };
 
-/** doctorId=null means unfiltered (the "all doctors" option in the filter select), matching useLeave's convention. */
-export function useExtraSessions(doctorId: number | null) {
+/**
+ * Entries in one calendar year - the year shared by the Session Management
+ * tabs, see SessionManagementTabs.tsx - or, with year=null, every entry
+ * regardless of date. Either argument being null means "unfiltered on that
+ * axis", matching useLeave's convention for doctorId.
+ */
+export function useExtraSessions(doctorId: number | null, year: number | null) {
   return useQuery({
-    queryKey: extraSessionKeys.list(doctorId),
-    queryFn: () =>
-      apiClient.get<ExtraSessionEntry[]>(
-        doctorId === null ? "/extra-sessions" : `/extra-sessions?doctor_id=${doctorId}`,
-      ),
+    queryKey: extraSessionKeys.list(doctorId, year),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (doctorId !== null) params.set("doctor_id", String(doctorId));
+      if (year !== null) {
+        params.set("from_date", `${year}-01-01`);
+        params.set("to_date", `${year}-12-31`);
+      }
+      const query = params.toString();
+      return apiClient.get<ExtraSessionEntry[]>(
+        query ? `/extra-sessions?${query}` : "/extra-sessions",
+      );
+    },
   });
 }
 

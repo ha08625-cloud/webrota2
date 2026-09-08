@@ -6,6 +6,7 @@ import { useCreateExtraSession, useDeleteExtraSession, useExtraSessions } from "
 import { useActiveStaging } from "@/api/staging";
 import type { ApiError, ExtraSessionEntry, Period } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
+import { useSessionYear } from "@/components/SessionManagementTabs";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
@@ -37,7 +38,8 @@ export function ExtraSessionsPage() {
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
 
   const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
-  const { data: entries, isLoading, isError } = useExtraSessions(filterDoctorId);
+  const { year } = useSessionYear();
+  const { data: entries, isLoading, isError } = useExtraSessions(filterDoctorId, year);
   const createExtraSession = useCreateExtraSession();
   const deleteExtraSession = useDeleteExtraSession();
 
@@ -71,7 +73,15 @@ export function ExtraSessionsPage() {
 
     try {
       await createExtraSession.mutateAsync({ doctor_id: formDoctorId, date, period });
-      setFormSummary("Extra session added.");
+      // The date typed here is deliberately not clamped to the selected year;
+      // when it falls outside it, the new row will not appear in the list
+      // below, so the message says where it did go.
+      const addedYear = date.slice(0, 4);
+      setFormSummary(
+        addedYear === String(year)
+          ? "Extra session added."
+          : `Added in ${addedYear} - switch the year to see it.`,
+      );
       setDate("");
     } catch (err) {
       // Surfaces the server's 409 leave-conflict message verbatim
@@ -187,7 +197,7 @@ export function ExtraSessionsPage() {
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load extra sessions.</p> : null}
 
       {entries && entries.length === 0 ? (
-        <p className="mt-4 text-sm text-ink/50">No extra sessions planned.</p>
+        <p className="mt-4 text-sm text-ink/50">No extra sessions planned in {year}.</p>
       ) : null}
 
       {entries && entries.length > 0 ? (

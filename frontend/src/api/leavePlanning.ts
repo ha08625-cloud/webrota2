@@ -15,7 +15,7 @@ export const leavePlanningKeys = {
 
 /**
  * All `BlockedEntry` rows, unfiltered - mirrors `useLeave(null)` /
- * `useExtraSessions(null)`, the two sibling reads the Annual Planner grid
+ * `useExtraSessions(null, null)`, the two sibling reads the Annual Planner grid
  * already fetches whole. There is no ad-hoc write surface for blocked
  * entries; the only writer is `useApplyPlanningBulk` below.
  */

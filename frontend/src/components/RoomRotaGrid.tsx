@@ -26,7 +26,7 @@ interface RoomRotaGridProps {
  */
 export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridProps) {
   const { data: rooms, isLoading: roomsLoading } = useRooms();
-  const { data: closures } = useClosures();
+  const { data: closures } = useClosures(null);
 
   const weeks = useMemo(() => weekNumbers(rota.num_weeks), [rota.num_weeks]);
   const grid = useMemo(() => pivotRoomRota(rota.sessions, rooms ?? []), [rota.sessions, rooms]);

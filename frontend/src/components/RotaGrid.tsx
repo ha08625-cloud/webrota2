@@ -100,7 +100,7 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
   const { data: issues } = useRotaIssues(rota.rota_id);
-  const { data: closures } = useClosures();
+  const { data: closures } = useClosures(null);
 
   const swapRoles = useSwapRoles();
   const swapRooms = useSwapRooms();

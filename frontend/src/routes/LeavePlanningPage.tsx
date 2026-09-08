@@ -141,9 +141,9 @@ export function LeavePlanningPage() {
   const { data: allDoctors } = useDoctors(true);
   const { data: coverage, isLoading: coverageLoading } = useCoverage(fromDate, toDate);
   const { data: leave } = useLeave(null);
-  const { data: extraSessions } = useExtraSessions(null);
+  const { data: extraSessions } = useExtraSessions(null, null);
   const { data: blocked } = useBlockedEntries();
-  const { data: closures } = useClosures();
+  const { data: closures } = useClosures(null);
   const { data: bankHolidays } = useBankHolidays(year);
   const { data: schools } = useSchools();
   // 404s when no template is active; the grid still draws its leave cells,

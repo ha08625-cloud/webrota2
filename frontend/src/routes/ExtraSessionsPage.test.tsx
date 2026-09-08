@@ -8,7 +8,36 @@ import { makeStaging } from "@/test/fixtures/staging";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
+import { SessionYearProvider } from "@/components/SessionManagementTabs";
+
 import { ExtraSessionsPage } from "./ExtraSessionsPage";
+
+/** Outside a SessionYearProvider the page falls back to the current year,
+ * which is what most cases here render in. */
+const CURRENT_YEAR = new Date().getFullYear();
+
+/** First weekday of August in `year`, so a case that needs a date the
+ * page's weekend guard accepts does not depend on which year the suite
+ * happens to run in. */
+function firstWeekdayOfAugust(year: number): string {
+  for (let day = 1; ; day += 1) {
+    const date = new Date(year, 7, day);
+    if (date.getDay() !== 0 && date.getDay() !== 6) {
+      return `${year}-08-${String(day).padStart(2, "0")}`;
+    }
+  }
+}
+
+/** The page under the shared-year provider, on `year`, the way the Session
+ * Management layout mounts it. */
+function renderOnYear(year: number) {
+  return renderWithProviders(
+    <SessionYearProvider>
+      <ExtraSessionsPage />
+    </SessionYearProvider>,
+    { route: `/?year=${year}` },
+  );
+}
 
 function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB", active: true })],
@@ -37,7 +66,49 @@ describe("ExtraSessionsPage", () => {
     setUpServer();
     renderWithProviders(<ExtraSessionsPage />);
 
-    expect(await screen.findByText("No extra sessions planned.")).toBeInTheDocument();
+    expect(await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`)).toBeInTheDocument();
+  });
+
+  it("requests only the selected year's entries", async () => {
+    setUpServer();
+    let requestedUrl = "";
+    server.use(
+      http.get("/api/v1/extra-sessions", ({ request }) => {
+        requestedUrl = request.url;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderOnYear(CURRENT_YEAR + 1);
+
+    expect(
+      await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR + 1}.`),
+    ).toBeInTheDocument();
+    const params = new URL(requestedUrl).searchParams;
+    expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
+    expect(params.get("to_date")).toBe(`${CURRENT_YEAR + 1}-12-31`);
+  });
+
+  it("keeps the doctor filter alongside the year", async () => {
+    setUpServer();
+    const requestedUrls: string[] = [];
+    server.use(
+      http.get("/api/v1/extra-sessions", ({ request }) => {
+        requestedUrls.push(request.url);
+        return HttpResponse.json([]);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderOnYear(CURRENT_YEAR + 1);
+    const filter = await screen.findByLabelText("Doctor", { selector: "#extra-session-filter" });
+    await user.selectOptions(filter, await within(filter).findByRole("option", { name: "AB" }));
+
+    await waitFor(() => {
+      const params = new URL(requestedUrls[requestedUrls.length - 1]).searchParams;
+      expect(params.get("doctor_id")).toBe("1");
+      expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
+    });
   });
 
   it("renders a row per extra session entry", async () => {
@@ -75,6 +146,29 @@ describe("ExtraSessionsPage", () => {
       expect(capturedBody).toEqual({ doctor_id: 1, date: "2026-08-03", period: "AM" }),
     );
     expect(await screen.findByText("Extra session added.")).toBeInTheDocument();
+  });
+
+  it("hints where an entry went when its date is outside the selected year", async () => {
+    setUpServer();
+    const outOfYearDate = firstWeekdayOfAugust(CURRENT_YEAR + 1);
+    server.use(
+      http.post("/api/v1/extra-sessions", () =>
+        HttpResponse.json({ id: 1, doctor_id: 1, date: outOfYearDate, period: "AM" }, { status: 201 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ExtraSessionsPage />);
+    await selectFormDoctor(user, "AB");
+    await user.type(
+      screen.getByLabelText("Date", { selector: "#extra-session-date" }),
+      outOfYearDate,
+    );
+    await user.click(screen.getByRole("button", { name: "Add extra session" }));
+
+    expect(
+      await screen.findByText(`Added in ${CURRENT_YEAR + 1} - switch the year to see it.`),
+    ).toBeInTheDocument();
   });
 
   it("blocks submission with an inline error for a weekend date, without calling the API", async () => {
@@ -136,7 +230,7 @@ describe("ExtraSessionsPage", () => {
     setUpServer();
     renderWithProviders(<ExtraSessionsPage />);
 
-    await screen.findByText("No extra sessions planned.");
+    await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`);
     expect(screen.queryByText(/A staging is currently in progress/)).not.toBeInTheDocument();
   });
 
@@ -165,6 +259,6 @@ describe("ExtraSessionsPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(deleted).toBe(true);
-    expect(await screen.findByText("No extra sessions planned.")).toBeInTheDocument();
+    expect(await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`)).toBeInTheDocument();
   });
 });

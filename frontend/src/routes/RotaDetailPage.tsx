@@ -125,7 +125,7 @@ export function RotaDetailPage() {
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
-  const { data: closures, isLoading: closuresLoading } = useClosures();
+  const { data: closures, isLoading: closuresLoading } = useClosures(null);
   const exportLookupsLoading = doctorsLoading || roomsLoading || clinicTypesLoading || closuresLoading;
   // Which export (if any) is in flight. A boolean would disable *both*
   // buttons and show "Exporting..." on both whichever one was clicked.

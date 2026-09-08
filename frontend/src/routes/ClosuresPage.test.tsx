@@ -7,10 +7,27 @@ import { makeClosure, makeFullDayClosure } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
+import { SessionYearProvider } from "@/components/SessionManagementTabs";
+
 import { ClosuresPage } from "./ClosuresPage";
+
+/** Outside a SessionYearProvider the page falls back to the current year,
+ * which is what most cases here render in. */
+const CURRENT_YEAR = new Date().getFullYear();
 
 function setUpServer({ closures = [] as ReturnType<typeof makeClosure>[] } = {}) {
   server.use(http.get("/api/v1/closures", () => HttpResponse.json(closures)));
+}
+
+/** The page under the shared-year provider, on `year`, the way the Session
+ * Management layout mounts it. */
+function renderOnYear(year: number) {
+  return renderWithProviders(
+    <SessionYearProvider>
+      <ClosuresPage />
+    </SessionYearProvider>,
+    { route: `/?year=${year}` },
+  );
 }
 
 describe("ClosuresPage", () => {
@@ -18,7 +35,24 @@ describe("ClosuresPage", () => {
     setUpServer();
     renderWithProviders(<ClosuresPage />);
 
-    expect(await screen.findByText("No closures.")).toBeInTheDocument();
+    expect(await screen.findByText(`No closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
+  });
+
+  it("requests only the selected year's closures", async () => {
+    let requestedUrl = "";
+    server.use(
+      http.get("/api/v1/closures", ({ request }) => {
+        requestedUrl = request.url;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderOnYear(CURRENT_YEAR + 1);
+
+    expect(await screen.findByText(`No closures in ${CURRENT_YEAR + 1}.`)).toBeInTheDocument();
+    const params = new URL(requestedUrl).searchParams;
+    expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
+    expect(params.get("to_date")).toBe(`${CURRENT_YEAR + 1}-12-31`);
   });
 
   it("collapses a full-day closure (matching AM+PM rows) into one row", async () => {
@@ -237,9 +271,8 @@ describe("ClosuresPage", () => {
     await waitFor(() => expect(capturedBody).toEqual({ date: null }));
   });
 
-  it("navigating to the next year refetches bank holidays for that year", async () => {
+  it("bank holidays follow the shared year rather than a pager of their own", async () => {
     setUpServer();
-    const currentYear = new Date().getFullYear();
     const requestedYears: string[] = [];
     server.use(
       http.get("/api/v1/closures/bank-holidays", ({ request }) => {
@@ -250,15 +283,12 @@ describe("ClosuresPage", () => {
       }),
     );
 
-    const user = userEvent.setup();
-    renderWithProviders(<ClosuresPage />);
-    await screen.findByText("Christmas Day bank holiday");
-    await user.click(screen.getByRole("button", { name: "Next year" }));
+    renderOnYear(CURRENT_YEAR + 1);
 
-    await waitFor(() =>
-      expect(requestedYears).toContain(String(currentYear + 1)),
-    );
-    expect(await screen.findByText(String(currentYear + 1))).toBeInTheDocument();
+    await screen.findByText("Christmas Day bank holiday");
+    await waitFor(() => expect(requestedYears).toContain(String(CURRENT_YEAR + 1)));
+    expect(screen.getByRole("heading", { name: `Bank Holidays ${CURRENT_YEAR + 1}` })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next year" })).not.toBeInTheDocument();
   });
 
   it("delete on a full-day row removes both ids", async () => {
@@ -282,6 +312,47 @@ describe("ClosuresPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(deletedIds.sort()).toEqual(expectedIds);
-    expect(await screen.findByText("No closures.")).toBeInTheDocument();
+    expect(await screen.findByText(`No closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
+  });
+
+  it("hints where a closure went when its date is outside the selected year", async () => {
+    setUpServer();
+    server.use(
+      http.post("/api/v1/closures", async ({ request }) =>
+        HttpResponse.json(makeClosure((await request.json()) as Partial<ReturnType<typeof makeClosure>>), {
+          status: 201,
+        }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClosuresPage />);
+    await user.type(screen.getByLabelText("Date"), `${CURRENT_YEAR + 1}-04-06`);
+    await user.selectOptions(screen.getByLabelText("Period"), "AM");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(
+      await screen.findByText(`Added in ${CURRENT_YEAR + 1} - switch the year to see it.`),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing extra when the added closure falls in the selected year", async () => {
+    setUpServer();
+    server.use(
+      http.post("/api/v1/closures", async ({ request }) =>
+        HttpResponse.json(makeClosure((await request.json()) as Partial<ReturnType<typeof makeClosure>>), {
+          status: 201,
+        }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClosuresPage />);
+    await user.type(screen.getByLabelText("Date"), `${CURRENT_YEAR}-04-06`);
+    await user.selectOptions(screen.getByLabelText("Period"), "AM");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Date")).toHaveValue(""));
+    expect(screen.queryByText(/switch the year to see it/)).not.toBeInTheDocument();
   });
 });
