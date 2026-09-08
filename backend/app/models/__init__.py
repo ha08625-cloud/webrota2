@@ -38,7 +38,12 @@ from .rota import RotaConfig, GeneratedRota, RotaSession
 from .closure import PracticeClosure, RotaClosure
 from .school import School, SchoolHoliday
 from .bank_holidays import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, BankHoliday
-from .recurring_note import RecurringNote, RecurringNoteDoctor, RecurringNoteWeek
+from .recurring_note import (
+    RecurringNote,
+    RecurringNoteDoctor,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
+)
 from .generation_log import RotaGenerationLogEntry
 from .signature import DoctorSignature
 from .user import PasswordResetToken, User, UserSession
@@ -66,7 +71,8 @@ __all__ = [
     "PracticeClosure", "RotaClosure", "RotaGenerationLogEntry",
     "School", "SchoolHoliday",
     "BANK_HOLIDAYS", "BANK_HOLIDAYS_BY_KEY", "BankHoliday",
-    "RecurringNote", "RecurringNoteDoctor", "RecurringNoteWeek",
+    "RecurringNote", "RecurringNoteDoctor",
+    "RotaConfigNote", "RotaConfigNoteDoctor",
     "DoctorSignature", "User", "UserSession", "PasswordResetToken",
     "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",

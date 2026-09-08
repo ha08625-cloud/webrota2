@@ -24,11 +24,9 @@ from. routers/staging.py applies the requested start week at copy time and
 then persists `template_start_week=1` on the staging's RotaConfig, which is
 the invariant that makes week_map.template_week() the identity for a staged
 run and lets Phases 0-12 run unchanged. That normalisation destroys the only
-other record of the real anchor, so this column is it. Recurring-note week
-resolution depends on it: a note scoped to template weeks {1,3} must fire on
-the correct real-world fortnight, not on staging *generation* weeks 1 and 3.
-Set at staging create; read by engine/context.py, which is the only
-staging-aware code in the engine.
+other record of the real anchor, so this column is it. Set at staging
+create and kept as provenance of what the copy started from; nothing in the
+engine depends on it.
 
 RotaStagingSession mirrors MasterRotaSession's shape exactly, replacing
 template_id with staging_id. Real dates are not stored here - week/day/
