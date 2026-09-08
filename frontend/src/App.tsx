@@ -64,7 +64,6 @@ interface NavItem {
 // SessionManagementTabs.tsx; their routes are unchanged.
 const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical", label: "Generate new rotas", end: true },
-  { to: "/clinical/staging", label: "Staging", end: false },
   { to: "/clinical/master-rota", label: "Master Rota", end: false },
   { to: "/clinical/clinic-types", label: "Clinic Types", end: false },
   { to: "/clinical/doctors", label: "Staff", end: false },
