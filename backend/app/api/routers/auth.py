@@ -47,6 +47,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from ...email import is_configured as email_is_configured
+from ...email import missing_config as missing_email_config
 from ...models import PasswordResetToken, User, UserSession
 from ..auth_utils import (
     hash_password,
@@ -86,8 +88,8 @@ _GLOBAL_HOURLY_CAP = 40
 _GLOBAL_WINDOW = datetime.timedelta(hours=1)
 
 # Dev-only fallback, so an unconfigured local run still produces a
-# clickable link (the Vite dev server, see frontend/vite.config.ts). Every
-# deployed environment sets APP_BASE_URL.
+# clickable link (the Vite dev server, see frontend/vite.config.ts). It
+# applies ONLY where Mailgun is unconfigured -- see _reset_url.
 _DEFAULT_APP_BASE_URL = "http://localhost:5173"
 
 # One message for every failure mode -- unknown, expired, already redeemed,
@@ -107,7 +109,7 @@ def _as_utc(value: datetime.datetime) -> datetime.datetime:
     )
 
 
-def _reset_url(token: str) -> str:
+def _reset_url(token: str) -> str | None:
     """Build the emailed link from APP_BASE_URL -- NEVER from the request.
 
     Deriving the host from the request would be host-header injection: an
@@ -116,9 +118,62 @@ def _reset_url(token: str) -> str:
     whose link posts their new password, and the token, to the attacker.
     Read at call time so tests and deploys can set it without an import
     dance.
+
+    Returns None when there is no usable base URL, which means the caller
+    must not send. A missing APP_BASE_URL falls back to localhost only
+    where Mailgun is unconfigured -- i.e. a local run or CI, where nothing
+    is delivered to anyone and the link is read out of a test or a log.
+    Anywhere that CAN send, the fallback would put a localhost link in a
+    real person's inbox: a dead end they cannot diagnose, arriving from a
+    system that looks like it worked. Refusing to send is the louder and
+    safer failure, and check_config() below has already complained about
+    it once at startup.
     """
-    base = os.environ.get("APP_BASE_URL", "").strip() or _DEFAULT_APP_BASE_URL
-    return f"{base.rstrip('/')}/reset-password/{token}"
+    base = os.environ.get("APP_BASE_URL", "").strip()
+    if base:
+        return f"{base.rstrip('/')}/reset-password/{token}"
+
+    if email_is_configured():
+        logger.error(
+            "Password reset email NOT sent: APP_BASE_URL is not set, and "
+            "Mailgun is configured, so the link would point at %s -- "
+            "useless to the recipient. Set APP_BASE_URL to this "
+            "deployment's origin, with no trailing slash.",
+            _DEFAULT_APP_BASE_URL,
+        )
+        return None
+
+    return f"{_DEFAULT_APP_BASE_URL}/reset-password/{token}"
+
+
+def check_config() -> list[str]:
+    """Report password-reset misconfiguration, once, at startup.
+
+    Called from main.py at import time rather than on the first reset
+    attempt, so a deploy that forgot a variable says so in the deploy log
+    instead of looking healthy until the day somebody is locked out.
+    Returns the problems it logged, so a test can assert on them.
+
+    It logs rather than raises: email is one feature, and a half-set
+    variable must not take the whole rota offline when `PATCH /users/{id}`
+    is still there to reset a password by hand.
+    """
+    problems = []
+
+    missing = missing_email_config()
+    if missing:
+        problems.append(
+            f"password reset email is disabled: {', '.join(missing)} not set"
+        )
+    elif not os.environ.get("APP_BASE_URL", "").strip():
+        problems.append(
+            "APP_BASE_URL is not set but Mailgun is configured: reset "
+            "emails will be refused rather than sent with a localhost link"
+        )
+
+    for problem in problems:
+        logger.warning("Password reset config: %s", problem)
+    return problems
 
 
 @router.post("/login", response_model=LoginOut)
@@ -240,6 +295,14 @@ def forgot_password(
         return
 
     token = new_session_token()
+
+    # Built BEFORE the row is written: a deployment with no APP_BASE_URL
+    # cannot send, and a token row nobody can use would still throttle
+    # this user for 3 minutes and still count towards the global cap.
+    url = _reset_url(token)
+    if url is None:
+        return
+
     db.add(
         PasswordResetToken(
             token_hash=hash_token(token),
@@ -251,7 +314,7 @@ def forgot_password(
     db.commit()
 
     # Plain values only: this runs after get_db has closed the session.
-    background_tasks.add_task(send_email, user.email, user.name, _reset_url(token))
+    background_tasks.add_task(send_email, user.email, user.name, url)
 
 
 @router.post("/reset-password", status_code=204)

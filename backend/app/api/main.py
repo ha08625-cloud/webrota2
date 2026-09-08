@@ -105,6 +105,13 @@ app.add_middleware(AuditMiddleware)
 # is set explicitly. Tests override it (see tests/conftest.py).
 set_session_factory(SessionLocal)
 
+# Password-reset configuration is checked here, at import time, so a deploy
+# that forgot a variable complains in its own startup log rather than
+# looking healthy until the day somebody is locked out and the email never
+# arrives. It logs and continues -- see routers/auth.py check_config for
+# why a missing variable must not take the whole rota offline.
+auth.check_config()
+
 
 # ---------------------------------------------------------------------------
 # Audit enrichment: why a 4xx happened

@@ -68,26 +68,34 @@ def _html_body(name: str, reset_url: str) -> str:
     )
 
 
+# Every variable that has to be set before a single email can go out.
+_REQUIRED_VARS = ("MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM")
+
+
+def missing_config() -> list[str]:
+    """Which of the required MAILGUN_* variables are unset or blank."""
+    return [var for var in _REQUIRED_VARS if not os.environ.get(var, "").strip()]
+
+
+def is_configured() -> bool:
+    """True when this process can actually deliver email to real people.
+
+    It is also the only signal the app has for "this is a deployment, not
+    somebody's laptop", which routers/auth.py uses to decide whether a
+    missing APP_BASE_URL is a harmless dev default or a misconfiguration
+    worth refusing to send over. A machine that can reach real staff
+    inboxes is a machine whose reset links must point somewhere real.
+    """
+    return not missing_config()
+
+
 def send_password_reset(to_email: str, name: str, reset_url: str) -> bool:
     """Email a password reset link. Returns True only on a 2xx from Mailgun.
 
     `reset_url` arrives finished: the caller builds it from APP_BASE_URL, so
     that nothing here ever depends on a request's Host header.
     """
-    api_key = os.environ.get("MAILGUN_API_KEY", "").strip()
-    domain = os.environ.get("MAILGUN_DOMAIN", "").strip()
-    sender = os.environ.get("MAILGUN_FROM", "").strip()
-    api_base = os.environ.get("MAILGUN_API_BASE", _DEFAULT_API_BASE).strip().rstrip("/")
-
-    missing = [
-        var
-        for var, value in (
-            ("MAILGUN_API_KEY", api_key),
-            ("MAILGUN_DOMAIN", domain),
-            ("MAILGUN_FROM", sender),
-        )
-        if not value
-    ]
+    missing = missing_config()
     if missing:
         # WARNING, not DEBUG: local dev and CI are meant to run unconfigured,
         # but a production deploy missing a variable looks exactly like email
@@ -96,6 +104,11 @@ def send_password_reset(to_email: str, name: str, reset_url: str) -> bool:
             "Password reset email not sent: %s not set", ", ".join(missing)
         )
         return False
+
+    api_key = os.environ["MAILGUN_API_KEY"].strip()
+    domain = os.environ["MAILGUN_DOMAIN"].strip()
+    sender = os.environ["MAILGUN_FROM"].strip()
+    api_base = os.environ.get("MAILGUN_API_BASE", _DEFAULT_API_BASE).strip().rstrip("/")
 
     try:
         response = httpx.post(
