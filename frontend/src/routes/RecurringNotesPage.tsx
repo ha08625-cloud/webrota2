@@ -9,7 +9,7 @@ import {
   useUpdateRecurringNote,
 } from "@/api/recurringNotes";
 import { useDoctors } from "@/api/doctors";
-import type { Day, Doctor, Period, RecurringNote, RecurringNoteIn } from "@/api/types";
+import type { Day, Doctor, DoctorType, Period, RecurringNote, RecurringNoteIn } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -24,6 +24,21 @@ const DAY_ORDER: Record<Day, number> = {
 };
 
 const PERIOD_ORDER: Record<Period, number> = { AM: 0, PM: 1 };
+
+/**
+ * Bulk-select shortcuts for the default-doctor picker. These are the only
+ * groupings offered: "All doctors" deliberately means the three doctor
+ * grades and excludes Locum and AHP. Each box is a pure shortcut over the
+ * individual ticks below it - nothing about the group is stored, the note
+ * still holds a plain list of doctor ids, so a doctor added later is not
+ * retrospectively part of any meeting.
+ */
+const DOCTOR_GROUPS: { label: string; types: DoctorType[] }[] = [
+  { label: "All doctors", types: ["Partner", "Salaried", "Trainee"] },
+  { label: "All partners", types: ["Partner"] },
+  { label: "All salaried doctors", types: ["Salaried"] },
+  { label: "All trainees", types: ["Trainee"] },
+];
 
 function formatDoctors(doctorIds: number[], doctorsById: Map<number, Doctor>): string {
   return doctorIds
@@ -61,6 +76,19 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
 
   function toggleDoctor(id: number) {
     setDoctorIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
+  }
+
+  const groups = DOCTOR_GROUPS.map((group) => ({
+    label: group.label,
+    ids: activeDoctors.filter((d) => group.types.includes(d.doctor_type)).map((d) => d.id),
+  })).filter((group) => group.ids.length > 0);
+
+  function toggleGroup(ids: number[], checked: boolean) {
+    setDoctorIds((prev) =>
+      checked
+        ? [...prev, ...ids.filter((id) => !prev.includes(id))]
+        : prev.filter((id) => !ids.includes(id)),
+    );
   }
 
   function handleSubmit(event: FormEvent) {
@@ -151,7 +179,23 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
 
             <fieldset>
               <legend className="text-sm font-medium">Default doctors</legend>
-              <ul className="mt-1 space-y-1" aria-label="Doctors">
+              {groups.length > 0 ? (
+                <ul className="mt-1 space-y-1 border-b border-border pb-2" aria-label="Doctor groups">
+                  {groups.map((group) => (
+                    <li key={group.label}>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={group.ids.every((id) => doctorIds.includes(id))}
+                          onChange={(e) => toggleGroup(group.ids, e.target.checked)}
+                        />
+                        {group.label}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <ul className="mt-2 space-y-1" aria-label="Doctors">
                 {activeDoctors.map((d) => (
                   <li key={d.id}>
                     <label className="flex items-center gap-2 text-sm">
