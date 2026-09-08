@@ -220,8 +220,15 @@ export interface LeavePlanningGridProps {
    * month via `isInMonth`. */
   year: number;
   month: number;
-  /** Rows, already filtered to Partner/Salaried/Locum and ordered canonically. */
+  /** Rows, already filtered to the doctor types the page is showing
+   * (Partner/Salaried/Locum, plus Trainees when the page's toggle is on)
+   * and ordered canonically. */
   doctors: Doctor[];
+  /** What to say when `doctors` is empty. Defaults to the wording for the
+   * page's default row set; the page overrides it when its trainee toggle
+   * widens that set, so the message never names a filter that isn't the
+   * one in force. */
+  emptyMessage?: string;
   /** Informational rows, one per school with a holiday in view -
    * rendered above the doctor rows, not editable. */
   schoolRows: SchoolPlannerRow[];
@@ -265,6 +272,7 @@ export function LeavePlanningGrid({
   year,
   month,
   doctors,
+  emptyMessage = "No partners, salaried doctors, or locums work this month.",
   schoolRows,
   pending,
   leaveKeys,
@@ -307,7 +315,7 @@ export function LeavePlanningGrid({
   // Every hook is above this early return: React would otherwise see a
   // different hook count on the empty-doctor render.
   if (doctors.length === 0) {
-    return <p className="mt-4 text-sm text-ink/50">No partners, salaried doctors, or locums work this month.</p>;
+    return <p className="mt-4 text-sm text-ink/50">{emptyMessage}</p>;
   }
 
   const sources: PlanningCellSources = {

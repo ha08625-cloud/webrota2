@@ -171,6 +171,70 @@ describe("LeavePlanningPage", () => {
     expect(screen.queryByText("HH")).not.toBeInTheDocument();
   });
 
+  it("adds trainee rows when the toggle is on, and drops them again when it is off", async () => {
+    const user = userEvent.setup();
+    setUpServer({ doctors: [AA, BB, LOCUM, TRAINEE, AHP] });
+    renderWithProviders(<LeavePlanningPage />);
+
+    await screen.findByText("AA");
+    await user.click(screen.getByTestId("planning-show-trainees"));
+
+    expect(await screen.findByText("TT")).toBeInTheDocument();
+    // Still only trainees - AHPs have no clinical rota row here either way.
+    expect(screen.queryByText("HH")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("planning-show-trainees"));
+    expect(screen.queryByText("TT")).not.toBeInTheDocument();
+  });
+
+  it("leaves the cover total alone for a trainee edit", async () => {
+    const user = userEvent.setup();
+    // The trainee works Monday in the template, but the coverage endpoint
+    // does not count trainees, so its baseline of 2 is the two partners.
+    // Taking the trainee off must not move it - the pending recompute is a
+    // delta against that baseline, and the trainee was never in it.
+    setUpServer({
+      doctors: [AA, BB, TRAINEE],
+      template: makeMasterRotaTemplate({
+        sessions: [
+          ...TEMPLATE.sessions,
+          makeMasterRotaSession({ doctor_id: 3, week: 1, day: "Monday", period: "AM" }),
+        ],
+      }),
+    });
+    renderWithProviders(<LeavePlanningPage />);
+
+    await user.click(await screen.findByTestId("planning-show-trainees"));
+
+    const total = () => screen.getByTestId(`planning-total-${MONDAY}-AM`);
+    await waitFor(() => expect(total()).toHaveTextContent("2"));
+
+    await pickCellState(user, await findCell(3, MONDAY, "AM"), "leave");
+    expect(await findCell(3, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
+    expect(total()).toHaveTextContent("2");
+
+    // A partner's leave still moves it, so the assertion above is not
+    // just a dead total row.
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+    expect(total()).toHaveTextContent("1");
+  });
+
+  it("saves a trainee edit like any other", async () => {
+    const user = userEvent.setup();
+    setUpServer({ doctors: [AA, BB, TRAINEE] });
+    const bodies = captureBulkBodies();
+    renderWithProviders(<LeavePlanningPage />);
+
+    await user.click(await screen.findByTestId("planning-show-trainees"));
+    await pickCellState(user, await findCell(3, MONDAY, "AM"), "leave");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].actions).toEqual([
+      { doctor_id: 3, date: MONDAY, period: "AM", action: "leave", notes: null },
+    ]);
+  });
+
   it("shows the current month's weekdays and moves between months", async () => {
     const user = userEvent.setup();
     setUpServer();
