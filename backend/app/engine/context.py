@@ -22,9 +22,9 @@ from ..models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
-    RecurringNote,
     Room,
     RotaConfig,
+    RotaConfigNote,
     RotaStaging,
     RotaStagingSession,
 )
@@ -40,7 +40,6 @@ from .week_map import (
     build_date_to_genslot,
     build_first_open_weekday,
     build_week_dates,
-    template_week,
 )
 
 _PERIOD_ORDER = {Period.AM: 0, Period.PM: 1}
@@ -99,8 +98,7 @@ def load_context(db: Session, config: RotaConfig) -> GenerationContext:
 
     active_template, template_sessions = _load_staging_or_template(db, config)
 
-    effective_start_week = _effective_template_start_week(db, config)
-    recurring_notes_by_slot = _load_recurring_notes(db, config, effective_start_week)
+    recurring_notes_by_slot = _load_recurring_notes(db, config)
 
     return GenerationContext(
         doctors=doctors,
@@ -249,69 +247,41 @@ def _load_staging_or_template(
     return template, template_sessions
 
 
-def _effective_template_start_week(db: Session, config: RotaConfig) -> int:
-    """The template week a generation run should treat as its anchor.
-
-    For a normal (non-staged) run this is simply `config.template_start_week`.
-    For a staged run, `config.template_start_week` is always persisted as 1,
-    making `week_map.template_week()` the identity for a staged run so Phases
-    0-12 need no staging-specific code. However, this normalization destroys
-    the record of which template week the staging copy actually started from.
-    Recurring-note week resolution needs this to fire on the correct
-    real-world fortnight: a note scoped to template weeks {1,3} must fire on
-    the correct fortnights when copying from a template with a different
-    start_week, not on staging *generation* weeks 1 and 3.
-
-    `RotaStaging.source_template_start_week` preserves that original anchor,
-    so it is used here when a staging exists for this config.
-
-    This re-queries `rota_stagings` rather than threading a third value out
-    of `_load_staging_or_template()` -- one extra query against a
-    single-row-per-config table, in exchange for leaving that function's
-    signature and docstring untouched.
-    """
-    staging = db.execute(
-        select(RotaStaging).where(RotaStaging.config_id == config.id)
-    ).scalars().first()
-    if staging is None:
-        return config.template_start_week
-    return staging.source_template_start_week
-
-
 def _load_recurring_notes(
-    db: Session, config: RotaConfig, start_week: int
+    db: Session, config: RotaConfig
 ) -> dict[tuple[int, int, Day, Period], str]:
-    """Pre-resolve recurring-note text for every (doctor, gen_week, day,
-    period) slot it could apply to, so Phase 2 is a single dict lookup.
+    """Pre-resolve per-run note text for every (doctor, gen_week, day,
+    period) slot it applies to, so Phase 2 is a single dict lookup.
+
+    `RotaConfigNote.week` is already a *generation* week of this run --
+    the user picked it on the staging page -- so there is no template-week
+    mapping here and no `num_weeks` loop. A note whose `week` exceeds
+    `config.num_weeks` simply produces a key Phase 2 never looks up.
 
     Notes are iterated in ascending `id` order so that multiple notes
     landing on the same slot concatenate deterministically. Overlapping
-    notes concatenate (newline-joined) rather than colliding. Inactive
-    notes are excluded outright. Doctor-active status is deliberately not
-    checked here: Phase 2 only ever builds slots for active doctors, so an
-    entry keyed to an inactive doctor is simply a dead key that costs nothing
-    in terms of space or performance.
+    notes concatenate (newline-joined) rather than colliding.
+
+    There is no `is_active` filter: an instance is a copy taken at pick
+    time, so the *definition's* active flag is irrelevant once picked (and
+    a free-form note has no definition at all). Doctor-active status is
+    deliberately not checked here either: Phase 2 only ever builds slots
+    for active doctors, so an entry keyed to an inactive doctor is simply a
+    dead key that costs nothing in terms of space or performance.
     """
     notes = db.execute(
-        select(RecurringNote)
-        .where(RecurringNote.is_active.is_(True))
-        .options(
-            selectinload(RecurringNote.doctors),
-            selectinload(RecurringNote.weeks),
-        )
-        .order_by(RecurringNote.id.asc())
+        select(RotaConfigNote)
+        .where(RotaConfigNote.config_id == config.id)
+        .options(selectinload(RotaConfigNote.doctors))
+        .order_by(RotaConfigNote.id.asc())
     ).scalars().all()
 
     by_slot: dict[tuple[int, int, Day, Period], list[str]] = defaultdict(list)
     for note in notes:
-        template_weeks = {w.template_week for w in note.weeks}
-        for gen_week in range(1, config.num_weeks + 1):
-            tw = template_week(gen_week, start_week)
-            if tw not in template_weeks:
-                continue
-            for assoc in note.doctors:
-                key = (assoc.doctor_id, gen_week, note.day, note.period)
-                by_slot[key].append(note.text)
+        for assoc in note.doctors:
+            by_slot[(assoc.doctor_id, note.week, note.day, note.period)].append(
+                note.text
+            )
 
     return {key: "\n".join(texts) for key, texts in by_slot.items()}
 

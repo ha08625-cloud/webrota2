@@ -25,8 +25,9 @@ from app.models import (
     PracticeClosure,
     RecurringNote,
     RecurringNoteDoctor,
-    RecurringNoteWeek,
     Room,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
     RotaStaging,
     RotaStagingSession,
     SystemCounter,
@@ -192,17 +193,44 @@ def make_recurring_note(
     day=Day.TUESDAY,
     period=Period.PM,
     doctor_ids=(),        # iterable of doctor_id
-    template_weeks=(1, 2, 3, 4),  # iterable of int, 1-4
     is_active=True,
 ) -> RecurringNote:
+    """A note *definition* -- the library entry. Schedules nothing; the
+    engine never reads it. Kept because the API tests need one."""
     n = RecurringNote(text=text, day=day, period=period, is_active=is_active)
     session.add(n)
     session.flush()
 
     for doctor_id in doctor_ids:
         session.add(RecurringNoteDoctor(note_id=n.id, doctor_id=doctor_id))
-    for week in template_weeks:
-        session.add(RecurringNoteWeek(note_id=n.id, template_week=week))
+    session.flush()
+    return n
+
+
+def make_config_note(
+    session,
+    config,
+    text="Partners meeting",
+    week=1,                # a *generation* week of this run
+    day=Day.TUESDAY,
+    period=Period.PM,
+    doctor_ids=(),         # iterable of doctor_id
+    source_note_id=None,
+) -> RotaConfigNote:
+    """A per-run note *instance* -- what load_context() actually reads."""
+    n = RotaConfigNote(
+        config_id=config.id,
+        source_note_id=source_note_id,
+        text=text,
+        week=week,
+        day=day,
+        period=period,
+    )
+    session.add(n)
+    session.flush()
+
+    for doctor_id in doctor_ids:
+        session.add(RotaConfigNoteDoctor(config_note_id=n.id, doctor_id=doctor_id))
     session.flush()
     return n
 
