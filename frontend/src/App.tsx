@@ -7,6 +7,7 @@ import { useLogout } from "@/api/auth";
 import { PermissionAreaProvider, canReadArea, usePermissions } from "@/auth/AuthContext";
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { ThemePicker } from "@/components/ThemePicker";
 import {
   SESSION_MANAGEMENT_PATHS,
   SESSION_MANAGEMENT_TABS,
@@ -148,6 +149,7 @@ function ShellHeader({ title }: { title: string }) {
         <NavLink to="/" className="text-sm text-ink/80 hover:text-accent">
           Switch app
         </NavLink>
+        <ThemePicker />
         {/* Open to every permission set - user management needs the user
             administration permission, so this is the only way most logins
             can change their own password. */}
