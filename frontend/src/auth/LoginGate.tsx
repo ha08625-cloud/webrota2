@@ -31,11 +31,20 @@ const RESET_PATH_PREFIX = "/reset-password/";
  * unauthenticated caller the enumeration oracle the endpoint is built to
  * deny. It is also shown when the request itself fails, for the same
  * reason - see ForgotPasswordForm.
+ *
+ * The junk-folder line is not boilerplate. This From address is new and
+ * sends rarely, and the first live test landed in a junk folder - so the
+ * single most likely reason a real user sees nothing is that the email
+ * arrived somewhere they did not look.
+ *
+ * "check your email address is correct" is the other load-bearing half:
+ * the backend matches the address exactly and case-sensitively, the way
+ * login matches it, so a typo produces this same cheerful confirmation
+ * and no email at all. Do not drop that clause for brevity.
  */
 const FORGOT_SENT_MESSAGE =
-  "If that address is registered, we have emailed a link for setting a new password. " +
-  "The link expires in one hour. If nothing arrives, check the address you entered is " +
-  "the one you log in with, then ask a user administrator to reset it for you.";
+  "Check your email for a link to reset your password. If nothing arrives, check your " +
+  "junk folder and check your email address is correct";
 
 const RESET_DONE_MESSAGE = "Your password has been reset. Please log in with your new password.";
 

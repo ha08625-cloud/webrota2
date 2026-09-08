@@ -220,11 +220,14 @@ describe("LoginGate", () => {
       await user.click(screen.getByRole("button", { name: "Email me a link" }));
 
       const known = (await screen.findByRole("status")).textContent;
-      expect(known).toContain("If that address is registered");
-      // The one sentence that stops a typo becoming a silent dead end -
-      // the backend matches the address exactly, so a wrong one is
-      // indistinguishable from success.
-      expect(known).toContain("the one you log in with");
+      expect(known).toContain("Check your email for a link to reset your password");
+      // The two clauses that stop a real user hitting a silent dead end.
+      // Junk folder: this From address is new and rarely used, and the
+      // first live test landed there. Address correct: the backend matches
+      // exactly and case-sensitively, so a typo is indistinguishable from
+      // success.
+      expect(known).toContain("junk folder");
+      expect(known).toContain("check your email address is correct");
 
       // The backend answers 204 for an unknown address too, so the
       // rendered confirmation must be byte-identical - anything else
