@@ -1375,6 +1375,20 @@ export interface AuditLogEntry {
   outcome_detail: string | null;
   duration_ms: number | null;
   client_ip: string | null;
+  /**
+   * A plain-English sentence for the row ("Committed rota 12"), derived
+   * server-side from `(method, route, path_params)`. Not a column: the
+   * wording is presentation, so improving it improves historical rows too.
+   * Falls back to "METHOD /route" for an endpoint with no mapping, which
+   * a backend coverage test is meant to make impossible.
+   */
+  summary: string;
+  /**
+   * `status_code` as one of "Done" / "Rejected" / "Not allowed" /
+   * "Not found" / "System error" / "Unknown". Also derived server-side;
+   * the exact code stays on the row for the expanded detail.
+   */
+  outcome: string;
 }
 
 /**

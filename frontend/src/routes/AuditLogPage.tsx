@@ -1,21 +1,49 @@
 import { useState } from "react";
 
 import { useAuditLog } from "@/api/audit";
+import { useDoctors } from "@/api/doctors";
 import { useUsers } from "@/api/users";
 import type { AuditLogEntry, AuditLogFilters } from "@/api/types";
 import { useCanAdminUsers } from "@/auth/AuthContext";
+import {
+  describeAuditBody,
+  outcomeClass,
+  summariseAuditBody,
+  type AuditLookups,
+} from "@/lib/auditDetails";
 import { formatDateTime } from "@/lib/date";
 
 /** Fixed page size. The backend caps `limit` at 200; 50 keeps a page scannable. */
 const PAGE_SIZE = 50;
 
 /**
+ * The HTTP method filter, labelled as the thing it means rather than as
+ * itself: the reader of this page should not have to know what PATCH is.
+ *
  * Reads are not audited at all - this app holds staff scheduling data, not
  * patient data, so a read log would be noise - so these are the only
  * methods that can appear. Listed explicitly rather than derived from the
  * rows on screen, so the filter does not change shape as you page.
  */
-const METHODS = ["POST", "PATCH", "PUT", "DELETE"] as const;
+const ACTIONS = [
+  { value: "POST", label: "Added or ran" },
+  { value: "PATCH", label: "Changed" },
+  { value: "PUT", label: "Replaced" },
+  { value: "DELETE", label: "Deleted" },
+] as const;
+
+/**
+ * The status filter, as three buckets over the same `status_min`/
+ * `status_max` range the backend already takes. A free-text status code
+ * box is the more powerful control and was the previous one; it is also
+ * unusable by the person this page exists for, and the exact code is
+ * still on every row's expanded detail for anyone debugging.
+ */
+const OUTCOMES = [
+  { value: "", label: "All outcomes", min: undefined, max: undefined },
+  { value: "ok", label: "Successful only", min: 200, max: 399 },
+  { value: "problem", label: "Problems only", min: 400, max: 599 },
+] as const;
 
 export function AuditLogPage() {
   // Matching the backend, where the whole /audit router is gated on the
@@ -44,8 +72,7 @@ interface FilterDraft {
   pathContains: string;
   method: string;
   userId: string;
-  statusMin: string;
-  statusMax: string;
+  outcome: string;
   since: string;
   until: string;
 }
@@ -54,8 +81,7 @@ const EMPTY_DRAFT: FilterDraft = {
   pathContains: "",
   method: "",
   userId: "",
-  statusMin: "",
-  statusMax: "",
+  outcome: "",
   since: "",
   until: "",
 };
@@ -76,12 +102,13 @@ function parseIntOrUndefined(value: string): number | undefined {
  * offset would be filtering against a value the server does not hold.
  */
 function toFilters(draft: FilterDraft): AuditLogFilters {
+  const outcome = OUTCOMES.find((o) => o.value === draft.outcome);
   return {
     path_contains: draft.pathContains.trim() || undefined,
     method: draft.method || undefined,
     user_id: parseIntOrUndefined(draft.userId),
-    status_min: parseIntOrUndefined(draft.statusMin),
-    status_max: parseIntOrUndefined(draft.statusMax),
+    status_min: outcome?.min,
+    status_max: outcome?.max,
     since: draft.since ? `${draft.since}T00:00:00` : undefined,
     until: draft.until ? `${draft.until}T23:59:59` : undefined,
   };
@@ -101,9 +128,17 @@ function AuditLogTable() {
     offset,
   });
 
-  // Only to label the user filter and nothing else; if it fails the filter
-  // just falls back to "All users" and the log itself still renders.
+  // Both are name lookups only - they label the user filter and turn ids
+  // inside request bodies into codes and names. Neither is required for
+  // the log to render: a login with user administration but no clinical
+  // read gets a 403 from /doctors, and the ids simply stay ids.
   const { data: users } = useUsers();
+  const { data: doctors } = useDoctors();
+
+  const lookups: AuditLookups = {
+    userNames: new Map((users ?? []).map((u) => [u.id, u.name])),
+    doctorCodes: new Map((doctors ?? []).map((d) => [d.id, d.code])),
+  };
 
   function updateDraft(field: keyof FilterDraft, value: string) {
     setDraft((d) => ({ ...d, [field]: value }));
@@ -133,9 +168,8 @@ function AuditLogTable() {
     <div>
       <h1 className="text-lg font-semibold">Audit Log</h1>
       <p className="mt-1 text-sm text-ink/70">
-        One entry per write request. Reads are not recorded. To follow one rota, filter the path by{" "}
-        <code>/rota/12/</code> - it is a plain substring match, so <code>/rota/12</code> without the
-        trailing slash also matches <code>/rota/120</code>.
+        One entry for every change anyone made. Viewing is not recorded, only changes. Each entry
+        describes what was <em>attempted</em>; the Outcome column says whether it worked.
       </p>
 
       <form
@@ -144,39 +178,8 @@ function AuditLogTable() {
         className="mt-4 flex flex-wrap items-end gap-2 rounded border border-border p-3"
       >
         <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-path">
-            Path contains
-          </label>
-          <input
-            id="audit-path"
-            type="text"
-            value={draft.pathContains}
-            onChange={(e) => updateDraft("pathContains", e.target.value)}
-            placeholder="/rota/12/"
-            className="mt-1 rounded border border-border p-1 text-sm"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-method">
-            Method
-          </label>
-          <select
-            id="audit-method"
-            value={draft.method}
-            onChange={(e) => updateDraft("method", e.target.value)}
-            className="mt-1 rounded border border-border p-1 text-sm"
-          >
-            <option value="">All methods</option>
-            {METHODS.map((method) => (
-              <option key={method} value={method}>
-                {method}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="audit-user">
-            User
+            Who
           </label>
           <select
             id="audit-user"
@@ -184,7 +187,7 @@ function AuditLogTable() {
             onChange={(e) => updateDraft("userId", e.target.value)}
             className="mt-1 rounded border border-border p-1 text-sm"
           >
-            <option value="">All users</option>
+            <option value="">Anyone</option>
             {(users ?? []).map((u) => (
               <option key={u.id} value={String(u.id)}>
                 {u.name}
@@ -193,30 +196,39 @@ function AuditLogTable() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-status-min">
-            Status from
+          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-method">
+            Action
           </label>
-          <input
-            id="audit-status-min"
-            type="number"
-            value={draft.statusMin}
-            onChange={(e) => updateDraft("statusMin", e.target.value)}
-            placeholder="400"
-            className="mt-1 w-20 rounded border border-border p-1 text-sm"
-          />
+          <select
+            id="audit-method"
+            value={draft.method}
+            onChange={(e) => updateDraft("method", e.target.value)}
+            className="mt-1 rounded border border-border p-1 text-sm"
+          >
+            <option value="">Any action</option>
+            {ACTIONS.map((action) => (
+              <option key={action.value} value={action.value}>
+                {action.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-status-max">
-            Status to
+          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-outcome">
+            Outcome
           </label>
-          <input
-            id="audit-status-max"
-            type="number"
-            value={draft.statusMax}
-            onChange={(e) => updateDraft("statusMax", e.target.value)}
-            placeholder="599"
-            className="mt-1 w-20 rounded border border-border p-1 text-sm"
-          />
+          <select
+            id="audit-outcome"
+            value={draft.outcome}
+            onChange={(e) => updateDraft("outcome", e.target.value)}
+            className="mt-1 rounded border border-border p-1 text-sm"
+          >
+            {OUTCOMES.map((outcome) => (
+              <option key={outcome.value} value={outcome.value}>
+                {outcome.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="audit-since">
@@ -242,6 +254,20 @@ function AuditLogTable() {
             className="mt-1 rounded border border-border p-1 text-sm"
           />
         </div>
+        <div>
+          <label className="block text-xs font-medium text-ink/70" htmlFor="audit-path">
+            Address contains
+          </label>
+          <input
+            id="audit-path"
+            type="text"
+            value={draft.pathContains}
+            onChange={(e) => updateDraft("pathContains", e.target.value)}
+            placeholder="/rota/12/"
+            className="mt-1 rounded border border-border p-1 text-sm"
+            aria-describedby="audit-path-help"
+          />
+        </div>
         <button
           type="submit"
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white"
@@ -255,6 +281,11 @@ function AuditLogTable() {
         >
           Clear
         </button>
+        <p id="audit-path-help" className="w-full text-xs text-ink/50">
+          Address contains is for narrowing to one record - <code>/rota/12/</code> shows everything
+          that touched rota 12. It is a plain substring match, so <code>/rota/12</code> without the
+          trailing slash also matches <code>/rota/120</code>.
+        </p>
       </form>
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
@@ -273,17 +304,16 @@ function AuditLogTable() {
             <thead>
               <tr className="text-left text-ink/70">
                 <th className="py-1 pr-4 font-medium">When</th>
-                <th className="py-1 pr-4 font-medium">User</th>
-                <th className="py-1 pr-4 font-medium">Method</th>
-                <th className="py-1 pr-4 font-medium">Path</th>
-                <th className="py-1 pr-4 font-medium">Status</th>
-                <th className="py-1 pr-4 font-medium">Sent</th>
+                <th className="py-1 pr-4 font-medium">Who</th>
+                <th className="py-1 pr-4 font-medium">What happened</th>
+                <th className="py-1 pr-4 font-medium">Details</th>
+                <th className="py-1 pr-4 font-medium">Outcome</th>
                 <th className="py-1" />
               </tr>
             </thead>
             <tbody>
               {items.map((entry) => (
-                <AuditRow key={entry.id} entry={entry} />
+                <AuditRow key={entry.id} entry={entry} lookups={lookups} />
               ))}
             </tbody>
           </table>
@@ -318,68 +348,67 @@ function AuditLogTable() {
 }
 
 /**
- * A one-line preview of a JSON value for the table cell. The full value is
- * behind the row's expander - this is only enough to tell two rows apart at
- * a glance without making every row wrap.
+ * The person who made the change, by name where one can be found.
+ *
+ * `user_email` is a frozen snapshot taken at write time, so it still reads
+ * correctly after a rename or a deletion; the name is a live lookup and is
+ * only a nicer label for it. Neither exists for an unauthenticated
+ * request - a failed login, typically - which is what the dash means.
  */
-function summarise(value: unknown, maxLength = 60): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-  const text = JSON.stringify(value);
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+function actorName(entry: AuditLogEntry, lookups: AuditLookups): string | null {
+  const byId = entry.user_id === null ? undefined : lookups.userNames?.get(entry.user_id);
+  return byId ?? entry.user_email;
 }
 
-function AuditRow({ entry }: { entry: AuditLogEntry }) {
+function AuditRow({ entry, lookups }: { entry: AuditLogEntry; lookups: AuditLookups }) {
   const [expanded, setExpanded] = useState(false);
-  const hasDetail =
-    entry.request_body !== null || entry.path_params !== null || entry.outcome_detail !== null;
+  const who = actorName(entry, lookups);
+  const fields = describeAuditBody(entry.request_body, lookups);
 
   return (
     <>
       <tr className="border-t border-border align-top">
         <td className="py-1 pr-4 whitespace-nowrap">{formatDateTime(entry.at)}</td>
-        {/* The email is a frozen snapshot taken at write time, not a join,
-            so it still reads correctly after a rename. Blank means there
-            was no authenticated user - a failed login, typically. */}
-        <td className="py-1 pr-4">{entry.user_email ?? <span className="text-ink/50">-</span>}</td>
-        <td className="py-1 pr-4">{entry.method}</td>
-        <td className="py-1 pr-4 font-mono text-xs">{entry.path}</td>
-        <td className={`py-1 pr-4 ${entry.status_code >= 400 ? "text-red-700" : ""}`}>
-          {entry.status_code}
-        </td>
-        {/* The request body is the column that makes this page worth
-            having - what a change was set *to* - so it gets its own
-            column rather than hiding behind the expander entirely. */}
-        <td className="py-1 pr-4 font-mono text-xs">{summarise(entry.request_body)}</td>
+        <td className="py-1 pr-4">{who ?? <span className="text-ink/50">-</span>}</td>
+        {/* Server-derived, so the wording is one table rather than one per
+            client, and a reworded sentence improves historical rows too. */}
+        <td className="py-1 pr-4">{entry.summary}</td>
+        {/* What a change was set *to* is the column that makes this page
+            worth having, so it stays on the row rather than hiding
+            entirely behind the expander. */}
+        <td className="py-1 pr-4 text-ink/70">{summariseAuditBody(entry.request_body, lookups)}</td>
+        <td className={`py-1 pr-4 ${outcomeClass(entry.outcome)}`}>{entry.outcome}</td>
         <td className="py-1">
-          {hasDetail ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((e) => !e)}
-              aria-expanded={expanded}
-              className="text-xs text-accent"
-            >
-              {expanded ? "Hide" : "Details"}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+            className="text-xs text-accent"
+          >
+            {expanded ? "Hide" : "More"}
+          </button>
         </td>
       </tr>
       {expanded ? (
         <tr className="border-t border-border/50">
-          <td colSpan={7} className="py-2">
+          <td colSpan={6} className="py-2">
             <dl className="grid gap-1 text-xs">
-              <DetailRow label="Route" value={entry.route ?? "-"} />
-              <DetailRow label="Path params" value={JSON.stringify(entry.path_params)} />
-              <DetailRow label="Request body" value={JSON.stringify(entry.request_body, null, 2)} />
+              {fields.map((field) => (
+                <DetailRow key={field.label} label={field.label} value={field.value} />
+              ))}
               {entry.outcome_detail ? (
-                <DetailRow label="Outcome" value={entry.outcome_detail} />
+                <DetailRow label="Reason" value={entry.outcome_detail} />
               ) : null}
+              {/* Everything below is for whoever is debugging rather than
+                  reading, which is why it is last and why the readable
+                  fields above are not a rendering of it. */}
+              <DetailRow label="Address" value={`${entry.method} ${entry.path}`} mono />
+              <DetailRow label="Status code" value={String(entry.status_code)} mono />
               <DetailRow
-                label="Duration"
+                label="Took"
                 value={entry.duration_ms === null ? "-" : `${entry.duration_ms} ms`}
               />
-              <DetailRow label="Client IP" value={entry.client_ip ?? "-"} />
+              <DetailRow label="From computer" value={entry.client_ip ?? "-"} mono />
             </dl>
           </td>
         </tr>
@@ -388,11 +417,13 @@ function AuditRow({ entry }: { entry: AuditLogEntry }) {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex gap-2">
-      <dt className="w-28 shrink-0 font-medium text-ink/70">{label}</dt>
-      <dd className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono">{value}</dd>
+      <dt className="w-32 shrink-0 font-medium text-ink/70">{label}</dt>
+      <dd className={`min-w-0 flex-1 whitespace-pre-wrap break-words ${mono ? "font-mono" : ""}`}>
+        {value}
+      </dd>
     </div>
   );
 }

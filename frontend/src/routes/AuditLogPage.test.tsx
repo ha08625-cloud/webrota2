@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { AuditLogEntry } from "@/api/types";
-import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
+import { PERMISSION_PRESETS, makeAuthUser, makeDoctor } from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -26,14 +26,18 @@ function makeEntry(overrides: Partial<AuditLogEntry> = {}): AuditLogEntry {
     outcome_detail: null,
     duration_ms: 14,
     client_ip: "10.0.0.1",
+    // Server-derived, not columns; the API always sends them.
+    summary: "Changed a session in rota 12",
+    outcome: "Done",
     ...overrides,
   };
 }
 
 /**
  * Records every /audit request the page makes, so a test can assert on the
- * query string rather than only on what came back. The users list is
- * stubbed alongside it: the page fetches it to label the user filter.
+ * query string rather than only on what came back. The users and doctors
+ * lists are stubbed alongside it: the page fetches both as name lookups
+ * (the user filter's labels, and ids inside request bodies).
  */
 function setUpServer(response: { items: AuditLogEntry[]; total: number }) {
   const urls: URL[] = [];
@@ -41,6 +45,7 @@ function setUpServer(response: { items: AuditLogEntry[]; total: number }) {
     http.get("/api/v1/users", () =>
       HttpResponse.json([makeAuthUser({ id: 3, name: "Mo Manager", email: "manager@example.com" })]),
     ),
+    http.get("/api/v1/doctors", () => HttpResponse.json([makeDoctor({ id: 7, code: "AB" })])),
     http.get("/api/v1/audit", ({ request }) => {
       urls.push(new URL(request.url));
       return HttpResponse.json(response);
@@ -50,47 +55,87 @@ function setUpServer(response: { items: AuditLogEntry[]; total: number }) {
 }
 
 describe("AuditLogPage", () => {
-  it("renders a row per entry", async () => {
+  it("leads with the server's sentence and outcome, not the method and status code", async () => {
     setUpServer({
       items: [
-        makeEntry({ id: 1, path: "/api/v1/rota/12/sessions/45" }),
-        makeEntry({ id: 2, method: "DELETE", path: "/api/v1/leave/9", status_code: 404 }),
+        makeEntry({ id: 1 }),
+        makeEntry({
+          id: 2,
+          method: "DELETE",
+          path: "/api/v1/leave/9",
+          status_code: 404,
+          summary: "Deleted a leave entry",
+          outcome: "Not found",
+        }),
       ],
       total: 2,
     });
     renderWithProviders(<AuditLogPage />);
 
-    expect(await screen.findByText("/api/v1/rota/12/sessions/45")).toBeInTheDocument();
-    const row = screen.getByText("/api/v1/leave/9").closest("tr");
+    expect(await screen.findByText("Changed a session in rota 12")).toBeInTheDocument();
+    const row = screen.getByText("Deleted a leave entry").closest("tr");
     expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText("DELETE")).toBeInTheDocument();
-    expect(within(row as HTMLElement).getByText("404")).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Not found")).toBeInTheDocument();
+    // The raw shape is behind the expander now, not in the row.
+    expect(within(row as HTMLElement).queryByText("DELETE")).not.toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("404")).not.toBeInTheDocument();
   });
 
-  it("shows the request body, which is the point of the page", async () => {
-    setUpServer({ items: [makeEntry({ request_body: { room_id: 5 } })], total: 1 });
+  it("shows the request body as labelled fields, not JSON", async () => {
+    setUpServer({
+      items: [makeEntry({ request_body: { room_id: 5, sessions_per_week: 8 } })],
+      total: 1,
+    });
     renderWithProviders(<AuditLogPage />);
 
-    expect(await screen.findByText('{"room_id":5}')).toBeInTheDocument();
+    expect(await screen.findByText("Room: 5, Sessions per week: 8")).toBeInTheDocument();
   });
 
-  it("expands a row to show path params and the full body", async () => {
-    setUpServer({ items: [makeEntry()], total: 1 });
+  it("resolves a doctor id in the body to the doctor's code", async () => {
+    setUpServer({ items: [makeEntry({ request_body: { doctor_id: 7 } })], total: 1 });
+    renderWithProviders(<AuditLogPage />);
+
+    expect(await screen.findByText("Doctor: AB")).toBeInTheDocument();
+  });
+
+  it("names the person by their user record rather than their email", async () => {
+    setUpServer({ items: [makeEntry({ user_id: 3 })], total: 1 });
+    renderWithProviders(<AuditLogPage />);
+
+    // Scoped to the table: the same name is also an option in the Who filter.
+    const table = await screen.findByRole("table", { name: "Audit log" });
+    expect(within(table).getByText("Mo Manager")).toBeInTheDocument();
+    expect(within(table).queryByText("manager@example.com")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the frozen email when the user record is gone", async () => {
+    setUpServer({
+      items: [makeEntry({ user_id: 99, user_email: "left@example.com" })],
+      total: 1,
+    });
+    renderWithProviders(<AuditLogPage />);
+
+    expect(await screen.findByText("left@example.com")).toBeInTheDocument();
+  });
+
+  it("expands a row to show the full body and the technical detail", async () => {
+    setUpServer({ items: [makeEntry({ outcome_detail: "Session not found" })], total: 1 });
     const user = userEvent.setup();
     renderWithProviders(<AuditLogPage />);
-    await screen.findByText("/api/v1/rota/12/sessions/45");
+    await screen.findByText("Changed a session in rota 12");
 
-    await user.click(screen.getByRole("button", { name: "Details" }));
+    await user.click(screen.getByRole("button", { name: "More" }));
 
-    expect(screen.getByText("/rota/{rota_id}/sessions/{session_id}")).toBeInTheDocument();
-    expect(screen.getByText('{"rota_id":"12","session_id":"45"}')).toBeInTheDocument();
+    expect(screen.getByText("Session not found")).toBeInTheDocument();
+    expect(screen.getByText("PATCH /api/v1/rota/12/sessions/45")).toBeInTheDocument();
+    expect(screen.getByText("200")).toBeInTheDocument();
     expect(screen.getByText("14 ms")).toBeInTheDocument();
   });
 
   it("requests the first page with the default page size", async () => {
     const urls = setUpServer({ items: [makeEntry()], total: 1 });
     renderWithProviders(<AuditLogPage />);
-    await screen.findByText("/api/v1/rota/12/sessions/45");
+    await screen.findByText("Changed a session in rota 12");
 
     expect(urls[0].searchParams.get("limit")).toBe("50");
     expect(urls[0].searchParams.get("offset")).toBe("0");
@@ -121,18 +166,17 @@ describe("AuditLogPage filters", () => {
     const urls = setUpServer({ items: [makeEntry()], total: 1 });
     const user = userEvent.setup();
     renderWithProviders(<AuditLogPage />);
-    await screen.findByText("/api/v1/rota/12/sessions/45");
+    await screen.findByText("Changed a session in rota 12");
     expect(urls).toHaveLength(1);
 
-    await user.type(screen.getByLabelText("Path contains"), "/rota/12/");
+    await user.type(screen.getByLabelText("Address contains"), "/rota/12/");
     // Typing alone must not fire a request: the substring filter is a full
     // table scan server-side.
     expect(urls).toHaveLength(1);
 
-    await user.selectOptions(screen.getByLabelText("Method"), "PATCH");
-    await user.selectOptions(screen.getByLabelText("User"), "3");
-    await user.type(screen.getByLabelText("Status from"), "400");
-    await user.type(screen.getByLabelText("Status to"), "499");
+    await user.selectOptions(screen.getByLabelText("Action"), "PATCH");
+    await user.selectOptions(screen.getByLabelText("Who"), "3");
+    await user.selectOptions(screen.getByLabelText("Outcome"), "problem");
     await user.type(screen.getByLabelText("From"), "2026-08-01");
     await user.type(screen.getByLabelText("To"), "2026-08-16");
     await user.click(screen.getByRole("button", { name: "Apply" }));
@@ -143,7 +187,7 @@ describe("AuditLogPage filters", () => {
     expect(params.get("method")).toBe("PATCH");
     expect(params.get("user_id")).toBe("3");
     expect(params.get("status_min")).toBe("400");
-    expect(params.get("status_max")).toBe("499");
+    expect(params.get("status_max")).toBe("599");
     expect(params.get("since")).toBe("2026-08-01T00:00:00");
     // The end date is inclusive of the whole day, not midnight at its start.
     expect(params.get("until")).toBe("2026-08-16T23:59:59");
@@ -153,9 +197,9 @@ describe("AuditLogPage filters", () => {
     const urls = setUpServer({ items: [makeEntry()], total: 1 });
     const user = userEvent.setup();
     renderWithProviders(<AuditLogPage />);
-    await screen.findByText("/api/v1/rota/12/sessions/45");
+    await screen.findByText("Changed a session in rota 12");
 
-    await user.type(screen.getByLabelText("Path contains"), "/rota/12/");
+    await user.type(screen.getByLabelText("Address contains"), "/rota/12/");
     await user.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(urls[urls.length - 1].searchParams.get("path_contains")).toBe("/rota/12/"));
 
@@ -164,7 +208,7 @@ describe("AuditLogPage filters", () => {
     await waitFor(() =>
       expect(urls[urls.length - 1].searchParams.get("path_contains")).toBeNull(),
     );
-    expect(screen.getByLabelText("Path contains")).toHaveValue("");
+    expect(screen.getByLabelText("Address contains")).toHaveValue("");
   });
 });
 
@@ -231,7 +275,7 @@ describe("AuditLogPage paging", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("51-100 of 120");
 
-    await user.type(screen.getByLabelText("Path contains"), "/rota/");
+    await user.type(screen.getByLabelText("Address contains"), "/rota/");
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
     await waitFor(() => expect(urls[urls.length - 1].searchParams.get("path_contains")).toBe("/rota/"));
