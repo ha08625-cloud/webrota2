@@ -24,6 +24,22 @@ def _clinic_counters(client):
     }
 
 
+def _stored_clinic_counters(client):
+    """Only the pairs that actually have a `clinic_counters` row.
+
+    Since the opening-balance work the list endpoint returns the full
+    counted-doctor x clinic-type cross-product, with `id: null` for a pair
+    with no row -- so a row deleted by scrap/rollback now shows up as a null
+    id rather than as an absent entry, and "the row is gone" has to be
+    asserted on the id rather than on the key being missing.
+    """
+    return {
+        (c["doctor_code"], c["clinic_type_name"]): c["raw_count"]
+        for c in client.get("/api/v1/counters/clinic").json()
+        if c["id"] is not None
+    }
+
+
 def _monday_am_sessions(client, rota_id):
     rota = client.get(f"/api/v1/rota/{rota_id}").json()
     return {
@@ -178,7 +194,7 @@ class TestRollbackCommit:
         assert body["status"] == "draft"
         assert body["committed_at"] is None
         # No pre-generation counter row existed, so it is deleted on restore.
-        assert _clinic_counters(client) == {}
+        assert _stored_clinic_counters(client) == {}
 
     def test_rollback_404_when_not_found(self, client, seeded):
         resp = client.post("/api/v1/rota/999999/rollback-commit")
@@ -384,7 +400,7 @@ class TestScrap:
         assert resp.status_code == 204
         # No pre-generation clinic counter row existed, so the row created
         # during the draft is deleted outright.
-        assert _clinic_counters(client) == {}
+        assert _stored_clinic_counters(client) == {}
         db_session.expire_all()
         assert db_session.execute(select(GeneratedRota)).scalars().first() is None
         assert db_session.execute(select(RotaSession)).scalars().first() is None
@@ -501,7 +517,7 @@ class TestSwaps:
 
         # Scrapping after the swap undoes the swap's counter edits too.
         client.delete(f"/api/v1/rota/{out['rota_id']}")
-        assert _clinic_counters(client) == {}
+        assert _stored_clinic_counters(client) == {}
 
     def test_swap_rooms_swaps_room_only(self, client, seeded):
         make_clinic_type_via_api(client, seeded)
