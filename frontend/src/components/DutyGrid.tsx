@@ -26,6 +26,9 @@ import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
 
 const PERIODS: Period[] = ["AM", "PM"];
 
+/** Decimal places for the duty grid's weighted-score column. */
+const WTD_DECIMALS = 1;
+
 function findAssignment(
   assignments: DutyAssignment[],
   date: string,
@@ -58,24 +61,12 @@ interface DutyGridProps {
 export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts = true }: DutyGridProps) {
   const { data: allDoctors, isLoading: doctorsLoading } = useDoctors(true);
   const { data: allAssignments, isLoading: dutyLoading } = useDuty();
-  // Counters are deliberately period-scoped, not all-time: the 4-weekly
-  // duty periods feature removed the all-time view rather than moving
-  // it. The range is derived from the same startWeekDate and weeks the
-  // grid itself renders, so the counters can never drift out of step
-  // with the weeks actually shown.
-  const countsRange = useMemo(
-    () => ({ from: startWeekDate, to: addDays(startWeekDate, weeks * 7 - 1) }),
-    [startWeekDate, weeks],
-  );
-  const { data: countsData, isLoading: countsLoading } = useDutyCounts(countsRange);
-  // Annual counter: a second, independent range covering the calendar
-  // year containing the selected period's start date (1 Jan - 31 Dec,
-  // arbitrary cutoffs - user-confirmed). This shifts as the user
-  // navigates periods, unlike the period-scoped counter's fixed 28-day
-  // window. It is additive alongside the period counter, not a
-  // reinstatement of the all-time view removed when 4-weekly periods
-  // were introduced (see the comment above) - a fixed calendar year is
-  // a different, bounded concept from an unbounded all-time count.
+  // The only counter shown is annual: the calendar year containing the
+  // selected period's start date (1 Jan - 31 Dec, arbitrary cutoffs -
+  // user-confirmed), so it shifts as the user navigates between
+  // periods. A period-scoped counter over the rendered 28-day window
+  // used to sit alongside it and was dropped as noise - a bounded
+  // calendar year is the figure the duty split is judged on.
   const annualRange = useMemo(() => getYearRange(startWeekDate), [startWeekDate]);
   const { data: annualCountsData, isLoading: annualCountsLoading } = useDutyCounts(annualRange);
   const { data: closures } = useClosures();
@@ -102,12 +93,6 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
     return map;
   }, [allDoctors]);
 
-  const countsById = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const c of countsData ?? []) map.set(c.doctor_id, c.raw_count);
-    return map;
-  }, [countsData]);
-
   const annualCountsById = useMemo(() => {
     const map = new Map<number, number>();
     for (const c of annualCountsData ?? []) map.set(c.doctor_id, c.raw_count);
@@ -118,6 +103,23 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
   );
   const doctorGroups = groupDoctorsByType(dutyEligibleDoctors);
+
+  // The lowest annual weighted score is bolded as an at-a-glance "next
+  // in line" cue, across all duty-eligible doctors rather than within
+  // each type group. It is compared on the *displayed* (1dp) value, not
+  // the underlying one, so doctors showing the same number are always
+  // either all bold or none - a bold "1.2" next to a plain "1.2" would
+  // read as a rendering bug. A doctor with sessions_per_week == 0
+  // (infinite) or a failed doctor join (unknown) has no comparable
+  // score and is never the minimum. Ties are all bolded.
+  const lowestAnnualWtd = annualCountsLoading
+    ? null
+    : dutyEligibleDoctors.reduce<number | null>((min, d) => {
+        const score = computeWeightedScore(annualCountsById.get(d.id) ?? 0, doctorsById.get(d.id));
+        if (score.kind !== "value") return min;
+        const shown = Number(score.value.toFixed(WTD_DECIMALS));
+        return min === null || shown < min ? shown : min;
+      }, null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -174,19 +176,10 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
         <div className="w-80 shrink-0">
           <div className="flex items-end justify-between">
             <h2 className="text-sm font-medium text-ink/70">Doctors</h2>
-            {showCounts ? (
-              <div className="flex gap-3 text-xs text-ink/50">
-                <span className="w-[4.5rem] text-center">Period</span>
-                <span className="w-[4.5rem] text-center">Year</span>
-              </div>
-            ) : null}
+            {showCounts ? <span className="w-[4.5rem] text-center text-xs text-ink/50">Year</span> : null}
           </div>
           {showCounts ? (
             <div className="flex items-center justify-end gap-3 text-xs text-ink/50">
-              <div className="flex gap-1">
-                <span className="w-8 text-right">n</span>
-                <span className="w-10 text-right">wtd</span>
-              </div>
               <div className="flex gap-1">
                 <span className="w-8 text-right">n</span>
                 <span className="w-10 text-right">wtd</span>
@@ -199,13 +192,15 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                 <div className="text-xs font-medium text-ink/50">{group.label}</div>
                 <div className="mt-1 space-y-1">
                   {group.doctors.map((d) => {
-                    const raw = countsLoading ? null : (countsById.get(d.id) ?? 0);
                     const doctor = doctorsById.get(d.id);
-                    const wtd = raw === null ? null : formatWeightedScore(computeWeightedScore(raw, doctor));
-
                     const annualRaw = annualCountsLoading ? null : (annualCountsById.get(d.id) ?? 0);
-                    const annualWtd =
-                      annualRaw === null ? null : formatWeightedScore(computeWeightedScore(annualRaw, doctor));
+                    const annualScore = annualRaw === null ? null : computeWeightedScore(annualRaw, doctor);
+                    const annualWtd = annualScore === null ? null : formatWeightedScore(annualScore, WTD_DECIMALS);
+                    const isLowest =
+                      annualScore !== null &&
+                      annualScore.kind === "value" &&
+                      lowestAnnualWtd !== null &&
+                      Number(annualScore.value.toFixed(WTD_DECIMALS)) === lowestAnnualWtd;
 
                     return (
                       <div key={d.id} className="flex items-center gap-3">
@@ -213,36 +208,22 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                           <DraggableDoctorChip doctorId={d.id} doctorCode={d.code} />
                         </div>
                         {showCounts ? (
-                          <>
-                            <div className="flex gap-1">
-                              <span
-                                data-testid={`duty-period-raw-${d.id}`}
-                                className="w-8 text-right text-xs tabular-nums text-ink/70"
-                              >
-                                {raw ?? "–"}
-                              </span>
-                              <span
-                                data-testid={`duty-period-wtd-${d.id}`}
-                                className="w-10 text-right text-xs tabular-nums text-ink/70"
-                              >
-                                {wtd ?? "–"}
-                              </span>
-                            </div>
-                            <div className="flex gap-1">
-                              <span
-                                data-testid={`duty-annual-raw-${d.id}`}
-                                className="w-8 text-right text-xs tabular-nums text-ink/70"
-                              >
-                                {annualRaw ?? "–"}
-                              </span>
-                              <span
-                                data-testid={`duty-annual-wtd-${d.id}`}
-                                className="w-10 text-right text-xs tabular-nums text-ink/70"
-                              >
-                                {annualWtd ?? "–"}
-                              </span>
-                            </div>
-                          </>
+                          <div className="flex gap-1">
+                            <span
+                              data-testid={`duty-annual-raw-${d.id}`}
+                              className="w-8 text-right text-xs tabular-nums text-ink/70"
+                            >
+                              {annualRaw ?? "–"}
+                            </span>
+                            <span
+                              data-testid={`duty-annual-wtd-${d.id}`}
+                              className={`w-10 text-right text-xs tabular-nums ${
+                                isLowest ? "font-bold text-ink" : "text-ink/70"
+                              }`}
+                            >
+                              {annualWtd ?? "–"}
+                            </span>
+                          </div>
                         ) : null}
                       </div>
                     );
