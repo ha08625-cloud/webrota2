@@ -11,7 +11,8 @@ complete's happy path, its Phase 0 failure-and-retry path, its lock
 interactions with the draft/generate lifecycle, and the completed-staging
 non-resurrection regression. Annual leave planning (Task 2) adds create's
 doctor-employment-window skip, over both the template copy loop and the
-extra-session new-row branch.
+extra-session new-row branch. The recurring-notes picker plan (Task 3)
+adds the per-run note endpoints at the foot of the file.
 """
 import datetime
 
@@ -26,11 +27,14 @@ from app.models import (
     MasterRotaTemplate,
     PracticeClosure,
     RotaConfig,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
     RotaStaging,
     RotaStagingSession,
 )
 from app.models.enums import (
     Day,
+    DoctorType,
     DutyType,
     MasterSessionType,
     Period,
@@ -785,3 +789,261 @@ def test_scrap_after_complete_does_not_resurrect_staging(client, db_session, see
 
     fresh = _create_staging(client, start_date=MONDAY + datetime.timedelta(days=14))
     assert fresh.status_code == 201, fresh.text
+
+# ---------------------------------------------------------------------------
+# per-run notes (recurring notes picker plan, Task 3)
+# ---------------------------------------------------------------------------
+
+def _make_definition(client, seeded, **overrides):
+    payload = {
+        "text": "Significant events meeting",
+        "day": "Monday",
+        "period": "PM",
+        "is_active": True,
+        "doctor_ids": [seeded["doctor_aa"]],
+    }
+    payload.update(overrides)
+    resp = client.post("/api/v1/recurring-notes", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _note_payload(seeded, **overrides):
+    payload = {
+        "text": "Significant events meeting",
+        "week": 1,
+        "day": "Monday",
+        "period": "PM",
+        "doctor_ids": [seeded["doctor_aa"]],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_note_create_patch_delete_round_trip(client, seeded):
+    definition = _make_definition(client, seeded)
+    staging_id = _create_staging(client).json()["staging_id"]
+
+    created = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, source_note_id=definition["id"]),
+    )
+    assert created.status_code == 201, created.text
+    notes = created.json()["notes"]
+    assert len(notes) == 1
+    note = notes[0]
+    assert note["source_note_id"] == definition["id"]
+    assert note["text"] == "Significant events meeting"
+    assert note["week"] == 1
+    assert note["doctor_ids"] == [seeded["doctor_aa"]]
+
+    # The instance diverges from its definition without touching it.
+    patched = client.patch(
+        f"/api/v1/staging/{staging_id}/notes/{note['id']}",
+        json=_note_payload(
+            seeded,
+            text="Significant events meeting (moved)",
+            day="Wednesday",
+            period="AM",
+            doctor_ids=[seeded["doctor_aa"], seeded["doctor_bb"]],
+        ),
+    )
+    assert patched.status_code == 200, patched.text
+    edited = patched.json()["notes"][0]
+    assert edited["text"] == "Significant events meeting (moved)"
+    assert edited["day"] == "Wednesday"
+    assert edited["period"] == "AM"
+    assert edited["doctor_ids"] == sorted(
+        [seeded["doctor_aa"], seeded["doctor_bb"]]
+    )
+    assert edited["source_note_id"] == definition["id"]  # provenance survives
+
+    definition_now = client.get("/api/v1/recurring-notes").json()[0]
+    assert definition_now["text"] == "Significant events meeting"
+    assert definition_now["day"] == "Monday"
+
+    assert client.delete(
+        f"/api/v1/staging/{staging_id}/notes/{note['id']}"
+    ).status_code == 204
+    assert client.get("/api/v1/staging/active").json()["notes"] == []
+
+
+def test_free_form_note_has_no_source(client, seeded):
+    staging_id = _create_staging(client).json()["staging_id"]
+    created = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded)
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["notes"][0]["source_note_id"] is None
+
+
+def test_notes_ordered_by_id_ascending(client, seeded):
+    """Same order the engine concatenates overlapping notes in."""
+    staging_id = _create_staging(client).json()["staging_id"]
+    for text in ("Meeting A", "Meeting B", "Meeting C"):
+        client.post(
+            f"/api/v1/staging/{staging_id}/notes",
+            json=_note_payload(seeded, text=text),
+        )
+    notes = client.get("/api/v1/staging/active").json()["notes"]
+    assert [n["text"] for n in notes] == ["Meeting A", "Meeting B", "Meeting C"]
+    assert [n["id"] for n in notes] == sorted(n["id"] for n in notes)
+
+
+def test_note_week_beyond_num_weeks_422(client, seeded):
+    """The 1..4 schema bound is necessary but not sufficient: week 2 on a
+    1-week run is a silently dead note otherwise."""
+    staging_id = _create_staging(client, num_weeks=1).json()["staging_id"]
+    resp = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded, week=2)
+    )
+    assert resp.status_code == 422, resp.text
+    assert "1-week range" in resp.json()["detail"]
+
+    resp5 = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded, week=5)
+    )
+    assert resp5.status_code == 422
+
+
+def test_note_patch_week_beyond_num_weeks_422(client, seeded):
+    staging_id = _create_staging(client, num_weeks=1).json()["staging_id"]
+    note = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded)
+    ).json()["notes"][0]
+    resp = client.patch(
+        f"/api/v1/staging/{staging_id}/notes/{note['id']}",
+        json=_note_payload(seeded, week=2),
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_note_unknown_and_inactive_doctor_422(client, db_session, seeded):
+    inactive = Doctor(
+        code="ZZ", doctor_type=DoctorType.PARTNER, sessions_per_week=10,
+        active=False,
+    )
+    db_session.add(inactive)
+    db_session.commit()
+    inactive_id = inactive.id
+
+    staging_id = _create_staging(client).json()["staging_id"]
+
+    missing = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, doctor_ids=[999999]),
+    )
+    assert missing.status_code == 422
+    assert "do not exist" in missing.json()["detail"]
+
+    disabled = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, doctor_ids=[inactive_id]),
+    )
+    assert disabled.status_code == 422
+    assert "not active" in disabled.json()["detail"]
+
+
+def test_note_empty_and_duplicate_doctor_ids_422(client, seeded):
+    staging_id = _create_staging(client).json()["staging_id"]
+    empty = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, doctor_ids=[]),
+    )
+    assert empty.status_code == 422
+    dupe = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(
+            seeded, doctor_ids=[seeded["doctor_aa"], seeded["doctor_aa"]]
+        ),
+    )
+    assert dupe.status_code == 422
+    blank = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded, text="   ")
+    )
+    assert blank.status_code == 422
+
+
+def test_note_unknown_source_note_id_422(client, seeded):
+    staging_id = _create_staging(client).json()["staging_id"]
+    resp = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, source_note_id=999999),
+    )
+    assert resp.status_code == 422, resp.text
+    assert "source_note_id" in resp.json()["detail"]
+
+
+def test_note_from_inactive_definition_is_accepted(client, seeded):
+    """A definition deactivated between page load and submit must not fail
+    the copy -- the instance never re-reads it."""
+    definition = _make_definition(client, seeded, is_active=False)
+    staging_id = _create_staging(client).json()["staging_id"]
+    resp = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, source_note_id=definition["id"]),
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_note_from_another_staging_404s(client, seeded):
+    first = _create_staging(client).json()["staging_id"]
+    note = client.post(
+        f"/api/v1/staging/{first}/notes", json=_note_payload(seeded)
+    ).json()["notes"][0]
+    client.delete(f"/api/v1/staging/{first}")
+
+    second = _create_staging(client).json()["staging_id"]
+    patch = client.patch(
+        f"/api/v1/staging/{second}/notes/{note['id']}", json=_note_payload(seeded)
+    )
+    assert patch.status_code == 404, patch.text
+    delete = client.delete(f"/api/v1/staging/{second}/notes/{note['id']}")
+    assert delete.status_code == 404, delete.text
+
+
+def test_note_writes_409_on_completed_staging(client, db_session, seeded):
+    staging_id = _create_staging(client).json()["staging_id"]
+    note = client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded)
+    ).json()["notes"][0]
+
+    staging = db_session.get(RotaStaging, staging_id)
+    staging.completed_at = datetime.datetime.now(datetime.timezone.utc)
+    db_session.commit()
+
+    assert client.post(
+        f"/api/v1/staging/{staging_id}/notes", json=_note_payload(seeded)
+    ).status_code == 409
+    assert client.patch(
+        f"/api/v1/staging/{staging_id}/notes/{note['id']}",
+        json=_note_payload(seeded),
+    ).status_code == 409
+    assert client.delete(
+        f"/api/v1/staging/{staging_id}/notes/{note['id']}"
+    ).status_code == 409
+
+
+def test_abandon_with_notes_cascades(client, db_session, seeded):
+    """abandon_staging hard-deletes the RotaConfig; without the ORM cascade
+    a picked note would make that an IntegrityError."""
+    definition = _make_definition(client, seeded)
+    resp = _create_staging(client)
+    staging_id = resp.json()["staging_id"]
+    config_id = resp.json()["config_id"]
+    note = client.post(
+        f"/api/v1/staging/{staging_id}/notes",
+        json=_note_payload(seeded, source_note_id=definition["id"]),
+    ).json()["notes"][0]
+
+    delete = client.delete(f"/api/v1/staging/{staging_id}")
+    assert delete.status_code == 204, delete.text
+
+    db_session.expire_all()
+    assert db_session.get(RotaConfig, config_id) is None
+    assert db_session.get(RotaConfigNote, note["id"]) is None
+    assert db_session.execute(
+        select(RotaConfigNoteDoctor).where(
+            RotaConfigNoteDoctor.config_note_id == note["id"]
+        )
+    ).scalars().all() == []

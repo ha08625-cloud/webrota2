@@ -28,6 +28,16 @@ skips the same cases. Phase 2 enforces the window too and is the
 authority, but without the skip here the admin would see and edit cells
 in `StagingGrid` that then silently vanish at Complete, with nothing on
 screen explaining why.
+
+Per-run notes (`/staging/{id}/notes`) are the third thing here that is
+not session editing. They are written against `staging.config_id`, not
+the staging row, because both generation paths run `generate(db,
+config_id)` and `load_context()` is keyed on the RotaConfig -- attaching
+there keeps the engine's lookup single-shaped. They live under this
+prefix purely to inherit `_staging_or_404` / `_require_active`, so a
+completed staging rejects note writes exactly as it rejects session
+writes. See models/recurring_note.py for what an instance is and why it
+never re-reads its definition.
 """
 from __future__ import annotations
 
@@ -35,7 +45,7 @@ import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ...doctor_window import is_within_window
 from ...engine.generate import (
@@ -52,8 +62,11 @@ from ...models import (
     MasterRotaSession,
     MasterRotaTemplate,
     PracticeClosure,
+    RecurringNote,
     Room,
     RotaConfig,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
     RotaStaging,
     RotaStagingSession,
     User,
@@ -64,6 +77,9 @@ from ..schemas import (
     ClosedSlotOut,
     GenerateRotaOut,
     StagingCreateIn,
+    StagingNoteIn,
+    StagingNoteOut,
+    StagingNotePatchIn,
     StagingOut,
     StagingSessionCreateIn,
     StagingSessionOut,
@@ -71,6 +87,7 @@ from ..schemas import (
     StagingSessionWriteOut,
     ValidationIssueOut,
 )
+from ._doctor_ids import validate_doctor_ids
 
 router = APIRouter(prefix="/staging", tags=["staging"])
 
@@ -196,6 +213,65 @@ def _closed_slots_out(
     ]
 
 
+def _notes_out(db: Session, config_id: int) -> list[StagingNoteOut]:
+    """Every per-run note instance for this run, id ascending -- the same
+    order the engine concatenates overlapping notes in, so the picker
+    shows them as the grid will."""
+    notes = db.execute(
+        select(RotaConfigNote)
+        .where(RotaConfigNote.config_id == config_id)
+        .options(selectinload(RotaConfigNote.doctors))
+        .order_by(RotaConfigNote.id.asc())
+    ).scalars().all()
+    return [StagingNoteOut.from_orm_note(n) for n in notes]
+
+
+def _note_or_404(db: Session, staging: RotaStaging, note_id: int) -> RotaConfigNote:
+    """A note belonging to another run is a 404 here, not a 403: the note
+    id is simply not addressable under this staging."""
+    note = db.get(RotaConfigNote, note_id)
+    if note is None or note.config_id != staging.config_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Note {note_id} not found in staging {staging.id}",
+        )
+    return note
+
+
+def _validate_note(
+    db: Session,
+    config: RotaConfig,
+    week: int,
+    doctor_ids: list[int],
+    source_note_id: int | None = None,
+) -> None:
+    """The three checks a stateless schema cannot make, in a fixed order
+    and each with its own message.
+
+    `week` is bounded 1..4 by the field constraint; that is necessary but
+    not sufficient -- a week-3 note on a 2-week run is silently dead,
+    exactly as StagingSessionCreateIn guards.
+
+    `source_note_id` is not required to be *active*: a definition may be
+    deactivated between page load and submit, and rejecting the copy then
+    would be a confusing failure for an operation that never re-reads it.
+    """
+    if week > config.num_weeks:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"week {week} is outside this staging's "
+                f"{config.num_weeks}-week range"
+            ),
+        )
+    validate_doctor_ids(db, doctor_ids)
+    if source_note_id is not None and db.get(RecurringNote, source_note_id) is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source_note_id {source_note_id} does not exist",
+        )
+
+
 def _staging_out(db: Session, staging: RotaStaging) -> StagingOut:
     config = db.get(RotaConfig, staging.config_id)
     sessions = db.execute(
@@ -210,6 +286,7 @@ def _staging_out(db: Session, staging: RotaStaging) -> StagingOut:
         completed_at=staging.completed_at,
         closed_slots=_closed_slots_out(db, config),
         sessions=_session_outs(db, config, sessions),
+        notes=_notes_out(db, staging.config_id),
     )
 
 
@@ -663,6 +740,89 @@ def delete_session(
     db.commit()
 
 
+@router.post("/{staging_id}/notes", response_model=StagingOut, status_code=201)
+def create_note(
+    staging_id: int,
+    payload: StagingNoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    """Add one per-run note -- a copy of a definition (source_note_id set)
+    or a free-form one-off (source_note_id null).
+
+    One note per call. A tick spanning several generation weeks is a loop
+    on the frontend, which keeps this endpoint and its validation
+    single-shaped. Returns the whole StagingOut so the picker refreshes
+    from one response, as every other staging write does.
+    """
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    config = db.get(RotaConfig, staging.config_id)
+    _validate_note(
+        db, config, payload.week, payload.doctor_ids, payload.source_note_id
+    )
+
+    note = RotaConfigNote(
+        config_id=staging.config_id,
+        source_note_id=payload.source_note_id,
+        text=payload.text,
+        week=payload.week,
+        day=payload.day,
+        period=payload.period,
+    )
+    note.doctors = [RotaConfigNoteDoctor(doctor_id=d) for d in payload.doctor_ids]
+    db.add(note)
+    db.commit()
+    return _staging_out(db, staging)
+
+
+@router.patch("/{staging_id}/notes/{note_id}", response_model=StagingOut)
+def patch_note(
+    staging_id: int,
+    note_id: int,
+    payload: StagingNotePatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    """Full replace of every editable field. source_note_id is immutable
+    after creation (see StagingNotePatchIn) -- editing an instance is
+    exactly the divergence-from-its-definition this feature exists for,
+    and provenance records where it started."""
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    note = _note_or_404(db, staging, note_id)
+    config = db.get(RotaConfig, staging.config_id)
+    _validate_note(db, config, payload.week, payload.doctor_ids)
+
+    note.text = payload.text
+    note.week = payload.week
+    note.day = payload.day
+    note.period = payload.period
+    # Clear and flush before attaching the replacement set, for the reason
+    # recurring_notes.py's _apply gives: an unchanged doctor could
+    # otherwise trip uq_rcnd_note_doctor via an INSERT racing an
+    # unflushed DELETE.
+    note.doctors.clear()
+    db.flush()
+    note.doctors = [RotaConfigNoteDoctor(doctor_id=d) for d in payload.doctor_ids]
+    db.commit()
+    return _staging_out(db, staging)
+
+
+@router.delete("/{staging_id}/notes/{note_id}", status_code=204)
+def delete_note(
+    staging_id: int,
+    note_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    note = _note_or_404(db, staging, note_id)
+    db.delete(note)  # ORM cascade removes RotaConfigNoteDoctor rows
+    db.commit()
+
+
 @router.delete("/{staging_id}", status_code=204)
 def abandon_staging(
     staging_id: int,
@@ -670,7 +830,7 @@ def abandon_staging(
     user: User = Depends(get_current_user),
 ) -> None:
     """Abandon an active staging: hard-delete the staging (sessions cascade)
-    and its RotaConfig.
+    and its RotaConfig (per-run notes cascade with it).
 
     409 on a completed staging -- that is a retained record of the run, not
     something this endpoint discards. Deleting the RotaConfig explicitly

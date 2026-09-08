@@ -1,11 +1,16 @@
-"""RecurringNote router tests (recurring notes plan, Task 2).
+"""RecurringNote router tests (recurring notes picker plan, Task 3).
+
+Definitions carry no template weeks: the week a note lands on is chosen
+per run on the staging page (see test_staging.py).
 
 `seeded` (tests_test_api_conftest.py) gives two active doctors, AA and BB.
 Tests needing a third doctor, or an inactive one, add it directly via
 db_session -- there is no doctors-router helper in this file's scope.
 """
-from app.models import Doctor
-from app.models.enums import DoctorType
+import datetime
+
+from app.models import Doctor, RotaConfig, RotaConfigNote, RotaConfigNoteDoctor
+from app.models.enums import Day, DoctorType, Period
 
 
 def _make_note(client, seeded, **overrides):
@@ -15,7 +20,6 @@ def _make_note(client, seeded, **overrides):
         "period": "PM",
         "is_active": True,
         "doctor_ids": [seeded["doctor_aa"]],
-        "template_weeks": [1, 2, 3, 4],
     }
     payload.update(overrides)
     resp = client.post("/api/v1/recurring-notes", json=payload)
@@ -28,7 +32,6 @@ class TestRecurringNotesCrud:
         created = _make_note(client, seeded)
         assert created["text"] == "Partners meeting"
         assert created["doctor_ids"] == [seeded["doctor_aa"]]
-        assert created["template_weeks"] == [1, 2, 3, 4]
 
         listed = client.get("/api/v1/recurring-notes").json()
         assert [n["id"] for n in listed] == [created["id"]]
@@ -41,7 +44,6 @@ class TestRecurringNotesCrud:
                 "period": "AM",
                 "is_active": False,
                 "doctor_ids": [seeded["doctor_bb"]],
-                "template_weeks": [2],
             },
         )
         assert put_resp.status_code == 200, put_resp.text
@@ -50,7 +52,6 @@ class TestRecurringNotesCrud:
         assert updated["day"] == "Tuesday"
         assert updated["is_active"] is False
         assert updated["doctor_ids"] == [seeded["doctor_bb"]]
-        assert updated["template_weeks"] == [2]
 
         assert client.delete(
             f"/api/v1/recurring-notes/{created['id']}"
@@ -69,7 +70,6 @@ class TestRecurringNotesCrud:
                 "day": "Monday",
                 "period": "AM",
                 "doctor_ids": [seeded["doctor_aa"]],
-                "template_weeks": [1],
             },
         )
         assert resp.status_code == 404
@@ -103,7 +103,6 @@ class TestRecurringNotesCrud:
                 "day": created["day"],
                 "period": created["period"],
                 "doctor_ids": [seeded["doctor_aa"]],
-                "template_weeks": created["template_weeks"],
             },
         )
         assert resp.status_code == 200, resp.text
@@ -125,7 +124,6 @@ class TestRecurringNotesValidation:
             "day": "Monday",
             "period": "AM",
             "doctor_ids": [seeded["doctor_aa"]],
-            "template_weeks": [1],
         })
         assert resp.status_code == 422
 
@@ -135,27 +133,6 @@ class TestRecurringNotesValidation:
             "day": "Monday",
             "period": "AM",
             "doctor_ids": [],
-            "template_weeks": [1],
-        })
-        assert resp.status_code == 422
-
-    def test_empty_template_weeks_422(self, client, seeded):
-        resp = client.post("/api/v1/recurring-notes", json={
-            "text": "Note",
-            "day": "Monday",
-            "period": "AM",
-            "doctor_ids": [seeded["doctor_aa"]],
-            "template_weeks": [],
-        })
-        assert resp.status_code == 422
-
-    def test_template_week_out_of_range_422(self, client, seeded):
-        resp = client.post("/api/v1/recurring-notes", json={
-            "text": "Note",
-            "day": "Monday",
-            "period": "AM",
-            "doctor_ids": [seeded["doctor_aa"]],
-            "template_weeks": [5],
         })
         assert resp.status_code == 422
 
@@ -165,17 +142,6 @@ class TestRecurringNotesValidation:
             "day": "Monday",
             "period": "AM",
             "doctor_ids": [seeded["doctor_aa"], seeded["doctor_aa"]],
-            "template_weeks": [1],
-        })
-        assert resp.status_code == 422
-
-    def test_duplicate_template_week_422(self, client, seeded):
-        resp = client.post("/api/v1/recurring-notes", json={
-            "text": "Note",
-            "day": "Monday",
-            "period": "AM",
-            "doctor_ids": [seeded["doctor_aa"]],
-            "template_weeks": [1, 1],
         })
         assert resp.status_code == 422
 
@@ -192,7 +158,6 @@ class TestRecurringNotesValidation:
             "day": "Monday",
             "period": "AM",
             "doctor_ids": [inactive.id],
-            "template_weeks": [1],
         })
         assert resp.status_code == 422
         assert str(inactive.id) in resp.json()["detail"]
@@ -203,6 +168,42 @@ class TestRecurringNotesValidation:
             "day": "Monday",
             "period": "AM",
             "doctor_ids": [999999],
-            "template_weeks": [1],
         })
         assert resp.status_code == 422
+
+class TestDefinitionDeleteLeavesInstances:
+    def test_delete_nulls_source_note_id_on_picked_instances(
+        self, client, seeded, db_session
+    ):
+        """A picked instance is a snapshot, not a live link: deleting the
+        definition it came from must leave the instance intact with only
+        its provenance pointer cleared -- and must not be blocked by the
+        FK."""
+        created = _make_note(client, seeded)
+        config = RotaConfig(
+            start_date=datetime.date(2025, 1, 6), num_weeks=1, template_start_week=1
+        )
+        db_session.add(config)
+        db_session.flush()
+        instance = RotaConfigNote(
+            config_id=config.id,
+            source_note_id=created["id"],
+            text="Partners meeting",
+            week=1,
+            day=Day.MONDAY,
+            period=Period.PM,
+        )
+        instance.doctors = [RotaConfigNoteDoctor(doctor_id=seeded["doctor_aa"])]
+        db_session.add(instance)
+        db_session.commit()
+
+        assert client.delete(
+            f"/api/v1/recurring-notes/{created['id']}"
+        ).status_code == 204
+
+        db_session.expire_all()
+        surviving = db_session.get(RotaConfigNote, instance.id)
+        assert surviving is not None
+        assert surviving.source_note_id is None
+        assert surviving.text == "Partners meeting"
+        assert [d.doctor_id for d in surviving.doctors] == [seeded["doctor_aa"]]

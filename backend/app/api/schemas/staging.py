@@ -22,11 +22,20 @@ implying the row's origin.
 StagingSessionPatchIn / StagingSessionCreateIn subclass MasterSessionPairIn
 from schemas/master_rota.py so the (session_type, room_id) pair validation
 cannot drift between the two grids.
+
+StagingNoteIn / StagingNotePatchIn / StagingNoteOut are the per-run note
+instances (see models/recurring_note.py). They carry `week` as a
+*generation* week of this run: the ge/le 1..4 field bound is necessary
+but not sufficient, so the router additionally 422s when week exceeds the
+staging's own num_weeks, exactly as StagingSessionCreateIn does.
+StagingNotePatchIn omits source_note_id -- provenance is fixed at pick
+time; re-pointing an instance at a different definition would claim a
+copy that never happened.
 """
 import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...models.enums import Day, DoctorType, MasterSessionType, Period
 from .closure import ClosedSlotOut
@@ -70,6 +79,7 @@ class StagingOut(BaseModel):
     completed_at: datetime.datetime | None = None
     closed_slots: list[ClosedSlotOut] = Field(default_factory=list)
     sessions: list[StagingSessionOut]
+    notes: list["StagingNoteOut"] = Field(default_factory=list)
 
 
 class StagingSessionPatchIn(MasterSessionPairIn):
@@ -92,3 +102,74 @@ class StagingSessionCreateIn(MasterSessionPairIn):
 class StagingSessionWriteOut(BaseModel):
     session: StagingSessionOut
     displaced_session: StagingSessionOut | None
+
+
+class StagingNotePatchIn(BaseModel):
+    """PATCH /staging/{staging_id}/notes/{note_id}. A full replace of every
+    editable field -- there is no partial update, so an omitted field is a
+    422 rather than "leave it alone"."""
+    text: str = Field(min_length=1, max_length=200)
+    week: int = Field(ge=1, le=4)
+    day: Day
+    period: Period
+    doctor_ids: list[int]
+
+    @field_validator("text")
+    @classmethod
+    def _strip_text(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("text must not be empty")
+        if len(stripped) > 200:
+            raise ValueError("text must be 200 characters or fewer")
+        return stripped
+
+    @field_validator("doctor_ids")
+    @classmethod
+    def _check_doctor_ids(cls, v: list[int]) -> list[int]:
+        if not v:
+            raise ValueError("doctor_ids must not be empty")
+        if len(v) != len(set(v)):
+            raise ValueError("doctor_ids must not contain duplicates")
+        return v
+
+
+class StagingNoteIn(StagingNotePatchIn):
+    """POST /staging/{staging_id}/notes. One note per call: the frontend
+    loops when a tick spans several generation weeks, which keeps this
+    endpoint and its validation single-shaped.
+
+    source_note_id is provenance only -- the definition it was copied
+    from, so the picker can tick the right box. It is never re-read for
+    content, and is NULL for a free-form one-off note."""
+    source_note_id: int | None = None
+
+
+class StagingNoteOut(BaseModel):
+    """One per-run note instance. doctor_ids is flattened and sorted
+    ascending from the ORM child rows by from_orm_note(), for the same
+    reason RecurringNoteOut does it."""
+    id: int
+    source_note_id: int | None = None
+    text: str
+    week: int
+    day: Day
+    period: Period
+    doctor_ids: list[int]
+
+    @classmethod
+    def from_orm_note(cls, note) -> "StagingNoteOut":
+        return cls(
+            id=note.id,
+            source_note_id=note.source_note_id,
+            text=note.text,
+            week=note.week,
+            day=note.day,
+            period=note.period,
+            doctor_ids=sorted(d.doctor_id for d in note.doctors),
+        )
+
+
+# StagingOut references StagingNoteOut before it is defined; resolve the
+# forward reference now rather than relying on first-validation rebuild.
+StagingOut.model_rebuild()

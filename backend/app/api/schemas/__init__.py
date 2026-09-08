@@ -75,6 +75,9 @@ from .master_rota import (
 )
 from .staging import (
     StagingCreateIn,
+    StagingNoteIn,
+    StagingNoteOut,
+    StagingNotePatchIn,
     StagingOut,
     StagingSessionCreateIn,
     StagingSessionOut,
@@ -149,6 +152,7 @@ __all__ = [
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
     "StagingCreateIn", "StagingOut", "StagingSessionOut",
     "StagingSessionPatchIn", "StagingSessionCreateIn", "StagingSessionWriteOut",
+    "StagingNoteIn", "StagingNotePatchIn", "StagingNoteOut",
     "SignatureMetaOut",
     "SchoolIn", "SchoolOut", "SchoolHolidayIn", "SchoolHolidayOut",
     "LoginIn", "LoginOut", "PermissionSet", "PermissionSetIn",

@@ -131,6 +131,12 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
         "Changed a session in the staging copy",
     ("DELETE", "/staging/{staging_id}/sessions/{session_id}"):
         "Removed a session from the staging copy",
+    ("POST", "/staging/{staging_id}/notes"):
+        "Added a note to this rota run",
+    ("PATCH", "/staging/{staging_id}/notes/{note_id}"):
+        "Changed a note on this rota run",
+    ("DELETE", "/staging/{staging_id}/notes/{note_id}"):
+        "Removed a note from this rota run",
     ("DELETE", "/staging/{staging_id}"): "Abandoned the staging copy",
 
     # Clinical rota lifecycle and editing
