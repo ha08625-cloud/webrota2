@@ -19,15 +19,15 @@ function setUpServer({
   );
 }
 
-describe("RecurringNotesPage", () => {
+describe("RecurringNotesPage (meeting library)", () => {
   it("shows an empty-state message when there are no notes", async () => {
     setUpServer();
     renderWithProviders(<RecurringNotesPage />);
 
-    expect(await screen.findByText("No recurring notes.")).toBeInTheDocument();
+    expect(await screen.findByText("No meetings.")).toBeInTheDocument();
   });
 
-  it("renders a row per note, sorted by weekday then period", async () => {
+  it("renders a row per meeting, sorted by default weekday then period", async () => {
     setUpServer({
       notes: [
         makeRecurringNote({ id: 1, day: "Wednesday", period: "AM", text: "Second" }),
@@ -44,25 +44,35 @@ describe("RecurringNotesPage", () => {
     expect(within(rows[2]).getByText("Second")).toBeInTheDocument();
   });
 
-  it("renders doctor codes and 'Every week' for a full week set", async () => {
+  it("renders the default doctor codes", async () => {
     setUpServer({
-      notes: [makeRecurringNote({ id: 1, doctor_ids: [1, 2], template_weeks: [1, 2, 3, 4] })],
+      notes: [makeRecurringNote({ id: 1, doctor_ids: [1, 2] })],
     });
     renderWithProviders(<RecurringNotesPage />);
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("AB, CD")).toBeInTheDocument();
-    expect(within(table).getByText("Every week")).toBeInTheDocument();
   });
 
-  it("renders a partial week set compactly", async () => {
-    setUpServer({
-      notes: [makeRecurringNote({ id: 1, template_weeks: [1, 3] })],
-    });
+  it("says the library schedules nothing until a meeting is picked for a run", async () => {
+    setUpServer();
     renderWithProviders(<RecurringNotesPage />);
 
-    const table = await screen.findByRole("table");
-    expect(within(table).getByText("Weeks 1, 3")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/appears on a rota only when you tick it on the staging page/i),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no week selector - weeks are chosen per run, not on a definition", async () => {
+    setUpServer();
+    const user = userEvent.setup();
+    renderWithProviders(<RecurringNotesPage />);
+    await user.click(screen.getByRole("button", { name: "New Meeting" }));
+
+    for (const week of ["1", "2", "3", "4"]) {
+      expect(screen.queryByRole("checkbox", { name: week })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText(/template week/i)).not.toBeInTheDocument();
   });
 
   it("creating a note posts the entered fields", async () => {
@@ -77,16 +87,13 @@ describe("RecurringNotesPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<RecurringNotesPage />);
-    await user.click(screen.getByRole("button", { name: "New Recurring Note" }));
+    await user.click(screen.getByRole("button", { name: "New Meeting" }));
 
     await user.type(screen.getByLabelText("Text"), "Partners meeting");
-    await user.selectOptions(screen.getByLabelText("Day"), "Tuesday");
-    await user.selectOptions(screen.getByLabelText("Period"), "PM");
+    await user.selectOptions(screen.getByLabelText("Default day"), "Tuesday");
+    await user.selectOptions(screen.getByLabelText("Default period"), "PM");
     await user.click(screen.getByRole("checkbox", { name: "AB" }));
     await user.click(screen.getByRole("checkbox", { name: "CD" }));
-    // Default weeks are all four ticked; untick 2 and 4 to get {1, 3}.
-    await user.click(screen.getByRole("checkbox", { name: "2" }));
-    await user.click(screen.getByRole("checkbox", { name: "4" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(capturedBody).toEqual({
@@ -95,7 +102,6 @@ describe("RecurringNotesPage", () => {
       period: "PM",
       is_active: true,
       doctor_ids: [1, 2],
-      template_weeks: [1, 3],
     });
   });
 
@@ -108,7 +114,6 @@ describe("RecurringNotesPage", () => {
           day: "Monday",
           period: "PM",
           doctor_ids: [1],
-          template_weeks: [1, 2, 3, 4],
         }),
       ],
     });
@@ -132,7 +137,6 @@ describe("RecurringNotesPage", () => {
       period: "PM",
       is_active: true,
       doctor_ids: [1, 2],
-      template_weeks: [1, 2, 3, 4],
     });
   });
 
@@ -156,30 +160,16 @@ describe("RecurringNotesPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(deleted).toBe(true);
-    expect(await screen.findByText("No recurring notes.")).toBeInTheDocument();
+    expect(await screen.findByText("No meetings.")).toBeInTheDocument();
   });
 
   it("disables save when text is empty", async () => {
     setUpServer();
     const user = userEvent.setup();
     renderWithProviders(<RecurringNotesPage />);
-    await user.click(screen.getByRole("button", { name: "New Recurring Note" }));
+    await user.click(screen.getByRole("button", { name: "New Meeting" }));
 
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
-  it("disables save when every week checkbox is unticked", async () => {
-    setUpServer();
-    const user = userEvent.setup();
-    renderWithProviders(<RecurringNotesPage />);
-    await user.click(screen.getByRole("button", { name: "New Recurring Note" }));
-
-    await user.type(screen.getByLabelText("Text"), "Partners meeting");
-    await user.click(screen.getByRole("checkbox", { name: "1" }));
-    await user.click(screen.getByRole("checkbox", { name: "2" }));
-    await user.click(screen.getByRole("checkbox", { name: "3" }));
-    await user.click(screen.getByRole("checkbox", { name: "4" }));
-
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-  });
 });

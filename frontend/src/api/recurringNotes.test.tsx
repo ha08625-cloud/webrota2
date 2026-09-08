@@ -50,7 +50,6 @@ describe("useCreateRecurringNote", () => {
       period: "PM" as const,
       is_active: true,
       doctor_ids: [1, 2],
-      template_weeks: [1, 3],
     };
     const { result } = renderHook(() => useCreateRecurringNote(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate(payload);
@@ -73,7 +72,6 @@ describe("useCreateRecurringNote", () => {
       period: "PM",
       is_active: true,
       doctor_ids: [99],
-      template_weeks: [1],
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -97,7 +95,6 @@ describe("useUpdateRecurringNote", () => {
       period: "AM" as const,
       is_active: true,
       doctor_ids: [1],
-      template_weeks: [2, 4],
     };
     const { result } = renderHook(() => useUpdateRecurringNote(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate({ id: 4, payload });

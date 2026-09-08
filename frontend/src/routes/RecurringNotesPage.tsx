@@ -14,7 +14,6 @@ import { useWriteGate } from "@/auth/AuthContext";
 
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const PERIODS: Period[] = ["AM", "PM"];
-const WEEKS = [1, 2, 3, 4];
 
 const DAY_ORDER: Record<Day, number> = {
   Monday: 0,
@@ -25,13 +24,6 @@ const DAY_ORDER: Record<Day, number> = {
 };
 
 const PERIOD_ORDER: Record<Period, number> = { AM: 0, PM: 1 };
-
-/** "Weeks 1, 3" for a proper subset, "Every week" when all four are ticked. */
-function formatWeeks(weeks: number[]): string {
-  const sorted = weeks.slice().sort((a, b) => a - b);
-  if (sorted.length === 4) return "Every week";
-  return `Weeks ${sorted.join(", ")}`;
-}
 
 function formatDoctors(doctorIds: number[], doctorsById: Map<number, Doctor>): string {
   return doctorIds
@@ -61,19 +53,14 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
   const [day, setDay] = useState<Day>(note?.day ?? "Monday");
   const [period, setPeriod] = useState<Period>(note?.period ?? "AM");
   const [doctorIds, setDoctorIds] = useState<number[]>(note?.doctor_ids ?? []);
-  const [templateWeeks, setTemplateWeeks] = useState<number[]>(note?.template_weeks ?? WEEKS.slice());
   const [isActive, setIsActive] = useState(note?.is_active ?? true);
   const [formError, setFormError] = useState<string | null>(null);
 
   const isSaving = createNote.isPending || updateNote.isPending;
-  const canSave = text.trim().length > 0 && templateWeeks.length > 0;
+  const canSave = text.trim().length > 0;
 
   function toggleDoctor(id: number) {
     setDoctorIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
-  }
-
-  function toggleWeek(week: number) {
-    setTemplateWeeks((prev) => (prev.includes(week) ? prev.filter((w) => w !== week) : [...prev, week]));
   }
 
   function handleSubmit(event: FormEvent) {
@@ -87,10 +74,9 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
       period,
       is_active: isActive,
       doctor_ids: doctorIds,
-      template_weeks: templateWeeks,
     };
     const onError = (err: { status: number; detail: unknown }) => {
-      setFormError(typeof err.detail === "string" ? err.detail : "Could not save this recurring note.");
+      setFormError(typeof err.detail === "string" ? err.detail : "Could not save this meeting.");
     };
 
     if (note) {
@@ -106,7 +92,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
         <Dialog.Overlay className="fixed inset-0 bg-ink/30" />
         <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[90vh] w-[30rem] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded bg-surface p-5 shadow-lg">
           <Dialog.Title className="text-lg font-semibold">
-            {note ? "Edit Recurring Note" : "New Recurring Note"}
+            {note ? "Edit Meeting" : "New Meeting"}
           </Dialog.Title>
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -129,7 +115,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
             <div className="flex gap-4">
               <div>
                 <label className="block text-sm font-medium" htmlFor="rn-day">
-                  Day
+                  Default day
                 </label>
                 <select
                   id="rn-day"
@@ -146,7 +132,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
               </div>
               <div>
                 <label className="block text-sm font-medium" htmlFor="rn-period">
-                  Period
+                  Default period
                 </label>
                 <select
                   id="rn-period"
@@ -164,7 +150,7 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
             </div>
 
             <fieldset>
-              <legend className="text-sm font-medium">Doctors</legend>
+              <legend className="text-sm font-medium">Default doctors</legend>
               <ul className="mt-1 space-y-1" aria-label="Doctors">
                 {activeDoctors.map((d) => (
                   <li key={d.id}>
@@ -179,18 +165,6 @@ function RecurringNoteFormDialog({ note, activeDoctors, open, onOpenChange }: Re
                   </li>
                 ))}
               </ul>
-            </fieldset>
-
-            <fieldset>
-              <legend className="text-sm font-medium">Template weeks</legend>
-              <div className="mt-1 flex gap-3">
-                {WEEKS.map((w) => (
-                  <label key={w} className="flex items-center gap-1 text-sm">
-                    <input type="checkbox" checked={templateWeeks.includes(w)} onChange={() => toggleWeek(w)} />
-                    {w}
-                  </label>
-                ))}
-              </div>
             </fieldset>
 
             <label className="flex items-center gap-2 text-sm">
@@ -243,13 +217,17 @@ export function RecurringNotesPage() {
   }
 
   function handleDelete(note: RecurringNote) {
-    if (!window.confirm(`Delete recurring note "${note.text}"? This cannot be undone.`)) {
+    if (
+      !window.confirm(
+        `Delete meeting "${note.text}"? Rotas that already picked it keep their copy. This cannot be undone.`,
+      )
+    ) {
       return;
     }
     setDeleteError(null);
     deleteNote.mutate(note.id, {
       onError: (err) => {
-        setDeleteError(typeof err.detail === "string" ? err.detail : "Could not delete this recurring note.");
+        setDeleteError(typeof err.detail === "string" ? err.detail : "Could not delete this meeting.");
       },
     });
   }
@@ -257,37 +235,40 @@ export function RecurringNotesPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Recurring Notes</h1>
+        <h1 className="text-lg font-semibold">Meetings</h1>
         <button
           type="button"
           onClick={openCreate}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           {...writeGate}
         >
-          New Recurring Note
+          New Meeting
         </button>
       </div>
       <p className="mt-1 text-sm text-ink/70">
-        Text stamped into a session's notes at generation time, for the listed doctors on the given day,
-        period and template weeks. Annotation only - it has no effect on availability, eligibility or duty.
+        A library of meetings with a default day, period and doctors. Nothing here is scheduled: a meeting
+        appears on a rota only when you tick it on the staging page for that run, which copies these defaults
+        onto that rota and lets you change them for that run alone.
+      </p>
+      <p className="mt-1 text-sm text-ink/70">
+        Annotation only - a meeting has no effect on availability, eligibility or duty.
       </p>
 
       {deleteError ? <p className="mt-3 text-sm text-red-700">{deleteError}</p> : null}
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
-      {isError ? <p className="mt-4 text-sm text-red-700">Could not load recurring notes.</p> : null}
+      {isError ? <p className="mt-4 text-sm text-red-700">Could not load meetings.</p> : null}
 
-      {notes && notes.length === 0 ? <p className="mt-4 text-sm text-ink/50">No recurring notes.</p> : null}
+      {notes && notes.length === 0 ? <p className="mt-4 text-sm text-ink/50">No meetings.</p> : null}
 
       {notes && notes.length > 0 ? (
         <table className="mt-4 min-w-full text-sm">
           <thead>
             <tr className="text-left text-ink/70">
-              <th className="py-1 pr-4 font-medium">Day</th>
-              <th className="py-1 pr-4 font-medium">Period</th>
+              <th className="py-1 pr-4 font-medium">Default day</th>
+              <th className="py-1 pr-4 font-medium">Default period</th>
               <th className="py-1 pr-4 font-medium">Text</th>
-              <th className="py-1 pr-4 font-medium">Doctors</th>
-              <th className="py-1 pr-4 font-medium">Weeks</th>
+              <th className="py-1 pr-4 font-medium">Default doctors</th>
               <th className="py-1 pr-4 font-medium">Active</th>
               <th className="py-1" />
             </tr>
@@ -299,7 +280,6 @@ export function RecurringNotesPage() {
                 <td className="py-1 pr-4">{n.period}</td>
                 <td className="py-1 pr-4">{n.text}</td>
                 <td className="py-1 pr-4">{formatDoctors(n.doctor_ids, doctorsById)}</td>
-                <td className="py-1 pr-4">{formatWeeks(n.template_weeks)}</td>
                 <td className="py-1 pr-4">{n.is_active ? "Yes" : "No"}</td>
                 <td className="py-1">
                   <button

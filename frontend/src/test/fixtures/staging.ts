@@ -1,4 +1,4 @@
-import type { Staging, StagingSession } from "@/api/types";
+import type { Staging, StagingNote, StagingSession } from "@/api/types";
 
 let sessionIdCounter = 1;
 
@@ -30,6 +30,23 @@ export function makeStaging(overrides: Partial<Staging> = {}): Staging {
     completed_at: null,
     closed_slots: [],
     sessions: [],
+    notes: [],
+    ...overrides,
+  };
+}
+let stagingNoteIdCounter = 1;
+
+/** A per-run note instance. source_note_id defaults to a definition id -
+ * the picked-from-the-library case; pass null for a free-form one-off. */
+export function makeStagingNote(overrides: Partial<StagingNote> = {}): StagingNote {
+  return {
+    id: stagingNoteIdCounter++,
+    source_note_id: 1,
+    text: "Partners meeting",
+    week: 1,
+    day: "Monday",
+    period: "PM",
+    doctor_ids: [1],
     ...overrides,
   };
 }
