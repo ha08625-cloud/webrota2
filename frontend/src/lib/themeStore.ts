@@ -1,4 +1,4 @@
-// User-selectable themes, Task 2. The five chrome colours are CSS custom
+// The five chrome colours are CSS custom
 // properties defined in index.css; a theme is just a [data-theme] block
 // overriding them. This module owns the stored choice and the one line of
 // DOM that activates it.

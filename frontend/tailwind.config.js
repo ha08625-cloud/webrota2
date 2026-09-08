@@ -8,7 +8,7 @@ export default {
         // the cream+terracotta or near-black+neon defaults. The accent is
         // reserved for interactive/focus states so it never collides with
         // the Q13 rota cell colour language (red/blue/green/grey), which
-        // Task 3 owns.
+        // is pinned rather than themeable.
         // The values themselves live in index.css as CSS custom properties
         // (one block per theme, swapped by a data-theme attribute on <html>),
         // so a theme change is a variable swap rather than a rebuild. The
