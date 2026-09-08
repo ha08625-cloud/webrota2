@@ -448,10 +448,12 @@ export interface CoverageTotalsInput {
   /** Unsaved edits, keyed by `planningCellKey`. */
   pending: Map<string, PendingEdit>;
   /**
-   * The rows the grid renders, which are exactly the doctors the server
-   * counts: active, Partner or Salaried, window-overlapping the month.
-   * A pending edit on any doctor outside this list contributes nothing,
-   * so the on-screen total always equals the sum of the visible rows.
+   * Exactly the doctors the server counts: active, Partner/Salaried/Locum,
+   * window-overlapping the month. A pending edit on any doctor outside
+   * this list contributes nothing, which is what keeps this a true delta
+   * against the server's baseline - the grid may render more rows than
+   * this (Trainees, via the page's toggle), and an edit on one of those
+   * must not move a total the trainee was never counted in.
    */
   doctors: Doctor[];
   /** The active template's sessions; week 1 is selected internally. */

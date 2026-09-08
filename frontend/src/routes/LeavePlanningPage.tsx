@@ -34,7 +34,8 @@ import {
 
 /**
  * Annual leave planning: one month of weekday cells per Partner/Salaried/
- * Locum doctor, with a live clinical-cover total underneath.
+ * Locum doctor - plus Trainees behind the "Show trainees" toggle - with a
+ * live clinical-cover total underneath.
  *
  * Edits are batched. Every click writes to a page-level pending map and
  * nothing else; Save posts the whole batch to POST /leave-planning/bulk
@@ -122,6 +123,11 @@ export function LeavePlanningPage() {
   // value only, never re-applied by an effect: the page opens on your own
   // row, and Clear or a click on another doctor sticks.
   const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(linkedDoctorId);
+  // Trainees are hidden by default: the grid exists to plan the cover the
+  // totals row measures, and trainees contribute nothing to it. Shown on
+  // request all the same - knowing which trainees are away that week is
+  // still useful when planning.
+  const [showTrainees, setShowTrainees] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSummary, setSaveSummary] = useState<string | null>(null);
 
@@ -155,6 +161,10 @@ export function LeavePlanningPage() {
 
   const applyBulk = useApplyPlanningBulk();
 
+  // The rows on screen. Trainees are off by default and added by the
+  // toggle: they are planned here for visibility (who is away when), but
+  // the coverage endpoint does not count them, so they are kept out of
+  // `coverageDoctors` below rather than folded into one list.
   const doctors = useMemo(
     () =>
       (allDoctors ?? [])
@@ -162,7 +172,8 @@ export function LeavePlanningPage() {
           (d) =>
             (d.doctor_type === "Partner" ||
               d.doctor_type === "Salaried" ||
-              d.doctor_type === "Locum") &&
+              d.doctor_type === "Locum" ||
+              (showTrainees && d.doctor_type === "Trainee")) &&
             // Overlap, not "in window today": a doctor leaving mid-month
             // must still show for the part of the month they worked.
             overlapsRange(d, fromDate, toDate),
@@ -173,7 +184,18 @@ export function LeavePlanningPage() {
             { type: b.doctor_type, code: b.code },
           ),
         ),
-    [allDoctors, fromDate, toDate],
+    [allDoctors, fromDate, toDate, showTrainees],
+  );
+
+  // Exactly the doctors `GET /leave-planning/coverage` counts
+  // (`_PLANNING_DOCTOR_TYPES`), which is the whole grid when the trainee
+  // toggle is off. A pending edit on a doctor outside this list adjusts
+  // nothing, so the live total keeps matching the server's baseline: a
+  // trainee is absent from that baseline, so removing them from it on
+  // leave would take the total below what the server will report.
+  const coverageDoctors = useMemo(
+    () => doctors.filter((d) => d.doctor_type !== "Trainee"),
+    [doctors],
   );
 
   // Only a doctor with a row on screen counts as selected: a balance line
@@ -220,13 +242,13 @@ export function LeavePlanningPage() {
       applyPendingToCoverage({
         coverage: coverage ?? [],
         pending,
-        doctors,
+        doctors: coverageDoctors,
         sessions: template?.sessions ?? [],
         leave: leave ?? [],
         extraSessions: extraSessions ?? [],
         blocked: blocked ?? [],
       }),
-    [coverage, pending, doctors, template, leave, extraSessions, blocked],
+    [coverage, pending, coverageDoctors, template, leave, extraSessions, blocked],
   );
 
   /** One popover Apply, over every cell the grid selected - a plain click
@@ -420,6 +442,16 @@ export function LeavePlanningPage() {
           Next
         </button>
 
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            data-testid="planning-show-trainees"
+            checked={showTrainees}
+            onChange={(event) => setShowTrainees(event.target.checked)}
+          />
+          Show trainees
+        </label>
+
         <div className="ml-auto flex items-center gap-2">
           {unsavedCount > 0 ? (
             <span
@@ -449,6 +481,16 @@ export function LeavePlanningPage() {
           </button>
         </div>
       </div>
+
+      {showTrainees ? (
+        // Said plainly rather than left to be inferred from a total that
+        // does not move: trainee cells are saved like any other, but the
+        // coverage endpoint does not count trainees, so the cover row
+        // underneath them is unchanged by a trainee's leave.
+        <p className="mt-2 text-xs text-ink/60">
+          Trainee rows can be edited, but trainee leave does not change the clinical cover totals.
+        </p>
+      ) : null}
 
       {saveError ? <p className="mt-2 text-sm text-red-700">{saveError}</p> : null}
       {saveSummary ? <p className="mt-2 text-sm text-ink/70">{saveSummary}</p> : null}
@@ -497,6 +539,11 @@ export function LeavePlanningPage() {
         year={year}
         month={month}
         doctors={doctors}
+        emptyMessage={
+          showTrainees
+            ? "No partners, salaried doctors, locums, or trainees work this month."
+            : undefined
+        }
         schoolRows={schoolRows}
         pending={pending}
         leaveKeys={leaveKeys}
