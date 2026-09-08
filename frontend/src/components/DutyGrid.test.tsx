@@ -159,12 +159,9 @@ describe("DutyGrid", () => {
     await waitFor(() => expect(within(cell).queryByText("AB")).not.toBeInTheDocument());
   });
 
-  it("renders period counts and weighted score", async () => {
+  it("renders annual counts and the weighted score to one decimal place", async () => {
     // Call setUpServer with explicit sessions_per_week as strings to ensure the math
-    // matches our assertions ("8.0" spw -> 5.00 score for 4 duties). The mock handler
-    // below returns the same counts regardless of the requested range, so this test
-    // only asserts on the period-scoped columns (testid-scoped, since the annual
-    // columns render the same values from the same mock data).
+    // matches our assertions ("8.0" spw -> 5.0 score for 4 duties).
     setUpServer({
       doctors: [
         makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" }),
@@ -183,16 +180,87 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    // Doctor 1 (AB): raw 4, "8.0" sessions_per_week -> 5.00 score
-    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("4");
-    expect(screen.getByTestId("duty-period-wtd-1")).toHaveTextContent("5.00");
+    // Doctor 1 (AB): raw 4, "8.0" sessions_per_week -> 5.0 score
+    expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("4");
+    expect(screen.getByTestId("duty-annual-wtd-1")).toHaveTextContent("5.0");
 
-    // Doctor 2 (CD): raw 0, "4.0" sessions_per_week -> 0.00 score
-    expect(screen.getByTestId("duty-period-raw-2")).toHaveTextContent("0");
-    expect(screen.getByTestId("duty-period-wtd-2")).toHaveTextContent("0.00");
+    // Doctor 2 (CD): raw 0, "4.0" sessions_per_week -> 0.0 score
+    expect(screen.getByTestId("duty-annual-raw-2")).toHaveTextContent("0");
+    expect(screen.getByTestId("duty-annual-wtd-2")).toHaveTextContent("0.0");
   });
 
-  it("renders the annual counter alongside the period counter", async () => {
+  it("renders no period-scoped counter columns - the annual counter is the only one shown", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true })],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 4 }]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-annual-raw-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("duty-period-raw-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("duty-period-wtd-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Period")).not.toBeInTheDocument();
+  });
+
+  it("bolds the lowest annual weighted score, including ties, and only that score", async () => {
+    setUpServer({
+      doctors: [
+        // raw 4 / 8.0 spw -> 5.0 (highest)
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" }),
+        // raw 2 / 8.0 spw -> 2.5 (lowest)
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true, sessions_per_week: "8.0" }),
+        // raw 1 / 4.0 spw -> 2.5 (tied lowest, and in a different type group,
+        // so the comparison must span groups rather than run within each)
+        makeDoctor({ id: 3, code: "EF", doctor_type: "Salaried", active: true, sessions_per_week: "4.0" }),
+      ],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([
+          { doctor_id: 1, doctor_code: "AB", raw_count: 4 },
+          { doctor_id: 2, doctor_code: "CD", raw_count: 2 },
+          { doctor_id: 3, doctor_code: "EF", raw_count: 1 },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-annual-wtd-2")).toHaveClass("font-bold");
+    expect(screen.getByTestId("duty-annual-wtd-3")).toHaveClass("font-bold");
+    expect(screen.getByTestId("duty-annual-wtd-1")).not.toHaveClass("font-bold");
+    // The raw count column is never bolded - only the weighted score is.
+    expect(screen.getByTestId("duty-annual-raw-2")).not.toHaveClass("font-bold");
+  });
+
+  it("bolds nobody when every doctor's score is infinite (sessions_per_week 0), rather than picking one arbitrarily", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "0.0" }),
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true, sessions_per_week: "0.0" }),
+      ],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([
+          { doctor_id: 1, doctor_code: "AB", raw_count: 4 },
+          { doctor_id: 2, doctor_code: "CD", raw_count: 0 },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-annual-wtd-1")).not.toHaveClass("font-bold");
+    expect(screen.getByTestId("duty-annual-wtd-2")).not.toHaveClass("font-bold");
+  });
+
+  it("still requests the annual range and renders its totals", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "8.0" })],
     });
@@ -209,13 +277,11 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("4");
-    expect(screen.getByTestId("duty-period-wtd-1")).toHaveTextContent("5.00");
     expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("20");
-    expect(screen.getByTestId("duty-annual-wtd-1")).toHaveTextContent("25.00");
+    expect(screen.getByTestId("duty-annual-wtd-1")).toHaveTextContent("25.0");
   });
 
-  it("requests counts scoped to the rendered 4-week period and separately to the full calendar year", async () => {
+  it("requests counts scoped to the full calendar year only", async () => {
     setUpServer();
     const capturedUrls: URL[] = [];
     server.use(
@@ -227,22 +293,18 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    await waitFor(() => expect(capturedUrls.length).toBeGreaterThanOrEqual(2));
-
-    // A 28-day period runs Monday (day 0) to Sunday (day 27) of the 4th
-    // week, not to that week's Friday - week 4 starts 2026-08-03, so the
-    // period's last calendar day is 2026-08-09, even though the grid's
-    // last rendered weekday column is Friday 2026-08-07.
-    const periodUrl = capturedUrls.find((u) => u.searchParams.get("from_date") === "2026-07-13");
-    expect(periodUrl?.searchParams.get("to_date")).toBe("2026-08-09");
+    await waitFor(() => expect(capturedUrls.length).toBeGreaterThanOrEqual(1));
 
     // MONDAY (2026-07-13) falls in calendar year 2026, so the annual
-    // range is the whole of 2026, independent of the period window.
+    // range is the whole of 2026, independent of the rendered period.
     const annualUrl = capturedUrls.find((u) => u.searchParams.get("from_date") === "2026-01-01");
     expect(annualUrl?.searchParams.get("to_date")).toBe("2026-12-31");
+
+    // The period-scoped request (from the grid's own start week) is gone.
+    expect(capturedUrls.some((u) => u.searchParams.get("from_date") === "2026-07-13")).toBe(false);
   });
 
-  it("a doctor with no duties in the period or year renders 0, not a dash, once counts have loaded", async () => {
+  it("a doctor with no duties in the year renders 0, not a dash, once counts have loaded", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true })],
     });
@@ -254,7 +316,6 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
-    expect(await screen.findByTestId("duty-period-raw-1")).toHaveTextContent("0");
     expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("0");
     expect(screen.queryByText("–")).not.toBeInTheDocument();
   });
@@ -272,8 +333,8 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     
-    // Verify doctor chips rendered but neither the period nor annual
-    // numbers have populated yet.
+    // Verify doctor chips rendered but the annual numbers have not
+    // populated yet.
     await waitFor(() => {
       expect(screen.getAllByText("–").length).toBeGreaterThan(0);
     });

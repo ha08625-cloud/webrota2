@@ -39,13 +39,18 @@ export function computeWeightedScore(rawCount: number, doctor: Doctor | undefine
   return { kind: "value", value: (rawCount / spw) * 10 };
 }
 
-export function formatWeightedScore(result: WeightedScoreResult): string {
+/**
+ * `decimals` defaults to 2 (the counters page). The duty grid passes 1:
+ * its column is a quick "who is furthest behind" glance rather than a
+ * precise figure, and the second decimal only added noise there.
+ */
+export function formatWeightedScore(result: WeightedScoreResult, decimals = 2): string {
   switch (result.kind) {
     case "unknown":
       return "-";
     case "infinite":
       return "\u221e";
     case "value":
-      return result.value.toFixed(2);
+      return result.value.toFixed(decimals);
   }
 }

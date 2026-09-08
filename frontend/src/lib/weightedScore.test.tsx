@@ -38,6 +38,11 @@ describe("formatWeightedScore", () => {
     expect(formatWeightedScore({ kind: "value", value: 10 / 3 })).toBe("3.33");
   });
 
+  it("honours an explicit decimals argument (the duty grid asks for 1dp)", () => {
+    expect(formatWeightedScore({ kind: "value", value: 5 }, 1)).toBe("5.0");
+    expect(formatWeightedScore({ kind: "value", value: 10 / 3 }, 1)).toBe("3.3");
+  });
+
   it("formats infinite as the infinity symbol, not a dash", () => {
     expect(formatWeightedScore({ kind: "infinite" })).toBe("\u221e");
   });
