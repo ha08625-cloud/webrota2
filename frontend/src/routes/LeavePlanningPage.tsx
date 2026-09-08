@@ -12,6 +12,7 @@ import type { ApiError, PlanningBulkOut } from "@/api/types";
 import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
+import { useSessionYear } from "@/components/SessionManagementTabs";
 import { toClosedSlotSet } from "@/lib/closedSlots";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 import {
@@ -110,11 +111,11 @@ function summariseSave(result: PlanningBulkOut): string {
 export function LeavePlanningPage() {
   const writeGate = useWriteGate();
   const linkedDoctorId = useLinkedDoctorId();
-  const today = new Date();
-  const [{ year, month }, setMonth] = useState({
-    year: today.getFullYear(),
-    month: today.getMonth() + 1,
-  });
+  // Year and month come from the Session Management strip's shared state,
+  // not from a local seed: the year is the one every sibling tab is showing
+  // (and is in the URL), and keeping the month there too means switching
+  // tabs and back returns to the month you were on.
+  const { year, month, setMonth } = useSessionYear();
   const [pending, setPending] = useState<Map<string, PendingEdit>>(new Map());
   // Which doctor's row is highlighted, and whose leave balance is shown.
   // A reading aid only - it never affects an edit. Kept across month
@@ -287,7 +288,11 @@ export function LeavePlanningPage() {
     // Pending edits are deliberately kept across a month change: they are
     // keyed by date, so nothing is ambiguous, and losing a month's work
     // to a mis-click would be worse than carrying it.
-    setMonth((prev) => shiftMonth(prev.year, prev.month, delta));
+    // Handing the year back to the shared setter is what keeps the strip
+    // honest when a step crosses New Year: December 2027 -> January 2028
+    // moves the selected year with it.
+    const next = shiftMonth(year, month, delta);
+    setMonth(next.month, next.year);
     setSaveError(null);
     setSaveSummary(null);
   }
