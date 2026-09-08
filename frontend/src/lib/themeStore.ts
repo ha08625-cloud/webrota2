@@ -3,6 +3,7 @@
 // overriding them. This module owns the stored choice and the one line of
 // DOM that activates it.
 const STORAGE_KEY = "rota.theme";
+const CONTRAST_KEY = "rota.contrast";
 
 export const THEMES = [
   { id: "default", label: "Default" },
@@ -10,7 +11,6 @@ export const THEMES = [
   { id: "forest", label: "Forest" },
   { id: "plum", label: "Plum" },
   { id: "sand", label: "Sand" },
-  { id: "contrast", label: "Contrast" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
@@ -52,4 +52,37 @@ export function applyTheme(id: ThemeId): void {
     return;
   }
   document.documentElement.dataset.theme = id;
+}
+
+/**
+ * High contrast is a separate axis from the palette, not a sixth palette:
+ * it is an accessibility need rather than a look, and a user who needs it
+ * should not have to give up their choice of colour to get it. It sets a
+ * second attribute on <html>, so the CSS composes - the theme supplies the
+ * hue, the contrast block overrides ink, border and accent on top of it.
+ */
+export function getContrast(): boolean {
+  try {
+    return window.localStorage.getItem(CONTRAST_KEY) === "high";
+  } catch {
+    // See getTheme - Safari private mode throws rather than returning null.
+    return false;
+  }
+}
+
+export function setContrast(high: boolean): void {
+  try {
+    window.localStorage.setItem(CONTRAST_KEY, high ? "high" : "normal");
+  } catch {
+    // As above - applies for this session, just does not persist.
+  }
+  applyContrast(high);
+}
+
+export function applyContrast(high: boolean): void {
+  if (!high) {
+    delete document.documentElement.dataset.contrast;
+    return;
+  }
+  document.documentElement.dataset.contrast = "high";
 }

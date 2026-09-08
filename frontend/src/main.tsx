@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  
 import { App } from "./App";
 import { LoginGate } from "./auth/LoginGate";
-import { applyTheme, getTheme } from "./lib/themeStore";
+import { applyContrast, applyTheme, getContrast, getTheme } from "./lib/themeStore";
 import "./index.css";
  
 const queryClient = new QueryClient({
@@ -31,6 +31,7 @@ const queryClient = new QueryClient({
 // first paint, so every load would flash the default theme before
 // switching to the stored one.
 applyTheme(getTheme());
+applyContrast(getContrast());
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

@@ -10,11 +10,13 @@ describe("ThemePicker", () => {
   beforeEach(() => {
     window.localStorage.clear();
     delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.contrast;
   });
 
   afterEach(() => {
     window.localStorage.clear();
     delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.contrast;
   });
 
   it("offers every theme", () => {
@@ -44,10 +46,38 @@ describe("ThemePicker", () => {
     const user = userEvent.setup();
     render(<ThemePicker />);
 
-    await user.selectOptions(screen.getByLabelText("Theme"), "contrast");
+    await user.selectOptions(screen.getByLabelText("Theme"), "plum");
     await user.selectOptions(screen.getByLabelText("Theme"), "default");
 
     expect(window.localStorage.getItem("rota.theme")).toBe("default");
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+  });
+
+  it("toggles high contrast independently of the palette", async () => {
+    const user = userEvent.setup();
+    render(<ThemePicker />);
+
+    await user.selectOptions(screen.getByLabelText("Theme"), "sand");
+    await user.click(screen.getByLabelText("High contrast"));
+
+    expect(window.localStorage.getItem("rota.contrast")).toBe("high");
+    expect(document.documentElement.dataset.contrast).toBe("high");
+    expect(document.documentElement.dataset.theme).toBe("sand");
+  });
+
+  it("shows stored high contrast on mount", () => {
+    window.localStorage.setItem("rota.contrast", "high");
+    render(<ThemePicker />);
+    expect(screen.getByLabelText("High contrast")).toBeChecked();
+  });
+
+  it("clears the attribute when high contrast is switched off", async () => {
+    const user = userEvent.setup();
+    render(<ThemePicker />);
+
+    await user.click(screen.getByLabelText("High contrast"));
+    await user.click(screen.getByLabelText("High contrast"));
+
+    expect(document.documentElement.hasAttribute("data-contrast")).toBe(false);
   });
 });
