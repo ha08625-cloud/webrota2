@@ -35,10 +35,21 @@ All three checks return a plain string `detail` (an HTTPException, not a
 pydantic validation error), consistent with this router's existing 404/409
 responses - not the FastAPI validation-error list shape a model_validator
 would have produced.
+
+The duty opening balance (`app/models/duty_opening_balance.py`) is read by
+GET /counts and written by PUT /opening-balance. It is the duty-side sibling
+of the counter opening balances in routers/counters.py: a credit in duty
+sessions, added to the counted total before it is divided by
+sessions_per_week, so a doctor who joined part-way through the year is not
+read as maximally under-loaded and made the grid's suggested pick for weeks.
+Unlike the counter balances it is year-scoped, because the count it adjusts
+restarts every 1 January - at which point every doctor is genuinely level
+again and no credit should survive.
 """
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, func, select
@@ -46,10 +57,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window, window_error_detail
-from ...models import Doctor, DutyAssignment, PracticeClosure, User
+from ...models import (
+    Doctor,
+    DutyAssignment,
+    DutyOpeningBalance,
+    PracticeClosure,
+    User,
+)
 from ...models.enums import DutyType, Period
 from ..deps import get_current_user, get_db
-from ..schemas import DutyCountOut, DutyIn, DutyOut
+from ..schemas import DutyCountOut, DutyIn, DutyOpeningBalanceIn, DutyOut
+
+_ZERO = Decimal("0.0")
 
 router = APIRouter(prefix="/duty", tags=["duty"])
 
@@ -89,6 +108,20 @@ def duty_counts(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[DutyCountOut]:
+    """Duty counts per active doctor over the requested range, each with the
+    opening balance the weighted score adds to it.
+
+    The balance is year-scoped (`DutyOpeningBalance`), and the year is taken
+    from `from_date`; with no `from_date` every balance is zero. The Duty page
+    is the only caller and always asks for a whole calendar year, so the
+    resolution is exact for it -- a range straddling a year boundary gets the
+    balance of the year it starts in rather than a sum across years, which is
+    a case that does not arise.
+
+    Note the pre-existing asymmetry with the counter endpoints, which this
+    does not change: duty counts cover every active doctor, while
+    `/counters/*` covers Partner and Salaried only.
+    """
     join_cond = DutyAssignment.doctor_id == Doctor.id
     if from_date is not None:
         join_cond = and_(join_cond, DutyAssignment.date >= from_date)
@@ -106,8 +139,87 @@ def duty_counts(
         .group_by(Doctor.id, Doctor.code)
         .order_by(Doctor.code)
     ).all()
-    
-    return [DutyCountOut(doctor_id=i, doctor_code=c, raw_count=n) for i, c, n in rows]
+
+    balances: dict[int, Decimal] = {}
+    if from_date is not None:
+        balances = {
+            row.doctor_id: row.sessions
+            for row in db.execute(
+                select(DutyOpeningBalance).where(
+                    DutyOpeningBalance.year == from_date.year
+                )
+            ).scalars()
+        }
+
+    return [
+        DutyCountOut(
+            doctor_id=i,
+            doctor_code=c,
+            raw_count=n,
+            opening_balance=balances.get(i, _ZERO),
+        )
+        for i, c, n in rows
+    ]
+
+
+@router.put("/opening-balance", response_model=DutyCountOut)
+def set_duty_opening_balance(
+    payload: DutyOpeningBalanceIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DutyCountOut:
+    """Upsert one doctor's duty opening balance for one year.
+
+    Zero deletes the row, so the table holds only real deviations. The
+    response carries that doctor's count for the year alongside the new
+    balance, so the caller can render the corrected weighted score without a
+    second request.
+    """
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
+        raise HTTPException(
+            status_code=404, detail=f"Doctor {payload.doctor_id} not found"
+        )
+
+    row = db.execute(
+        select(DutyOpeningBalance)
+        .where(DutyOpeningBalance.doctor_id == payload.doctor_id)
+        .where(DutyOpeningBalance.year == payload.year)
+    ).scalars().first()
+
+    if payload.sessions == 0:
+        if row is not None:
+            db.delete(row)
+    elif row is None:
+        db.add(
+            DutyOpeningBalance(
+                doctor_id=payload.doctor_id,
+                year=payload.year,
+                sessions=payload.sessions,
+                notes=payload.notes,
+            )
+        )
+    else:
+        row.sessions = payload.sessions
+        row.notes = payload.notes
+    db.commit()
+
+    jan = datetime.date(payload.year, 1, 1)
+    dec = datetime.date(payload.year, 12, 31)
+    raw_count = db.execute(
+        select(func.count(DutyAssignment.id))
+        .where(DutyAssignment.doctor_id == payload.doctor_id)
+        .where(DutyAssignment.date >= jan)
+        .where(DutyAssignment.date <= dec)
+    ).scalar_one()
+
+    return DutyCountOut(
+        doctor_id=doctor.id,
+        doctor_code=doctor.code,
+        raw_count=raw_count,
+        opening_balance=_ZERO if payload.sessions == 0 else payload.sessions,
+    )
+
 
 @router.get("", response_model=list[DutyOut])
 def list_duty(

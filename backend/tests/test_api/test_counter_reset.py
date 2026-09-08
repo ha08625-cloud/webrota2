@@ -102,11 +102,15 @@ class TestResetAllClinic:
         db_session.add_all([partner_counter, trainee_counter])
         db_session.commit()
 
-        # Trainee row is invisible to the GET endpoint (Partner/Salaried only).
-        visible = {
-            c["doctor_code"] for c in client.get("/api/v1/counters/clinic").json()
-        }
-        assert visible == {"AA"}
+        # The trainee's row is invisible to the GET endpoint (Partner/Salaried
+        # only). The counted doctors both appear -- since the opening-balance
+        # work the GET returns the full counted-doctor x clinic-type
+        # cross-product, so BB is listed with a synthetic zero row even though
+        # it has no ClinicCounter of its own.
+        listed = client.get("/api/v1/counters/clinic").json()
+        assert {c["doctor_code"] for c in listed} == {"AA", "BB"}
+        bb_row = next(c for c in listed if c["doctor_code"] == "BB")
+        assert bb_row["id"] is None and bb_row["raw_count"] == 0
 
         resp = client.post("/api/v1/counters/clinic/reset-all")
         assert resp.status_code == 204
