@@ -388,7 +388,7 @@ const STICKY_COLUMN_SHADOW = "shadow-[6px_0_8px_-8px_rgba(28,36,48,0.30)]";
  * column has to outrank the labels because a run's label overhangs its own
  * cell and would otherwise scroll out over the frozen names.
  */
-const HEADER_RULE = "shadow-[0_1px_0_0_#DDE1E6]";
+const HEADER_RULE = "shadow-[0_1px_0_0_rgb(var(--color-border))]";
 
 /**
  * A key for the role colours, limited to the roles actually on this grid -

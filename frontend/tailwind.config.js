@@ -9,11 +9,16 @@ export default {
         // reserved for interactive/focus states so it never collides with
         // the Q13 rota cell colour language (red/blue/green/grey), which
         // Task 3 owns.
-        background: "#F7F8FA",
-        surface: "#FFFFFF",
-        ink: "#1C2430",
-        border: "#DDE1E6",
-        accent: "#4F5FA6",
+        // The values themselves live in index.css as CSS custom properties
+        // (one block per theme, swapped by a data-theme attribute on <html>),
+        // so a theme change is a variable swap rather than a rebuild. The
+        // rgb(... / <alpha-value>) form is what keeps Tailwind's opacity
+        // modifiers (text-ink/70, bg-accent/10, ...) working.
+        background: "rgb(var(--color-background) / <alpha-value>)",
+        surface: "rgb(var(--color-surface) / <alpha-value>)",
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        border: "rgb(var(--color-border) / <alpha-value>)",
+        accent: "rgb(var(--color-accent) / <alpha-value>)",
       },
       // Global font-size scale, single source of truth for the app's
       // standard text sizes. Values below match Tailwind's own defaults
