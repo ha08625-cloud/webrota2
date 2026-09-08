@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { useRotaIssues } from "@/api/rota";
-import type { ValidationIssue } from "@/api/types";
+import type { Day, Period, ValidationIssue } from "@/api/types";
 
 interface IssuesPanelProps {
   rotaId: number;
@@ -38,6 +38,43 @@ function checkLabel(check: string): string {
   return CHECK_LABELS[check] ?? check;
 }
 
+const DAY_ORDER: Record<Day, number> = {
+  Monday: 0,
+  Tuesday: 1,
+  Wednesday: 2,
+  Thursday: 3,
+  Friday: 4,
+};
+
+const PERIOD_ORDER: Record<Period, number> = { AM: 0, PM: 1 };
+
+/**
+ * Session order: week, then day, then AM before PM, so a check's issues
+ * read in the order the rota is worked through rather than alphabetically
+ * by doctor code (which is the order Phase 12 happens to emit them in).
+ * Issues with no slot (week/day/period null) sort last, keeping the
+ * ordering total. Ties within one session fall back to the message, so
+ * two doctors needing a room in the same slot stay alphabetical.
+ */
+function compareBySession(a: ValidationIssue, b: ValidationIssue): number {
+  const aRanks: [number, number, number] = [
+    a.week ?? Number.MAX_SAFE_INTEGER,
+    a.day === null ? Number.MAX_SAFE_INTEGER : DAY_ORDER[a.day],
+    a.period === null ? Number.MAX_SAFE_INTEGER : PERIOD_ORDER[a.period],
+  ];
+  const bRanks: [number, number, number] = [
+    b.week ?? Number.MAX_SAFE_INTEGER,
+    b.day === null ? Number.MAX_SAFE_INTEGER : DAY_ORDER[b.day],
+    b.period === null ? Number.MAX_SAFE_INTEGER : PERIOD_ORDER[b.period],
+  ];
+  for (let i = 0; i < aRanks.length; i += 1) {
+    if (aRanks[i] !== bRanks[i]) {
+      return aRanks[i] - bRanks[i];
+    }
+  }
+  return a.message.localeCompare(b.message);
+}
+
 function groupByCheck(issues: ValidationIssue[]): Map<string, ValidationIssue[]> {
   const groups = new Map<string, ValidationIssue[]>();
   for (const issue of issues) {
@@ -48,6 +85,9 @@ function groupByCheck(issues: ValidationIssue[]): Map<string, ValidationIssue[]>
     } else {
       groups.set(key, [issue]);
     }
+  }
+  for (const checkIssues of groups.values()) {
+    checkIssues.sort(compareBySession);
   }
   return groups;
 }
