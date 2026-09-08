@@ -14,7 +14,8 @@ import type {
 
 export const leaveKeys = {
   all: ["leave"] as const,
-  list: (doctorId: number | null) => [...leaveKeys.all, "list", doctorId] as const,
+  list: (doctorId: number | null, year: number | null) =>
+    [...leaveKeys.all, "list", doctorId, year] as const,
   entitlement: (year: number) => [...leaveKeys.all, "entitlement", year] as const,
 };
 
@@ -33,12 +34,27 @@ export function useLeaveEntitlements(year: number) {
   });
 }
 
-/** doctorId=null means unfiltered (the "all doctors" option in the filter select). */
-export function useLeave(doctorId: number | null) {
+/**
+ * Leave entries, optionally narrowed to one doctor and one calendar year -
+ * the year shared by the Session Management tabs, see
+ * SessionManagementTabs.tsx. Either argument being null means "unfiltered on
+ * that axis": doctorId=null is the "all doctors" option in the filter
+ * select, year=null is every entry regardless of date (what the planner and
+ * the overlap preview need, since neither is bounded by the selected year).
+ */
+export function useLeave(doctorId: number | null, year: number | null) {
   return useQuery({
-    queryKey: leaveKeys.list(doctorId),
-    queryFn: () =>
-      apiClient.get<LeaveEntry[]>(doctorId === null ? "/leave" : `/leave?doctor_id=${doctorId}`),
+    queryKey: leaveKeys.list(doctorId, year),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (doctorId !== null) params.set("doctor_id", String(doctorId));
+      if (year !== null) {
+        params.set("from_date", `${year}-01-01`);
+        params.set("to_date", `${year}-12-31`);
+      }
+      const query = params.toString();
+      return apiClient.get<LeaveEntry[]>(query ? `/leave?${query}` : "/leave");
+    },
   });
 }
 

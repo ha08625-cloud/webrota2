@@ -13,6 +13,7 @@ import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
+import { useSessionYear } from "@/components/SessionManagementTabs";
 import { parseLocalDate } from "@/lib/date";
 import { collapseLeaveEntries } from "@/lib/collapseLeaveEntries";
 import type { LeaveBlock } from "@/lib/collapseLeaveEntries";
@@ -96,16 +97,16 @@ export function LeavePage() {
   // treatment: defaulting a write form to yourself is one mis-click from
   // booking leave for the wrong person.
   const [filterDoctorId, setFilterDoctorId] = useState<number | null>(linkedDoctorId);
-  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
-  const { data: entries, isLoading, isError } = useLeave(filterDoctorId);
-  // Entitlement shares the calendar's year control: the balance and the
-  // year-at-a-glance grid showing the leave that produced it must never be
-  // describing different years.
+  // The year shared by the whole Session Management tab strip, so the
+  // table, the balance and the year-at-a-glance grid are always describing
+  // the same year as the other tabs.
+  const { year } = useSessionYear();
+  const { data: entries, isLoading, isError } = useLeave(filterDoctorId, year);
   const {
     data: entitlement,
     isLoading: entitlementLoading,
     isError: entitlementError,
-  } = useLeaveEntitlements(calendarYear);
+  } = useLeaveEntitlements(year);
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
@@ -125,7 +126,11 @@ export function LeavePage() {
   // already parameterised by doctor id, so the two queries coexist.
   // With no doctor selected this shares the table's unfiltered query
   // cache; the preview isn't rendered in that state anyway.
-  const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId);
+  // Deliberately *not* year-filtered, unlike the table above: a range
+  // running into next year overlaps entries the selected year's window
+  // would not return, and a missed overlap warning is the one failure this
+  // preview exists to prevent.
+  const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId, null);
 
   // Entitlement is a per-doctor figure only: with no doctor selected there
   // is no single balance to state, and the full-practice table that used to
@@ -560,7 +565,13 @@ export function LeavePage() {
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load leave entries.</p> : null}
       {tableError ? <p className="mt-4 text-sm text-red-700">{tableError}</p> : null}
 
-      {entries && entries.length === 0 ? <p className="mt-4 text-sm text-ink/50">No leave entries.</p> : null}
+      <p className="mt-1 text-xs text-ink/50">
+        Showing leave in {year} only; use the year control above the tabs to change year.
+      </p>
+
+      {entries && entries.length === 0 ? (
+        <p className="mt-4 text-sm text-ink/50">No leave entries in {year}.</p>
+      ) : null}
 
       {entries && entries.length > 0 ? (
         <table className="mt-4 min-w-full text-sm">
@@ -605,18 +616,13 @@ export function LeavePage() {
       {filterDoctorId !== null ? (
         <div className="min-w-0 lg:flex-1">
           <LeaveEntitlementSummary
-            year={calendarYear}
+            year={year}
             row={entitlementRow}
             isLoading={entitlementLoading}
             isError={entitlementError}
           />
           <div className="mt-3">
-          <LeaveYearCalendar
-            year={calendarYear}
-            onPrevYear={() => setCalendarYear((y) => y - 1)}
-            onNextYear={() => setCalendarYear((y) => y + 1)}
-            entries={entries ?? []}
-          />
+          <LeaveYearCalendar year={year} entries={entries ?? []} />
           </div>
         </div>
       ) : null}

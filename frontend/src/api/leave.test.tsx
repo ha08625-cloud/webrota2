@@ -30,7 +30,7 @@ describe("useLeave", () => {
       }),
     );
 
-    const { result } = renderHook(() => useLeave(null), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useLeave(null, null), { wrapper: makeWrapper(freshClient()) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedUrl).not.toContain("doctor_id");
   });
@@ -44,7 +44,7 @@ describe("useLeave", () => {
       }),
     );
 
-    const { result } = renderHook(() => useLeave(3), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useLeave(3, null), { wrapper: makeWrapper(freshClient()) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedUrl).toContain("doctor_id=3");
   });
