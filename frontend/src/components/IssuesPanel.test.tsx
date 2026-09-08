@@ -118,4 +118,35 @@ describe("IssuesPanel", () => {
     const message = await screen.findByText(/under their weekly session target/);
     expect(message.tagName).not.toBe("BUTTON");
   });
+
+  it("orders issues within a group by session, not by message", async () => {
+    server.use(
+      http.get("/api/v1/rota/:id/issues", () =>
+        HttpResponse.json([
+          makeValidationIssue({ check: "unresolved_room", message: "EM needs a room", week: 1, day: "Wednesday", period: "AM" }),
+          makeValidationIssue({ check: "unresolved_room", message: "ES needs a room", week: 1, day: "Monday", period: "AM" }),
+          makeValidationIssue({ check: "unresolved_room", message: "HP needs a room", week: 2, day: "Monday", period: "AM" }),
+          makeValidationIssue({ check: "unresolved_room", message: "KC needs a room", week: 1, day: "Monday", period: "PM" }),
+          makeValidationIssue({ check: "unresolved_room", message: "AA needs a room", week: 1, day: "Wednesday", period: "AM" }),
+          makeValidationIssue({ check: "unresolved_room", message: "ZZ has no slot", week: null, day: null, period: null }),
+        ]),
+      ),
+    );
+
+    renderWithProviders(<IssuesPanel rotaId={7} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByText("Room not assigned"));
+
+    const messages = (await screen.findAllByText(/needs a room|has no slot/)).map(
+      (el) => el.textContent,
+    );
+    expect(messages).toEqual([
+      "ES needs a room", // week 1 Monday AM
+      "KC needs a room", // week 1 Monday PM
+      "AA needs a room", // week 1 Wednesday AM - ties fall back to the message
+      "EM needs a room",
+      "HP needs a room", // week 2
+      "ZZ has no slot", // no slot at all sorts last
+    ]);
+  });
 });
