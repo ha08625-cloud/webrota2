@@ -63,3 +63,30 @@ export function useDutyCounts(range?: DutyCountsRange) {
       ),
   });
 }
+/**
+ * Year-scoped, because the duty count it adjusts is: the grid reads a whole
+ * calendar year, and by the next 1 January the count restarts and every
+ * doctor is level again. Sending zero deletes the row server-side, so the
+ * table holds only real deviations.
+ *
+ * Invalidates every duty key, not just the counts for this year: the counts
+ * query key includes the range, and the balance applies to whichever range
+ * starts in `year`.
+ */
+export interface DutyOpeningBalanceIn {
+  doctor_id: number;
+  year: number;
+  sessions: string;
+  notes?: string | null;
+}
+
+export function useSetDutyOpeningBalance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: DutyOpeningBalanceIn) =>
+      apiClient.put<DutyCount>("/duty/opening-balance", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: dutyKeys.all });
+    },
+  });
+}

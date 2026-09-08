@@ -728,6 +728,13 @@ export interface DutyCount {
   doctor_id: number;
   doctor_code: string;
   raw_count: number;
+  /**
+   * Sessions credited to this doctor before the weighted score is
+   * computed - see ClinicCounter.opening_balance. Year-scoped for duty
+   * (the count it adjusts restarts each 1 January), and resolved from the
+   * year of the request's `from_date`; an unranged request returns "0.0".
+   */
+  opening_balance: string;
 }
 
 // --- Practice closures (schemas/closure.py, half-day practice closures plan) ---
@@ -843,12 +850,27 @@ export interface RecurringNoteIn {
 // allocator actually treats that doctor.
 
 export interface ClinicCounter {
-  id: number;
+  /**
+   * Null for a (doctor, clinic type) pair with no counter row yet. Rows are
+   * created lazily - on first allocation, or by the opening-balance upsert -
+   * and the list endpoint returns the full cross-product so that a doctor
+   * who has never been allocated this clinic type can still be given an
+   * opening balance. There is nothing to reset on such a row.
+   */
+  id: number | null;
   doctor_id: number;
   doctor_code: string;
   clinic_type_id: number;
   clinic_type_name: string;
   raw_count: number;
+  /**
+   * Sessions credited to this doctor on top of `raw_count` before the
+   * weighted score is computed, so that a doctor whose count does not cover
+   * the whole period the others' counts do is not read as under-loaded.
+   * A Decimal on the backend and therefore a JSON string here (e.g. "3.2"),
+   * like `Doctor.sessions_per_week` - parse it before doing arithmetic.
+   */
+  opening_balance: string;
 }
 
 export interface SystemCounter {
@@ -857,6 +879,9 @@ export interface SystemCounter {
   doctor_code: string;
   counter_type: SystemCounterKind;
   raw_count: number;
+  /** See ClinicCounter.opening_balance. System counter rows are seeded per
+   * doctor, so unlike clinic counters they always exist. */
+  opening_balance: string;
 }
 
 /** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */

@@ -190,6 +190,7 @@ export function makeClinicCounter(overrides: Partial<ClinicCounter> = {}): Clini
     clinic_type_id: 1,
     clinic_type_name: "Diabetic clinic",
     raw_count: 3,
+    opening_balance: "0.0",
     ...overrides,
   };
 }
@@ -203,6 +204,7 @@ export function makeSystemCounter(overrides: Partial<SystemCounter> = {}): Syste
     doctor_code: "AB",
     counter_type: "room_move",
     raw_count: 2,
+    opening_balance: "0.0",
     ...overrides,
   };
 }

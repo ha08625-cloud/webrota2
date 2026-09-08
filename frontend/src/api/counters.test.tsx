@@ -13,6 +13,8 @@ import {
   useResetAllSystemCounters,
   useResetClinicCounter,
   useResetSystemCounter,
+  useSetClinicOpeningBalance,
+  useSetSystemOpeningBalance,
   useSystemCounters,
 } from "./counters";
 
@@ -141,5 +143,69 @@ describe("useResetAllSystemCounters", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(called).toBe(true);
+  });
+});
+describe("useSetClinicOpeningBalance", () => {
+  it("puts the (doctor, clinic type) pair and the sessions to /counters/clinic/opening-balance", async () => {
+    let body: unknown = null;
+    server.use(
+      http.put("/api/v1/counters/clinic/opening-balance", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeClinicCounter({ opening_balance: "3.2" }));
+      }),
+    );
+
+    const { result } = renderHook(() => useSetClinicOpeningBalance(), { wrapper: makeWrapper(freshClient()) });
+    result.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+    expect(result.current.data?.opening_balance).toBe("3.2");
+  });
+
+  it("triggers a refetch of the clinic counter list on success", async () => {
+    let getCallCount = 0;
+    server.use(
+      http.get("/api/v1/counters/clinic", () => {
+        getCallCount += 1;
+        return HttpResponse.json([makeClinicCounter()]);
+      }),
+      http.put("/api/v1/counters/clinic/opening-balance", () =>
+        HttpResponse.json(makeClinicCounter({ opening_balance: "3.2" })),
+      ),
+    );
+
+    const queryClient = freshClient();
+    const { result: listResult } = renderHook(() => useClinicCounters(), { wrapper: makeWrapper(queryClient) });
+    await waitFor(() => expect(listResult.current.isSuccess).toBe(true));
+
+    const { result: saveResult } = renderHook(() => useSetClinicOpeningBalance(), {
+      wrapper: makeWrapper(queryClient),
+    });
+    saveResult.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+
+    await waitFor(() => expect(saveResult.current.isSuccess).toBe(true));
+    await waitFor(() => expect(getCallCount).toBe(2));
+  });
+});
+
+describe("useSetSystemOpeningBalance", () => {
+  it("puts the sessions to /counters/system/:id/opening-balance", async () => {
+    let calledId = "";
+    let body: unknown = null;
+    server.use(
+      http.put("/api/v1/counters/system/:id/opening-balance", async ({ params, request }) => {
+        calledId = params.id as string;
+        body = await request.json();
+        return HttpResponse.json(makeSystemCounter({ opening_balance: "-1.5" }));
+      }),
+    );
+
+    const { result } = renderHook(() => useSetSystemOpeningBalance(), { wrapper: makeWrapper(freshClient()) });
+    result.current.mutate({ counterId: 9, sessions: "-1.5" });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(calledId).toBe("9");
+    expect(body).toEqual({ sessions: "-1.5" });
   });
 });

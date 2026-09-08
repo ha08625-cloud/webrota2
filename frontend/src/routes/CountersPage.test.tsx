@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,7 +26,7 @@ function setUpServer({
   );
 }
 
-const DRAFT_WARNING_FRAGMENT = "this reset will be undone";
+const DRAFT_WARNING_FRAGMENT = "part of this reset will be undone";
 const NOT_SHOWN_FRAGMENT = "including counters for doctors not shown on this page";
 
 describe("CountersPage", () => {
@@ -217,6 +217,148 @@ describe("CountersPage", () => {
     });
   });
 
+  describe("opening balances", () => {
+    it("adds the balance to the raw count before scoring, without inflating the raw count itself", async () => {
+      setUpServer({
+        doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "4.0" })],
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 1, opening_balance: "3.2" }),
+        ],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      // (1 + 3.2) / 4 * 10 = 10.50, with the credit shown beside the
+      // count rather than folded into it.
+      expect(await within(panel).findByText("10.50")).toBeInTheDocument();
+      expect(within(panel).getByText("1")).toBeInTheDocument();
+      expect(within(panel).getByText("(+3.2)")).toBeInTheDocument();
+    });
+
+    it("marks no credit on a row whose balance is zero", async () => {
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 3, opening_balance: "0.0" }),
+        ],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      expect(await within(panel).findByText("3")).toBeInTheDocument();
+      expect(within(panel).queryByText(/\(\+0/)).not.toBeInTheDocument();
+    });
+
+    it("saves a clinic balance keyed on (doctor, clinic type), not on a counter id", async () => {
+      let body: unknown = null;
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 7, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: null, doctor_id: 4, doctor_code: "AB", clinic_type_id: 7, raw_count: 0 }),
+        ],
+      });
+      server.use(
+        http.put("/api/v1/counters/clinic/opening-balance", async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json(
+            makeClinicCounter({ id: 1, doctor_id: 4, clinic_type_id: 7, raw_count: 0, opening_balance: "3.2" }),
+          );
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      const user = userEvent.setup();
+      const input = within(panel).getByLabelText("Opening balance for AB");
+      await user.clear(input);
+      await user.type(input, "3.2");
+      await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" }),
+      );
+    });
+
+    it("saves a system balance against the counter id", async () => {
+      let putId: number | null = null;
+      let body: unknown = null;
+      setUpServer({
+        systemCounters: [makeSystemCounter({ id: 9, doctor_id: 1, doctor_code: "AB", raw_count: 2 })],
+      });
+      server.use(
+        http.put("/api/v1/counters/system/:id/opening-balance", async ({ params, request }) => {
+          putId = Number(params.id);
+          body = await request.json();
+          return HttpResponse.json(
+            makeSystemCounter({ id: 9, doctor_id: 1, doctor_code: "AB", raw_count: 2, opening_balance: "-1.5" }),
+          );
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const table = await screen.findByRole("table", { name: "System counters" });
+      const user = userEvent.setup();
+      const input = within(table).getByLabelText("Opening balance for AB room_move");
+      await user.clear(input);
+      // Negative balances are allowed - a returner, or a leaver whose
+      // count should be treated as already served.
+      await user.type(input, "-1.5");
+      await user.click(within(table).getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(putId).toBe(9));
+      expect(body).toEqual({ sessions: "-1.5" });
+    });
+
+    it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows a balance", async () => {
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: null, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1, raw_count: 0 }),
+        ],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      expect(within(panel).getByRole("button", { name: "Reset" })).toBeDisabled();
+      expect(within(panel).getByLabelText("Opening balance for AB")).toBeEnabled();
+    });
+
+    it("rejects more than one decimal place before sending it, and keeps Save inert", async () => {
+      let putFired = false;
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1 })],
+      });
+      server.use(
+        http.put("/api/v1/counters/clinic/opening-balance", () => {
+          putFired = true;
+          return HttpResponse.json(makeClinicCounter({ id: 1 }));
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      const user = userEvent.setup();
+      const input = within(panel).getByLabelText("Opening balance for AB");
+      await user.clear(input);
+      await user.type(input, "3.25");
+
+      expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(within(panel).getByText("One decimal place max")).toBeInTheDocument();
+      expect(putFired).toBe(false);
+    });
+
+    it("shows the levelling hint next to the tables", async () => {
+      setUpServer();
+      renderWithProviders(<CountersPage />);
+
+      expect(
+        await screen.findByText(/peer score ÷ 10 × sessions per week/),
+      ).toBeInTheDocument();
+    });
+  });
+
   describe("draft-aware confirmation wording", () => {
     it("includes the draft warning when a draft rota is active", async () => {
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
@@ -232,6 +374,12 @@ describe("CountersPage", () => {
       await user.click(within(panel).getByRole("button", { name: "Reset" }));
 
       expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(DRAFT_WARNING_FRAGMENT));
+      // Only the raw counts are snapshotted at generation, so only they are
+      // restored by a scrap; saying the whole reset is undone would be false
+      // of the opening balances it also clears.
+      expect(confirmSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Opening balances are not restored by a scrap"),
+      );
     });
 
     it("excludes the draft warning when there is no draft rota", async () => {
