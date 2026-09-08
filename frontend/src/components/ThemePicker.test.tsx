@@ -24,20 +24,20 @@ describe("ThemePicker", () => {
   });
 
   it("shows the stored theme on mount", () => {
-    window.localStorage.setItem("rota.theme", "slate");
+    window.localStorage.setItem("rota.theme", "plum");
     render(<ThemePicker />);
-    expect(screen.getByLabelText("Theme")).toHaveValue("slate");
+    expect(screen.getByLabelText("Theme")).toHaveValue("plum");
   });
 
   it("stores and applies the chosen theme", async () => {
     const user = userEvent.setup();
     render(<ThemePicker />);
 
-    await user.selectOptions(screen.getByLabelText("Theme"), "warm");
+    await user.selectOptions(screen.getByLabelText("Theme"), "sand");
 
-    expect(window.localStorage.getItem("rota.theme")).toBe("warm");
-    expect(document.documentElement.dataset.theme).toBe("warm");
-    expect(screen.getByLabelText("Theme")).toHaveValue("warm");
+    expect(window.localStorage.getItem("rota.theme")).toBe("sand");
+    expect(document.documentElement.dataset.theme).toBe("sand");
+    expect(screen.getByLabelText("Theme")).toHaveValue("sand");
   });
 
   it("clears the attribute when the default is chosen again", async () => {

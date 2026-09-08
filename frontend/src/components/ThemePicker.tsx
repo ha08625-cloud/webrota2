@@ -5,9 +5,9 @@ import { THEMES, getTheme, setTheme, type ThemeId } from "@/lib/themeStore";
 /**
  * The theme control, rendered in the app header of every shell.
  *
- * A plain <select> rather than a Radix menu: it is four mutually exclusive
- * labels, which is exactly what a select is for, and it comes with keyboard
- * and screen-reader behaviour for free.
+ * A plain <select> rather than a Radix menu: it is a short list of mutually
+ * exclusive labels, which is exactly what a select is for, and it comes with
+ * keyboard and screen-reader behaviour for free.
  *
  * The choice lives in localStorage and is applied by setting an attribute on
  * <html>, so no context or re-render is involved - the useState here only

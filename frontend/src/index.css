@@ -12,29 +12,57 @@
   --color-accent: 79 95 166;
 }
 
-/* The three alternative palettes. Each overrides the same five variables and
+/* The five alternative palettes. Each overrides the same five variables and
    nothing else; anything not in this list is pinned and does not move with a
    theme (the Q13 rota cell colours, validation red, warning amber, exports).
+
+   Every palette keeps a white surface deliberately: the pinned Q13 cell
+   fills (red-100/blue-100/green-100/gray-200) and the black hatching below
+   are designed against white, so the theme's colour lives in the page
+   chrome - background, border, accent - rather than under the grid. That
+   also rules out a dark theme without first un-pinning those colours.
+
    Contrast ratios were measured rather than eyeballed - ink and its
-   70/60/50 opacities on both backgrounds, accent, text-red-700, and border
-   against surface, none scoring worse than the default palette. Re-measure
-   before changing any value here. */
-[data-theme="warm"] {
-  --color-background: 250 246 240; /* #FAF6F0 */
+   80/70/60/50 opacities on both backgrounds, accent on both, white on
+   accent (bg-accent buttons carry white text), and text-red-700. Nothing
+   here scores below the range the palettes already occupied, and every
+   white-on-accent pair clears 6:1. Re-measure before changing any value. */
+[data-theme="ocean"] {
+  --color-background: 231 240 246; /* #E7F0F6 */
   --color-surface: 255 255 255; /* #FFFFFF */
-  --color-ink: 42 33 24; /* #2A2118 */
-  --color-border: 230 220 205; /* #E6DCCD */
-  --color-accent: 138 75 42; /* #8A4B2A */
+  --color-ink: 12 32 41; /* #0C2029 */
+  --color-border: 188 213 226; /* #BCD5E2 */
+  --color-accent: 14 106 133; /* #0E6A85 */
 }
 
-[data-theme="slate"] {
-  --color-background: 235 238 242; /* #EBEEF2 */
-  --color-surface: 250 251 252; /* #FAFBFC */
-  --color-ink: 22 32 43; /* #16202B */
-  --color-border: 199 208 218; /* #C7D0DA */
-  --color-accent: 42 101 128; /* #2A6580 */
+[data-theme="forest"] {
+  --color-background: 235 243 232; /* #EBF3E8 */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-ink: 19 32 20; /* #132014 */
+  --color-border: 198 217 193; /* #C6D9C1 */
+  --color-accent: 47 107 60; /* #2F6B3C */
 }
 
+[data-theme="plum"] {
+  --color-background: 245 236 243; /* #F5ECF3 */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-ink: 37 26 36; /* #251A24 */
+  --color-border: 223 203 219; /* #DFCBDB */
+  --color-accent: 138 58 107; /* #8A3A6B */
+}
+
+[data-theme="sand"] {
+  --color-background: 250 240 222; /* #FAF0DE */
+  --color-surface: 255 255 255; /* #FFFFFF */
+  --color-ink: 37 29 20; /* #251D14 */
+  --color-border: 231 215 185; /* #E7D7B9 */
+  --color-accent: 154 74 34; /* #9A4A22 */
+}
+
+/* Kept as the accessibility option rather than a look: pure black ink, a
+   border dark enough to read as a line rather than a hint (4.8:1 on
+   surface, where the other palettes sit near 1.5), and a saturated blue
+   accent. */
 [data-theme="contrast"] {
   --color-background: 237 237 237; /* #EDEDED */
   --color-surface: 255 255 255; /* #FFFFFF */

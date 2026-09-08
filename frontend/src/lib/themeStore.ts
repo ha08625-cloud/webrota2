@@ -6,8 +6,10 @@ const STORAGE_KEY = "rota.theme";
 
 export const THEMES = [
   { id: "default", label: "Default" },
-  { id: "warm", label: "Warm" },
-  { id: "slate", label: "Slate" },
+  { id: "ocean", label: "Ocean" },
+  { id: "forest", label: "Forest" },
+  { id: "plum", label: "Plum" },
+  { id: "sand", label: "Sand" },
   { id: "contrast", label: "Contrast" },
 ] as const;
 

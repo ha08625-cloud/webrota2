@@ -42,12 +42,12 @@ describe("themeStore", () => {
   });
 
   it("sets data-theme for non-default themes", () => {
-    applyTheme("warm");
-    expect(document.documentElement.dataset.theme).toBe("warm");
+    applyTheme("ocean");
+    expect(document.documentElement.dataset.theme).toBe("ocean");
   });
 
   it("leaves no data-theme attribute for the default theme", () => {
-    applyTheme("slate");
+    applyTheme("plum");
     applyTheme("default");
     expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
