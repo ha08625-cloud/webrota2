@@ -22,11 +22,11 @@ function setUpServer({ doctors }: { doctors: ReturnType<typeof makeDoctor>[] }) 
 }
 
 describe("DoctorsPage", () => {
-  it("shows an empty-state message when there are no active doctors", async () => {
+  it("shows an empty-state message when there are no doctors at all", async () => {
     setUpServer({ doctors: [] });
     renderWithProviders(<DoctorsPage />);
 
-    expect(await screen.findByText(/No active doctors yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No doctors yet/)).toBeInTheDocument();
   });
 
   it("renders a row per doctor", async () => {
@@ -154,35 +154,39 @@ describe("DoctorsPage", () => {
     expect(await screen.findByRole("heading", { name: "Edit AB" })).toBeInTheDocument();
   });
 
-  it("Delete confirms, calls the endpoint (200 with the updated doctor, not 204), and the row disappears", async () => {
+  it("Deactivate confirms and PATCHes active:false - it is not the DELETE any more", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
+    let patchBody: unknown;
     let deleted = false;
     server.use(
-      http.delete("/api/v1/doctors/1", () => {
-        deleted = true;
+      http.patch("/api/v1/doctors/1", async ({ request }) => {
+        patchBody = await request.json();
         return HttpResponse.json(makeDoctor({ id: 1, code: "AB", active: false }));
       }),
-      http.get("/api/v1/doctors", () => HttpResponse.json(deleted ? [] : [makeDoctor({ id: 1, code: "AB" })])),
+      http.delete("/api/v1/doctors/1", () => {
+        deleted = true;
+        return HttpResponse.json({ deleted: {} });
+      }),
     );
 
     const user = userEvent.setup();
     renderWithProviders(<DoctorsPage />);
     await screen.findByText("AB");
 
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
 
-    expect(deleted).toBe(true);
-    expect(await screen.findByText(/No active doctors yet/)).toBeInTheDocument();
+    await waitFor(() => expect(patchBody).toEqual({ active: false }));
+    expect(deleted).toBe(false);
   });
 
-  it("does not delete when the confirmation is declined", async () => {
+  it("does not deactivate when the confirmation is declined", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
-    let deleted = false;
+    let patched = false;
     server.use(
-      http.delete("/api/v1/doctors/1", () => {
-        deleted = true;
+      http.patch("/api/v1/doctors/1", () => {
+        patched = true;
         return HttpResponse.json(makeDoctor({ id: 1, code: "AB", active: false }));
       }),
     );
@@ -190,57 +194,131 @@ describe("DoctorsPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<DoctorsPage />);
     await screen.findByText("AB");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
 
-    expect(deleted).toBe(false);
+    expect(patched).toBe(false);
     expect(screen.getByText("AB")).toBeInTheDocument();
   });
 
-  it("a 409 (committed sessions) shows the server's message and a working 'Deactivate instead' action", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
-    let patchedActiveFalse = false;
+  it("lists an inactive doctor in its own section, with a reactivate action", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+    renderWithProviders(<DoctorsPage />);
+
+    expect(await screen.findByRole("heading", { name: "Inactive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reactivate" })).toBeInTheDocument();
+  });
+
+  it("Reactivate PATCHes active:true without confirming", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+    let patchBody: unknown;
     server.use(
-      http.delete("/api/v1/doctors/1", () =>
-        HttpResponse.json(
-          { detail: "Doctor 1 has sessions on a committed rota; set active=false via PATCH instead" },
-          { status: 409 },
-        ),
-      ),
       http.patch("/api/v1/doctors/1", async ({ request }) => {
-        const body = (await request.json()) as { active?: boolean };
-        patchedActiveFalse = body.active === false;
-        return HttpResponse.json(makeDoctor({ id: 1, code: "AB", active: false }));
+        patchBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 1, code: "AB" }));
       }),
     );
 
     const user = userEvent.setup();
     renderWithProviders(<DoctorsPage />);
     await screen.findByText("AB");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    // Cleared here rather than asserted from zero: spies on window.confirm
+    // are shared across this file's tests, so the earlier ones' calls are
+    // still on it.
+    confirmSpy.mockClear();
 
-    expect(await screen.findByText(/has sessions on a committed rota/)).toBeInTheDocument();
-    const deactivateButton = screen.getByRole("button", { name: "Deactivate instead" });
+    await user.click(screen.getByRole("button", { name: "Reactivate" }));
 
-    await user.click(deactivateButton);
-
-    expect(patchedActiveFalse).toBe(true);
+    await waitFor(() => expect(patchBody).toEqual({ active: true }));
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it("a non-409 delete error does not offer 'Deactivate instead'", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
-    server.use(
-      http.delete("/api/v1/doctors/1", () => HttpResponse.json({ detail: "Server error" }, { status: 500 })),
-    );
+  describe("permanent delete", () => {
+    // Only offered on an inactive row: the backend 409s on an active
+    // doctor (deactivate first, delete later).
+    it("offers no Delete on an active doctor", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB" })] });
+      renderWithProviders(<DoctorsPage />);
 
-    const user = userEvent.setup();
-    renderWithProviders(<DoctorsPage />);
-    await screen.findByText("AB");
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+      await screen.findByText("AB");
+      expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    });
 
-    expect(await screen.findByText("Server error")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Deactivate instead" })).not.toBeInTheDocument();
+    it("offers no Delete without the user administration permission", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+      renderWithProviders(<DoctorsPage />, { permissions: PERMISSION_PRESETS.rotaAdmin });
+
+      await screen.findByText("AB");
+      expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    });
+
+    it("purges the doctor once the code is typed, and the row disappears", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+      let deleted = false;
+      server.use(
+        http.get("/api/v1/doctors/1/usage", () =>
+          HttpResponse.json({
+            master_sessions: 4,
+            rota_sessions: 40,
+            committed_rotas: 2,
+            staging_sessions: 0,
+            leave_entries: 3,
+            duty_assignments: 1,
+            extra_sessions: 0,
+            blocked_entries: 0,
+          }),
+        ),
+        http.delete("/api/v1/doctors/1", () => {
+          deleted = true;
+          return HttpResponse.json({ deleted: { rota_sessions: 40 } });
+        }),
+        http.get("/api/v1/doctors", () =>
+          HttpResponse.json(deleted ? [] : [makeDoctor({ id: 1, code: "AB", active: false })]),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<DoctorsPage />);
+      await screen.findByText("AB");
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      // The confirm button stays disabled until the code is typed exactly.
+      const confirmButton = await screen.findByRole("button", { name: "Permanently delete" });
+      expect(confirmButton).toBeDisabled();
+      // A near-miss is still disabled: the typed code proves *which* row.
+      await user.type(screen.getByLabelText("Type AB to confirm"), "ab");
+      expect(confirmButton).toBeDisabled();
+      await user.clear(screen.getByLabelText("Type AB to confirm"));
+      expect(await screen.findByText(/2 of them committed/)).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Type AB to confirm"), "AB");
+      await user.click(confirmButton);
+
+      await waitFor(() => expect(deleted).toBe(true));
+      expect(await screen.findByText(/No doctors yet/)).toBeInTheDocument();
+    });
+
+    it("surfaces a delete failure in the dialog", async () => {
+      setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: false })] });
+      server.use(
+        http.get("/api/v1/doctors/1/usage", () => HttpResponse.json({}, { status: 500 })),
+        http.delete("/api/v1/doctors/1", () =>
+          HttpResponse.json({ detail: "Server error" }, { status: 500 }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<DoctorsPage />);
+      await screen.findByText("AB");
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      // A failed usage read is reported but does not block the delete.
+      expect(await screen.findByText(/Could not load what this would delete/)).toBeInTheDocument();
+      await user.type(screen.getByLabelText("Type AB to confirm"), "AB");
+      await user.click(screen.getByRole("button", { name: "Permanently delete" }));
+
+      expect(await screen.findByText("Server error")).toBeInTheDocument();
+    });
   });
 
   // The warning moved here from the Individual Leave tab: it is about the
@@ -302,7 +380,7 @@ describe("DoctorsPage for a read-only user", () => {
     expect(newDoctor).toBeDisabled();
     expect(newDoctor).toHaveAttribute("title", expect.stringContaining("do not allow changes"));
     expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
     expect(screen.getByLabelText("Supervision preference for AB")).toBeDisabled();
   });
 
@@ -312,6 +390,6 @@ describe("DoctorsPage for a read-only user", () => {
     await screen.findByText("AB");
 
     expect(screen.getByRole("button", { name: "New Doctor" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Deactivate" })).toBeEnabled();
   });
 });

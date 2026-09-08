@@ -119,13 +119,15 @@ _AREA_FOR_PREFIX = {
     f"{API_PREFIX}/calendar": None,
 }
 
-# The two endpoints that need `user_admin` ON TOP of their router's area,
-# so a rota editor 403s on them despite being inside a section they can
+# The endpoints that need `user_admin` ON TOP of their router's area, so a
+# rota editor 403s on them despite being inside a section they can
 # otherwise write. The only conjunctions in the API -- see deps.py. Paths
 # are as the sweeps generate them, i.e. with "1" substituted for every
-# path param.
+# path param. The two DELETEs are the two permanent staff purges, which are
+# deliberately the same shape as each other.
 _ALSO_NEEDS_USER_ADMIN = {
     ("DELETE", f"{API_PREFIX}/reception/staff/1"),
+    ("DELETE", f"{API_PREFIX}/doctors/1"),
     ("POST", f"{API_PREFIX}/doctors/1/calendar-feed/rotate"),
 }
 

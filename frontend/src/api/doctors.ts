@@ -1,12 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "./client";
-import type { Doctor, DoctorDetail, DoctorIn, DoctorPatch, PreferredRoomIn } from "./types";
+import type {
+  Doctor,
+  DoctorDeleteResult,
+  DoctorDetail,
+  DoctorIn,
+  DoctorPatch,
+  DoctorUsage,
+  PreferredRoomIn,
+} from "./types";
 
 export const doctorKeys = {
   all: ["doctors"] as const,
   list: (activeOnly: boolean) => [...doctorKeys.all, "list", activeOnly] as const,
   detail: (id: number) => [...doctorKeys.all, "detail", id] as const,
+  usage: (id: number) => [...doctorKeys.all, "usage", id] as const,
 };
 
 /**
@@ -75,18 +84,40 @@ export function useUpdateDoctor() {
 }
 
 /**
- * DELETE /doctors/{id} returns 200 with the updated DoctorOut body (soft
- * delete: active set false), not 204 - confirmed against routers_doctors.py.
- * Typed accordingly so callers can read the returned doctor if useful,
- * though DoctorsPage only relies on the list invalidation for its own
- * re-render.
+ * GET /doctors/{id}/usage - what a permanent delete would destroy, read by
+ * the confirm dialog. Null id disables the query, so the dialog can call
+ * this unconditionally and let `enabled` gate the closed state away, the
+ * same shape useReceptionStaffUsage uses.
  */
-export function useSoftDeleteDoctor() {
+export function useDoctorUsage(id: number | null) {
+  return useQuery({
+    queryKey: doctorKeys.usage(id ?? 0),
+    queryFn: () => apiClient.get<DoctorUsage>(`/doctors/${id}/usage`),
+    enabled: id !== null,
+  });
+}
+
+/**
+ * DELETE /doctors/{id} - a permanent purge, NOT a deactivate. Deactivation
+ * is useUpdateDoctor with {active: false}; this removes the doctor row and
+ * every row referencing it, and 409s unless the doctor is already inactive
+ * (see routers/doctors.py).
+ *
+ * Invalidates the ENTIRE query cache rather than a list of roots. A doctor
+ * is referenced by seventeen tables, so the purge reaches the rota grids,
+ * the staging grid, the master template, leave, leave planning, duty,
+ * extra sessions, blocked slots, counters, recurring-note pickers,
+ * signatures and the user list - naming those roots here would be a second
+ * copy of PURGED_MODELS that goes stale silently the first time one is
+ * missed. This fires at most a handful of times in the app's life, and
+ * everything it refetches is small.
+ */
+export function useDeleteDoctor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => apiClient.delete<Doctor>(`/doctors/${id}`),
+    mutationFn: (id: number) => apiClient.delete<DoctorDeleteResult>(`/doctors/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: doctorKeys.all });
+      queryClient.invalidateQueries();
     },
   });
 }

@@ -1,7 +1,9 @@
 """Doctor router tests"""
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.models import Doctor, SystemCounter
+from app.api.routers.doctors import NULLED_TABLES, PURGED_MODELS
+from app.database import Base
+from app.models import Doctor, GeneratedRota, SystemCounter, User
 from app.models.enums import DoctorType, SystemCounterType
 
 from .conftest import generate_rota
@@ -88,7 +90,8 @@ class TestDoctors:
         assert body["code"] == "AA"  # untouched
 
     def test_active_only_filter(self, client, seeded):
-        client.delete(f"/api/v1/doctors/{seeded['doctor_bb']}")
+        # Deactivation is the PATCH, not the DELETE -- DELETE purges.
+        client.patch(f"/api/v1/doctors/{seeded['doctor_bb']}", json={"active": False})
         codes = {d["code"] for d in client.get("/api/v1/doctors").json()}
         assert codes == {"AA"}
         codes_all = {
@@ -179,17 +182,158 @@ class TestDoctors:
         # Rejected, not partially applied.
         assert client.get(url).json()["start_date"] is None
 
-    def test_soft_delete_blocked_by_committed_rota(self, client, seeded):
-        out = generate_rota(client)
-        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+
+class TestDeleteDoctor:
+    """DELETE is a permanent purge, not a soft delete.
+
+    The old behaviour -- active=False, plus a 409 for anyone with committed
+    sessions -- left a deleted doctor and all their rows in place, which is
+    what put "(inactive)" rows on the master rota grid after someone thought
+    they had removed a leaver. See routers/doctors.py's module docstring.
+    """
+
+    def _deactivate(self, client, doctor_id):
+        resp = client.patch(f"/api/v1/doctors/{doctor_id}", json={"active": False})
+        assert resp.status_code == 200
+
+    def test_active_doctor_409s(self, client, seeded):
+        """Deactivate-then-delete is deliberate: it rules out deleting
+        someone who is on this week's rota."""
         resp = client.delete(f"/api/v1/doctors/{seeded['doctor_aa']}")
         assert resp.status_code == 409
-        # Doctor with only draft history: scrap first, then delete succeeds.
-        client.post(f"/api/v1/rota/{out['rota_id']}/rollback-commit")
-        client.delete(f"/api/v1/rota/{out['rota_id']}")
+        assert "deactivate" in resp.json()["detail"].lower()
+        assert client.get(f"/api/v1/doctors/{seeded['doctor_aa']}").status_code == 200
+
+    def test_delete_purges_the_doctor_and_their_rows(self, client, db_session, seeded):
+        """The whole point: nothing referencing the doctor survives, and a
+        committed rota is no longer a blocker."""
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        doctor_id = seeded["doctor_aa"]
+        self._deactivate(client, doctor_id)
+
+        resp = client.delete(f"/api/v1/doctors/{doctor_id}")
+        assert resp.status_code == 200, resp.text
+        deleted = resp.json()["deleted"]
+        # Reported per table, and the counts are real rather than zeroes.
+        assert deleted["master_rota_sessions"] == 2
+        assert deleted["rota_sessions"] > 0
+        assert deleted["system_counters"] == 2
+
+        db_session.expire_all()
+        assert db_session.get(Doctor, doctor_id) is None
+        for model in PURGED_MODELS:
+            remaining = db_session.execute(
+                select(func.count())
+                .select_from(model)
+                .where(model.doctor_id == doctor_id)
+            ).scalar_one()
+            assert remaining == 0, f"{model.__tablename__} still references the doctor"
+
+        # The doctor is gone from every list, including the active_only=false
+        # one the master rota grid reads -- no more "(inactive)" row.
+        codes_all = {
+            d["code"]
+            for d in client.get("/api/v1/doctors?active_only=false").json()
+        }
+        assert codes_all == {"BB"}
+
+    def test_delete_leaves_the_rota_header_standing(self, client, db_session, seeded):
+        """Sessions go; the GeneratedRota row does not. An empty rota is a
+        different thing from a rota that was never generated."""
+        out = generate_rota(client)
+        self._deactivate(client, seeded["doctor_aa"])
+        assert client.delete(f"/api/v1/doctors/{seeded['doctor_aa']}").status_code == 200
+        db_session.expire_all()
+        assert db_session.get(GeneratedRota, out["rota_id"]) is not None
+
+    def test_delete_nulls_the_login_rather_than_deleting_it(
+        self, client, db_session, seeded
+    ):
+        """A user row is a login, not history of the doctor."""
+        user = User(
+            email="linked@example.com",
+            name="Linked",
+            password_hash="x",
+            doctor_id=seeded["doctor_aa"],
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        self._deactivate(client, seeded["doctor_aa"])
         resp = client.delete(f"/api/v1/doctors/{seeded['doctor_aa']}")
-        assert resp.status_code == 200
-        assert resp.json()["active"] is False
+        assert resp.status_code == 200, resp.text
+        # Nulled, not purged -- and so not reported among the destroyed rows.
+        assert "users" not in resp.json()["deleted"]
+
+        db_session.expire_all()
+        refreshed = db_session.get(User, user.id)
+        assert refreshed is not None
+        assert refreshed.doctor_id is None
+
+    def test_delete_missing_404s(self, client, seeded):
+        assert client.delete("/api/v1/doctors/9999").status_code == 404
+
+    def test_usage_reports_what_would_be_destroyed(self, client, seeded):
+        out = generate_rota(client)
+        client.post(f"/api/v1/rota/{out['rota_id']}/commit")
+        usage = client.get(f"/api/v1/doctors/{seeded['doctor_aa']}/usage")
+        assert usage.status_code == 200
+        body = usage.json()
+        assert body["master_sessions"] == 2
+        assert body["rota_sessions"] > 0
+        assert body["committed_rotas"] == 1
+
+    def test_usage_is_readable_before_deactivating(self, client, seeded):
+        """The dialog reads it while deciding, so it must not carry the
+        delete's inactive precondition."""
+        assert client.get(f"/api/v1/doctors/{seeded['doctor_aa']}/usage").status_code == 200
+
+    # The permission sweeps below build their doctor through db_session:
+    # `client` and a permission client cannot be requested by the same test
+    # (one shared app.dependency_overrides -- see conftest).
+    @staticmethod
+    def _inactive_doctor(db):
+        doctor = Doctor(code="ZZ", doctor_type=DoctorType.PARTNER, active=False)
+        db.add(doctor)
+        db.commit()
+        return doctor.id
+
+    def test_a_rota_admin_cannot_delete(self, rota_admin_client, db_session):
+        """A rota editor passes the router's clinical gate but not the
+        endpoint's `user_admin` one: an irreversible, history-destroying
+        action is the narrower permission."""
+        doctor_id = self._inactive_doctor(db_session)
+        assert rota_admin_client.delete(f"/api/v1/doctors/{doctor_id}").status_code == 403
+        db_session.expire_all()
+        assert db_session.get(Doctor, doctor_id) is not None
+
+    def test_viewer_cannot_delete(self, readonly_client, db_session):
+        doctor_id = self._inactive_doctor(db_session)
+        assert readonly_client.delete(f"/api/v1/doctors/{doctor_id}").status_code == 403
+
+    def test_manager_can_delete(self, manager_client, db_session):
+        doctor_id = self._inactive_doctor(db_session)
+        assert manager_client.delete(f"/api/v1/doctors/{doctor_id}").status_code == 200
+
+
+def test_purged_models_covers_every_fk_to_doctors():
+    """The delete is explicit rather than ON DELETE CASCADE, so a new table
+    with a doctor FK would silently go unpurged. This is the tripwire."""
+    referencing = set()
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            for fk in column.foreign_keys:
+                if fk.column.table.name == "doctors":
+                    referencing.add(table.name)
+
+    assert referencing == {m.__tablename__ for m in PURGED_MODELS} | set(
+        NULLED_TABLES
+    ), (
+        "a table references doctors but is neither purged nor nulled when a "
+        "doctor is deleted -- add its model to PURGED_MODELS (or its table to "
+        "NULLED_TABLES) in app/api/routers/doctors.py"
+    )
 
 
 class TestCalendarFeed:

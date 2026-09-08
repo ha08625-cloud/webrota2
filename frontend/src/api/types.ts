@@ -437,6 +437,33 @@ export interface DoctorDetail extends Doctor {
   preferred_rooms: PreferredRoomOut[];
 }
 
+/**
+ * GET /doctors/{id}/usage - what permanently deleting this doctor would
+ * destroy. The seven counts the confirm dialog shows, not every table the
+ * purge touches (counters, snapshots, preferences and note pickers go too,
+ * as consequences of these rows).
+ */
+export interface DoctorUsage {
+  master_sessions: number;
+  rota_sessions: number;
+  committed_rotas: number;
+  staging_sessions: number;
+  leave_entries: number;
+  duty_assignments: number;
+  extra_sessions: number;
+  blocked_entries: number;
+}
+
+/**
+ * DELETE /doctors/{id} response - rows actually removed, keyed by table
+ * name. An open mapping rather than a field per table, matching the
+ * backend schema: the purge covers seventeen tables and derives these
+ * counts from one tuple in routers/doctors.py.
+ */
+export interface DoctorDeleteResult {
+  deleted: Record<string, number>;
+}
+
 // --- Leave (schemas_leave.py) ---
 
 export interface LeaveEntry {
