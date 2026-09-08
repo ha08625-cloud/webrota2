@@ -74,7 +74,7 @@ const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
     groupPaths: SESSION_MANAGEMENT_PATHS,
   },
   { to: "/clinical/duty", label: "Assign Duty", end: false },
-  { to: "/clinical/recurring-notes", label: "Recurring Notes", end: false },
+  { to: "/clinical/recurring-notes", label: "Meetings", end: false },
   { to: "/clinical/counters", label: "Counters", end: false },
   // No `requires`: anyone who can read the clinical section reads this page
   // and copies their link. Only the "issue a new link" button inside it

@@ -217,7 +217,6 @@ export function makeRecurringNote(overrides: Partial<RecurringNote> = {}): Recur
     period: "PM",
     is_active: true,
     doctor_ids: [1],
-    template_weeks: [1, 2, 3, 4],
     ...overrides,
   };
 }

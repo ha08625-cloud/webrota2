@@ -773,11 +773,18 @@ export interface SchoolIn {
   name: string;
 }
 
-// --- Recurring notes (schemas/recurring_note.py, recurring notes plan Task 4) ---
-// Annotation-only: applying at generation time stamps `text` into
-// RotaSession.notes for every matching doctor/week/day/period slot - see
-// recurring_notes.md. doctor_ids and template_weeks are plain int lists,
-// not nested child schemas, matching RecurringNoteIn/Out on the backend.
+// --- Recurring notes (schemas/recurring_note.py) ---
+// A *definition* only: a library entry with a default day, period and
+// doctor list. It schedules nothing on its own - it lands on a rota only
+// when it is picked for a run on the staging page, which copies it into a
+// StagingNote. There are no template weeks: the week a note falls on is a
+// per-run choice, so it belongs to the instance (StagingNote.week), not
+// here. doctor_ids is a plain int list, not a nested child schema,
+// matching RecurringNoteIn/Out on the backend.
+//
+// Annotation-only throughout: the copied `text` is stamped into
+// RotaSession.notes at generation time and has no effect on availability,
+// eligibility or duty.
 
 export interface RecurringNote {
   id: number;
@@ -786,7 +793,6 @@ export interface RecurringNote {
   period: Period;
   is_active: boolean;
   doctor_ids: number[];
-  template_weeks: number[];
 }
 
 export interface RecurringNoteIn {
@@ -795,7 +801,6 @@ export interface RecurringNoteIn {
   period: Period;
   is_active: boolean;
   doctor_ids: number[];
-  template_weeks: number[];
 }
 
 // --- Counters (schemas_counter.py) ---
@@ -1059,7 +1064,53 @@ export interface Staging {
   completed_at: string | null;
   closed_slots: ClosedSlot[];
   sessions: StagingSession[];
+  notes: StagingNote[];
 }
+
+/**
+ * One per-run note instance, picked (copied) from a RecurringNote
+ * definition or written free-form for this run alone.
+ *
+ * `week` is a *generation* week of this run, not a template week - the
+ * template-week anchoring recurring notes used to carry is gone. The
+ * backend 422s a week above the staging's own num_weeks, so the picker
+ * must only offer 1..num_weeks.
+ *
+ * `source_note_id` is provenance, not a live link: text, day, period and
+ * doctors were copied at pick time and are never re-read from the
+ * definition, so editing or deactivating a definition leaves instances
+ * already picked untouched. Deleting one nulls source_note_id and keeps
+ * the instance. A free-form note has source_note_id null from the start,
+ * so null means "not linked to any definition" and nothing more - an
+ * unlinked ex-pick and a one-off are indistinguishable by design.
+ */
+export interface StagingNote {
+  id: number;
+  source_note_id: number | null;
+  text: string;
+  week: number;
+  day: Day;
+  period: Period;
+  doctor_ids: number[];
+}
+
+/**
+ * POST /staging/{id}/notes body. One note per call - the picker loops when
+ * a tick spans several generation weeks. The PATCH body is the same shape
+ * minus source_note_id (provenance is fixed at pick time) and is a full
+ * replace: every field is required, an omitted one 422s rather than being
+ * left alone.
+ */
+export interface StagingNoteIn {
+  source_note_id?: number | null;
+  text: string;
+  week: number;
+  day: Day;
+  period: Period;
+  doctor_ids: number[];
+}
+
+export type StagingNotePatchIn = Omit<StagingNoteIn, "source_note_id">;
 
 /** POST /staging body. Same shape as GenerateRotaIn - a staging is created
  * from exactly the inputs generation would take, before generation runs. */
