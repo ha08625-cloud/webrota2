@@ -124,11 +124,6 @@ export function LeaveEntitlementSummary({
           template is filled in.
         </p>
       ) : null}
-
-      <p className="mt-1 text-xs text-ink/50">
-        Used counts chargeable sessions only. Weekends, practice closures and no-surgery sessions
-        are not charged.
-      </p>
     </section>
   );
 }

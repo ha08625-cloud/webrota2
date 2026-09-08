@@ -88,11 +88,6 @@ export function ExtraSessionsPage() {
 
   return (
     <div>
-      <p className="text-sm text-ink/70">
-        An extra session marks a doctor as working a session they would not normally work. It is
-        applied when a staging run is started that covers the planned date.
-      </p>
-
       {activeStaging ? (
         <div className="mt-4 rounded border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
           A staging is currently in progress. Changes made here will not affect it - only extra
@@ -160,7 +155,6 @@ export function ExtraSessionsPage() {
         >
           Add extra session
         </button>
-        <p className="w-full text-xs text-ink/50">Weekdays only (Mon-Fri).</p>
       </form>
       {formError ? <p className="mt-2 text-sm text-red-700">{formError}</p> : null}
       {formSummary ? <p className="mt-2 text-sm text-ink/70">{formSummary}</p> : null}

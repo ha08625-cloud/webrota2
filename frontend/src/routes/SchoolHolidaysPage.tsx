@@ -72,12 +72,6 @@ export function SchoolHolidaysPage() {
 
   return (
     <div>
-      <p className="text-sm text-ink/70">
-        Schools and their holiday date ranges, for context only - nothing here affects rota
-        generation, coverage, or duty assignments. Use it to see at a glance whether a leave
-        request lands in half term.
-      </p>
-
       <label className="mt-4 flex items-center gap-2 text-sm text-ink/70">
         <input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} />
         Show past holidays
