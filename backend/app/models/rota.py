@@ -75,6 +75,13 @@ class RotaConfig(Base):
     rotas: Mapped[list["GeneratedRota"]] = relationship(
         back_populates="config", cascade="all, delete-orphan"
     )
+    # RotaConfigNote lives in models/recurring_note.py. The cascade is
+    # load-bearing: routers/staging.py::abandon_staging hard-deletes the
+    # staging and then its RotaConfig, which would raise an IntegrityError
+    # against any note picked for that run without it.
+    notes: Mapped[list["RotaConfigNote"]] = relationship(  # noqa: F821
+        cascade="all, delete-orphan"
+    )
 
 
 class GeneratedRota(Base):

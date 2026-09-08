@@ -21,10 +21,11 @@ from app.models import (
     ReceptionStaff,
     RecurringNote,
     RecurringNoteDoctor,
-    RecurringNoteWeek,
     Room,
     RotaClosure,
     RotaConfig,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
     RotaGenerationLogEntry,
     RotaStaging,
     RotaStagingSession,
@@ -502,7 +503,7 @@ def test_staging_config_id_unique(session):
     with pytest.raises(IntegrityError):
         session.flush()
 
-# --- RecurringNote and children (recurring notes plan, Task 1) ---
+# --- RecurringNote definitions and RotaConfigNote instances ---
 
 def _note(session, text="Partners meeting", day=Day.MONDAY, period=Period.PM):
     n = RecurringNote(text=text, day=day, period=period)
@@ -511,14 +512,34 @@ def _note(session, text="Partners meeting", day=Day.MONDAY, period=Period.PM):
     return n
 
 
-def test_recurring_note_round_trip_with_doctors_and_weeks(session):
+def _config_note(
+    session,
+    config,
+    text="Partners meeting",
+    week=1,
+    day=Day.MONDAY,
+    period=Period.PM,
+    source_note_id=None,
+):
+    n = RotaConfigNote(
+        config_id=config.id,
+        source_note_id=source_note_id,
+        text=text,
+        week=week,
+        day=day,
+        period=period,
+    )
+    session.add(n)
+    session.flush()
+    return n
+
+
+def test_recurring_note_round_trip_with_doctors(session):
     d1 = _doctor(session, "AA")
     d2 = _doctor(session, "BB")
     note = _note(session)
     note.doctors.append(RecurringNoteDoctor(doctor_id=d1.id))
     note.doctors.append(RecurringNoteDoctor(doctor_id=d2.id))
-    note.weeks.append(RecurringNoteWeek(template_week=1))
-    note.weeks.append(RecurringNoteWeek(template_week=3))
     session.flush()
     session.refresh(note)
 
@@ -527,14 +548,12 @@ def test_recurring_note_round_trip_with_doctors_and_weeks(session):
     assert note.period == Period.PM
     assert note.is_active is True  # Python-side default
     assert {rnd.doctor_id for rnd in note.doctors} == {d1.id, d2.id}
-    assert {rnw.template_week for rnw in note.weeks} == {1, 3}
 
 
-def test_recurring_note_cascades_both_child_sets_on_delete(session):
+def test_recurring_note_cascades_doctors_on_delete(session):
     d = _doctor(session)
     note = _note(session)
     note.doctors.append(RecurringNoteDoctor(doctor_id=d.id))
-    note.weeks.append(RecurringNoteWeek(template_week=2))
     session.flush()
     note_id = note.id
 
@@ -542,24 +561,6 @@ def test_recurring_note_cascades_both_child_sets_on_delete(session):
     session.flush()
 
     assert session.query(RecurringNoteDoctor).filter_by(note_id=note_id).all() == []
-    assert session.query(RecurringNoteWeek).filter_by(note_id=note_id).all() == []
-
-
-@pytest.mark.parametrize("bad_week", [0, 5])
-def test_recurring_note_week_check(session, bad_week):
-    note = _note(session)
-    session.add(RecurringNoteWeek(note_id=note.id, template_week=bad_week))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
-def test_recurring_note_week_unique_per_note(session):
-    note = _note(session)
-    session.add(RecurringNoteWeek(note_id=note.id, template_week=1))
-    session.flush()
-    session.add(RecurringNoteWeek(note_id=note.id, template_week=1))
-    with pytest.raises(IntegrityError):
-        session.flush()
 
 
 def test_recurring_note_doctor_unique_per_note(session):
@@ -572,20 +573,6 @@ def test_recurring_note_doctor_unique_per_note(session):
         session.flush()
 
 
-def test_recurring_notes_may_overlap_on_same_day_and_period(session):
-    """no uniqueness rule across notes. Two notes for the
-    same doctor, week, day and period are legal at the data layer -- Phase 2
-    concatenates them by note id ascending rather than rejecting either."""
-    d = _doctor(session)
-    for text in ("Partners meeting", "Practice meeting"):
-        note = _note(session, text=text)
-        note.doctors.append(RecurringNoteDoctor(doctor_id=d.id))
-        note.weeks.append(RecurringNoteWeek(template_week=1))
-    session.flush()  # no error
-
-    assert session.query(RecurringNote).count() == 2
-
-
 def test_recurring_note_doctor_fk_enforced(session):
     """FK enforcement relies on the test engine's PRAGMA foreign_keys=ON;
     the dev SQLite engine in database.py does not set it."""
@@ -593,6 +580,86 @@ def test_recurring_note_doctor_fk_enforced(session):
     session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=9999))
     with pytest.raises(IntegrityError):
         session.flush()
+
+
+def test_config_note_round_trip_with_doctors(session):
+    d1 = _doctor(session, "AA")
+    d2 = _doctor(session, "BB")
+    config = _config(session)
+    definition = _note(session)
+    note = _config_note(session, config, week=2, source_note_id=definition.id)
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d1.id))
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d2.id))
+    session.flush()
+    session.refresh(note)
+
+    assert note.config_id == config.id
+    assert note.source_note_id == definition.id
+    assert note.text == "Partners meeting"
+    assert note.week == 2
+    assert note.day == Day.MONDAY
+    assert note.period == Period.PM
+    assert {d.doctor_id for d in note.doctors} == {d1.id, d2.id}
+
+
+def test_config_note_source_note_id_is_optional(session):
+    """A free-form one-off note has no definition behind it."""
+    config = _config(session)
+    note = _config_note(session, config, text="One-off", source_note_id=None)
+    session.refresh(note)
+
+    assert note.source_note_id is None
+
+
+@pytest.mark.parametrize("bad_week", [0, 5])
+def test_config_note_week_check(session, bad_week):
+    config = _config(session)
+    with pytest.raises(IntegrityError):
+        _config_note(session, config, week=bad_week)
+
+
+def test_config_note_doctor_unique_per_note(session):
+    d = _doctor(session)
+    config = _config(session)
+    note = _config_note(session, config)
+    session.add(RotaConfigNoteDoctor(config_note_id=note.id, doctor_id=d.id))
+    session.flush()
+    session.add(RotaConfigNoteDoctor(config_note_id=note.id, doctor_id=d.id))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_deleting_config_deletes_its_notes_and_their_doctors(session):
+    """Load-bearing: abandon_staging hard-deletes the staging's RotaConfig,
+    which would raise an IntegrityError against any picked note without the
+    RotaConfig.notes cascade."""
+    d = _doctor(session)
+    config = _config(session)
+    note = _config_note(session, config)
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d.id))
+    session.flush()
+    note_id = note.id
+
+    session.delete(config)
+    session.flush()
+
+    assert session.query(RotaConfigNote).filter_by(id=note_id).all() == []
+    assert (
+        session.query(RotaConfigNoteDoctor).filter_by(config_note_id=note_id).all()
+        == []
+    )
+
+
+def test_config_notes_may_overlap_on_same_slot(session):
+    """No uniqueness rule across notes. Two instances for the same week, day
+    and period are legal at the data layer -- Phase 2 concatenates them by id
+    ascending rather than rejecting either."""
+    config = _config(session)
+    for text in ("Partners meeting", "Practice meeting"):
+        _config_note(session, config, text=text)
+    session.flush()  # no error
+
+    assert session.query(RotaConfigNote).filter_by(config_id=config.id).count() == 2
 
 
 # --- RotaStaging.source_template_start_week ---
