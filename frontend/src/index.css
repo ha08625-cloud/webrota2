@@ -12,35 +12,86 @@
   --color-accent: 79 95 166;
 }
 
-/* The three alternative palettes. Each overrides the same five variables and
+/* The four alternative palettes. Each overrides the same five variables and
    nothing else; anything not in this list is pinned and does not move with a
    theme (the Q13 rota cell colours, validation red, warning amber, exports).
+
+   Every palette is light. That is a real constraint, not a preference: some
+   258 pinned Tailwind utilities across ~49 components (red-100 cell fills,
+   text-red-700 validation, amber warning panels, the black closed-day
+   hatching below) assume a light ground. Surface may be tinted - it is, very
+   slightly, in each palette below - but a dark theme needs those un-pinned
+   first and is not a palette edit.
+
    Contrast ratios were measured rather than eyeballed - ink and its
-   70/60/50 opacities on both backgrounds, accent, text-red-700, and border
-   against surface, none scoring worse than the default palette. Re-measure
-   before changing any value here. */
-[data-theme="warm"] {
-  --color-background: 250 246 240; /* #FAF6F0 */
-  --color-surface: 255 255 255; /* #FFFFFF */
-  --color-ink: 42 33 24; /* #2A2118 */
-  --color-border: 230 220 205; /* #E6DCCD */
-  --color-accent: 138 75 42; /* #8A4B2A */
+   80/70/60/50 opacities on both backgrounds, accent on both, white on
+   accent (bg-accent buttons carry white text), and text-red-700. Nothing
+   here scores below the range the palettes already occupied, and every
+   white-on-accent pair clears 6:1. Re-measure before changing any value. */
+[data-theme="ocean"] {
+  --color-background: 231 240 246; /* #E7F0F6 */
+  --color-surface: 248 251 253; /* #F8FBFD */
+  --color-ink: 12 32 41; /* #0C2029 */
+  --color-border: 188 213 226; /* #BCD5E2 */
+  --color-accent: 14 106 133; /* #0E6A85 */
 }
 
-[data-theme="slate"] {
-  --color-background: 235 238 242; /* #EBEEF2 */
-  --color-surface: 250 251 252; /* #FAFBFC */
-  --color-ink: 22 32 43; /* #16202B */
-  --color-border: 199 208 218; /* #C7D0DA */
-  --color-accent: 42 101 128; /* #2A6580 */
+[data-theme="forest"] {
+  --color-background: 235 243 232; /* #EBF3E8 */
+  --color-surface: 250 252 249; /* #FAFCF9 */
+  --color-ink: 19 32 20; /* #132014 */
+  --color-border: 198 217 193; /* #C6D9C1 */
+  --color-accent: 47 107 60; /* #2F6B3C */
 }
 
-[data-theme="contrast"] {
-  --color-background: 237 237 237; /* #EDEDED */
-  --color-surface: 255 255 255; /* #FFFFFF */
+[data-theme="plum"] {
+  --color-background: 245 236 243; /* #F5ECF3 */
+  --color-surface: 253 250 252; /* #FDFAFC */
+  --color-ink: 37 26 36; /* #251A24 */
+  --color-border: 223 203 219; /* #DFCBDB */
+  --color-accent: 138 58 107; /* #8A3A6B */
+}
+
+[data-theme="sand"] {
+  --color-background: 250 240 222; /* #FAF0DE */
+  --color-surface: 254 252 248; /* #FEFCF8 */
+  --color-ink: 37 29 20; /* #251D14 */
+  --color-border: 231 215 185; /* #E7D7B9 */
+  --color-accent: 154 74 34; /* #9A4A22 */
+}
+
+/* High contrast is a second axis, not a fifth palette - see themeStore.ts.
+   These blocks come after the palettes so they win on source order at equal
+   specificity, and they leave --color-background and --color-surface alone:
+   the theme keeps its hue, and only the three variables that carry legibility
+   move. Black ink, a border that reads as a line rather than a hint (6.1:1 on
+   surface, against roughly 1.5:1 normally), and a darkened accent.
+
+   Measured: every combination clears 7:1 (WCAG AAA) for white on accent,
+   accent on surface, and ink/70 secondary text - against the 4.5:1 AA floor
+   the normal palettes meet. The accent is per-palette because CSS cannot
+   darken a variable it did not set; the shared ink and border sit in the
+   bare [data-contrast] block. */
+[data-contrast="high"] {
   --color-ink: 0 0 0; /* #000000 */
-  --color-border: 107 114 128; /* #6B7280 */
-  --color-accent: 11 79 209; /* #0B4FD1 */
+  --color-border: 90 96 105; /* #5A6069 */
+  --color-accent: 58 71 128; /* #3A4780 - default palette's indigo, darkened */
+}
+
+[data-theme="ocean"][data-contrast="high"] {
+  --color-accent: 10 84 104; /* #0A5468 */
+}
+
+[data-theme="forest"][data-contrast="high"] {
+  --color-accent: 36 84 48; /* #245430 */
+}
+
+[data-theme="plum"][data-contrast="high"] {
+  --color-accent: 110 46 85; /* #6E2E55 */
+}
+
+[data-theme="sand"][data-contrast="high"] {
+  --color-accent: 124 59 27; /* #7C3B1B */
 }
 
 @tailwind base;
