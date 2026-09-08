@@ -70,7 +70,7 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   // calendar year is the figure the duty split is judged on.
   const annualRange = useMemo(() => getYearRange(startWeekDate), [startWeekDate]);
   const { data: annualCountsData, isLoading: annualCountsLoading } = useDutyCounts(annualRange);
-  const { data: closures } = useClosures();
+  const { data: closures } = useClosures(null);
   const createDuty = useCreateDuty();
   const deleteDuty = useDeleteDuty();
 

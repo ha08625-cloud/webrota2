@@ -9,7 +9,7 @@ export const schoolKeys = {
 };
 
 /**
- * Unfiltered, mirroring useClosures(): a handful of schools and holidays
+ * Unfiltered, mirroring useClosures(null): a handful of schools and holidays
  * per year, each school returned with its holidays nested - both the
  * School Holidays page and the Annual Planner filter down to what they
  * need client-side rather than the API taking a date-range query param.

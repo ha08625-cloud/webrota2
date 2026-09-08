@@ -27,7 +27,7 @@ const UPCOMING_WEEK_COUNT = 12;
  */
 function DutyStatusList({ startDate, numWeeks }: { startDate: string; numWeeks: number }) {
   const { data: dutyAssignments, isLoading: dutyLoading, isError: dutyError } = useDuty();
-  const { data: closures, isLoading: closuresLoading, isError: closuresError } = useClosures();
+  const { data: closures, isLoading: closuresLoading, isError: closuresError } = useClosures(null);
 
   const weekStartDates = useMemo(
     () => Array.from({ length: numWeeks }, (_, i) => addDays(startDate, i * 7)),

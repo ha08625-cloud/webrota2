@@ -10,6 +10,7 @@ import {
 } from "@/api/closures";
 import type { Closure, Period } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
+import { useSessionYear } from "@/components/SessionManagementTabs";
 
 type PeriodChoice = Period | "FULL";
 
@@ -55,11 +56,11 @@ function extractAddErrorMessage(err: unknown): string {
 }
 
 /** The fixed, system-wide list of named bank holidays for one year: each
- * sets/clears its own full-day closure directly, no separate add form. */
-function BankHolidaysSection() {
+ * sets/clears its own full-day closure directly, no separate add form.
+ * The year is the one shared by the Session Management tab strip, which
+ * owns the only year control - hence no pager of its own here. */
+function BankHolidaysSection({ year }: { year: number }) {
   const writeGate = useWriteGate();
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
   const { data: holidays, isLoading, isError } = useBankHolidays(year);
   const setBankHoliday = useSetBankHoliday(year);
   const [error, setError] = useState<string | null>(null);
@@ -79,28 +80,7 @@ function BankHolidaysSection() {
 
   return (
     <div className="rounded border border-border p-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-ink">Bank Holidays</h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setYear((y) => y - 1)}
-            className="rounded border border-border px-2 text-sm"
-            aria-label="Previous year"
-          >
-            &lt;
-          </button>
-          <span className="text-sm tabular-nums">{year}</span>
-          <button
-            type="button"
-            onClick={() => setYear((y) => y + 1)}
-            className="rounded border border-border px-2 text-sm"
-            aria-label="Next year"
-          >
-            &gt;
-          </button>
-        </div>
-      </div>
+      <h2 className="text-sm font-medium text-ink">Bank Holidays {year}</h2>
 
       {isLoading ? <p className="mt-2 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-2 text-sm text-red-700">Could not load bank holidays.</p> : null}
@@ -134,7 +114,8 @@ function BankHolidaysSection() {
 
 export function ClosuresPage() {
   const writeGate = useWriteGate();
-  const { data: closures, isLoading, isError } = useClosures();
+  const { year } = useSessionYear();
+  const { data: closures, isLoading, isError } = useClosures(year);
   const createClosure = useCreateClosure();
   const deleteClosure = useDeleteClosure();
 
@@ -142,10 +123,22 @@ export function ClosuresPage() {
   const [addPeriod, setAddPeriod] = useState<PeriodChoice>("FULL");
   const [addName, setAddName] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  // A date typed into the form is a statement of fact, so it is deliberately
+  // not clamped to the selected year. When it lands outside that year the row
+  // will not appear in the list below, so say where it did go instead.
+  const [addSummary, setAddSummary] = useState<string | null>(null);
+
+  function noteAdded(date: string) {
+    const addedYear = date.slice(0, 4);
+    setAddSummary(
+      addedYear === String(year) ? null : `Added in ${addedYear} - switch the year to see it.`,
+    );
+  }
 
   async function handleAdd(event: FormEvent) {
     event.preventDefault();
     setAddError(null);
+    setAddSummary(null);
     if (!addDate) {
       setAddError("Date is required.");
       return;
@@ -160,6 +153,7 @@ export function ClosuresPage() {
         // delete themselves.
         await createClosure.mutateAsync({ date: addDate, period: "AM", name });
         await createClosure.mutateAsync({ date: addDate, period: "PM", name });
+        noteAdded(addDate);
         setAddDate("");
         setAddName("");
       } catch (err) {
@@ -172,6 +166,7 @@ export function ClosuresPage() {
       { date: addDate, period: addPeriod, name },
       {
         onSuccess: () => {
+          noteAdded(addDate);
           setAddDate("");
           setAddName("");
         },
@@ -191,7 +186,7 @@ export function ClosuresPage() {
   return (
     <div>
       <div className="mt-4">
-        <BankHolidaysSection />
+        <BankHolidaysSection year={year} />
       </div>
 
       <form
@@ -248,11 +243,12 @@ export function ClosuresPage() {
         </button>
       </form>
       {addError ? <p className="mt-2 text-sm text-red-700">{addError}</p> : null}
+      {addSummary ? <p className="mt-2 text-sm text-ink/70">{addSummary}</p> : null}
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load closures.</p> : null}
 
-      {closures && rows.length === 0 ? <p className="mt-4 text-sm text-ink/50">No closures.</p> : null}
+      {closures && rows.length === 0 ? <p className="mt-4 text-sm text-ink/50">No closures in {year}.</p> : null}
 
       {closures && rows.length > 0 ? (
         <table aria-label="Closures" className="mt-4 min-w-full text-sm">

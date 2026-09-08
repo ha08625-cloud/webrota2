@@ -20,12 +20,56 @@ function freshClient() {
 }
 
 describe("useClosures", () => {
-  it("fetches the unfiltered list", async () => {
-    server.use(http.get("/api/v1/closures", () => HttpResponse.json([makeClosure()])));
+  it("fetches the unfiltered list when year is null", async () => {
+    let requestedUrl = "";
+    server.use(
+      http.get("/api/v1/closures", ({ request }) => {
+        requestedUrl = request.url;
+        return HttpResponse.json([makeClosure()]);
+      }),
+    );
 
-    const { result } = renderHook(() => useClosures(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useClosures(null), { wrapper: makeWrapper(freshClient()) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toHaveLength(1);
+    expect(new URL(requestedUrl).search).toBe("");
+  });
+
+  it("bounds the request to a calendar year when given one", async () => {
+    let requestedUrl = "";
+    server.use(
+      http.get("/api/v1/closures", ({ request }) => {
+        requestedUrl = request.url;
+        return HttpResponse.json([makeClosure()]);
+      }),
+    );
+
+    const { result } = renderHook(() => useClosures(2027), { wrapper: makeWrapper(freshClient()) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const params = new URL(requestedUrl).searchParams;
+    expect(params.get("from_date")).toBe("2027-01-01");
+    expect(params.get("to_date")).toBe("2027-12-31");
+  });
+
+  it("refetches rather than reusing the previous year's cache", async () => {
+    const requestedRanges: (string | null)[] = [];
+    server.use(
+      http.get("/api/v1/closures", ({ request }) => {
+        requestedRanges.push(new URL(request.url).searchParams.get("from_date"));
+        return HttpResponse.json([]);
+      }),
+    );
+
+    const queryClient = freshClient();
+    const wrapper = makeWrapper(queryClient);
+    const { result, rerender } = renderHook(({ year }: { year: number }) => useClosures(year), {
+      wrapper,
+      initialProps: { year: 2027 },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    rerender({ year: 2028 });
+    await waitFor(() => expect(requestedRanges).toEqual(["2027-01-01", "2028-01-01"]));
   });
 });
 
