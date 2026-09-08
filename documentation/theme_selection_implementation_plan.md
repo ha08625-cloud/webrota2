@@ -1,9 +1,5 @@
 # User-Selectable Themes — Implementation Plan
 
-Status: **implementation plan**. Reviewed against the code on 2026-09-08 and
-expanded from `theme_selection_plan.md` (now deleted). Tasks below are meant to
-be handed to individual chats one at a time.
-
 ## Plan
 
 Re-point the five semantic colour tokens in `frontend/tailwind.config.js` at
@@ -323,19 +319,3 @@ This step is for review and documentation.
    between machines; and that dark mode is deliberately deferred because every
    pinned colour assumes a light surface.
 2. Delete this plan file.
-
-## Deferred: dark mode
-
-Unchanged from the provisional plan and endorsed. Dark mode is a separate,
-larger ticket: it requires auditing all ~345 hardcoded colours individually for
-decoration-vs-meaning and building a second variant of the entire cell colour
-language, in the most complex and most heavily tested components in the app.
-The work above is a strict prerequisite and is not wasted if it is later taken
-on. Take it on only if users ask.
-
-## Estimate
-
-Tasks 1–4: **half a day**, unchanged — Task 3 is now smaller than the
-provisional plan assumed (finding 2) and Task 1 slightly larger (findings 3, 4,
-8). Task 1 step 5 is the only genuine unknown; everything after it is
-mechanical.
