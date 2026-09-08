@@ -172,4 +172,95 @@ describe("RecurringNotesPage (meeting library)", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
+
+  describe("doctor group shortcuts", () => {
+    const mixedDoctors = [
+      makeDoctor({ id: 1, code: "PA", doctor_type: "Partner" }),
+      makeDoctor({ id: 2, code: "PB", doctor_type: "Partner" }),
+      makeDoctor({ id: 3, code: "SA", doctor_type: "Salaried" }),
+      makeDoctor({ id: 4, code: "TA", doctor_type: "Trainee" }),
+      makeDoctor({ id: 5, code: "LA", doctor_type: "Locum" }),
+      makeDoctor({ id: 6, code: "HA", doctor_type: "AHP" }),
+    ];
+
+    async function openNewMeeting(doctors = mixedDoctors) {
+      setUpServer({ doctors });
+      const user = userEvent.setup();
+      renderWithProviders(<RecurringNotesPage />);
+      await user.click(screen.getByRole("button", { name: "New Meeting" }));
+      return user;
+    }
+
+    it("offers only the four group boxes", async () => {
+      await openNewMeeting();
+      const groups = screen.getByRole("list", { name: "Doctor groups" });
+      expect(within(groups).getAllByRole("listitem").map((li) => li.textContent?.trim())).toEqual([
+        "All doctors",
+        "All partners",
+        "All salaried doctors",
+        "All trainees",
+      ]);
+    });
+
+    it("ticking All doctors selects partners, salaried and trainees but not locums or AHPs", async () => {
+      const user = await openNewMeeting();
+      await user.click(screen.getByRole("checkbox", { name: "All doctors" }));
+
+      for (const code of ["PA", "PB", "SA", "TA"]) {
+        expect(screen.getByRole("checkbox", { name: code })).toBeChecked();
+      }
+      for (const code of ["LA", "HA"]) {
+        expect(screen.getByRole("checkbox", { name: code })).not.toBeChecked();
+      }
+    });
+
+    it("ticking a grade group selects only that grade, and unticking clears it again", async () => {
+      const user = await openNewMeeting();
+      await user.click(screen.getByRole("checkbox", { name: "All partners" }));
+
+      expect(screen.getByRole("checkbox", { name: "PA" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "PB" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "SA" })).not.toBeChecked();
+
+      await user.click(screen.getByRole("checkbox", { name: "All partners" }));
+      expect(screen.getByRole("checkbox", { name: "PA" })).not.toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "PB" })).not.toBeChecked();
+    });
+
+    it("a group box reflects the individual ticks below it", async () => {
+      const user = await openNewMeeting();
+      expect(screen.getByRole("checkbox", { name: "All partners" })).not.toBeChecked();
+
+      await user.click(screen.getByRole("checkbox", { name: "PA" }));
+      expect(screen.getByRole("checkbox", { name: "All partners" })).not.toBeChecked();
+
+      await user.click(screen.getByRole("checkbox", { name: "PB" }));
+      expect(screen.getByRole("checkbox", { name: "All partners" })).toBeChecked();
+    });
+
+    it("saves the group selection as plain doctor ids", async () => {
+      let capturedBody: unknown;
+      const user = await openNewMeeting();
+      server.use(
+        http.post("/api/v1/recurring-notes", async ({ request }) => {
+          capturedBody = await request.json();
+          return HttpResponse.json(makeRecurringNote({ id: 9 }));
+        }),
+      );
+
+      await user.type(screen.getByLabelText("Text"), "Partners meeting");
+      await user.click(screen.getByRole("checkbox", { name: "All partners" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(capturedBody).toMatchObject({ doctor_ids: [1, 2] });
+    });
+
+    it("hides a group with no active doctors of that grade", async () => {
+      await openNewMeeting([makeDoctor({ id: 1, code: "PA", doctor_type: "Partner" })]);
+
+      expect(screen.getByRole("checkbox", { name: "All partners" })).toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: "All trainees" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: "All salaried doctors" })).not.toBeInTheDocument();
+    });
+  });
 });
