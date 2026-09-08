@@ -35,6 +35,9 @@ function makeEntry(overrides: Partial<AuditLogEntry> = {}): AuditLogEntry {
     outcome_detail: null,
     duration_ms: 14,
     client_ip: "10.0.0.1",
+    // Server-derived, not columns; the API always sends them.
+    summary: "Changed a session in rota 12",
+    outcome: "Done",
     ...overrides,
   };
 }

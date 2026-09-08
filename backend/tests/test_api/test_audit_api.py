@@ -96,6 +96,36 @@ def test_entry_shape_round_trips_every_column(client, db_session):
     assert item["request_body"] == {"sessions_per_week": 8, "password": "[redacted]"}
     assert item["duration_ms"] == 12
     assert item["client_ip"] == "10.0.0.1"
+    # Derived at read time, not columns -- see schemas/audit.py.
+    assert item["summary"] == "Changed a doctor's details"
+    assert item["outcome"] == "Done"
+
+
+def test_summary_substitutes_ids_from_the_templated_route(client, db_session):
+    _add(
+        db_session,
+        method="POST",
+        path="/api/v1/rota/12/commit",
+        route="/rota/{rota_id}/commit",
+        path_params={"rota_id": "12"},
+    )
+    item = client.get(AUDIT).json()["items"][0]
+    assert item["summary"] == "Committed rota 12"
+
+
+def test_summary_and_outcome_survive_a_row_that_matched_no_route(client, db_session):
+    # A 404 stores route=None and no path params; the page still has to
+    # render a sentence for it rather than 500 on the whole list.
+    _add(
+        db_session,
+        method="DELETE",
+        path="/api/v1/nonsense",
+        status_code=404,
+        route=None,
+    )
+    item = client.get(AUDIT).json()["items"][0]
+    assert item["summary"] == "DELETE (unknown page)"
+    assert item["outcome"] == "Not found"
 
 
 def test_filter_by_method_is_case_insensitive(client, rows):
