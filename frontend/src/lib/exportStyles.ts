@@ -26,7 +26,9 @@ export const BACKGROUND_HEX: Record<CellBackground, string | null> = {
 };
 
 export const FONT_HEX: Record<FontColor, string> = {
-  black: "1C2430", // text-ink -> tailwind_config.js ink: #1C2430 (not pure black)
+  black: "1C2430", // the default theme's ink (not pure black). Deliberately a
+  // literal: exports never follow the user's theme, so this does NOT track
+  // the --color-ink variable in index.css.
   red: "B91C1C", // text-red-700
   blue: "1D4ED8", // text-blue-700
 };

@@ -172,7 +172,7 @@ export function CountersPage() {
                   onClick={() => setActiveClinicTypeId(ct.id)}
                   className={
                     selected
-                      ? "-mb-px rounded-t border border-b-0 border-border bg-white px-3 py-1.5 text-sm font-medium text-ink"
+                      ? "-mb-px rounded-t border border-b-0 border-border bg-surface px-3 py-1.5 text-sm font-medium text-ink"
                       : "-mb-px rounded-t border border-transparent px-3 py-1.5 text-sm text-ink/60 hover:text-ink"
                   }
                 >
