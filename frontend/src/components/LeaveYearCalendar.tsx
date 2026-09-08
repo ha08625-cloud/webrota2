@@ -5,7 +5,9 @@ import { isInYearMonth, monthName, monthWeeks } from "@/lib/yearCalendar";
  * Year-at-a-glance overview for the individual leave tab: all 12 months of
  * `year`, laid out two-per-row, with the selected doctor's existing leave
  * picked out in green. Purely a read-only overview alongside the existing
- * add/remove form and table - it does not drive any editing.
+ * add/remove form and table - it does not drive any editing. The year itself is chosen by the shared
+ * Session Management year control (SessionManagementTabs.tsx), so the
+ * caption below is a label, not a picker.
  */
 
 const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -34,34 +36,16 @@ const COVERAGE_CLASSES: Record<DayCoverage, string> = {
 
 export interface LeaveYearCalendarProps {
   year: number;
-  onPrevYear: () => void;
-  onNextYear: () => void;
   entries: LeaveEntry[];
 }
 
-export function LeaveYearCalendar({ year, onPrevYear, onNextYear, entries }: LeaveYearCalendarProps) {
+export function LeaveYearCalendar({ year, entries }: LeaveYearCalendarProps) {
   const coverage = coverageByDate(entries.filter((e) => e.date.startsWith(`${year}-`)));
 
   return (
     <div data-testid="leave-year-calendar">
-      <div className="flex items-center justify-center gap-3">
-        <button
-          type="button"
-          onClick={onPrevYear}
-          aria-label="Previous year"
-          className="rounded border border-border px-2 py-0.5 text-sm"
-        >
-          ←
-        </button>
+      <div className="flex items-center justify-center">
         <span className="text-sm font-semibold">{year}</span>
-        <button
-          type="button"
-          onClick={onNextYear}
-          aria-label="Next year"
-          className="rounded border border-border px-2 py-0.5 text-sm"
-        >
-          →
-        </button>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">

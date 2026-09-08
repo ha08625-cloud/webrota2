@@ -140,7 +140,7 @@ export function LeavePlanningPage() {
   // inactive doctor has no leave left to plan either way.
   const { data: allDoctors } = useDoctors(true);
   const { data: coverage, isLoading: coverageLoading } = useCoverage(fromDate, toDate);
-  const { data: leave } = useLeave(null);
+  const { data: leave } = useLeave(null, null);
   const { data: extraSessions } = useExtraSessions(null, null);
   const { data: blocked } = useBlockedEntries();
   const { data: closures } = useClosures(null);

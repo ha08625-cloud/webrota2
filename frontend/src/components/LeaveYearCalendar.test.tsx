@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { makeLeaveEntry } from "@/test/fixtures/reference";
 
@@ -11,8 +10,6 @@ describe("LeaveYearCalendar", () => {
     render(
       <LeaveYearCalendar
         year={2026}
-        onPrevYear={vi.fn()}
-        onNextYear={vi.fn()}
         entries={[
           makeLeaveEntry({ date: "2026-08-03", period: "AM" }),
           makeLeaveEntry({ date: "2026-08-03", period: "PM" }),
@@ -30,8 +27,6 @@ describe("LeaveYearCalendar", () => {
     render(
       <LeaveYearCalendar
         year={2026}
-        onPrevYear={vi.fn()}
-        onNextYear={vi.fn()}
         entries={[makeLeaveEntry({ date: "2027-08-03", period: "AM" })]}
       />,
     );
@@ -39,16 +34,12 @@ describe("LeaveYearCalendar", () => {
     expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute("data-state", "none");
   });
 
-  it("calls onPrevYear/onNextYear from the year switcher", async () => {
-    const user = userEvent.setup();
-    const onPrevYear = vi.fn();
-    const onNextYear = vi.fn();
-    render(<LeaveYearCalendar year={2026} onPrevYear={onPrevYear} onNextYear={onNextYear} entries={[]} />);
+  it("captions the year without offering its own year control", () => {
+    // The year is chosen once, by the shared Session Management control.
+    render(<LeaveYearCalendar year={2026} entries={[]} />);
 
-    await user.click(screen.getByLabelText("Previous year"));
-    await user.click(screen.getByLabelText("Next year"));
-
-    expect(onPrevYear).toHaveBeenCalledTimes(1);
-    expect(onNextYear).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("2026")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Previous year")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Next year")).not.toBeInTheDocument();
   });
 });

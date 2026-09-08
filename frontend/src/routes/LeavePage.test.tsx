@@ -7,7 +7,13 @@ import { makeDoctor, makeLeaveEntitlement, makeLeaveEntry } from "@/test/fixture
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
+import { SessionYearControl, SessionYearProvider } from "@/components/SessionManagementTabs";
+
 import { LeavePage } from "./LeavePage";
+
+/** Outside a SessionYearProvider the page falls back to the current year,
+ * which is what most cases here render in. */
+const CURRENT_YEAR = new Date().getFullYear();
 
 function setUpServer({
   doctors = [makeDoctor({ id: 1, code: "AB", active: true })],
@@ -17,6 +23,29 @@ function setUpServer({
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/leave", () => HttpResponse.json(leave)),
   );
+}
+
+/** The page under the shared-year provider, on `year`, the way the Session
+ * Management layout mounts it. */
+function renderOnYear(year: number) {
+  return renderWithProviders(
+    <SessionYearProvider>
+      <LeavePage />
+    </SessionYearProvider>,
+    { route: `/?year=${year}` },
+  );
+}
+
+/** A /leave handler that records every request URL it serves. */
+function captureLeaveRequests(leave: ReturnType<typeof makeLeaveEntry>[] = []) {
+  const urls: string[] = [];
+  server.use(
+    http.get("/api/v1/leave", ({ request }) => {
+      urls.push(request.url);
+      return HttpResponse.json(leave);
+    }),
+  );
+  return urls;
 }
 
 /**
@@ -78,7 +107,7 @@ describe("LeavePage", () => {
     setUpServer();
     renderWithProviders(<LeavePage />);
 
-    expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+    expect(await screen.findByText(`No leave entries in ${CURRENT_YEAR}.`)).toBeInTheDocument();
   });
 
   it("collapses a doctor's consecutive weekday entries into a single block row", async () => {
@@ -595,7 +624,7 @@ describe("LeavePage", () => {
         end_date: "2026-08-07",
         period: "BOTH",
       });
-      expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+      expect(await screen.findByText(`No leave entries in ${CURRENT_YEAR}.`)).toBeInTheDocument();
 
       vi.restoreAllMocks();
     });
@@ -682,7 +711,7 @@ describe("LeavePage", () => {
       setUpTwoDoctors();
       renderWithProviders(<LeavePage />);
 
-      expect(await screen.findByText("No leave entries.")).toBeInTheDocument();
+      expect(await screen.findByText(`No leave entries in ${CURRENT_YEAR}.`)).toBeInTheDocument();
       expect(screen.queryByTestId("leave-entitlement")).not.toBeInTheDocument();
     });
 
@@ -705,21 +734,26 @@ describe("LeavePage", () => {
       await waitFor(() => expect(years).toEqual([String(new Date().getFullYear())]));
     });
 
-    it("re-queries when the calendar year is stepped", async () => {
-      const user = userEvent.setup();
+    it("queries the shared year, not the current one", async () => {
       setUpTwoDoctors();
       const years = captureEntitlementYears([]);
-      renderWithProviders(<LeavePage />);
+      renderOnYear(CURRENT_YEAR + 1);
 
-      const thisYear = new Date().getFullYear();
-      await waitFor(() => expect(years).toEqual([String(thisYear)]));
+      await waitFor(() => expect(years).toEqual([String(CURRENT_YEAR + 1)]));
+    });
 
-      // The year control lives on the calendar, which only renders once a
-      // doctor is selected - the same gate the summary is behind.
+    it("captions the calendar with the shared year the balance is for", async () => {
+      const user = userEvent.setup();
+      setUpTwoDoctors();
+      renderOnYear(CURRENT_YEAR + 1);
+
       await filterTo(user, "AB");
-      await user.click(await screen.findByLabelText("Next year"));
 
-      await waitFor(() => expect(years).toContain(String(thisYear + 1)));
+      const calendar = await screen.findByTestId("leave-year-calendar");
+      expect(within(calendar).getByText(String(CURRENT_YEAR + 1))).toBeInTheDocument();
+      expect(await screen.findByTestId("leave-entitlement")).toHaveTextContent(
+        String(CURRENT_YEAR + 1),
+      );
     });
 
     it("says nothing for a doctor with no entitlement row", async () => {
@@ -784,6 +818,67 @@ describe("LeavePage", () => {
 
       expect(filter).toHaveValue("");
       expect(screen.queryByTestId("leave-year-calendar")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the shared session year", () => {
+    it("requests only the selected year's entries for the table", async () => {
+      setUpServer();
+      const urls = captureLeaveRequests();
+      renderOnYear(CURRENT_YEAR + 1);
+
+      expect(
+        await screen.findByText(`No leave entries in ${CURRENT_YEAR + 1}.`),
+      ).toBeInTheDocument();
+      const params = new URL(urls[0]).searchParams;
+      expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
+      expect(params.get("to_date")).toBe(`${CURRENT_YEAR + 1}-12-31`);
+    });
+
+    it("leaves the overlap preview's query unfiltered by year", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      const urls = captureLeaveRequests();
+      renderOnYear(CURRENT_YEAR + 1);
+
+      await selectFormDoctor(user, "AB");
+
+      // Two queries for the same doctor: the table's, bounded to the year,
+      // and the preview's, which must see a range running past 31 December.
+      await waitFor(() => {
+        const forDoctor = urls
+          .map((url) => new URL(url).searchParams)
+          .filter((params) => params.get("doctor_id") === "1");
+        expect(forDoctor.some((params) => params.get("from_date") !== null)).toBe(true);
+        expect(forDoctor.some((params) => params.get("from_date") === null)).toBe(true);
+      });
+    });
+
+    it("re-queries the table and the entitlement together when the year changes", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      const urls = captureLeaveRequests();
+      const years = captureEntitlementYears([]);
+      renderWithProviders(
+        <SessionYearProvider>
+          <SessionYearControl />
+          <LeavePage />
+        </SessionYearProvider>,
+        { route: `/?year=${CURRENT_YEAR}` },
+      );
+
+      await waitFor(() => expect(years).toEqual([String(CURRENT_YEAR)]));
+      await user.click(screen.getByLabelText("Next year"));
+
+      await waitFor(() => expect(years).toContain(String(CURRENT_YEAR + 1)));
+      await waitFor(() =>
+        expect(
+          urls.some(
+            (url) =>
+              new URL(url).searchParams.get("from_date") === `${CURRENT_YEAR + 1}-01-01`,
+          ),
+        ).toBe(true),
+      );
     });
   });
 });
