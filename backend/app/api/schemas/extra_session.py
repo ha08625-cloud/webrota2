@@ -1,4 +1,4 @@
-"""Extra session schemas (extra sessions plan, Task 1)."""
+"""Extra session schemas."""
 import datetime
 
 from pydantic import BaseModel

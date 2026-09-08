@@ -24,9 +24,10 @@ class GenerateRotaOut(BaseModel):
 class RotaSessionOut(BaseModel):
     """One generated session. room_code / clinic_type_name are joined in the
     router; is_on_leave is derived from LeaveEntry (never stored).
-    template_type is persisted on the row as of M3.6 (RotaSession.template_type);
-    null means either a legacy pre-M3.6 row or a manually-nulled one, and
-    renders as a normal session either way."""
+    template_type is a snapshot of what the master template said at
+    generation time (RotaSession.template_type), so a later template edit
+    cannot change it. Generation always sets it; null means it was cleared
+    by a set-role write, and renders as a normal session."""
     session_id: int
     doctor_id: int
     doctor_code: str
@@ -49,14 +50,12 @@ class RotaSummaryOut(BaseModel):
     """GET /rota (list): metadata only, no sessions. Joined from
     GeneratedRota + its RotaConfig in the router.
 
-    committed_at (M3.7) is null for a draft, and also null for a committed
-    rota that predates rollback support. The frontend uses it, together
-    with the newest-first ordering of this list, to work out which
-    committed rota -- if any -- is eligible for the rollback affordance:
-    only the one with the latest non-null committed_at among committed
-    rotas.
+    committed_at is null for a draft. The frontend uses it, together with
+    the newest-first ordering of this list, to work out which committed
+    rota -- if any -- is eligible for the rollback affordance: only the one
+    with the latest committed_at among committed rotas.
 
-    archived_at (M6) is null unless the rota has been archived; only
+    archived_at is null unless the rota has been archived; only
     committed rotas can be archived. The frontend uses it to split the
     committed-history list into "Committed" and "Archived" tabs -- purely
     client-side, since this endpoint returns archived rotas unfiltered."""
@@ -73,18 +72,17 @@ class RotaSummaryOut(BaseModel):
 class RotaOut(BaseModel):
     """GET /rota/{id}: metadata plus the flat session list.
 
-    closed_slots (M5, half-day granularity since the closures plan) is read
-    from RotaClosure -- the snapshot taken at generation time, not the live
-    PracticeClosure table -- so a closure added or removed afterwards cannot
-    change what an existing rota reports here. A full-day closure appears as
-    two entries, one per period. Sorted ascending by (date, period); empty
-    for a rota generated with no closures in range.
+    closed_slots is read from RotaClosure -- the snapshot taken at
+    generation time, not the live PracticeClosure table -- so a closure
+    added or removed afterwards cannot change what an existing rota reports
+    here. Closures are half-day, so a full-day closure appears as two
+    entries, one per period. Sorted ascending by (date, period); empty for a
+    rota generated with no closures in range.
 
-    committed_at (M3.7) is null for a draft, including one produced by
-    rolling back a commit, and also null for a committed rota that
-    predates rollback support -- see RotaSummaryOut.
+    committed_at is null for a draft, including one produced by rolling
+    back a commit -- see RotaSummaryOut.
 
-    archived_at (M6) is null unless the rota has been archived -- see
+    archived_at is null unless the rota has been archived -- see
     RotaSummaryOut. Cleared automatically by rollback-commit.
     """
     rota_id: int
@@ -100,7 +98,7 @@ class RotaOut(BaseModel):
 
 
 class SessionPatchIn(BaseModel):
-    """Partial update of a draft session (M3.5 Task 2). Only fields present
+    """Partial update of a draft session. Only fields present
     in the request body are applied (checked via model_fields_set), so
     `notes: null` clears notes while an absent `notes` leaves them alone."""
     is_wfh: bool | None = None
@@ -125,7 +123,7 @@ class SwapOut(BaseModel):
 
 
 class SetRoomIn(BaseModel):
-    """M4.1 Task 1. room_id: null clears the target's room."""
+    """room_id: null clears the target's room."""
     room_id: int | None = None
 
 
@@ -136,7 +134,7 @@ class SetRoomOut(BaseModel):
 
 
 class SetRoleIn(BaseModel):
-    """M4.1 Task 1. Verbatim setter of the full (role, clinic_type_id,
+    """Verbatim setter of the full (role, clinic_type_id,
     template_type) triple -- all three fields are required (nullable, but
     must be present) and are written to the target exactly as given. This
     is what makes undo replay able to restore any previous triple,

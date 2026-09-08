@@ -1,4 +1,4 @@
-"""Leave planning schemas (annual leave planning, Task 3).
+"""Leave planning schemas.
 
 Backs the month-at-a-time planning grid: a read-only per-(date, period)
 clinical headcount, and a batched write applying leave / extra-session /

@@ -1,4 +1,4 @@
-"""RecurringNote schemas (recurring notes plan, Task 2).
+"""RecurringNote schemas.
 
 RecurringNoteIn takes doctor_ids and template_weeks as plain int lists
 rather than nested child schemas (contrast ClinicTypeIn's ScheduleIn /
@@ -9,8 +9,8 @@ router's replace-children step simple.
 RecurringNoteOut cannot be built by plain from_attributes ORM mapping: the
 model's relationships are named `doctors` / `weeks` (lists of child rows),
 not the flat `doctor_ids` / `template_weeks` this schema exposes, and the
-API contract sorts both ascending regardless of DB insertion order
-(Task 2 spec). from_orm_note() does that mapping explicitly; the router
+API contract sorts both ascending regardless of DB insertion order.
+from_orm_note() does that mapping explicitly; the router
 uses it instead of returning the ORM object straight through response_model.
 """
 from pydantic import BaseModel, Field, field_validator

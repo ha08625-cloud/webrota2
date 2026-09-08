@@ -5,18 +5,14 @@ Field naming follows RotaSessionOut/RotaOut's convention, not the plain
 these objects sit in a list alongside other `_id` fields (doctor_id,
 room_id), so a bare `id` would be ambiguous. See schemas/rota.py.
 
-MasterSessionPatchIn (M4.3 Task 1) added the single-session edit path on
-top of the original read-only GET. Both fields on the patch are always
-required, mirroring SetRoleIn's verbatim-triple philosophy: the endpoint
-is a plain pair setter, which is what makes undo replay on the frontend
-trivially expressible as another PATCH with the previous pair.
-
-M4.4 Task 1 adds MasterSessionCreateIn (POST, create a slot) alongside
-PATCH. The session_type/room_id pair validator is factored out onto
-MasterSessionPairIn so it isn't duplicated between the two; both PATCH
-and POST responses now share MasterSessionWriteOut (renamed from
-MasterSessionPatchOut -- no frontend code references the Python class
-name, only the JSON shape, so this rename is safe).
+The template supports a read (GET), a single-session edit (PATCH) and a
+slot create (POST). Both write bodies always carry the full
+(session_type, room_id) pair rather than being partial updates, mirroring
+SetRoleIn's verbatim-setter philosophy: it is what makes undo replay on
+the frontend expressible as another write with the previous pair. The
+pair validator therefore lives on a shared base, MasterSessionPairIn, so
+it cannot drift between the two, and both responses share
+MasterSessionWriteOut.
 """
 from pydantic import BaseModel, Field, model_validator
 
@@ -54,11 +50,11 @@ class MasterRotaTemplateOut(BaseModel):
 # actually does with each MasterSessionType (see phase2._PRE_OCCUPYING_TYPES
 # and the REQUIRES_ROOM/NO_SURGERY/WFH branches):
 #   PRE_ASSIGNED           -- room_id required (non-null)
-#   ADMIN_TIME             -- room_id optional (both seeded and roomless
-#                              ADMIN_TIME are real data)
+#   ADMIN_TIME             -- room_id optional, so it is in neither set
+#                              below (both seeded and roomless ADMIN_TIME
+#                              are real data)
 #   REQUIRES_ROOM/NO_SURGERY/WFH -- room_id must be null
 _ROOM_REQUIRED: set[MasterSessionType] = {MasterSessionType.PRE_ASSIGNED}
-_ROOM_OPTIONAL: set[MasterSessionType] = {MasterSessionType.ADMIN_TIME}
 _ROOM_FORBIDDEN: set[MasterSessionType] = {
     MasterSessionType.REQUIRES_ROOM,
     MasterSessionType.NO_SURGERY,
@@ -67,8 +63,7 @@ _ROOM_FORBIDDEN: set[MasterSessionType] = {
 
 
 class MasterSessionPairIn(BaseModel):
-    """Shared (session_type, room_id) pair validator -- the M4.3 PATCH
-    validator, factored out at M4.4 so POST doesn't duplicate it."""
+    """Shared (session_type, room_id) pair validator for PATCH and POST."""
     session_type: MasterSessionType
     room_id: int | None
 
@@ -107,7 +102,7 @@ class MasterSessionCreateIn(MasterSessionPairIn):
 
 
 class MasterSessionWriteOut(BaseModel):
-    """Shared response shape for both PATCH and POST (M4.4 rename from
-    MasterSessionPatchOut -- identical shape, now also used by create)."""
+    """Shared response shape for both PATCH and POST. `displaced_session`
+    is the row a write bumped out of a room, or null when nothing moved."""
     session: MasterRotaSessionOut
     displaced_session: MasterRotaSessionOut | None

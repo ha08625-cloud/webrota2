@@ -1,5 +1,4 @@
-"""Reception staff, coverage-rule, weekday master template, and day rota
-schemas.
+"""Reception staff, weekday master template, and day rota schemas.
 
 Reception has no cross-entity write logic -- these are plain CRUD shapes,
 unlike the nested ClinicType schemas or the displacement-aware master-rota
@@ -262,8 +261,7 @@ class ReceptionLeaveBulkDeleteOut(BaseModel):
 
 
 class ReceptionCounterRowOut(BaseModel):
-    """One staff member's counters over the window (reception counters,
-    Task 2). A projection of `StaffRoleCounters` from
+    """One staff member's counters over the window. A projection of `StaffRoleCounters` from
     app/reception_counters.py -- the arithmetic lives there, this only
     names the wire shape.
 

@@ -1,7 +1,7 @@
 """Doctor schemas.
 
-`start_date` / `end_date` are the optional employment window (annual leave
-planning, Task 1); null at either end means unbounded. The `start <= end`
+`start_date` / `end_date` are the optional employment window; null at
+either end means unbounded. The `start <= end`
 check is deliberately NOT a `model_validator` here: a `DoctorPatch` may
 supply only one of the pair, so the check needs the merged post-update
 values and therefore belongs in the router.

@@ -1,4 +1,4 @@
-"""Staging schemas (staging plan, Task 3).
+"""Staging schemas.
 
 Field names on StagingCreateIn deliberately mirror GenerateRotaIn
 (start_date, num_weeks, template_start_week): the create payload has the

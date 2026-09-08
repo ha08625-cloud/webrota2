@@ -1,4 +1,5 @@
-"""Practice closure schemas (M5 bank-holiday weeks, half-day granularity)."""
+"""Practice closure schemas. Closures are per (date, period), so a full-day
+closure is two rows."""
 import datetime
 
 from pydantic import BaseModel, model_validator
