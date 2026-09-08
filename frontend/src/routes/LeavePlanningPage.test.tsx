@@ -27,6 +27,7 @@ import {
 } from "@/test/fixtures/reference";
 import { weekdayName } from "@/lib/planningMonth";
 import { renderWithProviders } from "@/test/renderWithProviders";
+import { SessionYearProvider, useSessionYear } from "@/components/SessionManagementTabs";
 import { server } from "@/test/msw/server";
 
 import { LeavePlanningPage } from "./LeavePlanningPage";
@@ -39,6 +40,9 @@ const WEDNESDAY = "2026-08-05";
 const THURSDAY = "2026-08-06";
 const FRIDAY = "2026-08-07";
 const WEEK = [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY];
+/** The year the pinned clock sits in, and so the year the shared control
+ * opens on unless a test asks for another. */
+const CURRENT_YEAR = 2026;
 
 const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
 const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
@@ -112,6 +116,31 @@ function captureBulkBodies(
   return bodies;
 }
 
+/**
+ * The page as the Session Management layout mounts it: inside the shared
+ * year provider, on a year from the URL. The provider is not optional here
+ * the way it is for the other tabs - the month stepper writes through it,
+ * so a standalone render would have a dead "Next" button.
+ */
+function renderPage(
+  options: Parameters<typeof renderWithProviders>[1] = {},
+  year: number = CURRENT_YEAR,
+) {
+  return renderWithProviders(
+    <SessionYearProvider>
+      <LeavePlanningPage />
+    </SessionYearProvider>,
+    { route: `/?year=${year}`, ...options },
+  );
+}
+
+/** Reads the shared year back out, so a test can prove a month step across
+ * New Year moved the year the whole tab strip is on. */
+function SharedYearProbe() {
+  const { year } = useSessionYear();
+  return <span data-testid="shared-year">{year}</span>;
+}
+
 function cell(doctorId: number, date: string, period: "AM" | "PM") {
   return screen.getByTestId(`planning-cell-${doctorId}-${date}-${period}`);
 }
@@ -162,7 +191,7 @@ describe("LeavePlanningPage", () => {
 
   it("renders Partner, Salaried, and Locum rows only", async () => {
     setUpServer({ doctors: [AA, BB, LOCUM, TRAINEE, AHP] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(await screen.findByText("AA")).toBeInTheDocument();
     expect(screen.getByText("BB")).toBeInTheDocument();
@@ -174,7 +203,7 @@ describe("LeavePlanningPage", () => {
   it("adds trainee rows when the toggle is on, and drops them again when it is off", async () => {
     const user = userEvent.setup();
     setUpServer({ doctors: [AA, BB, LOCUM, TRAINEE, AHP] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await screen.findByText("AA");
     await user.click(screen.getByTestId("planning-show-trainees"));
@@ -202,7 +231,7 @@ describe("LeavePlanningPage", () => {
         ],
       }),
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await user.click(await screen.findByTestId("planning-show-trainees"));
 
@@ -223,7 +252,7 @@ describe("LeavePlanningPage", () => {
     const user = userEvent.setup();
     setUpServer({ doctors: [AA, BB, TRAINEE] });
     const bodies = captureBulkBodies();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await user.click(await screen.findByTestId("planning-show-trainees"));
     await pickCellState(user, await findCell(3, MONDAY, "AM"), "leave");
@@ -238,7 +267,7 @@ describe("LeavePlanningPage", () => {
   it("shows the current month's weekdays and moves between months", async () => {
     const user = userEvent.setup();
     setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(await screen.findByText("August 2026")).toBeInTheDocument();
     expect(screen.getByTestId(`planning-header-${MONDAY}`)).toBeInTheDocument();
@@ -253,12 +282,63 @@ describe("LeavePlanningPage", () => {
     expect(await screen.findByText("July 2026")).toBeInTheDocument();
   });
 
+  describe("the shared session year", () => {
+    it("opens on today's month in the year the tab strip is showing", async () => {
+      setUpServer();
+      // The clock is pinned to August 2026, so selecting 2027 lands on
+      // August 2027 - not January, which is nobody's idea of "the year".
+      renderPage({}, 2027);
+
+      expect(await screen.findByText("August 2027")).toBeInTheDocument();
+    });
+
+    it("moves the shared year when a month step crosses New Year", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      renderWithProviders(
+        <SessionYearProvider>
+          <SharedYearProbe />
+          <LeavePlanningPage />
+        </SessionYearProvider>,
+        { route: "/?year=2027" },
+      );
+
+      // August 2027 -> five steps forward is January 2028.
+      for (let i = 0; i < 5; i += 1) {
+        await user.click(await screen.findByRole("button", { name: "Next" }));
+      }
+      expect(await screen.findByText("January 2028")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId("shared-year")).toHaveTextContent("2028"));
+
+      await user.click(screen.getByRole("button", { name: "Previous" }));
+      expect(await screen.findByText("December 2027")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId("shared-year")).toHaveTextContent("2027"));
+    });
+
+    it("keeps pending edits across a month change", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      renderPage();
+
+      await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+      expect(screen.getByTestId("planning-unsaved-count")).toHaveTextContent("1 unsaved change");
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(await screen.findByText("September 2026")).toBeInTheDocument();
+      expect(screen.getByTestId("planning-unsaved-count")).toHaveTextContent("1 unsaved change");
+
+      await user.click(screen.getByRole("button", { name: "Previous" }));
+      expect(await screen.findByText("August 2026")).toBeInTheDocument();
+      expect(await findCell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
+    });
+  });
+
   it("renders existing leave and extra sessions", async () => {
     setUpServer({
       leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
       extraSessions: [makeExtraSessionEntry({ doctor_id: 2, date: TUESDAY, period: "PM" })],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(await findCell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
     expect(cell(2, TUESDAY, "PM")).toHaveAttribute("data-state", "extra_session");
@@ -268,7 +348,7 @@ describe("LeavePlanningPage", () => {
     setUpServer({
       blocked: [{ id: 1, doctor_id: 1, date: MONDAY, period: "AM", notes: "Training" }],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const target = await findCell(1, MONDAY, "AM");
     expect(target).toHaveAttribute("data-state", "blocked");
@@ -278,7 +358,7 @@ describe("LeavePlanningPage", () => {
   it("drops the total for pending blocked, the same as leave", async () => {
     const user = userEvent.setup();
     setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const total = () => screen.getByTestId(`planning-total-${MONDAY}-AM`);
     await waitFor(() => expect(total()).toHaveTextContent("2"));
@@ -291,7 +371,7 @@ describe("LeavePlanningPage", () => {
     const user = userEvent.setup();
     setUpServer();
     const bodies = captureBulkBodies();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await user.click(await findCell(1, MONDAY, "AM"));
     const popover = screen.getByTestId("planning-cell-popover");
@@ -309,7 +389,7 @@ describe("LeavePlanningPage", () => {
   it("updates the cover total live as cells are toggled, before any save", async () => {
     const user = userEvent.setup();
     setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const total = () => screen.getByTestId(`planning-total-${MONDAY}-AM`);
     await waitFor(() => expect(total()).toHaveTextContent("2"));
@@ -332,7 +412,7 @@ describe("LeavePlanningPage", () => {
   it("raises the total for an extra session on a slot the doctor does not normally work", async () => {
     const user = userEvent.setup();
     setUpServer({ coverage: coverageFor([MONDAY, TUESDAY], 0) });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     // Tuesday has no template row at all, so an extra session there is a
     // genuine +1 (the copy loop's new-row branch).
@@ -345,7 +425,7 @@ describe("LeavePlanningPage", () => {
   it("counts unsaved edits and clears them on Discard", async () => {
     const user = userEvent.setup();
     setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await pickCellState(user, cell(2, MONDAY, "PM"), "leave");
@@ -358,7 +438,7 @@ describe("LeavePlanningPage", () => {
 
   it("disables Save and Discard with nothing pending", async () => {
     setUpServer();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await findCell(1, MONDAY, "AM");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -369,7 +449,7 @@ describe("LeavePlanningPage", () => {
     const user = userEvent.setup();
     setUpServer();
     const bodies = captureBulkBodies();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await pickCellState(user, cell(2, TUESDAY, "PM"), "extra_session");
@@ -389,7 +469,7 @@ describe("LeavePlanningPage", () => {
     const user = userEvent.setup();
     setUpServer({ leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })] });
     const bodies = captureBulkBodies();
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     // Existing leave -> extra planned. Without the paired clear the
     // server would skip this as "leave_exists".
@@ -414,7 +494,7 @@ describe("LeavePlanningPage", () => {
       ],
       superseded_extra_sessions: [makeExtraSessionEntry({ doctor_id: 1, date: MONDAY, period: "PM" })],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -435,7 +515,7 @@ describe("LeavePlanningPage", () => {
         HttpResponse.json({ detail: "A leave entry was created concurrently" }, { status: 409 }),
       ),
     );
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -457,7 +537,7 @@ describe("LeavePlanningPage", () => {
         { date: MONDAY, period: "PM", headcount: 2, is_closed: false },
       ],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const closed = await findCell(1, MONDAY, "AM");
     expect(closed).toHaveAttribute("data-state", "closed");
@@ -471,7 +551,7 @@ describe("LeavePlanningPage", () => {
   it("keeps a doctor whose window covers only part of the month, and blanks the rest", async () => {
     const leaver = makeDoctor({ id: 5, code: "LV", doctor_type: "Partner", end_date: MONDAY });
     setUpServer({ doctors: [AA, leaver] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(await findCell(5, MONDAY, "AM")).toHaveAttribute("data-state", "normal");
     expect(cell(5, TUESDAY, "AM")).toHaveAttribute("data-state", "out_of_window");
@@ -480,7 +560,7 @@ describe("LeavePlanningPage", () => {
   it("drops a doctor whose window does not overlap the month at all", async () => {
     const gone = makeDoctor({ id: 6, code: "GO", doctor_type: "Partner", end_date: "2026-07-31" });
     setUpServer({ doctors: [AA, gone] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(await screen.findByText("AA")).toBeInTheDocument();
     expect(screen.queryByText("GO")).not.toBeInTheDocument();
@@ -496,7 +576,7 @@ describe("LeavePlanningPage", () => {
       holidays: [makeSchoolHoliday({ start_date: "2026-01-01", end_date: "2026-01-05" })],
     });
     setUpServer({ schools: [inView, outOfView] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await findCell(1, MONDAY, "AM");
     expect(screen.getByText("St Mary's")).toBeInTheDocument();
@@ -513,7 +593,7 @@ describe("LeavePlanningPage", () => {
       holidays: [makeSchoolHoliday({ start_date: FRIDAY, end_date: NEXT_MONDAY })],
     });
     setUpServer({ schools: [school] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const row = await screen.findByText("Weekend School");
     expect(row).toBeInTheDocument();
@@ -537,7 +617,7 @@ describe("LeavePlanningPage", () => {
       holidays: [makeSchoolHoliday({ start_date: MONDAY, end_date: MONDAY })],
     });
     setUpServer({ schools: [school] });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     const cell = await screen.findByTestId(`planning-school-cell-${school.id}-${MONDAY}`);
     expect(cell.querySelector("button")).not.toBeInTheDocument();
@@ -556,7 +636,7 @@ describe("LeavePlanningPage", () => {
         { date: MONDAY, period: "PM", headcount: 2, is_closed: false },
       ],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await screen.findByText("Coexisting School");
     expect(screen.getByTestId(`planning-total-${MONDAY}-AM`)).toHaveTextContent("—");
@@ -571,7 +651,7 @@ describe("LeavePlanningPage", () => {
         { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
       ],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(
       await screen.findByTestId("bank-holidays-missing-warning"),
@@ -586,7 +666,7 @@ describe("LeavePlanningPage", () => {
         { key: "christmas_day", name: "Christmas Day bank holiday", date: null },
       ],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     expect(
       await screen.findByTestId("bank-holidays-missing-warning"),
@@ -600,7 +680,7 @@ describe("LeavePlanningPage", () => {
         { key: "christmas_day", name: "Christmas Day bank holiday", date: "2026-12-25" },
       ],
     });
-    renderWithProviders(<LeavePlanningPage />);
+    renderPage();
 
     await findCell(1, MONDAY, "AM");
     expect(screen.queryByTestId("bank-holidays-missing-warning")).not.toBeInTheDocument();
@@ -608,11 +688,14 @@ describe("LeavePlanningPage", () => {
 
   function renderWithElsewhereLink() {
     return renderWithProviders(
-      <>
+      <SessionYearProvider>
         <Link to="/elsewhere">Elsewhere</Link>
         <LeavePlanningPage />
-      </>,
-      { additionalRoutes: [{ path: "/elsewhere", element: <p>Somewhere else</p> }] },
+      </SessionYearProvider>,
+      {
+        route: `/?year=${CURRENT_YEAR}`,
+        additionalRoutes: [{ path: "/elsewhere", element: <p>Somewhere else</p> }],
+      },
     );
   }
 
@@ -661,7 +744,7 @@ describe("LeavePlanningPage", () => {
     it("records one unsaved change per half-day of a Mon-Fri drag", async () => {
       const user = userEvent.setup();
       setUpWeek();
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await findCell(1, MONDAY, "AM");
       dragRow(1, [
@@ -677,7 +760,7 @@ describe("LeavePlanningPage", () => {
     it("drops the cover total across the whole dragged range, not just its anchor", async () => {
       const user = userEvent.setup();
       setUpWeek();
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await findCell(1, MONDAY, "AM");
       await waitFor(() =>
@@ -703,7 +786,7 @@ describe("LeavePlanningPage", () => {
       const user = userEvent.setup();
       setUpWeek();
       const bodies = captureBulkBodies();
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await findCell(1, MONDAY, "AM");
       // Off at lunchtime Monday, back at lunchtime Wednesday.
@@ -731,7 +814,7 @@ describe("LeavePlanningPage", () => {
         template: FULL_WEEK_TEMPLATE,
         leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
       });
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       expect(await findCell(1, MONDAY, "AM")).toHaveAttribute("data-state", "leave");
       dragRow(1, [
@@ -816,7 +899,7 @@ describe("LeavePlanningPage", () => {
           remaining_sessions: "49.0",
         }),
       ]);
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await user.click(await screen.findByTestId("planning-doctor-label-2"));
 
@@ -832,7 +915,7 @@ describe("LeavePlanningPage", () => {
       const user = userEvent.setup();
       setUpServer();
       stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       const label = await screen.findByTestId("planning-doctor-label-2");
       await user.click(label);
@@ -847,7 +930,7 @@ describe("LeavePlanningPage", () => {
       const user = userEvent.setup();
       setUpServer({ doctors: [AA, LOCUM] });
       stubEntitlement([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AA" })]);
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await user.click(await screen.findByTestId(`planning-doctor-label-${LOCUM.id}`));
 
@@ -859,7 +942,7 @@ describe("LeavePlanningPage", () => {
       const user = userEvent.setup();
       setUpServer();
       const years = stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       await user.click(await screen.findByTestId("planning-doctor-label-2"));
       await waitFor(() => expect(years).toContain("2026"));
@@ -882,7 +965,7 @@ describe("LeavePlanningPage", () => {
     it("opens on the doctor this login is linked to", async () => {
       setUpServer();
       stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
-      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+      renderPage({ authUser: LINKED_BB });
 
       expect(await screen.findByTestId("planning-selected-doctor")).toHaveTextContent("BB");
       expect(screen.getByTestId("planning-row-2")).toHaveAttribute("data-row-selected", "true");
@@ -891,7 +974,7 @@ describe("LeavePlanningPage", () => {
     it("opens with no doctor selected for an unlinked user", async () => {
       setUpServer();
       stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
-      renderWithProviders(<LeavePlanningPage />);
+      renderPage();
 
       expect(await screen.findByTestId("planning-row-2")).toHaveAttribute(
         "data-row-selected",
@@ -907,7 +990,7 @@ describe("LeavePlanningPage", () => {
         makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AA" }),
         makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" }),
       ]);
-      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+      renderPage({ authUser: LINKED_BB });
 
       await user.click(await screen.findByTestId("planning-doctor-label-1"));
       expect(await screen.findByTestId("planning-selected-doctor")).toHaveTextContent("AA");
@@ -923,7 +1006,7 @@ describe("LeavePlanningPage", () => {
       const user = userEvent.setup();
       setUpServer();
       stubEntitlement([makeLeaveEntitlement({ doctor_id: 2, doctor_code: "BB" })]);
-      renderWithProviders(<LeavePlanningPage />, { authUser: LINKED_BB });
+      renderPage({ authUser: LINKED_BB });
 
       await user.click(await screen.findByTestId("planning-doctor-label-2"));
 
