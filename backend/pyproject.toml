@@ -22,7 +22,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
+    # Pinned below 9.1: pytest 9.1.0 regressed conftest collection when the
+    # command line interleaves directories -- `pytest tests/test_api/a.py
+    # tests/b.py tests/test_api/c.py` loses tests/test_api/conftest.py for
+    # the second test_api file, so every test in it errors with
+    # "fixture 'client' not found". 8.3, 8.4 and 9.0 are all fine, and the
+    # repro is three files and two conftests with no project code in it.
+    # CI passes whole directories and never trips this; a developer running
+    # "the files I touched" does. Lift the ceiling once 9.1.x fixes it.
+    "pytest<9.1",
 ]
 
 [build-system]

@@ -347,6 +347,44 @@ class TestForgotPassword:
         assert resp.status_code == 204, resp.text
         assert sent_emails[0][2].startswith("https://rota.example.org/reset-password/")
 
+    def test_no_app_base_url_falls_back_to_localhost_when_mailgun_is_off(
+        self, client_no_auth, db_session, sent_emails, monkeypatch
+    ):
+        """A local run or CI delivers to nobody, so the dev default is
+        harmless there and keeps an unconfigured checkout working."""
+        _make_user(db_session, email="a@example.com")
+        monkeypatch.delenv("APP_BASE_URL", raising=False)
+        for var in ("MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM"):
+            monkeypatch.delenv(var, raising=False)
+
+        resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+        assert resp.status_code == 204, resp.text
+        assert sent_emails[0][2].startswith("http://localhost:5173/reset-password/")
+
+    def test_no_app_base_url_refuses_to_send_when_mailgun_is_configured(
+        self, client_no_auth, db_session, sent_emails, monkeypatch, caplog
+    ):
+        """The loud production failure: a deployment that can reach real
+        inboxes must never post a localhost link into one. It refuses to
+        send, logs at ERROR, and still answers 204 -- the caller learns
+        nothing either way, which is the endpoint's whole point."""
+        user = _make_user(db_session, email="a@example.com")
+        monkeypatch.delenv("APP_BASE_URL", raising=False)
+        monkeypatch.setenv("MAILGUN_API_KEY", "key-abc")
+        monkeypatch.setenv("MAILGUN_DOMAIN", "mail.example.org")
+        monkeypatch.setenv("MAILGUN_FROM", "rota@example.org")
+
+        with caplog.at_level(logging.ERROR):
+            resp = client_no_auth.post(FORGOT, json={"email": "a@example.com"})
+
+        assert resp.status_code == 204, resp.text
+        assert sent_emails == []
+        assert "APP_BASE_URL" in caplog.text
+
+        # No row either: an unusable token would still throttle this user
+        # for 3 minutes and still count towards the global hourly cap.
+        assert _tokens_for(db_session, user.id) == []
+
     def test_unknown_email_is_204_and_sends_nothing(
         self, client_no_auth, db_session, sent_emails
     ):
