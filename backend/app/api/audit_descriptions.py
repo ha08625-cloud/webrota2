@@ -68,7 +68,7 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
     # Doctors
     ("POST", "/doctors"): "Added a doctor",
     ("PATCH", "/doctors/{doctor_id}"): "Changed a doctor's details",
-    ("DELETE", "/doctors/{doctor_id}"): "Made a doctor inactive",
+    ("DELETE", "/doctors/{doctor_id}"): "Permanently deleted a doctor",
     ("PUT", "/doctors/{doctor_id}/preferred-rooms"):
         "Changed a doctor's preferred rooms",
     ("POST", "/doctors/{doctor_id}/calendar-feed/rotate"):

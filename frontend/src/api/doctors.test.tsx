@@ -9,9 +9,10 @@ import { makeDoctor, makeDoctorDetail } from "@/test/fixtures/reference";
 
 import {
   useCreateDoctor,
+  useDeleteDoctor,
   useDoctor,
+  useDoctorUsage,
   useReplacePreferredRooms,
-  useSoftDeleteDoctor,
   useUpdateDoctor,
 } from "./doctors";
 
@@ -85,30 +86,61 @@ describe("useUpdateDoctor", () => {
   });
 });
 
-describe("useSoftDeleteDoctor", () => {
-  it("DELETEs and resolves with the returned DoctorOut body (200, not 204)", async () => {
+describe("useDoctorUsage", () => {
+  it("fetches the usage endpoint for the given doctor", async () => {
     server.use(
-      http.delete("/api/v1/doctors/5", () => HttpResponse.json(makeDoctor({ id: 5, active: false }))),
+      http.get("/api/v1/doctors/5/usage", () =>
+        HttpResponse.json({
+          master_sessions: 4,
+          rota_sessions: 40,
+          committed_rotas: 2,
+          staging_sessions: 0,
+          leave_entries: 3,
+          duty_assignments: 1,
+          extra_sessions: 0,
+          blocked_entries: 0,
+        }),
+      ),
     );
 
-    const { result } = renderHook(() => useSoftDeleteDoctor(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useDoctorUsage(5), { wrapper: makeWrapper(freshClient()) });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.committed_rotas).toBe(2);
+  });
+
+  it("does not fire when the id is null (dialog closed)", () => {
+    const { result } = renderHook(() => useDoctorUsage(null), { wrapper: makeWrapper(freshClient()) });
+    expect(result.current.fetchStatus).toBe("idle");
+  });
+});
+
+describe("useDeleteDoctor", () => {
+  it("DELETEs and resolves with the per-table counts the purge removed", async () => {
+    server.use(
+      http.delete("/api/v1/doctors/5", () =>
+        HttpResponse.json({ deleted: { master_rota_sessions: 4, rota_sessions: 40 } }),
+      ),
+    );
+
+    const { result } = renderHook(() => useDeleteDoctor(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate(5);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.active).toBe(false);
+    expect(result.current.data?.deleted.rota_sessions).toBe(40);
   });
 
-  it("surfaces a 409 (committed sessions) as an ApiError with status 409", async () => {
+  it("surfaces the active-doctor 409 as an ApiError with status 409", async () => {
     server.use(
       http.delete("/api/v1/doctors/5", () =>
         HttpResponse.json(
-          { detail: "Doctor 5 has sessions on a committed rota; set active=false via PATCH instead" },
+          { detail: "Doctor 'AA' is active -- deactivate before deleting" },
           { status: 409 },
         ),
       ),
     );
 
-    const { result } = renderHook(() => useSoftDeleteDoctor(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useDeleteDoctor(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate(5);
 
     await waitFor(() => expect(result.current.isError).toBe(true));

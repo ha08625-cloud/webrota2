@@ -1,10 +1,55 @@
 """Doctor router.
 
-DELETE is a soft delete (active=False). It returns 409 if the doctor has
-sessions on a committed rota -- deactivating is fine, but the guard prevents
-the frontend treating soft-delete as a data purge for doctors with history.
-If the doctor only appears on the current draft, scrapping the draft first
-is the correct path.
+**DELETE means delete.** Deactivation is `PATCH {"active": false}`, and the
+two are not the same call. This used to be a soft delete that 409'd against
+committed rotas; a deactivated doctor kept every row they had, which is why
+they went on appearing on the master rota grid flagged "(inactive)" long
+after someone thought they had removed them. Deleting now purges the doctor
+row and every row that references it, matching routers/reception_staff.py --
+the two staff deletes are now the same shape deliberately.
+
+The delete purges history; it does not refuse to run. Removing a doctor
+deletes their sessions from already-committed rotas, so a rota printed and
+handed out months ago will no longer match what the app shows, their leave
+and duty history is gone, and their counters disappear (which changes what
+the next generation fairness-balances against). There is no way around
+this: `rota_sessions.doctor_id` is non-nullable, and an orphan session with
+no doctor attached is worse than no session. Blocking deletion for anyone
+with committed rows -- what the old 409 did -- was rejected because it makes
+anyone who has actually worked undeletable, which is exactly the
+leaver case this exists for. The mitigations are informed consent in the UI
+(`GET /doctors/{id}/usage` feeds the confirm dialog) and the audit log,
+which records who deleted which doctor id even though the rows are gone.
+
+Two guards stand in front of it, both mirroring reception staff:
+
+- **`user_admin` as well.** This router is gated on `clinical` at
+  include_router time; the delete additionally carries
+  `require_capability("user_admin")`, so the effective rule is the
+  conjunction clinical:write AND user_admin. An irreversible,
+  history-destroying action should be the narrower permission rather than
+  open to every rota editor. Deactivating stays open to them.
+- **409 unless the doctor is already inactive.** Deleting is a deliberate
+  two-step: deactivate, then later delete. It removes the "deleted someone
+  who is on this week's rota" case entirely, and unlike a has-history guard
+  it never makes anyone permanently undeletable.
+
+The child rows are deleted explicitly (PURGED_MODELS) rather than by
+`ondelete="CASCADE"` on the FKs: no migration, and the destruction is
+visible at the point it is decided rather than a schema property some
+unrelated future code path could trigger. The cost is that a table added
+later with a doctor FK would not be purged, so PURGED_MODELS is asserted
+against the metadata by tests/test_api/test_doctors.py.
+
+`users.doctor_id` is the one referencing column the delete nulls rather
+than purges: a user row is a login, not history of the doctor. NULLED_TABLES
+records that so the FK-coverage tripwire covers it without the delete ever
+destroying a login. `rota_generation_log` is untouched and not in either
+list: its doctor_id is deliberately FK-free (see models/generation_log.py),
+its rows carry self-contained prose, and it is purged with its rota.
+
+`generated_rotas` headers are left standing even where the purge empties
+one, the same call reception_staff.py makes for `reception_rotas`.
 
 Counter invariant: every doctor row has exactly one SystemCounter row per
 SystemCounterType (room_move, supervision), created here at doctor creation
@@ -36,15 +81,29 @@ from __future__ import annotations
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, distinct, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...models import (
+    BlockedEntry,
+    ClinicCounter,
+    ClinicTypeDoctorEligibility,
     Doctor,
     DoctorPreferredRoom,
+    DoctorSignature,
+    DutyAssignment,
+    ExtraSessionEntry,
     GeneratedRota,
+    LeaveEntitlement,
+    LeaveEntry,
+    MasterRotaSession,
+    RecurringNoteDoctor,
+    RotaClinicCounterSnapshot,
+    RotaConfigNoteDoctor,
     RotaSession,
+    RotaStagingSession,
+    RotaSystemCounterSnapshot,
     SystemCounter,
     User,
 )
@@ -53,15 +112,52 @@ from ..auth_utils import new_session_token
 from ..deps import get_current_user, get_db, require_capability
 from ..schemas import (
     CalendarFeedOut,
+    DoctorDeleteOut,
     DoctorDetailOut,
     DoctorIn,
     DoctorOut,
     DoctorPatch,
+    DoctorUsageOut,
     PreferredRoomIn,
 )
 from .calendar import feed_path
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
+
+# Every table that must be purged when a Doctor row is deleted, in delete
+# order (nothing here references anything else here, so the order is only
+# for readability). test_doctors.py asserts this covers every FK targeting
+# doctors -- see the module docstring. Adding a model here is the only edit
+# a future doctor-referencing table needs: both the delete and its response
+# counts are derived from this tuple.
+PURGED_MODELS = (
+    DoctorPreferredRoom,
+    ClinicTypeDoctorEligibility,
+    ClinicCounter,
+    SystemCounter,
+    RotaClinicCounterSnapshot,
+    RotaSystemCounterSnapshot,
+    LeaveEntry,
+    LeaveEntitlement,
+    BlockedEntry,
+    ExtraSessionEntry,
+    DutyAssignment,
+    MasterRotaSession,
+    RotaStagingSession,
+    RotaSession,
+    RecurringNoteDoctor,
+    RotaConfigNoteDoctor,
+    DoctorSignature,
+)
+
+# Tables that reference doctors but are *nulled*, not purged, by the delete.
+# `users` is the only one: a user row is a login, not history of the doctor,
+# so destroying it would be catastrophic rather than merely wrong. Kept out
+# of PURGED_MODELS (and out of the response counts, which report destroyed
+# history) but named here so the FK-coverage tripwire in
+# tests/test_api/test_doctors.py still has exactly one correct answer for
+# every table that references doctors.
+NULLED_TABLES = ("users",)
 
 
 def _validate_window(
@@ -266,31 +362,99 @@ def rotate_calendar_feed(
     return _feed_out(doctor)
 
 
-@router.delete("/{doctor_id}", response_model=DoctorOut)
-def soft_delete_doctor(
+@router.get("/{doctor_id}/usage", response_model=DoctorUsageOut)
+def doctor_usage(
     doctor_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Doctor:
+) -> DoctorUsageOut:
+    """What deleting this doctor would destroy.
+
+    Readable at every tier like any other GET in this router -- it is the
+    confirm dialog's input, and the dialog is worth reading only if the
+    numbers in it are real.
+
+    Not every purged table is counted. These seven are the ones a person
+    deciding would recognise as history of their own; the counters,
+    snapshots, preferences, eligibilities and note pickers the delete also
+    removes are consequences of those rows rather than separate losses, and
+    listing seventeen numbers would bury the two that matter
+    (`committed_rotas` and `rota_sessions`).
+    """
     doctor = _get_or_404(db, doctor_id)
-    has_committed_sessions = db.execute(
-        select(RotaSession.id)
+
+    def _count(model) -> int:
+        return db.execute(
+            select(func.count()).select_from(model).where(model.doctor_id == doctor.id)
+        ).scalar_one()
+
+    committed_rotas = db.execute(
+        select(func.count(distinct(RotaSession.rota_id)))
+        .select_from(RotaSession)
         .join(GeneratedRota, RotaSession.rota_id == GeneratedRota.id)
         .where(
-            RotaSession.doctor_id == doctor_id,
+            RotaSession.doctor_id == doctor.id,
             GeneratedRota.status == RotaStatus.COMMITTED,
         )
-        .limit(1)
-    ).scalar_one_or_none()
-    if has_committed_sessions is not None:
+    ).scalar_one()
+
+    return DoctorUsageOut(
+        master_sessions=_count(MasterRotaSession),
+        rota_sessions=_count(RotaSession),
+        committed_rotas=committed_rotas,
+        staging_sessions=_count(RotaStagingSession),
+        leave_entries=_count(LeaveEntry),
+        duty_assignments=_count(DutyAssignment),
+        extra_sessions=_count(ExtraSessionEntry),
+        blocked_entries=_count(BlockedEntry),
+    )
+
+
+@router.delete("/{doctor_id}", response_model=DoctorDeleteOut)
+def delete_doctor(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    admin: User = Depends(require_capability("user_admin")),
+) -> DoctorDeleteOut:
+    """Permanently remove a doctor and every row that references them.
+
+    Irreversible; see the module docstring for why it purges rather than
+    refuses, why it needs `user_admin` as well as clinical:write, and why
+    it only accepts an already-inactive doctor.
+    """
+    doctor = _get_or_404(db, doctor_id)
+    if doctor.active:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Doctor {doctor_id} has sessions on a committed rota; "
-                "set active=false via PATCH instead"
+                f"Doctor '{doctor.code}' is active -- deactivate before deleting"
             ),
         )
-    doctor.active = False
+
+    # Core deletes rather than loading rows and db.delete()-ing them one at
+    # a time: GeneratedRota.sessions (and several others here) carry
+    # cascade="all, delete-orphan", so a bulk delete that tried to
+    # synchronise a loaded parent's collection is a footgun worth ruling out
+    # explicitly.
+    # Drop the login link first (NULLED_TABLES): users are not purged, and
+    # the FK would otherwise block the delete of the doctor row below.
+    db.execute(
+        update(User)
+        .where(User.doctor_id == doctor.id)
+        .values(doctor_id=None)
+        .execution_options(synchronize_session=False)
+    )
+
+    counts: dict[str, int] = {}
+    for model in PURGED_MODELS:
+        result = db.execute(
+            delete(model)
+            .where(model.doctor_id == doctor.id)
+            .execution_options(synchronize_session=False)
+        )
+        counts[model.__tablename__] = result.rowcount
+    db.delete(doctor)
     db.commit()
-    db.refresh(doctor)
-    return doctor
+
+    return DoctorDeleteOut(deleted=counts)

@@ -81,3 +81,43 @@ class CalendarFeedOut(BaseModel):
     doctor_id: int
     token: str
     feed_path: str
+
+
+class DoctorUsageOut(BaseModel):
+    """What a permanent delete of one doctor would destroy, read by the
+    confirm dialog before it asks. Independent counts rather than a total:
+    "4 template slots" and "40 generated sessions" mean very different
+    things to the person deciding.
+
+    `committed_rotas` is the count that matters most -- those are rotas
+    people have already been given, and the delete rewrites them.
+    Deliberately kept off `GET /doctors`, which every section's pickers
+    read: these are seven aggregates per doctor, for data that matters on
+    one click.
+    """
+    master_sessions: int
+    rota_sessions: int
+    committed_rotas: int
+    staging_sessions: int
+    leave_entries: int
+    duty_assignments: int
+    extra_sessions: int
+    blocked_entries: int
+
+
+class DoctorDeleteOut(BaseModel):
+    """DELETE /doctors/{id}. Rows actually removed, keyed by table name.
+
+    A free-form mapping rather than a field per table: the delete purges
+    seventeen tables and derives the counts from
+    `routers/doctors.PURGED_MODELS`, so a table added later is covered by
+    editing that one tuple rather than this schema too. Report these in
+    preference to the numbers `/usage` returned -- a rota can be generated
+    while the confirm dialog is open.
+
+    Tables the delete touched but did not purge are absent: `users` is
+    nulled rather than deleted (a login is not history of the doctor), and
+    `generated_rotas` headers are left standing even where the purge
+    emptied one.
+    """
+    deleted: dict[str, int]

@@ -36,18 +36,21 @@ and each names the caller that needs it. It is per-endpoint because
 not.
 
 `require_capability(name)` is the per-endpoint gate for a boolean, used in
-three places where a router's area gate is not the whole answer:
+four places where a router's area gate is not the whole answer:
 
   routers/users.py       -- the router is UNGATED (PATCH /users/me must stay
                             open to every permission set), so its three
                             admin endpoints gate themselves.
   POST /doctors/{id}/calendar-feed/rotate
+  DELETE /doctors/{id}
   DELETE /reception/staff/{id}
                          -- narrower guards ON TOP of their router's area
                             gate, so the effective rule is the conjunction
                             (clinical:write AND user_admin, reception:write
-                            AND user_admin). Both are destructive in ways
-                            routine data entry is not.
+                            AND user_admin). All three are destructive in
+                            ways routine data entry is not: the two DELETEs
+                            permanently purge a staff member and every row
+                            referencing them.
 
 The gates raise 403, not 404: the resource plainly exists as far as the
 caller is concerned, and for levelled areas they can often GET it.
@@ -240,7 +243,7 @@ def require_access(area: str) -> Callable[..., User]:
 def require_capability(name: str) -> Callable[..., User]:
     """Build a method-agnostic gate for one boolean permission.
 
-    The per-endpoint counterpart to `require_access`, for the three places
+    The per-endpoint counterpart to `require_access`, for the four places
     listed in the module docstring. It consults neither the method nor
     `_SHARED_READ`: a capability applies to a whole endpoint or not at all.
     """

@@ -30,10 +30,12 @@ from .clinic_type import (
 )
 from .doctor import (
     CalendarFeedOut,
+    DoctorDeleteOut,
     DoctorDetailOut,
     DoctorIn,
     DoctorOut,
     DoctorPatch,
+    DoctorUsageOut,
     PreferredRoomIn,
     PreferredRoomOut,
 )
@@ -136,6 +138,7 @@ __all__ = [
     "RoomEligIn", "RoomEligOut", "ScheduleIn", "ScheduleOut",
     "CalendarFeedOut",
     "DoctorDetailOut", "DoctorIn", "DoctorOut", "DoctorPatch",
+    "DoctorUsageOut", "DoctorDeleteOut",
     "PreferredRoomIn", "PreferredRoomOut",
     "ExtraSessionIn", "ExtraSessionOut", "BlockedOut",
     "LeaveIn", "LeaveOut",

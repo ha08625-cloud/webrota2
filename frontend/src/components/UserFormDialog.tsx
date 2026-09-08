@@ -53,9 +53,11 @@ interface StaffOption {
  * falling back to "Not linked".
  *
  * Inactive rows are included for the same reason and suffixed, because a
- * link to a soft-deleted doctor is a supported state, not a mistake to
- * hide: a doctor DELETE is a soft delete, so clearing the link would lose
- * the record of whose login this is.
+ * link to a deactivated doctor or staff member is a supported state, not a
+ * mistake to hide - a leaver keeps their login and their link until someone
+ * decides otherwise. (Deleting the person outright does clear the link:
+ * both staff DELETEs null `users.doctor_id` / `users.reception_staff_id`
+ * rather than destroying the login.)
  */
 function staffOptions(
   staff: readonly { id: number; code: string; active: boolean }[] | undefined,
