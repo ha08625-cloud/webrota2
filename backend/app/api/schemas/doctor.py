@@ -109,7 +109,7 @@ class DoctorDeleteOut(BaseModel):
     """DELETE /doctors/{id}. Rows actually removed, keyed by table name.
 
     A free-form mapping rather than a field per table: the delete purges
-    seventeen tables and derives the counts from
+    eighteen tables and derives the counts from
     `routers/doctors.PURGED_MODELS`, so a table added later is covered by
     editing that one tuple rather than this schema too. Report these in
     preference to the numbers `/usage` returned -- a rota can be generated

@@ -11,6 +11,7 @@ from app.models import (
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
+    DutyOpeningBalance,
     GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -29,6 +30,7 @@ from app.models import (
     RotaGenerationLogEntry,
     RotaStaging,
     RotaStagingSession,
+    SystemCounter,
     User,
 )
 from app.models.enums import (
@@ -41,6 +43,7 @@ from app.models.enums import (
     RoomType,
     RotaStatus,
     Site,
+    SystemCounterType,
 )
 
 
@@ -172,6 +175,80 @@ def test_clinic_counter_unique(session):
         session.flush()
 
 
+def test_clinic_counter_opening_balance_defaults_to_zero(session):
+    """A counter created without a balance behaves exactly as it did before
+    the column existed."""
+    d = _doctor(session)
+    c = _clinic(session)
+    cc = ClinicCounter(doctor_id=d.id, clinic_type_id=c.id, raw_count=3)
+    session.add(cc)
+    session.flush()
+    session.refresh(cc)
+    assert cc.opening_balance == Decimal("0.0")
+
+
+def test_system_counter_opening_balance_round_trips_one_decimal(session):
+    """The credit is derived from a peer average and so is fractional --
+    Numeric(5, 1) is the storage that survives it."""
+    d = _doctor(session)
+    sc = SystemCounter(
+        doctor_id=d.id,
+        counter_type=SystemCounterType.ROOM_MOVE,
+        raw_count=0,
+        opening_balance=Decimal("3.2"),
+    )
+    session.add(sc)
+    session.flush()
+    session.refresh(sc)
+    assert sc.opening_balance == Decimal("3.2")
+
+
+def test_counter_opening_balance_may_be_negative(session):
+    """Deliberately unconstrained: the mirror case (a doctor back from a
+    long absence, a leaver already served) is real."""
+    d = _doctor(session)
+    sc = SystemCounter(
+        doctor_id=d.id,
+        counter_type=SystemCounterType.SUPERVISION,
+        raw_count=5,
+        opening_balance=Decimal("-2.0"),
+    )
+    session.add(sc)
+    session.flush()
+    session.refresh(sc)
+    assert sc.opening_balance == Decimal("-2.0")
+
+
+# --- DutyOpeningBalance: one optional row per (doctor, year) ---
+
+def test_duty_opening_balance_unique_per_doctor_and_year(session):
+    d = _doctor(session)
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
+    session.flush()
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("1.0")))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_duty_opening_balance_same_doctor_other_year_allowed(session):
+    """Year-scoped by design: the duty count restarts every 1 January, so
+    each year's credit is its own row."""
+    d = _doctor(session)
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2027, sessions=Decimal("0.5")))
+    session.flush()
+
+
+def test_duty_opening_balance_defaults_and_optional_notes(session):
+    d = _doctor(session)
+    b = DutyOpeningBalance(doctor_id=d.id, year=2026)
+    session.add(b)
+    session.flush()
+    session.refresh(b)
+    assert b.sessions == Decimal("0.0")
+    assert b.notes is None
+
+
 # --- RotaConfig / MasterRotaSession check constraints ---
 
 def test_rota_config_num_weeks_check(session):
@@ -213,6 +290,23 @@ def test_weighted_clinic_score(session):
     session.flush()
     weighted = cc.raw_count / float(d.sessions_per_week)
     assert weighted == 0.5
+
+
+def test_weighted_clinic_score_with_opening_balance(session):
+    """The balance is what puts a mid-year joiner level with the group: a
+    credit of peer_score x spw lands them exactly on the peer score."""
+    d = _doctor(session, spw="4.0")
+    c = _clinic(session)
+    cc = ClinicCounter(
+        doctor_id=d.id,
+        clinic_type_id=c.id,
+        raw_count=0,
+        opening_balance=Decimal("3.2"),
+    )
+    session.add(cc)
+    session.flush()
+    weighted = (cc.raw_count + float(cc.opening_balance)) / float(d.sessions_per_week)
+    assert weighted == 0.8
 
 
 # --- PracticeClosure / RotaClosure (M5 bank-holiday weeks) ---
