@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  
 import { App } from "./App";
 import { LoginGate } from "./auth/LoginGate";
+import { applyTheme, getTheme } from "./lib/themeStore";
 import "./index.css";
  
 const queryClient = new QueryClient({
@@ -26,6 +27,11 @@ const queryClient = new QueryClient({
   },
 });
  
+// Applied here rather than in a React effect: an effect runs after the
+// first paint, so every load would flash the default theme before
+// switching to the stored one.
+applyTheme(getTheme());
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
