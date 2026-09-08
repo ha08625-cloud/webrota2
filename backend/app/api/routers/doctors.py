@@ -93,6 +93,7 @@ from ...models import (
     DoctorPreferredRoom,
     DoctorSignature,
     DutyAssignment,
+    DutyOpeningBalance,
     ExtraSessionEntry,
     GeneratedRota,
     LeaveEntitlement,
@@ -142,6 +143,7 @@ PURGED_MODELS = (
     BlockedEntry,
     ExtraSessionEntry,
     DutyAssignment,
+    DutyOpeningBalance,
     MasterRotaSession,
     RotaStagingSession,
     RotaSession,
@@ -378,7 +380,7 @@ def doctor_usage(
     deciding would recognise as history of their own; the counters,
     snapshots, preferences, eligibilities and note pickers the delete also
     removes are consequences of those rows rather than separate losses, and
-    listing seventeen numbers would bury the two that matter
+    listing eighteen numbers would bury the two that matter
     (`committed_rotas` and `rota_sessions`).
     """
     doctor = _get_or_404(db, doctor_id)

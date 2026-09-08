@@ -104,7 +104,7 @@ export function useDoctorUsage(id: number | null) {
  * (see routers/doctors.py).
  *
  * Invalidates the ENTIRE query cache rather than a list of roots. A doctor
- * is referenced by seventeen tables, so the purge reaches the rota grids,
+ * is referenced by eighteen tables, so the purge reaches the rota grids,
  * the staging grid, the master template, leave, leave planning, duty,
  * extra sessions, blocked slots, counters, recurring-note pickers,
  * signatures and the user list - naming those roots here would be a second

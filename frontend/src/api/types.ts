@@ -457,7 +457,7 @@ export interface DoctorUsage {
 /**
  * DELETE /doctors/{id} response - rows actually removed, keyed by table
  * name. An open mapping rather than a field per table, matching the
- * backend schema: the purge covers seventeen tables and derives these
+ * backend schema: the purge covers eighteen tables and derives these
  * counts from one tuple in routers/doctors.py.
  */
 export interface DoctorDeleteResult {

@@ -32,6 +32,7 @@ from .leave_entitlement import LeaveEntitlement
 from .extra_session import ExtraSessionEntry
 from .blocked import BlockedEntry
 from .duty import DutyAssignment
+from .duty_opening_balance import DutyOpeningBalance
 from .master_rota import MasterRotaTemplate, MasterRotaSession
 from .staging import RotaStaging, RotaStagingSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
@@ -64,7 +65,8 @@ __all__ = [
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
-    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry", "BlockedEntry", "DutyAssignment", "MasterRotaTemplate",
+    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry", "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
+    "MasterRotaTemplate",
     "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
     "GeneratedRota", "RotaSession",
     "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",
