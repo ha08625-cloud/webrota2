@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase9c import run_phase9c
@@ -389,6 +391,47 @@ class TestDecisionLogRationale:
     """The supervision pool's `rationale`: who was in it, who was kept out,
     each doctor's raw count, sessions-per-week and preference multiplier,
     and the stage that decided."""
+
+    def test_pool_line_shows_the_opening_balance_before_the_multiplier(
+        self, session, config_1wk
+    ):
+        # The supervision line reports the unweighted score, then applies
+        # the preference multiplier to it. The balance belongs to the first
+        # of those, so the line's own arithmetic stays followable end to end.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        joiner = make_doctor(
+            session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
+            supervision_preference=SupervisionPreference.NORMAL,
+        )
+        peer = make_doctor(
+            session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0",
+            supervision_preference=SupervisionPreference.NORMAL,
+        )
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, joiner, make_room(session, code="D1", room_type=RoomType.D))
+        _pre_assigned(session, t, peer, make_room(session, code="D2", room_type=RoomType.D))
+        make_system_counter(
+            session, joiner, SystemCounterType.SUPERVISION, raw_count=2,
+            opening_balance=Decimal("4.0"),
+        )
+        make_system_counter(session, peer, SystemCounterType.SUPERVISION, raw_count=2)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert (
+            "AA in D1: raw 2 (+4 opening balance) / 10 sessions per week = 0.600, "
+            "supervision preference normal (x1) -> 0.600" in entry.rationale
+        )
+        assert (
+            "BB in D2: raw 2 / 10 sessions per week = 0.200, supervision preference "
+            "normal (x1) -> 0.200" in entry.rationale
+        )
+        # The credited doctor is not the one picked, which is the point.
+        assert entry.doctor_id == peer.id
 
     def test_pool_lines_show_the_counter_and_the_preference_multiplier(
         self, session, config_1wk

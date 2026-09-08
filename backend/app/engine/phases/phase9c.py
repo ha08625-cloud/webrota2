@@ -297,11 +297,15 @@ def _pool_rationale(
         doctor = context.doctor_by_id[slot.doctor_id]
         spw = context.spw_by_id.get(slot.doctor_id, 0.0)
         raw = counters.system.get((slot.doctor_id, SystemCounterType.SUPERVISION), 0)
+        balance = counters.system_opening_balance(
+            slot.doctor_id, SystemCounterType.SUPERVISION
+        )
         multiplier = _PREFERENCE_MULTIPLIERS[doctor.supervision_preference]
         room = context.room_by_id.get(slot.assigned_room_id)
+        unweighted = _supervision_score(context, counters, slot.doctor_id, False)
         return (
             f"{doctor.code} in {room.code if room else 'no room'}: "
-            f"{rat.score(raw, spw, _supervision_score(context, counters, slot.doctor_id, False))}"
+            f"{rat.score(raw, spw, unweighted, balance)}"
             f", supervision preference {doctor.supervision_preference.value} "
             f"(x{multiplier:g}) -> "
             f"{rat.fmt(_supervision_score(context, counters, slot.doctor_id))}"

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase7_9a import _displacement_priority, run_phase7_to_9a
@@ -864,6 +866,43 @@ class TestPass2FairnessTiebreakWithinTier:
         assert grid.get(low_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback1.id
         assert grid.get(high_score.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d2.id
         assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+
+    def test_opening_balance_breaks_an_otherwise_equal_pair(self, session, config_1wk):
+        # Same tier, same raw count, same sessions per week: the credited
+        # doctor's balance is what decides, and the rationale names it so
+        # the line's arithmetic still adds up.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        joiner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        peer = make_doctor(session, code="ZZ", doctor_type=DoctorType.PARTNER)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        fallback1 = make_room(session, code="C1", room_type=RoomType.C)
+        fallback2 = make_room(session, code="C2", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        _pre_assigned(session, t, joiner, d1, period=Period.AM)
+        _pre_assigned(session, t, peer, d2, period=Period.AM)
+        make_preferred_room(session, joiner, preference_order=1, room=fallback1)
+        make_preferred_room(session, peer, preference_order=1, room=fallback2)
+        make_system_counter(
+            session, joiner, SystemCounterType.ROOM_MOVE, raw_count=1,
+            opening_balance=Decimal("4.0"),
+        )
+        make_system_counter(session, peer, SystemCounterType.ROOM_MOVE, raw_count=1)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        # Without the balance, "AA" would be displaced on the alphabetical
+        # tie-break; the credit puts ZZ's score below AA's instead.
+        assert grid.get(joiner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+        assert grid.get(peer.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback2.id
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == peer.id
+        assert "raw 1 (+4 opening balance) / 10 sessions per week = 0.500" in entry.rationale
 
     def test_equal_scores_fall_back_to_alphabetical_code(self, session, config_1wk):
         t = make_template(session, is_active=True)

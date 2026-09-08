@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
@@ -746,6 +748,40 @@ class TestDecisionLogRationale:
             "Decided on: weighted counter -- LO has the lowest weighted room-move "
             "score, 0.200, so is the least disrupted by another move."
         ) in entry.rationale
+
+    def test_room_move_opening_balance_decides_and_is_shown(
+        self, session, config_1wk, monday
+    ):
+        # Both potential victims have the same raw room-move count and the
+        # same sessions per week; only the credited joiner's balance
+        # separates them, so the doctor without it is displaced.
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="ZZ")
+        joiner = make_doctor(session, code="AA", doctor_type=DoctorType.SALARIED, spw="10.0")
+        peer = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED, spw="10.0")
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        make_system_counter(
+            session, joiner, SystemCounterType.ROOM_MOVE, raw_count=2,
+            opening_balance=Decimal("5.0"),
+        )
+        make_system_counter(session, peer, SystemCounterType.ROOM_MOVE, raw_count=2)
+        _pre_assigned(session, t, joiner, d1)
+        _pre_assigned(session, t, peer, d2)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "displace_room")
+        assert entry.related_doctor_id == peer.id
+        assert (
+            "AA in D1 (raw 2 (+5 opening balance) / 10 sessions per week = 0.700)"
+            in entry.rationale
+        )
+        assert "BB in D2 (raw 2 / 10 sessions per week = 0.200)" in entry.rationale
 
     def test_unresolved_duty_room_is_logged_with_what_was_tried(
         self, session, config_1wk, monday
