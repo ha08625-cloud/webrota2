@@ -2,8 +2,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { THEMES } from "@/lib/themeStore";
-
 import { ThemePicker } from "./ThemePicker";
 
 describe("ThemePicker", () => {
@@ -19,50 +17,22 @@ describe("ThemePicker", () => {
     delete document.documentElement.dataset.contrast;
   });
 
-  it("offers every theme", () => {
+  // The palette picker is retired while the palettes are refined - the
+  // store and CSS still support it, but nothing exposes it. themeStore.test
+  // still covers the theme half of the store.
+  it("does not offer a palette picker", () => {
     render(<ThemePicker />);
-    const options = screen.getAllByRole("option").map((option) => option.textContent);
-    expect(options).toEqual(THEMES.map((theme) => theme.label));
+    expect(screen.queryByLabelText("Theme")).not.toBeInTheDocument();
   });
 
-  it("shows the stored theme on mount", () => {
-    window.localStorage.setItem("rota.theme", "plum");
-    render(<ThemePicker />);
-    expect(screen.getByLabelText("Theme")).toHaveValue("plum");
-  });
-
-  it("stores and applies the chosen theme", async () => {
+  it("stores and applies high contrast", async () => {
     const user = userEvent.setup();
     render(<ThemePicker />);
 
-    await user.selectOptions(screen.getByLabelText("Theme"), "sand");
-
-    expect(window.localStorage.getItem("rota.theme")).toBe("sand");
-    expect(document.documentElement.dataset.theme).toBe("sand");
-    expect(screen.getByLabelText("Theme")).toHaveValue("sand");
-  });
-
-  it("clears the attribute when the default is chosen again", async () => {
-    const user = userEvent.setup();
-    render(<ThemePicker />);
-
-    await user.selectOptions(screen.getByLabelText("Theme"), "plum");
-    await user.selectOptions(screen.getByLabelText("Theme"), "default");
-
-    expect(window.localStorage.getItem("rota.theme")).toBe("default");
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-  });
-
-  it("toggles high contrast independently of the palette", async () => {
-    const user = userEvent.setup();
-    render(<ThemePicker />);
-
-    await user.selectOptions(screen.getByLabelText("Theme"), "sand");
     await user.click(screen.getByLabelText("High contrast"));
 
     expect(window.localStorage.getItem("rota.contrast")).toBe("high");
     expect(document.documentElement.dataset.contrast).toBe("high");
-    expect(document.documentElement.dataset.theme).toBe("sand");
   });
 
   it("shows stored high contrast on mount", () => {
