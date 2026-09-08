@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { Fragment, useMemo, useState } from "react";
 
-import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts } from "@/api/duty";
+import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts, useSetDutyOpeningBalance } from "@/api/duty";
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
@@ -22,7 +22,8 @@ import { buildColumns } from "@/lib/dutyWeekSlots";
 import { isSlotClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
-import { computeWeightedScore, formatWeightedScore } from "@/lib/weightedScore";
+import { BALANCE_HINT, OpeningBalanceInput } from "@/components/OpeningBalanceInput";
+import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from "@/lib/weightedScore";
 
 const PERIODS: Period[] = ["AM", "PM"];
 
@@ -74,6 +75,12 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   const deleteDuty = useDeleteDuty();
 
   const [activeDoctor, setActiveDoctor] = useState<DraggableDoctor | null>(null);
+  // Tracked rather than left to the browser so the rows inside are only
+  // mounted while the panel is open: a collapsed <details> still renders
+  // its children into the DOM, and a second copy of every doctor code
+  // sitting invisibly beside the palette is a trap for anything that looks
+  // a doctor up by its code.
+  const [balancesOpen, setBalancesOpen] = useState(false);
 
   const weekStartDates = useMemo(
     () => Array.from({ length: weeks }, (_, i) => addDays(startWeekDate, i * 7)),
@@ -99,6 +106,20 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
     return map;
   }, [annualCountsData]);
 
+  // Sessions credited to a doctor whose count does not cover the whole
+  // year the others' counts do - a mid-year joiner otherwise reads as
+  // maximally under-loaded and is bolded as "next in line" for weeks. The
+  // balance is year-scoped, and the endpoint resolves it from the year of
+  // the range's from_date, which is this grid's annual range.
+  const annualBalancesById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of annualCountsData ?? []) map.set(c.doctor_id, c.opening_balance);
+    return map;
+  }, [annualCountsData]);
+
+  const balanceYear = Number(annualRange.from.slice(0, 4));
+  const setDutyBalance = useSetDutyOpeningBalance();
+
   const dutyEligibleDoctors = (allDoctors ?? []).filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
   );
@@ -115,7 +136,11 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   const lowestAnnualWtd = annualCountsLoading
     ? null
     : dutyEligibleDoctors.reduce<number | null>((min, d) => {
-        const score = computeWeightedScore(annualCountsById.get(d.id) ?? 0, doctorsById.get(d.id));
+        const score = computeWeightedScore(
+          annualCountsById.get(d.id) ?? 0,
+          doctorsById.get(d.id),
+          annualBalancesById.get(d.id) ?? "0",
+        );
         if (score.kind !== "value") return min;
         const shown = Number(score.value.toFixed(WTD_DECIMALS));
         return min === null || shown < min ? shown : min;
@@ -182,6 +207,7 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
             <div className="flex items-center justify-end gap-3 text-xs text-ink/50">
               <div className="flex gap-1">
                 <span className="w-8 text-right">n</span>
+                <span className="w-10 text-right">bal</span>
                 <span className="w-10 text-right">wtd</span>
               </div>
             </div>
@@ -194,7 +220,10 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                   {group.doctors.map((d) => {
                     const doctor = doctorsById.get(d.id);
                     const annualRaw = annualCountsLoading ? null : (annualCountsById.get(d.id) ?? 0);
-                    const annualScore = annualRaw === null ? null : computeWeightedScore(annualRaw, doctor);
+                    const annualBalance = annualBalancesById.get(d.id) ?? "0";
+                    const annualCredit = formatOpeningBalance(annualBalance);
+                    const annualScore =
+                      annualRaw === null ? null : computeWeightedScore(annualRaw, doctor, annualBalance);
                     const annualWtd = annualScore === null ? null : formatWeightedScore(annualScore, WTD_DECIMALS);
                     const isLowest =
                       annualScore !== null &&
@@ -215,6 +244,15 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                             >
                               {annualRaw ?? "–"}
                             </span>
+                            {/* Shown beside the raw count rather than
+                                folded into it: the raw count stays "duty
+                                actually done this year". */}
+                            <span
+                              data-testid={`duty-annual-balance-${d.id}`}
+                              className="w-10 text-right text-xs tabular-nums text-ink/50"
+                            >
+                              {annualCredit ?? ""}
+                            </span>
                             <span
                               data-testid={`duty-annual-wtd-${d.id}`}
                               className={`w-10 text-right text-xs tabular-nums ${
@@ -232,6 +270,47 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
               </div>
             ))}
           </div>
+          {/* Collapsed by default: editing a balance is a rare admin act,
+              while the grid beside it is used every week. Inputs live here
+              rather than in the columns above so they cannot be mistaken
+              for part of the drag-and-drop palette. */}
+          {showCounts ? (
+            <details
+              open={balancesOpen}
+              onToggle={(e) => setBalancesOpen(e.currentTarget.open)}
+              className="mt-4 rounded border border-border p-2"
+            >
+              <summary className="cursor-pointer text-xs font-medium text-ink/70">
+                Opening balances ({balanceYear})
+              </summary>
+              {balancesOpen ? (
+                <>
+                  <p className="mt-1 text-xs text-ink/50">
+                    Duty sessions credited to a doctor who was not here for the whole year, added to their count
+                    before the weighted score is computed. {BALANCE_HINT}
+                  </p>
+                  {setDutyBalance.isError ? (
+                    <p className="mt-1 text-xs text-red-700">Could not save opening balance.</p>
+                  ) : null}
+                  <div className="mt-2 space-y-1">
+                    {dutyEligibleDoctors.map((d) => (
+                      <div key={d.id} className="flex items-center gap-2">
+                        <span className="w-10 text-xs text-ink/70">{d.code}</span>
+                        <OpeningBalanceInput
+                          value={annualBalancesById.get(d.id) ?? "0.0"}
+                          label={`Duty opening balance for ${d.code}`}
+                          isPending={setDutyBalance.isPending}
+                          onSave={(sessions) =>
+                            setDutyBalance.mutate({ doctor_id: d.id, year: balanceYear, sessions })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </details>
+          ) : null}
         </div>
 
         <div className="flex-1 space-y-6">

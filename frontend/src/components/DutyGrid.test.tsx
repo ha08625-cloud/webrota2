@@ -238,6 +238,108 @@ describe("DutyGrid", () => {
     expect(screen.getByTestId("duty-annual-raw-2")).not.toHaveClass("font-bold");
   });
 
+  it("adds the opening balance to the annual count before scoring, and shows the credit beside the raw count", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "4.0" }),
+      ],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([
+          { doctor_id: 1, doctor_code: "AB", raw_count: 1, opening_balance: "3.2" },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    // The raw count keeps meaning "duty actually done": 1, not 4.2.
+    expect(await screen.findByTestId("duty-annual-raw-1")).toHaveTextContent("1");
+    expect(screen.getByTestId("duty-annual-balance-1")).toHaveTextContent("+3.2");
+    // (1 + 3.2) / 4 * 10 = 10.5
+    expect(screen.getByTestId("duty-annual-wtd-1")).toHaveTextContent("10.5");
+  });
+
+  it("bolds by the balance-adjusted score, so a credited joiner is not read as next in line", async () => {
+    setUpServer({
+      doctors: [
+        // raw 0 + 3.2 credit / 4.0 spw -> 8.0
+        makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "4.0" }),
+        // raw 6 / 10.0 spw -> 6.0, now the genuine lowest
+        makeDoctor({ id: 2, code: "CD", doctor_type: "Partner", active: true, sessions_per_week: "10.0" }),
+      ],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([
+          { doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "3.2" },
+          { doctor_id: 2, doctor_code: "CD", raw_count: 6, opening_balance: "0.0" },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-annual-wtd-2")).toHaveClass("font-bold");
+    expect(screen.getByTestId("duty-annual-wtd-1")).not.toHaveClass("font-bold");
+  });
+
+  it("leaves the credit column blank for a doctor with no balance", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true })],
+    });
+    server.use(
+      http.get("/api/v1/duty/counts", () =>
+        HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 4, opening_balance: "0.0" }]),
+      ),
+    );
+
+    renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+    expect(await screen.findByTestId("duty-annual-balance-1")).toHaveTextContent("");
+  });
+
+  describe("editing duty opening balances", () => {
+    it("saves a balance for the year the grid is showing", async () => {
+      let body: unknown = null;
+      setUpServer({
+        doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "4.0" })],
+      });
+      server.use(
+        http.get("/api/v1/duty/counts", () =>
+          HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "0.0" }]),
+        ),
+        http.put("/api/v1/duty/opening-balance", async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json({
+            doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "3.2",
+          });
+        }),
+      );
+
+      renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByText(/Opening balances/));
+      const input = await screen.findByLabelText("Duty opening balance for AB");
+      await user.clear(input);
+      await user.type(input, "3.2");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+
+      // MONDAY is in 2026, the year getYearRange derives the counts range from.
+      await waitFor(() => expect(body).toEqual({ doctor_id: 1, year: 2026, sessions: "3.2" }));
+    });
+
+    it("keeps the balance editor out of the compact sidebar preview (showCounts=false)", async () => {
+      setUpServer();
+      renderWithProviders(<DutyGrid startWeekDate={MONDAY} showCounts={false} />);
+
+      await screen.findByTestId("duty-doctor-chip-1");
+      expect(screen.queryByText(/Opening balances/)).not.toBeInTheDocument();
+    });
+  });
+
   it("bolds nobody when every doctor's score is infinite (sessions_per_week 0), rather than picking one arbitrarily", async () => {
     setUpServer({
       doctors: [
