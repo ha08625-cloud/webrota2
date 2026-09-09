@@ -248,3 +248,45 @@ export function formatPeriodLabel(startDateString: string): string {
   }
   return `${startDay} ${startMonth} ${startYear} - ${endDay} ${endMonth} ${endYear}`;
 }
+// --- Current-week anchoring (committed rota view) -----------------------
+
+/**
+ * The Monday of the working week the committed-rota view should treat as
+ * "now", as a "YYYY-MM-DD" string.
+ *
+ * Deliberately not getUpcomingMondays(1)[0]: that anchor rolls forward to
+ * *next* Monday from any weekday, so on a Wednesday it would point past
+ * the week the user is actually working in. Mon-Fri therefore resolve
+ * backwards to the Monday just gone, and only the weekend rolls forward -
+ * the clinical rota covers Mon-Fri only, so on a Saturday or Sunday there
+ * is no current rota week and the week ahead is the useful answer.
+ */
+export function getCurrentRotaMonday(from: Date = new Date()): string {
+  const cursor = toDateKey(from);
+  const weekday = parseLocalDate(cursor).getDay();
+  if (weekday === 0) {
+    return addDays(cursor, 1); // Sunday -> tomorrow
+  }
+  if (weekday === 6) {
+    return addDays(cursor, 2); // Saturday -> Monday
+  }
+  return addDays(cursor, 1 - weekday);
+}
+
+/**
+ * The 1-based generation week of `monday` within a rota starting at
+ * `startDate` and running `numWeeks` weeks, or null if the rota does not
+ * cover that week. Both arguments are expected to be Mondays; the caller
+ * gets them from rota.start_date and getCurrentRotaMonday.
+ *
+ * Computed on UTC epoch values for the same reason getDutyPeriodStart is:
+ * a span containing a DST change is not a whole number of local-time days,
+ * which would round the wrong way at the boundary.
+ */
+export function rotaWeekForMonday(startDate: string, numWeeks: number, monday: string): number | null {
+  const offsetWeeks = Math.round((toUTCEpoch(monday) - toUTCEpoch(startDate)) / (7 * 86_400_000));
+  if (offsetWeeks < 0 || offsetWeeks >= numWeeks) {
+    return null;
+  }
+  return offsetWeeks + 1;
+}

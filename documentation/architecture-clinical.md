@@ -493,9 +493,18 @@ The interactive surface for reviewing and hand-editing a generated rota before c
 
 A committed rota's read-only view shows up to two further actions: a conditional **Roll back commit** button, rendered only when the client-side most-recent-commit check says this rota is eligible, and an **Archive**/**Unarchive** toggle. Both follow the existing confirm-then-mutate pattern but neither navigates away on success. `RotaPage`'s committed history is split into Committed/Archived tabs **client-side only** — see "Archive / unarchive".
 
+### CommittedRotasPage — the published-rota view
+
+`/clinical/committed` is the "where am I working this week" page: the list of committed, unarchived rotas with the one covering the current week picked out and opened by default, and its grid rendered underneath. It exists because **the clinical section's index page is a generation console** — staging form, duty-staffing preview, clinic enable checkboxes, commit history — none of which means anything to someone who cannot generate. A **clinical read-only login now lands here instead**: "Generate new rotas" became a `writeOnly` nav entry like the reference-data pages, and `CLINICAL_READER_HOME` in `App.tsx` is the redirect target for every write-only path, the section index among them. That constant must not itself be write-only, or the redirect loops.
+
+**Deliberately not a mode of `RotaDetailPage`.** That page is the editing and lifecycle surface (commit, scrap, archive, rollback, force delete, issues panel, generation log); serving as a reader's landing page would mean conditioning most of it away. `RotaGrid` and `RoomRotaGrid` are already read-only for a committed rota — `editable` is derived from `rota.status` — so the whole page is those two components plus a picker, with no mutation callbacks passed at all. Archived rotas are excluded rather than given a second tab: archiving is precisely the action that says a rota should stop appearing in the everyday view, and `RotaPage`'s committed history still lists them.
+
+**"Current" is a week, not a date.** `getCurrentRotaMonday` resolves Mon–Fri *backwards* to the Monday just gone — deliberately unlike `getUpcomingMondays`, whose forward roll is right for picking a generation start week but would point past the week the user is standing in — and rolls Saturday/Sunday *forwards*, the rota being Mon–Fri only so a weekend has no current week. `rotaWeekForMonday` then maps that Monday onto a rota's 1-based generation week (null if out of range), on UTC epoch values for the same DST reason `getDutyPeriodStart` uses them. That one value drives three things: which rota is selected on arrival, which week tab opens, and the "This week" / "(this week)" markers. Selection and current-week are **shown differently on purpose** — they coincide on arrival but come apart the moment the user clicks another rota, and the marker has to survive that. `WeekTabs` grew an optional `currentWeek` prop for the tab marker; no other caller passes it, since everywhere else the rota on screen is a draft for a future week.
+
 | Module | Role |
 |---|---|
 | `RotaDetailPage.tsx` | Undo stack + toast, replay execution, Commit/Scrap/Rollback/Archive/Unarchive |
+| `CommittedRotasPage.tsx` | Read-only published-rota view: committed-rota picker + grid, current week anchored |
 | `RotaGrid.tsx` | Grid layout, week tabs, DnD context, dispatches all five mutation types |
 | `CellEditPopover.tsx` | Cell edit menu: WFH/notes, Change room / Change role submenus, confirm view |
 | `IssuesPanel.tsx` | Aggregated Phase 12 warnings with scroll-to-cell navigation |

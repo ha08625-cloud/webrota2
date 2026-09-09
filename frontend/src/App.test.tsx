@@ -87,6 +87,7 @@ describe("ClinicalShell nav by permission", () => {
 
     const nav = screen.getByRole("navigation");
     for (const label of [
+      "Committed Rotas",
       "Generate new rotas",
       "Master Rota",
       "Clinic Types",
@@ -102,16 +103,18 @@ describe("ClinicalShell nav by permission", () => {
   });
 
   // A reader's clinical nav is the three entries that mean something without
-  // edit rights; the reference-data pages are hidden rather than shown with
-  // every control disabled.
-  it("offers a reader only the rota, session management and calendar entries", () => {
+  // edit rights; the reference-data pages - and the generation console the
+  // section index is - are hidden rather than shown with every control
+  // disabled.
+  it("offers a reader only the committed rotas, session management and calendar entries", () => {
     renderAt("/clinical/calendar", PERMISSION_PRESETS.readOnly);
 
     const nav = screen.getByRole("navigation");
-    for (const label of ["Generate new rotas", "Session Management", "Calendar Feed"]) {
+    for (const label of ["Committed Rotas", "Session Management", "Calendar Feed"]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
     for (const label of [
+      "Generate new rotas",
       "Master Rota",
       "Clinic Types",
       "Staff",
@@ -124,21 +127,37 @@ describe("ClinicalShell nav by permission", () => {
   });
 
   it.each([
+    "/clinical",
     "/clinical/master-rota",
     "/clinical/clinic-types",
     "/clinical/doctors",
     "/clinical/duty",
     "/clinical/recurring-notes",
     "/clinical/counters",
-  ])("sends a reader who bookmarked %s back to the section index", async (path) => {
+  ])("sends a reader who bookmarked %s to the committed rotas page", async (path) => {
     renderAt(path, PERMISSION_PRESETS.readOnly);
 
     // Still inside the clinical section - the nav is there - but on the
-    // Generate new rotas page rather than the write-only one.
+    // Committed Rotas page rather than the write-only one. The section
+    // index is in this list too: for a reader it is a write-only page like
+    // any other, and must not bounce back to itself.
     const nav = screen.getByRole("navigation");
-    expect(within(nav).getByRole("link", { name: "Generate new rotas" }).className).toContain(
+    expect(within(nav).getByRole("link", { name: "Committed Rotas" }).className).toContain(
       "text-accent",
     );
+    expect(await screen.findByRole("heading", { name: "Committed rotas" })).toBeInTheDocument();
+  });
+
+  it("still lands a writer on the generate console at the section index", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+  });
+
+  it("renders the committed rotas route for a writer too", async () => {
+    renderAt("/clinical/committed", PERMISSION_PRESETS.rotaAdmin);
+
+    expect(await screen.findByRole("heading", { name: "Committed rotas" })).toBeInTheDocument();
   });
 
   it("keeps the Session Management sub-tabs available to a reader", () => {

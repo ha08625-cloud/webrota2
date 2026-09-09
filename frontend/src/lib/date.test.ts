@@ -11,8 +11,10 @@ import {
   getSurroundingMondays,
   getUpcomingMondays,
   getYearRange,
+  getCurrentRotaMonday,
   isMonday,
   parseLocalDate,
+  rotaWeekForMonday,
 } from "./date";
 
 import { formatDateWithDay } from "./date";
@@ -194,5 +196,55 @@ describe("formatPeriodLabel", () => {
 
   it("formats a period crossing a year boundary", () => {
     expect(formatPeriodLabel("2026-12-21")).toBe("21 Dec 2026 - 17 Jan 2027");
+  });
+});
+describe("getCurrentRotaMonday", () => {
+  it("returns today when today is a Monday", () => {
+    expect(getCurrentRotaMonday(new Date(2026, 6, 6))).toBe("2026-07-06");
+  });
+
+  it("resolves backwards to the Monday just gone on a midweek day", () => {
+    expect(getCurrentRotaMonday(new Date(2026, 6, 8))).toBe("2026-07-06");
+  });
+
+  it("resolves backwards on a Friday, not forwards to next week", () => {
+    expect(getCurrentRotaMonday(new Date(2026, 6, 10))).toBe("2026-07-06");
+  });
+
+  it("rolls forward to the week ahead on a Saturday", () => {
+    expect(getCurrentRotaMonday(new Date(2026, 6, 11))).toBe("2026-07-13");
+  });
+
+  it("rolls forward to the week ahead on a Sunday", () => {
+    expect(getCurrentRotaMonday(new Date(2026, 6, 12))).toBe("2026-07-13");
+  });
+
+  it("crosses a month boundary backwards", () => {
+    // Wednesday 1 Jul 2026 -> Monday 29 Jun 2026.
+    expect(getCurrentRotaMonday(new Date(2026, 6, 1))).toBe("2026-06-29");
+  });
+});
+
+describe("rotaWeekForMonday", () => {
+  it("returns 1 for the rota's own start week", () => {
+    expect(rotaWeekForMonday("2026-07-06", 4, "2026-07-06")).toBe(1);
+  });
+
+  it("returns the 1-based week for a later week inside the rota", () => {
+    expect(rotaWeekForMonday("2026-07-06", 4, "2026-07-27")).toBe(4);
+  });
+
+  it("returns null for a week before the rota starts", () => {
+    expect(rotaWeekForMonday("2026-07-06", 4, "2026-06-29")).toBeNull();
+  });
+
+  it("returns null for the week immediately after the rota ends", () => {
+    expect(rotaWeekForMonday("2026-07-06", 4, "2026-08-03")).toBeNull();
+  });
+
+  it("is unaffected by a DST change inside the span", () => {
+    // 25 Oct 2026 is the UK clock change; the week starting 26 Oct is
+    // week 4 of a rota beginning 5 Oct whether or not an hour is lost.
+    expect(rotaWeekForMonday("2026-10-05", 4, "2026-10-26")).toBe(4);
   });
 });
