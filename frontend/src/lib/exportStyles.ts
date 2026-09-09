@@ -1,4 +1,5 @@
 import type { CellBackground, FontColor } from "@/lib/cellStyle";
+import type { PlanningCellState } from "@/lib/planningMonth";
 
 /**
  * Excel colour source of truth for rota export. Mirrors RotaGrid.tsx's
@@ -49,6 +50,78 @@ export const CLOSED_COLUMN_HEX = "E5E7EB";
  * convention above.
  */
 export const ROOM_OCCUPIED_HEX = "F3F4F6";
+
+/* ------------------------------------------------------------------ *
+ * Annual Leave Planner export
+ *
+ * KEPT IN SYNC MANUALLY with LeavePlanningGrid.tsx's CELL_CLASSES,
+ * NO_SURGERY_NORMAL_CLASS, coverageClass and the school-holiday /
+ * out-of-month cell classes. A palette change to the planner needs an
+ * edit here AND there.
+ *
+ * Most of these are fixed Tailwind palette values transcribed
+ * hex-for-class, as the rota block above does. The exceptions are the
+ * `ink`-derived greys: on screen those are themeable tokens with alpha
+ * (bg-ink/5, bg-ink/[0.03], text-ink/30, text-ink/70) over a white
+ * surface, so there is no theme-independent hex to copy. They are pinned
+ * to the DEFAULT palette's resolved value (--color-ink: 28 36 48,
+ * --color-surface: 255 255 255 in index.css) composited over white, and
+ * deliberately do NOT track --color-ink: exports never follow the user's
+ * theme (same decoupling as FONT_HEX.black above).
+ * ------------------------------------------------------------------ */
+
+/** Cell fills for the four planning cell states. null means no fill,
+ * matching BACKGROUND_HEX's convention: a "normal" cell is bg-surface,
+ * i.e. white on the default palette. */
+export const LEAVE_CELL_HEX: Record<PlanningCellState, string | null> = {
+  normal: null, // bg-surface
+  leave: "22C55E", // bg-green-500
+  extra_session: "FDE047", // bg-yellow-300
+  blocked: "64748B", // bg-slate-500
+};
+
+/** Font colour per cell state. `normal` is the pinned text-ink/30 (see
+ * the header note); the export writes no text in a normal cell, so it
+ * only matters if one ever carries a note. */
+export const LEAVE_CELL_FONT_HEX: Record<PlanningCellState, string> = {
+  normal: "BBBDC1", // text-ink/30, pinned to the default palette over white
+  leave: "FFFFFF", // text-white
+  extra_session: "713F12", // text-yellow-900
+  blocked: "FFFFFF", // text-white
+};
+
+/** A "normal" cell that is not a surgery session in the doctor's
+ * template (isSurgerySession false) - grey rather than white. */
+export const NO_SURGERY_HEX = "D1D5DB"; // bg-gray-300
+
+/** School-holiday row marker. */
+export const SCHOOL_HOLIDAY_HEX = "C7D2FE"; // bg-indigo-200
+
+/** The doctor is not employed on that date - nothing to plan, but the
+ * practice is open. bg-ink/5, pinned (see the header note). */
+export const OUT_OF_WINDOW_HEX = "F4F4F5";
+
+/** A padded lead-in / lead-out column borrowed from the adjacent month
+ * (isInMonth false). bg-ink/[0.03], pinned (see the header note). */
+export const OUT_OF_MONTH_HEX = "F8F8F9";
+
+/** Muted text for row labels and totals - text-ink/70, pinned (see the
+ * header note). */
+export const LEAVE_MUTED_FONT_HEX = "60666E";
+
+/**
+ * Clinical cover fill for a total, mirroring coverageClass in
+ * LeavePlanningGrid.tsx. null means no fill: cover of 5+ needs no flag,
+ * and so do null (closed) and undefined (outside the fetched range),
+ * which the grid leaves neutral because there is nothing to flag.
+ */
+export function coverageFillHex(total: number | null | undefined): string | null {
+  if (total === null || total === undefined) return null;
+  if (total <= 2) return "FECACA"; // bg-red-200
+  if (total === 3) return "FED7AA"; // bg-orange-200
+  if (total === 4) return "FEF08A"; // bg-yellow-200
+  return null;
+}
 
 /**
  * exceljs fills/fonts take 8-digit ARGB (`FFRRGGBB`). The maps above stay

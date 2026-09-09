@@ -9,6 +9,14 @@ import {
   supervisedCountKey,
   toIdMap,
 } from "@/lib/exportContent";
+import {
+  AM_ROW_BORDER,
+  CENTERED,
+  CENTERED_WRAPPED,
+  PM_ROW_BORDER,
+  THICK_SIDE,
+  THIN_SIDE,
+} from "@/lib/exportLayout";
 import { BACKGROUND_HEX, CLOSED_COLUMN_HEX, FONT_HEX, ROOM_OCCUPIED_HEX, argb } from "@/lib/exportStyles";
 import { DAYS, PERIODS, getCell, pivotRota, weekNumbers, type PivotedGrid } from "@/lib/pivot";
 import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoomRota";
@@ -64,40 +72,6 @@ const SESSION_COL_WIDTH = 8;
 const DAY_COL_WIDTH = 22;
 
 const STAFF_NAME_FONT_SIZE = 14;
-
-const CENTERED = { horizontal: "center", vertical: "middle" } as const;
-const CENTERED_WRAPPED = { horizontal: "center", vertical: "middle", wrapText: true } as const;
-
-// Plain literals, no exceljs type import needed - `as const` keeps the
-// `style` properties as the literal "thin"/"thick" rather than widening to
-// `string`, which is what a Border-shaped assignment needs structurally.
-const THIN_SIDE = { style: "thin" } as const;
-const THICK_SIDE = { style: "thick" } as const;
-
-/**
- * Row-level border for the AM half of a doctor's block: thick line above
- * (the top of the block, shared visually with the previous doctor's PM
- * thick bottom / the header for the very first doctor), thin line below
- * (the AM/PM divider within the same doctor).
- */
-const AM_ROW_BORDER = {
-  top: THICK_SIDE,
-  left: THIN_SIDE,
-  bottom: THIN_SIDE,
-  right: THIN_SIDE,
-} as const;
-
-/**
- * Row-level border for the PM half of a doctor's block: thin line above
- * (shared with AM_ROW_BORDER's bottom), thick line below (the bottom of
- * this doctor's block).
- */
-const PM_ROW_BORDER = {
-  top: THIN_SIDE,
-  left: THIN_SIDE,
-  bottom: THICK_SIDE,
-  right: THIN_SIDE,
-} as const;
 
 /** The merged doctor-name cell spans both AM and PM rows, so it gets a
  * thick top and thick bottom with no internal divider. */

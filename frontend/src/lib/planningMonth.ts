@@ -527,6 +527,35 @@ export function applyPendingToCoverage({
   return totals;
 }
 
+/** Mon-Fri dates chunked into weeks of 5 - safe because `weekdaysInMonth`
+ * only ever returns whole Monday-Friday weeks (it pads partial weeks at
+ * the edges of the month out to a full 5, see its docstring). */
+export function chunkIntoWeeks(dates: string[]): string[][] {
+  const weeks: string[][] = [];
+  for (let i = 0; i < dates.length; i += 5) {
+    weeks.push(dates.slice(i, i + 5));
+  }
+  return weeks;
+}
+
+/** Sum of AM + PM clinical cover across a whole week. Closed slots
+ * contribute nothing (there is no headcount to add), matching the daily
+ * row's "-" treatment; null only when every slot in the week is closed,
+ * so there is nothing at all to add up. */
+export function weeklyTotal(weekDates: string[], totals: Map<string, number | null>): number | null {
+  let sum = 0;
+  let any = false;
+  for (const date of weekDates) {
+    for (const period of PLANNING_PERIODS) {
+      const total = totals.get(closedSlotKey(date, period));
+      if (total === undefined || total === null) continue;
+      any = true;
+      sum += total;
+    }
+  }
+  return any ? sum : null;
+}
+
 export interface PlanningActionsInput {
   pending: Map<string, PendingEdit>;
   leaveKeys: Set<string>;
