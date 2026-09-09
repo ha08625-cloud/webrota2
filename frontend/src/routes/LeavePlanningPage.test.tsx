@@ -17,6 +17,7 @@ import type {
 } from "@/api/types";
 import { makeMasterRotaSession, makeMasterRotaTemplate } from "@/test/fixtures/masterRota";
 import {
+  PERMISSION_PRESETS,
   makeClosure,
   makeDoctor,
   makeExtraSessionEntry,
@@ -29,6 +30,14 @@ import { weekdayName } from "@/lib/planningMonth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { SessionYearProvider, useSessionYear } from "@/components/SessionManagementTabs";
 import { server } from "@/test/msw/server";
+
+vi.mock("@/lib/downloadBlob", () => ({ downloadBlob: vi.fn() }));
+vi.mock("@/lib/exportLeavePlanning", () => ({
+  buildLeavePlanningWorkbook: vi.fn(async () => new Blob(["xlsx"])),
+}));
+
+import { downloadBlob } from "@/lib/downloadBlob";
+import { buildLeavePlanningWorkbook } from "@/lib/exportLeavePlanning";
 
 import { LeavePlanningPage } from "./LeavePlanningPage";
 
@@ -1011,6 +1020,98 @@ describe("LeavePlanningPage", () => {
       await user.click(await screen.findByTestId("planning-doctor-label-2"));
 
       expect(screen.queryByTestId("planning-selected-doctor")).not.toBeInTheDocument();
+    });
+  });
+
+  // --- Export to Excel (leave-planner Excel export plan, Task 3) ---
+  //
+  // The workbook itself is covered by exportLeavePlanning.test.ts and the
+  // twelve coverage fetches by leavePlanning.test.tsx; the builder is
+  // mocked here so these tests are about the wiring only - what the page
+  // hands it, and what it does with the Blob that comes back.
+
+  describe("export to Excel", () => {
+    beforeEach(() => {
+      vi.mocked(downloadBlob).mockClear();
+      vi.mocked(buildLeavePlanningWorkbook).mockClear();
+    });
+
+    it("downloads a workbook for the viewed year", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      renderPage();
+
+      await user.click(await screen.findByTestId("planning-export"));
+
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(downloadBlob).mock.calls[0][1]).toBe(`leave-plan-${CURRENT_YEAR}.xlsx`);
+      expect(vi.mocked(buildLeavePlanningWorkbook).mock.calls[0][0].year).toBe(CURRENT_YEAR);
+    });
+
+    it("passes coverage for all twelve months", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      renderPage();
+
+      await user.click(await screen.findByTestId("planning-export"));
+
+      await waitFor(() => expect(buildLeavePlanningWorkbook).toHaveBeenCalledTimes(1));
+      const input = vi.mocked(buildLeavePlanningWorkbook).mock.calls[0][0];
+      expect([...input.coverageByMonth.keys()].sort((a, b) => a - b)).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      ]);
+    });
+
+    it("includes trainees even with the toggle off", async () => {
+      const user = userEvent.setup();
+      setUpServer({ doctors: [AA, BB, LOCUM, TRAINEE] });
+      renderPage();
+
+      await screen.findByText("AA");
+      expect(screen.queryByText("TT")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("planning-export"));
+
+      await waitFor(() => expect(buildLeavePlanningWorkbook).toHaveBeenCalledTimes(1));
+      const codes = vi
+        .mocked(buildLeavePlanningWorkbook)
+        .mock.calls[0][0].doctors.map((d) => d.code);
+      expect(codes).toContain("TT");
+    });
+
+    it("is not gated on write access", async () => {
+      setUpServer();
+      renderPage({ permissions: PERMISSION_PRESETS.readOnly });
+
+      const button = await screen.findByTestId("planning-export");
+      expect(button).not.toBeDisabled();
+      expect(button).not.toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("warns that unsaved changes are not included, only while some are pending", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      renderPage();
+
+      expect(
+        screen.queryByTestId("planning-export-unsaved-warning"),
+      ).not.toBeInTheDocument();
+
+      await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+
+      expect(screen.getByTestId("planning-export-unsaved-warning")).toBeInTheDocument();
+    });
+
+    it("reports a failed export on the page instead of throwing", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      vi.mocked(buildLeavePlanningWorkbook).mockRejectedValueOnce(new Error("boom"));
+      renderPage();
+
+      await user.click(await screen.findByTestId("planning-export"));
+
+      expect(await screen.findByText("Could not build the export.")).toBeInTheDocument();
+      expect(downloadBlob).not.toHaveBeenCalled();
     });
   });
 });

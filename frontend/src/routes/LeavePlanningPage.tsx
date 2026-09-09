@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import { useExtraSessions } from "@/api/extraSessions";
-import { useApplyPlanningBulk, useBlockedEntries, useCoverage } from "@/api/leavePlanning";
+import {
+  fetchYearCoverage,
+  useApplyPlanningBulk,
+  useBlockedEntries,
+  useCoverage,
+} from "@/api/leavePlanning";
 import { useLeave, useLeaveEntitlements } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
@@ -14,6 +20,8 @@ import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
 import { useSessionYear } from "@/components/SessionManagementTabs";
 import { toClosedSlotSet } from "@/lib/closedSlots";
+import { downloadBlob } from "@/lib/downloadBlob";
+import { buildLeavePlanningWorkbook } from "@/lib/exportLeavePlanning";
 import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 import {
   type PendingEdit,
@@ -130,6 +138,7 @@ export function LeavePlanningPage() {
   // still useful when planning.
   const [showTrainees, setShowTrainees] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [saveSummary, setSaveSummary] = useState<string | null>(null);
 
   const dates = useMemo(() => weekdaysInMonth(year, month), [year, month]);
@@ -161,6 +170,7 @@ export function LeavePlanningPage() {
     useLeaveEntitlements(year);
 
   const applyBulk = useApplyPlanningBulk();
+  const queryClient = useQueryClient();
 
   // The rows on screen. Trainees are off by default and added by the
   // toggle: they are planned here for visibility (who is away when), but
@@ -337,6 +347,48 @@ export function LeavePlanningPage() {
     }
   }
 
+  /**
+   * The whole leave year as one workbook. Everything but coverage is
+   * already on the page unfiltered (`useLeave(null, null)` and friends are
+   * whole-table reads), so the only fetching here is the twelve coverage
+   * ranges - see `fetchYearCoverage` for why it is twelve and not one.
+   *
+   * Two deliberate divergences from the screen, both owned by the builder
+   * and both flagged to the user: the workbook is built from saved rows
+   * only (pending edits are never exported), and it always carries the
+   * trainee rows regardless of the "Show trainees" toggle - hence
+   * `allDoctors` rather than `doctors` here.
+   *
+   * Not gated on write access: every figure in it is already on screen.
+   */
+  async function handleExport() {
+    setSaveError(null);
+    setExporting(true);
+    try {
+      const coverageByMonth = await fetchYearCoverage(queryClient, year);
+      const blob = await buildLeavePlanningWorkbook({
+        year,
+        doctors: allDoctors ?? [],
+        entitlements: entitlement?.doctors ?? [],
+        leave: leave ?? [],
+        extraSessions: extraSessions ?? [],
+        blocked: blocked ?? [],
+        closures: closures ?? [],
+        schools: schools ?? [],
+        templateSessions: template?.sessions ?? [],
+        coverageByMonth,
+        exportedAt: new Date(),
+      });
+      downloadBlob(blob, `leave-plan-${year}.xlsx`);
+    } catch {
+      // Surfaced on the page's own error line rather than thrown: a failed
+      // export must not take the grid (and any pending edits on it) down.
+      setSaveError("Could not build the export.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const unsavedCount = pending.size;
   const navigate = useNavigate();
   const [navigationTarget, setNavigationTarget] = useState<string | null>(null);
@@ -456,6 +508,23 @@ export function LeavePlanningPage() {
           />
           Show trainees
         </label>
+
+        <button
+          type="button"
+          data-testid="planning-export"
+          onClick={handleExport}
+          disabled={exporting}
+          className="rounded border border-border px-3 py-1 text-sm disabled:opacity-50"
+        >
+          {exporting ? "Exporting..." : "Export to Excel"}
+        </button>
+        {unsavedCount > 0 ? (
+          // The workbook is built from saved rows only, the same reason
+          // the balance line carries this warning.
+          <span data-testid="planning-export-unsaved-warning" className="text-xs text-amber-700">
+            Unsaved changes are not included in the export.
+          </span>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           {unsavedCount > 0 ? (

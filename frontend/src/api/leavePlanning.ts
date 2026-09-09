@@ -1,4 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { weekdaysInMonth } from "@/lib/planningMonth";
 
 import { apiClient } from "./client";
 import { extraSessionKeys } from "./extraSessions";
@@ -39,13 +42,69 @@ export function useBlockedEntries() {
  * baseline, not the whole answer on screen.
  */
 export function useCoverage(fromDate: string, toDate: string) {
-  return useQuery({
+  return useQuery(coverageQuery(fromDate, toDate));
+}
+
+/**
+ * The key and fetcher for one coverage range, shared by `useCoverage` and
+ * `fetchYearCoverage` so the two cannot drift: the export's twelve
+ * imperative fetches must land on exactly the cache entries the mounted
+ * hook reads, or the month already on screen is fetched twice.
+ */
+function coverageQuery(fromDate: string, toDate: string) {
+  return {
     queryKey: leavePlanningKeys.coverage(fromDate, toDate),
     queryFn: () =>
       apiClient.get<CoverageSlot[]>(
         `/leave-planning/coverage?from_date=${fromDate}&to_date=${toDate}`,
       ),
-  });
+  };
+}
+
+/**
+ * How long a coverage range fetched for the export counts as fresh. The
+ * point is only that the twelve `fetchQuery` calls resolve from cache
+ * where one is already there (and are not immediately refetched by the
+ * mounted `useCoverage`); five minutes is long enough for one export and
+ * short enough that it never becomes the page's effective policy.
+ */
+const EXPORT_COVERAGE_STALE_TIME_MS = 5 * 60 * 1000;
+
+/**
+ * The server's coverage baseline for a whole leave year, month by month,
+ * for the Excel export.
+ *
+ * Twelve calls rather than one: `GET /leave-planning/coverage` caps a
+ * range at 62 days (MAX_COVERAGE_RANGE_DAYS), and the cap is there to stop
+ * the endpoint being used as an unbounded scan of the leave table, so it
+ * is worked with rather than widened. Each range is the *padded* month -
+ * `weekdaysInMonth` end to end, borrowed lead-in/lead-out days included -
+ * for two reasons: those columns are on the sheet and need totals like any
+ * other, and it is the exact range the page's own `useCoverage` is keyed
+ * on, so the month currently on screen is served from cache. Adjacent
+ * months therefore overlap by up to four days, and January's range can
+ * start in the previous December; that is correct, those cells are drawn.
+ *
+ * This is the frontend's only use of `fetchQuery`: everything else here is
+ * a mounted hook, but an export is a one-off imperative read of twelve
+ * ranges that no component displays, which is precisely what `fetchQuery`
+ * is for.
+ */
+export async function fetchYearCoverage(
+  queryClient: QueryClient,
+  year: number,
+): Promise<Map<number, CoverageSlot[]>> {
+  const months = Array.from({ length: 12 }, (_, index) => index + 1);
+  const results = await Promise.all(
+    months.map((month) => {
+      const dates = weekdaysInMonth(year, month);
+      return queryClient.fetchQuery({
+        ...coverageQuery(dates[0], dates[dates.length - 1]),
+        staleTime: EXPORT_COVERAGE_STALE_TIME_MS,
+      });
+    }),
+  );
+  return new Map(months.map((month, index) => [month, results[index]]));
 }
 
 /**
