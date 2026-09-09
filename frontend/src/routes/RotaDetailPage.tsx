@@ -462,6 +462,8 @@ export function RotaDetailPage() {
         >
           Room view
         </button>
+
+        <GenerationLogPanel rotaId={currentRotaId} />
       </div>
 
       <div className="mt-3 flex items-start gap-4">
@@ -479,7 +481,6 @@ export function RotaDetailPage() {
           )}
         </div>
         <IssuesPanel rotaId={currentRotaId} />
-        <GenerationLogPanel rotaId={currentRotaId} />
       </div>
 
       <ToastDisplay message={toast?.message} />

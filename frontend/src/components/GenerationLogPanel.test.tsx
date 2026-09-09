@@ -12,7 +12,7 @@ import { server } from "@/test/msw/server";
 import { GenerationLogPanel } from "./GenerationLogPanel";
 
 describe("GenerationLogPanel", () => {
-  it("is collapsed by default and shows the entry count", async () => {
+  it("is closed by default and shows the entry count on the trigger", async () => {
     server.use(
       http.get("/api/v1/rota/:id/log", () =>
         HttpResponse.json([makeGenerationLogEntry(), makeGenerationLogEntry()]),
@@ -24,6 +24,26 @@ describe("GenerationLogPanel", () => {
     const header = await screen.findByRole("button", { name: /Generation log \(2 entries\)/ });
     expect(header).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/Diabetic clinic/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens a dialog and closes again", async () => {
+    server.use(
+      http.get("/api/v1/rota/:id/log", () =>
+        HttpResponse.json([makeGenerationLogEntry({ message: "Dr AA assigned to Diabetic clinic" })]),
+      ),
+    );
+
+    renderWithProviders(<GenerationLogPanel rotaId={7} />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Generation log \(1 entries\)/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Dr AA assigned to Diabetic clinic")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("renders entry messages and grouping headers once expanded", async () => {
