@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CoverageSlot, MasterSessionType, PlanningAction } from "@/api/types";
+import { closedSlotKey } from "@/lib/closedSlots";
 import {
   makeBlockedEntry,
   makeDoctor,
@@ -15,6 +16,7 @@ import {
   applyPendingToCoverage,
   buildPlanningActions,
   buildTemplateIndex,
+  chunkIntoWeeks,
   isInMonth,
   isWithinWindow,
   mergeCellState,
@@ -32,6 +34,7 @@ import {
   toNotesMap,
   weekdayName,
   weekdaysInMonth,
+  weeklyTotal,
 } from "./planningMonth";
 
 // A Monday, matching the backend suite's own anchor convention. AA is
@@ -693,5 +696,75 @@ describe("selectionCells", () => {
     );
     expect(cells).toHaveLength(4);
     expect(cells.every((c) => c.doctorId === 7)).toBe(true);
+  });
+});
+
+
+describe("chunkIntoWeeks", () => {
+  it("splits a weekday list into groups of five in order", () => {
+    const dates = weekdaysInMonth(2026, 8);
+    const weeks = chunkIntoWeeks(dates);
+    expect(weeks.flat()).toEqual(dates);
+    expect(weeks.every((week) => week.length === 5)).toBe(true);
+  });
+
+  it("gives every month whole Monday-Friday weeks, because weekdaysInMonth pads", () => {
+    for (let month = 1; month <= 12; month += 1) {
+      const weeks = chunkIntoWeeks(weekdaysInMonth(2026, month));
+      for (const week of weeks) {
+        expect(week, `2026-${month}`).toHaveLength(5);
+        expect(weekdayName(week[0])).toBe("Monday");
+        expect(weekdayName(week[4])).toBe("Friday");
+      }
+    }
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(chunkIntoWeeks([])).toEqual([]);
+  });
+});
+
+describe("weeklyTotal", () => {
+  const WEEK = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"];
+
+  /** `closedSlotKey`-keyed totals: the same value for every AM and PM slot
+   * of the week unless overridden. */
+  function totalsFor(base: number | null, overrides: Record<string, number | null> = {}) {
+    const totals = new Map<string, number | null>();
+    for (const date of WEEK) {
+      for (const period of ["AM", "PM"] as const) {
+        totals.set(closedSlotKey(date, period), base);
+      }
+    }
+    for (const [key, value] of Object.entries(overrides)) totals.set(key, value);
+    return totals;
+  }
+
+  it("sums AM and PM across the whole week", () => {
+    expect(weeklyTotal(WEEK, totalsFor(2))).toBe(20);
+  });
+
+  it("treats a closed slot as contributing nothing, not as zeroing the week", () => {
+    expect(weeklyTotal(WEEK, totalsFor(2, { [closedSlotKey("2026-08-03", "AM")]: null }))).toBe(18);
+  });
+
+  it("treats an unfetched slot the same as a closed one", () => {
+    const totals = totalsFor(2);
+    totals.delete(closedSlotKey("2026-08-03", "AM"));
+    expect(weeklyTotal(WEEK, totals)).toBe(18);
+  });
+
+  it("is null only when every slot in the week is closed or absent", () => {
+    const allClosed = new Map<string, number | null>();
+    for (const date of WEEK) {
+      allClosed.set(closedSlotKey(date, "AM"), null);
+      allClosed.set(closedSlotKey(date, "PM"), null);
+    }
+    expect(weeklyTotal(WEEK, allClosed)).toBeNull();
+    expect(weeklyTotal(WEEK, new Map())).toBeNull();
+  });
+
+  it("is 0, not null, when the week is open but nobody is covering", () => {
+    expect(weeklyTotal(WEEK, totalsFor(0))).toBe(0);
   });
 });
