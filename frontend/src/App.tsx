@@ -4,7 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { triggerUnauthorized } from "@/api/client";
 import { useLogout } from "@/api/auth";
-import { PermissionAreaProvider, canReadArea, usePermissions } from "@/auth/AuthContext";
+import {
+  PermissionAreaProvider,
+  canReadArea,
+  canWriteArea,
+  usePermissions,
+} from "@/auth/AuthContext";
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { ThemePicker } from "@/components/ThemePicker";
@@ -51,31 +56,43 @@ interface NavItem {
    * soon as you switched sub-tab.
    */
   groupPaths?: readonly string[];
+  /**
+   * Hide this entry from a login that can only read the clinical section.
+   * A reader's business with the clinical rota is the published rota, the
+   * session-planning pages behind Session Management and their own calendar
+   * link; the reference-data pages (Master Rota, Clinic Types, Staff, Assign
+   * Duty, Meetings, Counters) are editing tools whose controls would all be
+   * disabled for them, so they are hidden rather than shown inert.
+   */
+  writeOnly?: boolean;
 }
 
-// No nav entry is permission-filtered any more: reaching a section at all is
-// the shell's guard, and within a section the user can read, every page is
-// worth reading - so the nav is the same for a reader and a writer, and it is
-// the controls inside each page that go quiet. The two entries that used to be
-// filtered, Users and Audit Log, are their own section now.
+// The nav is filtered by one thing only: whether the login can write in the
+// clinical section. A writer sees every entry; a reader sees the three that
+// are useful without edit rights (Generate new rotas, Session Management and
+// Calendar Feed) and none of the reference-data pages, whose every control
+// would be disabled for them. CLINICAL_WRITE_ONLY_PATHS guards the matching
+// routes, so hiding an entry also blocks the bookmark behind it. The two
+// entries that used to be filtered, Users and Audit Log, are their own
+// section now.
 
 // Clinical rota nav. The five session-planning pages are grouped behind one
 // "Session Management" entry and switched between with the sub-tab bar in
 // SessionManagementTabs.tsx; their routes are unchanged.
 const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
   { to: "/clinical", label: "Generate new rotas", end: true },
-  { to: "/clinical/master-rota", label: "Master Rota", end: false },
-  { to: "/clinical/clinic-types", label: "Clinic Types", end: false },
-  { to: "/clinical/doctors", label: "Staff", end: false },
+  { to: "/clinical/master-rota", label: "Master Rota", end: false, writeOnly: true },
+  { to: "/clinical/clinic-types", label: "Clinic Types", end: false, writeOnly: true },
+  { to: "/clinical/doctors", label: "Staff", end: false, writeOnly: true },
   {
     to: SESSION_MANAGEMENT_TABS[0].to,
     label: "Session Management",
     end: false,
     groupPaths: SESSION_MANAGEMENT_PATHS,
   },
-  { to: "/clinical/duty", label: "Assign Duty", end: false },
-  { to: "/clinical/recurring-notes", label: "Meetings", end: false },
-  { to: "/clinical/counters", label: "Counters", end: false },
+  { to: "/clinical/duty", label: "Assign Duty", end: false, writeOnly: true },
+  { to: "/clinical/recurring-notes", label: "Meetings", end: false, writeOnly: true },
+  { to: "/clinical/counters", label: "Counters", end: false, writeOnly: true },
   // No `requires`: anyone who can read the clinical section reads this page
   // and copies their link. Only the "issue a new link" button inside it
   // needs the user administration permission.
@@ -90,6 +107,17 @@ const ADMIN_NAV_ITEMS: readonly NavItem[] = [
   { to: "/admin/users", label: "Users", end: false },
   { to: "/admin/audit", label: "Audit Log", end: false },
 ];
+
+/**
+ * The clinical routes a reader is kept out of, matching the `writeOnly` nav
+ * entries above. Listed here as well so that hiding a link and blocking the
+ * route it pointed at cannot drift apart, and so a bookmark or a hand-typed
+ * URL lands on the section's index rather than on a page of controls the
+ * login cannot use.
+ */
+const CLINICAL_WRITE_ONLY_PATHS: readonly string[] = CLINICAL_NAV_ITEMS.filter(
+  (item) => item.writeOnly,
+).map((item) => item.to);
 
 function navLinkClass(isActive: boolean) {
   return `block px-4 py-2 text-sm ${
@@ -169,6 +197,8 @@ function ShellHeader({ title }: { title: string }) {
 function ClinicalShell() {
   const { pathname } = useLocation();
   const permissions = usePermissions();
+  const canWrite = canWriteArea(permissions, "clinical");
+  const navItems = CLINICAL_NAV_ITEMS.filter((item) => canWrite || !item.writeOnly);
 
   // Reads are gated too, so a bookmark into a section the user cannot see
   // would otherwise render a page of failed queries. Back to the landing
@@ -178,13 +208,20 @@ function ClinicalShell() {
     return <Navigate to="/" replace />;
   }
 
+  // Same idea one level down: a reader who bookmarked a write-only page goes
+  // to the section index rather than the landing page - they can still read
+  // the clinical section, just not that page.
+  if (!canWrite && CLINICAL_WRITE_ONLY_PATHS.includes(pathname)) {
+    return <Navigate to="/clinical" replace />;
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <ShellHeader title="Rota Generator" />
       <div className="flex flex-1">
         <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
           <ul>
-            {CLINICAL_NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}

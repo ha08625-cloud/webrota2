@@ -82,18 +82,76 @@ describe("ClinicalShell nav", () => {
 });
 
 describe("ClinicalShell nav by permission", () => {
-  it("keeps every entry for a reader, so read access shows the whole section", () => {
-    renderAt("/clinical/counters", PERMISSION_PRESETS.readOnly);
+  it("keeps every entry for a writer", () => {
+    renderAt("/clinical/counters", PERMISSION_PRESETS.rotaAdmin);
 
     const nav = screen.getByRole("navigation");
     for (const label of [
       "Generate new rotas",
       "Master Rota",
+      "Clinic Types",
       "Staff",
+      "Session Management",
+      "Assign Duty",
+      "Meetings",
       "Counters",
       "Calendar Feed",
     ]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  // A reader's clinical nav is the three entries that mean something without
+  // edit rights; the reference-data pages are hidden rather than shown with
+  // every control disabled.
+  it("offers a reader only the rota, session management and calendar entries", () => {
+    renderAt("/clinical/calendar", PERMISSION_PRESETS.readOnly);
+
+    const nav = screen.getByRole("navigation");
+    for (const label of ["Generate new rotas", "Session Management", "Calendar Feed"]) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    for (const label of [
+      "Master Rota",
+      "Clinic Types",
+      "Staff",
+      "Assign Duty",
+      "Meetings",
+      "Counters",
+    ]) {
+      expect(within(nav).queryByRole("link", { name: label })).not.toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    "/clinical/master-rota",
+    "/clinical/clinic-types",
+    "/clinical/doctors",
+    "/clinical/duty",
+    "/clinical/recurring-notes",
+    "/clinical/counters",
+  ])("sends a reader who bookmarked %s back to the section index", async (path) => {
+    renderAt(path, PERMISSION_PRESETS.readOnly);
+
+    // Still inside the clinical section - the nav is there - but on the
+    // Generate new rotas page rather than the write-only one.
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByRole("link", { name: "Generate new rotas" }).className).toContain(
+      "text-accent",
+    );
+  });
+
+  it("keeps the Session Management sub-tabs available to a reader", () => {
+    renderAt("/clinical/closures", PERMISSION_PRESETS.readOnly);
+
+    for (const label of [
+      "Annual Planner",
+      "Individual Leave",
+      "Extra Sessions",
+      "Closures",
+      "School Holidays",
+    ]) {
+      expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
   });
 
