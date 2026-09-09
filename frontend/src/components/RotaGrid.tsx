@@ -58,6 +58,9 @@ interface RotaGridProps {
   onMutationApplied?: (entry: UndoEntry, toastMessage: string) => void;
   /** Called on any mutation failure - covers the (UI-unreachable but not impossible) 409 from a committed rota. */
   onMutationError?: () => void;
+  /** Passed straight to WeekTabs - see its `currentWeek` prop. Only the
+   * committed-rota view sets it. */
+  currentWeek?: number | null;
 }
 
 interface ActiveChip {
@@ -77,7 +80,14 @@ function supervisedCountKey(week: number, day: Day, period: Period): string {
  * popover simply aren't rendered for a committed rota - there is no
  * separate read-only component variant to keep in sync.
  */
-export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, onMutationError }: RotaGridProps) {
+export function RotaGrid({
+  rota,
+  activeWeek,
+  onWeekChange,
+  onMutationApplied,
+  onMutationError,
+  currentWeek = null,
+}: RotaGridProps) {
   // A read-only user gets exactly the committed-rota treatment: the
   // existing read-only path already renders no drag sources and no
   // popover, so folding the access check into `editable` reuses it
@@ -412,7 +422,7 @@ export function RotaGrid({ rota, activeWeek, onWeekChange, onMutationApplied, on
 
   return (
     <div>
-      <WeekTabs weeks={weeks} activeWeek={activeWeek} onWeekChange={onWeekChange} />
+      <WeekTabs weeks={weeks} activeWeek={activeWeek} onWeekChange={onWeekChange} currentWeek={currentWeek} />
 
       <div className="mt-4 overflow-x-auto rounded border-2 border-ink/40">
         {editable ? (

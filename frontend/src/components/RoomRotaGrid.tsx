@@ -14,6 +14,9 @@ interface RoomRotaGridProps {
   rota: Rota;
   activeWeek: number;
   onWeekChange: (week: number) => void;
+  /** Passed straight to WeekTabs - see its `currentWeek` prop. Only the
+   * committed-rota view sets it. */
+  currentWeek?: number | null;
 }
 
 /**
@@ -24,7 +27,7 @@ interface RoomRotaGridProps {
  * RotaGrid's ReadOnlyGridCell than to its editable counterpart, and that
  * holds regardless of rota.status.
  */
-export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridProps) {
+export function RoomRotaGrid({ rota, activeWeek, onWeekChange, currentWeek = null }: RoomRotaGridProps) {
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: closures } = useClosures(null);
 
@@ -148,7 +151,7 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange }: RoomRotaGridPro
 
   return (
     <div>
-      <WeekTabs weeks={weeks} activeWeek={activeWeek} onWeekChange={onWeekChange} />
+      <WeekTabs weeks={weeks} activeWeek={activeWeek} onWeekChange={onWeekChange} currentWeek={currentWeek} />
       {renderBlock("Morning", "AM")}
       {renderBlock("Afternoon", "PM")}
     </div>

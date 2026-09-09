@@ -23,6 +23,7 @@ import { AuditLogPage } from "@/routes/AuditLogPage";
 import { CalendarFeedPage } from "@/routes/CalendarFeedPage";
 import { ClinicTypesPage } from "@/routes/ClinicTypesPage";
 import { ClosuresPage } from "@/routes/ClosuresPage";
+import { CommittedRotasPage } from "@/routes/CommittedRotasPage";
 import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
@@ -69,18 +70,25 @@ interface NavItem {
 
 // The nav is filtered by one thing only: whether the login can write in the
 // clinical section. A writer sees every entry; a reader sees the three that
-// are useful without edit rights (Generate new rotas, Session Management and
+// are useful without edit rights (Committed Rotas, Session Management and
 // Calendar Feed) and none of the reference-data pages, whose every control
 // would be disabled for them. CLINICAL_WRITE_ONLY_PATHS guards the matching
 // routes, so hiding an entry also blocks the bookmark behind it. The two
 // entries that used to be filtered, Users and Audit Log, are their own
 // section now.
+//
+// "Generate new rotas" is write-only too, even though it is the section
+// index: it is a generation console (staging form, duty preview, clinic
+// enable checkboxes, commit history) and none of it is usable, or
+// relevant, without edit rights. Readers get Committed Rotas in its place
+// - see CLINICAL_READER_HOME.
 
 // Clinical rota nav. The five session-planning pages are grouped behind one
 // "Session Management" entry and switched between with the sub-tab bar in
 // SessionManagementTabs.tsx; their routes are unchanged.
 const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
-  { to: "/clinical", label: "Generate new rotas", end: true },
+  { to: "/clinical/committed", label: "Committed Rotas", end: false },
+  { to: "/clinical", label: "Generate new rotas", end: true, writeOnly: true },
   { to: "/clinical/master-rota", label: "Master Rota", end: false, writeOnly: true },
   { to: "/clinical/clinic-types", label: "Clinic Types", end: false, writeOnly: true },
   { to: "/clinical/doctors", label: "Staff", end: false, writeOnly: true },
@@ -109,11 +117,18 @@ const ADMIN_NAV_ITEMS: readonly NavItem[] = [
 ];
 
 /**
+ * Where a clinical reader is sent when they land on a page they cannot use,
+ * including the section index. Must not itself be a `writeOnly` path, or
+ * the redirect below would loop.
+ */
+const CLINICAL_READER_HOME = "/clinical/committed";
+
+/**
  * The clinical routes a reader is kept out of, matching the `writeOnly` nav
  * entries above. Listed here as well so that hiding a link and blocking the
  * route it pointed at cannot drift apart, and so a bookmark or a hand-typed
- * URL lands on the section's index rather than on a page of controls the
- * login cannot use.
+ * URL lands on the page a reader does want rather than on a page of
+ * controls the login cannot use.
  */
 const CLINICAL_WRITE_ONLY_PATHS: readonly string[] = CLINICAL_NAV_ITEMS.filter(
   (item) => item.writeOnly,
@@ -208,11 +223,12 @@ function ClinicalShell() {
     return <Navigate to="/" replace />;
   }
 
-  // Same idea one level down: a reader who bookmarked a write-only page goes
-  // to the section index rather than the landing page - they can still read
-  // the clinical section, just not that page.
+  // Same idea one level down: a reader who bookmarked a write-only page -
+  // the section index among them - goes to the committed-rota view rather
+  // than the landing page. They can still read the clinical section, just
+  // not that page.
   if (!canWrite && CLINICAL_WRITE_ONLY_PATHS.includes(pathname)) {
-    return <Navigate to="/clinical" replace />;
+    return <Navigate to={CLINICAL_READER_HOME} replace />;
   }
 
   return (
@@ -243,6 +259,7 @@ function ClinicalShell() {
           <PermissionAreaProvider area="clinical">
             <Routes>
               <Route index element={<RotaPage />} />
+              <Route path="committed" element={<CommittedRotasPage />} />
               <Route path="staging" element={<StagingPage />} />
               <Route path="rota/:id" element={<RotaDetailPage />} />
               <Route path="master-rota" element={<MasterRotaPage />} />
