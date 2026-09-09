@@ -1,26 +1,202 @@
 name: CI
 
+# push is restricted to main so that a commit on a branch with an open PR
+# only triggers CI once, via the pull_request event below, instead of once
+# per push and again per pull_request.
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
+  # Pushes to main are almost always PR merges, and pull_request already
+  # re-tests every commit pushed to the PR (including the final one), so
+  # re-running the whole suite on merge is normally redundant. This job
+  # only asks the other jobs to run when there's a reason to believe the
+  # merged code differs from what was already tested: a direct push to
+  # main (not a PR merge), a PR we can't identify, or a merge whose
+  # resulting tree doesn't match the PR head that CI already tested
+  # (e.g. conflict resolution, or main having moved on since).
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run_tests: ${{ steps.decide.outputs.run_tests }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run tests
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # docs_only <files> exits 0 (true) only if every changed file is
+          # markdown/text, so a docs-only push/PR still short-circuits even
+          # when it isn't a redundant PR-merge re-test.
+          docs_only() {
+            [ -n "$1" ] && ! echo "$1" | grep -qvE '\.(md|txt)$'
+          }
+
+          if [ "${{ github.event_name }}" != "push" ]; then
+            CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+            if docs_only "$CHANGED"; then
+              echo "Only markdown/text files changed; skipping tests."
+              echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          PR_NUMBER=$(git log -1 --pretty=%s | grep -oP '(?<=#)\d+' | head -1)
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Not a recognisable PR merge commit; checking changed files."
+            CHANGED=$(git diff --name-only HEAD^ HEAD)
+            if docs_only "$CHANGED"; then
+              echo "Only markdown/text files changed; skipping tests."
+              echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          PR_HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid 2>/dev/null || true)
+          if [ -z "$PR_HEAD_SHA" ] || ! git cat-file -e "$PR_HEAD_SHA" 2>/dev/null; then
+            echo "Could not resolve PR #$PR_NUMBER head; running tests."
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --quiet "$PR_HEAD_SHA" HEAD; then
+            echo "Merge of PR #$PR_NUMBER matches already-tested head $PR_HEAD_SHA; skipping."
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$PR_HEAD_SHA" HEAD)
+          if docs_only "$CHANGED"; then
+            echo "Merge of PR #$PR_NUMBER differs from tested head only by markdown/text; skipping tests."
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Merge of PR #$PR_NUMBER differs from tested head $PR_HEAD_SHA; running tests."
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: gate
+    if: needs.gate.outputs.run_tests == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      # The LibreOffice tests skip themselves where conversion does not work,
+      # so a developer without it can still run the suite. This step is what
+      # makes that skip inert here. Writer specifically: libreoffice-core
+      # alone leaves soffice on PATH but every conversion fails with a
+      # misleading "source file could not be loaded", which is why the skip
+      # guard probes a real conversion rather than checking PATH (see
+      # backend/tests/soffice_support.py). REQUIRE_SOFFICE below turns a
+      # failed probe into a hard error, so a regression in this step cannot
+      # show up as a quietly green build.
+      - name: Install LibreOffice (for PDF conversion tests)
+        run: sudo apt-get update && sudo apt-get install -y libreoffice-writer fonts-liberation
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
 
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install dependencies (not the project itself)
-        run: uv sync --no-install-project --extra dev
+      - name: Install dependencies
+        run: uv sync --extra dev
 
       - name: Run tests
-        run: uv run --no-sync pytest -v
+        # REQUIRE_SOFFICE: fail rather than skip if LibreOffice cannot
+        # convert here. See the install step above.
+        env:
+          REQUIRE_SOFFICE: "1"
+        run: uv run pytest -v
+
+  # Validates the 001 baseline (incl. the shared-enum-type fix) against a
+  # real Postgres before Railway ever runs it: upgrade, downgrade, and
+  # upgrade again to prove both directions and type cleanup work.
+  migrations-postgres:
+    needs: gate
+    if: needs.gate.outputs.run_tests == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rota
+          POSTGRES_PASSWORD: rota
+          POSTGRES_DB: rota_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rota"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg2://rota:rota@localhost:5432/rota_test
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Upgrade to head
+        run: uv run alembic upgrade head
+
+      - name: Downgrade to base
+        run: uv run alembic downgrade base
+
+      - name: Re-upgrade to head
+        run: uv run alembic upgrade head
+
+  # Added at M4 Task 1. Mirrors the backend jobs' shape: checkout, install,
+  # then typecheck / test / build in that order so a fast typecheck failure
+  # doesn't wait on the slower build step.
+  frontend:
+    needs: gate
+    if: needs.gate.outputs.run_tests == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build

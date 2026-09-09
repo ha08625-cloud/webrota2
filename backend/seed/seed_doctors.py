@@ -33,6 +33,8 @@ def _map_doctor_type(raw: str) -> DoctorType:
         return DoctorType.SALARIED
     if t == "trainee":
         return DoctorType.TRAINEE
+    if t == "locum":
+        return DoctorType.LOCUM
     raise ValueError(f"unknown doctor type {raw!r}")
 
 
@@ -81,4 +83,4 @@ def seed_doctors(session: Session, csv_path: Path | str = DEFAULT_CSV) -> list[D
 
     session.add_all(doctors)
     session.flush()
-    return doctors        
+    return doctors

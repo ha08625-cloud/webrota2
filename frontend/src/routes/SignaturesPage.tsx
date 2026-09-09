@@ -1,0 +1,302 @@
+import { useRef, useState } from "react";
+import type { DragEvent } from "react";
+
+import {
+  useApplySignature,
+  useDeleteSignature,
+  useSignatureImage,
+  useSignatures,
+  useUploadSignature,
+} from "@/api/signatures";
+import type { ApiError, Doctor, SignatureMeta } from "@/api/types";
+import { useCanWrite, useWriteGate } from "@/auth/AuthContext";
+import { ToastDisplay, useToast } from "@/components/Toast";
+import { groupDoctorsByType } from "@/lib/groupDoctors";
+import { useDoctors } from "@/api/doctors";
+import { downloadBlob } from "@/lib/downloadBlob";
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function errorMessage(err: ApiError, fallback: string): string {
+  return typeof err.detail === "string" ? err.detail : fallback;
+}
+
+/**
+ * Only used when the response carries no Content-Disposition, which the
+ * server always sends - so this is a safety net, not the naming scheme.
+ * It mirrors the server's format branch: .rtf comes back as a PDF, every
+ * other accepted format as a .docx (rtf/pdf plan, Task 4 point 2).
+ */
+function fallbackFilename(uploadedName: string): string {
+  const stem = uploadedName.replace(/\.[^.]*$/, "") || "document";
+  const extension = uploadedName.toLowerCase().endsWith(".rtf") ? "pdf" : "docx";
+  return `${stem}-signed.${extension}`;
+}
+
+interface SignatureRowProps {
+  doctor: Doctor;
+  meta: SignatureMeta | undefined;
+  showToast: (message: string) => void;
+}
+
+function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
+  // "Sign a document..." is gated too, even though it stores nothing: the
+  // backend gates POST /signatures/{id}/apply at admin tier along with
+  // every other non-GET route.
+  const writeGate = useWriteGate();
+  const hasSignature = meta !== undefined;
+  const { data: imageDataUrl } = useSignatureImage(doctor.id, hasSignature);
+  const uploadSignature = useUploadSignature();
+  const deleteSignature = useDeleteSignature();
+  const applySignature = useApplySignature();
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  const isPending = uploadSignature.isPending || deleteSignature.isPending || applySignature.isPending;
+
+  function handleImageFileChosen(file: File) {
+    // Client-side pre-check mirrors the server limits for a faster
+    // message; the server response remains authoritative.
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      showToast("Signature image must be a JPEG or PNG file");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      showToast("Signature image exceeds 5 MB");
+      return;
+    }
+    uploadSignature.mutate(
+      { doctorId: doctor.id, file },
+      { onError: (err) => showToast(errorMessage(err, "Could not upload signature")) },
+    );
+  }
+
+  function handleRemove() {
+    if (!window.confirm(`Remove the stored signature for ${doctor.code}?`)) {
+      return;
+    }
+    deleteSignature.mutate(doctor.id, {
+      onError: (err) => showToast(errorMessage(err, "Could not remove signature")),
+    });
+  }
+
+  function handleApplyFile(file: File) {
+    if (!hasSignature) {
+      showToast("Upload a signature for this doctor before signing a document");
+      return;
+    }
+    applySignature.mutate(
+      { doctorId: doctor.id, file },
+      {
+        onSuccess: ({ blob, filename }) => {
+          downloadBlob(blob, filename ?? fallbackFilename(file.name));
+          showToast("Document signed and downloaded");
+        },
+        onError: (err) => showToast(errorMessage(err, "Could not sign this document")),
+      },
+    );
+  }
+
+  function handleDragOver(event: DragEvent<HTMLTableRowElement>) {
+    event.preventDefault();
+    if (hasSignature && !isPending) {
+      setIsDragOver(true);
+    }
+  }
+
+  function handleDragLeave() {
+    setIsDragOver(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLTableRowElement>) {
+    event.preventDefault();
+    setIsDragOver(false);
+    if (isPending) {
+      return;
+    }
+    if (!hasSignature) {
+      showToast("Upload a signature for this doctor before signing a document");
+      return;
+    }
+    const file = event.dataTransfer.files[0];
+    if (!file) {
+      return;
+    }
+    handleApplyFile(file);
+  }
+
+  return (
+    <tr
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`border-t border-border ${isDragOver ? "bg-accent/10" : ""}`}
+    >
+      <td className="py-1 pr-4">{doctor.code}</td>
+      <td className="py-1 pr-2">
+        {hasSignature ? (
+          imageDataUrl ? (
+            <img src={imageDataUrl} alt={`Signature for ${doctor.code}`} className="h-10 object-contain" />
+          ) : (
+            <span className="text-xs text-ink/50">Loading...</span>
+          )
+        ) : (
+          <span className="text-xs text-ink/50">No signature</span>
+        )}
+      </td>
+      <td className="py-1 pr-4">
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/jpeg,image/png"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) {
+              handleImageFileChosen(file);
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => imageInputRef.current?.click()}
+          disabled={isPending}
+          className="mr-3 text-xs text-accent disabled:opacity-50"
+          {...writeGate}
+        >
+          {hasSignature ? "Replace" : "Upload"}
+        </button>
+        {hasSignature ? (
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={isPending}
+            className="text-xs text-red-700 disabled:opacity-50"
+            {...writeGate}
+          >
+            Remove
+          </button>
+        ) : null}
+      </td>
+      <td className="py-1">
+        <input
+          ref={docInputRef}
+          type="file"
+          accept=".rtf,.docx"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) {
+              handleApplyFile(file);
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => docInputRef.current?.click()}
+          disabled={isPending || !hasSignature}
+          className="text-xs text-accent disabled:opacity-50"
+          {...writeGate}
+        >
+          Sign a document...
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Lists Partner/Salaried active doctors (client-side filter only - the
+ * signatures endpoints stay unscoped by doctor_type by design)
+ * and lets admin staff upload a signature image per doctor and drop a
+ * document onto a row to receive a signed copy back as an immediate
+ * download. The server decides the returned format from the upload: a
+ * .docx comes back as a read-only .docx, a .rtf as a PDF.
+ */
+export function SignaturesPage() {
+  // Admin-and-above, matching the backend: GET /signatures and the image
+  // endpoint now 403 below that tier (deps.require_admin), so a viewer
+  // would otherwise get a page of failed queries. Same shape as the Users
+  // page's manager check, and the same caveat: this is UX, the 403 is the
+  // boundary. `useCanWrite` is the admin-or-manager question the tier
+  // model already answers; the fine-grained permission model replaces it
+  // with a `signatures` capability.
+  const canWrite = useCanWrite();
+
+  if (!canWrite) {
+    return (
+      <div>
+        <h1 className="text-lg font-semibold">Signatures</h1>
+        <p className="mt-4 text-sm text-ink/70">
+          You do not have access to signatures. Ask a manager if you need a document signed.
+        </p>
+      </div>
+    );
+  }
+
+  return <SignaturesTable />;
+}
+
+function SignaturesTable() {
+  const { data: doctors, isLoading, isError } = useDoctors(true);
+  const { data: signatures } = useSignatures();
+  const { toast, showToast } = useToast();
+
+  const eligibleDoctors = (doctors ?? []).filter(
+    (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
+  );
+  const groups = groupDoctorsByType(eligibleDoctors);
+  const metaByDoctorId = new Map((signatures ?? []).map((s) => [s.doctor_id, s]));
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <h1 className="text-lg font-semibold">Signatures</h1>
+
+      {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
+      {isError ? <p className="mt-4 text-sm text-red-700">Could not load doctors.</p> : null}
+
+      {!isLoading && groups.length === 0 ? (
+        <p className="mt-4 text-sm text-ink/50">No active Partner or Salaried doctors yet.</p>
+      ) : null}
+
+      {groups.map((group) => (
+        <div key={group.type} className="mt-6">
+          <h2 className="text-sm font-medium text-ink/70">{group.label}</h2>
+          <table className="mt-2 w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-20" />
+              <col className="w-32" />
+              <col className="w-32" />
+              <col />
+            </colgroup>
+            <thead>
+              <tr className="text-left text-ink/70">
+                <th className="py-1 pr-4 font-medium">Code</th>
+                <th className="py-1 pr-2 font-medium">Signature</th>
+                <th className="py-1 pr-4 font-medium" />
+                <th className="py-1 font-medium">Sign a document</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.doctors.map((doctor) => (
+                <SignatureRow
+                  key={doctor.id}
+                  doctor={doctor}
+                  meta={metaByDoctorId.get(doctor.id)}
+                  showToast={showToast}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      <ToastDisplay message={toast?.message} />
+    </div>
+  );
+}

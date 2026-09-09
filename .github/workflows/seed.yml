@@ -1,0 +1,33 @@
+name: Seed database
+
+# Manually triggered only (Actions tab -> Seed database -> Run workflow).
+# Runs seed.run_all against the database in the RAILWAY_DATABASE_URL secret.
+# The seeds are plain inserts: run once against an empty database. A second
+# run fails on the rooms unique constraint and rolls back atomically, so an
+# accidental re-run is harmless but will show as a failed job.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run seeds
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: uv run python -m seed.run_all

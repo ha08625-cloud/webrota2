@@ -4,12 +4,13 @@ Importing this package ensures all mappers are registered on Base.metadata,
 which Alembic autogenerate and the seed scripts rely on.
 """
 from .enums import (
-    ClinicCounterMode,
+    AccessLevel,
     Day,
     DoctorType,
     DutyType,
     MasterSessionType,
     Period,
+    ReceptionRole,
     RoomType,
     RotaStatus,
     SessionRole,
@@ -25,19 +26,57 @@ from .clinic_type import (
     ClinicTypeRoomEligibility,
 )
 from .counter import ClinicCounter, SystemCounter
+from .counter_snapshot import RotaClinicCounterSnapshot, RotaSystemCounterSnapshot
 from .leave import LeaveEntry
+from .leave_entitlement import LeaveEntitlement
+from .extra_session import ExtraSessionEntry
+from .blocked import BlockedEntry
 from .duty import DutyAssignment
+from .duty_opening_balance import DutyOpeningBalance
 from .master_rota import MasterRotaTemplate, MasterRotaSession
+from .staging import RotaStaging, RotaStagingSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
+from .closure import PracticeClosure, RotaClosure
+from .school import School, SchoolHoliday
+from .bank_holidays import BANK_HOLIDAYS, BANK_HOLIDAYS_BY_KEY, BankHoliday
+from .recurring_note import (
+    RecurringNote,
+    RecurringNoteDoctor,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
+)
+from .generation_log import RotaGenerationLogEntry
+from .signature import DoctorSignature
+from .user import PasswordResetToken, User, UserSession
+from .audit import AuditLogEntry
+from .reception import (
+    ReceptionStaff,
+    ReceptionLeaveEntry,
+    ReceptionMasterSession,
+    ReceptionRota,
+    ReceptionRotaSession,
+)
 
 __all__ = [
     # enums
     "DoctorType", "RoomType", "Site", "Day", "Period", "DutyType",
-    "RotaStatus", "SystemCounterType", "ClinicCounterMode", "MasterSessionType",
-    "SessionRole",
+    "RotaStatus", "SystemCounterType", "MasterSessionType",
+    "SessionRole", "ReceptionRole", "AccessLevel",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
-    "SystemCounter", "LeaveEntry", "DutyAssignment", "MasterRotaTemplate",
-    "MasterRotaSession", "RotaConfig", "GeneratedRota", "RotaSession",
+    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry", "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
+    "MasterRotaTemplate",
+    "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
+    "GeneratedRota", "RotaSession",
+    "RotaClinicCounterSnapshot", "RotaSystemCounterSnapshot",
+    "PracticeClosure", "RotaClosure", "RotaGenerationLogEntry",
+    "School", "SchoolHoliday",
+    "BANK_HOLIDAYS", "BANK_HOLIDAYS_BY_KEY", "BankHoliday",
+    "RecurringNote", "RecurringNoteDoctor",
+    "RotaConfigNote", "RotaConfigNoteDoctor",
+    "DoctorSignature", "User", "UserSession", "PasswordResetToken",
+    "AuditLogEntry",
+    "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
+    "ReceptionRotaSession",
 ]

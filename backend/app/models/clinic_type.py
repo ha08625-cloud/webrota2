@@ -3,31 +3,46 @@
 ClinicType is the configurable unit for all assignment slots: school clinics,
 college clinics, care homes, duty helpers, and any future type. Children are
 seeded empty in M1 and populated via the API (M3) / frontend (M4).
+
+Clinic counters are shared-only (one counter per doctor per clinic type). The
+per_slot counter design considered in M1 was reversed before M2.
 """
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from .enums import ClinicCounterMode, Day, Period, RoomType, enum_col
+from .enums import Day, Period, RoomType, enum_col
 
 
 class ClinicType(Base):
     __tablename__ = "clinic_types"
+    __table_args__ = (
+        # clinic_priority is server-managed: contiguous 1..N over enabled
+        # rows only. Disabled rows keep their stale value, which is outside
+        # this index, so it never blocks a disable/re-enable cycle.
+        Index(
+            "uq_clinic_types_priority_enabled",
+            "clinic_priority",
+            unique=True,
+            sqlite_where=text("is_enabled"),
+            postgresql_where=text("is_enabled"),
+        ),
+        UniqueConstraint("name", name="uq_clinic_types_name"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
     clinic_priority: Mapped[int] = mapped_column(Integer, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    counter_mode: Mapped[ClinicCounterMode] = mapped_column(
-        enum_col(ClinicCounterMode), nullable=False, default=ClinicCounterMode.SHARED
-    )
     category: Mapped[str | None] = mapped_column(String, nullable=True)
     room_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

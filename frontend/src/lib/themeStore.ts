@@ -1,0 +1,88 @@
+// The five chrome colours are CSS custom
+// properties defined in index.css; a theme is just a [data-theme] block
+// overriding them. This module owns the stored choice and the one line of
+// DOM that activates it.
+const STORAGE_KEY = "rota.theme";
+const CONTRAST_KEY = "rota.contrast";
+
+export const THEMES = [
+  { id: "default", label: "Default" },
+  { id: "ocean", label: "Ocean" },
+  { id: "forest", label: "Forest" },
+  { id: "plum", label: "Plum" },
+  { id: "sand", label: "Sand" },
+] as const;
+
+export type ThemeId = (typeof THEMES)[number]["id"];
+
+const DEFAULT_THEME: ThemeId = "default";
+
+function isThemeId(value: string | null): value is ThemeId {
+  return THEMES.some((theme) => theme.id === value);
+}
+
+export function getTheme(): ThemeId {
+  let stored: string | null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Safari private mode throws on localStorage access rather than
+    // returning null. A missing theme is not worth failing a page load
+    // over, so fall back to the default.
+    return DEFAULT_THEME;
+  }
+  return isThemeId(stored) ? stored : DEFAULT_THEME;
+}
+
+export function setTheme(id: ThemeId): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    // As above - if the write fails the theme still applies for this
+    // session, it just will not persist.
+  }
+  applyTheme(id);
+}
+
+export function applyTheme(id: ThemeId): void {
+  if (id === DEFAULT_THEME) {
+    // The default palette lives on :root, so the attribute would only be
+    // a redundant selector. Removing it also resets a previous choice.
+    delete document.documentElement.dataset.theme;
+    return;
+  }
+  document.documentElement.dataset.theme = id;
+}
+
+/**
+ * High contrast is a separate axis from the palette, not a sixth palette:
+ * it is an accessibility need rather than a look, and a user who needs it
+ * should not have to give up their choice of colour to get it. It sets a
+ * second attribute on <html>, so the CSS composes - the theme supplies the
+ * hue, the contrast block overrides ink, border and accent on top of it.
+ */
+export function getContrast(): boolean {
+  try {
+    return window.localStorage.getItem(CONTRAST_KEY) === "high";
+  } catch {
+    // See getTheme - Safari private mode throws rather than returning null.
+    return false;
+  }
+}
+
+export function setContrast(high: boolean): void {
+  try {
+    window.localStorage.setItem(CONTRAST_KEY, high ? "high" : "normal");
+  } catch {
+    // As above - applies for this session, just does not persist.
+  }
+  applyContrast(high);
+}
+
+export function applyContrast(high: boolean): void {
+  if (!high) {
+    delete document.documentElement.dataset.contrast;
+    return;
+  }
+  document.documentElement.dataset.contrast = "high";
+}

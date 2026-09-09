@@ -1,0 +1,114 @@
+# Nixpacks build plan (M4 Task 8).
+#
+# Lives at the repo root, matching Root Directory = "/" in the Railway
+# dashboard (Settings > Source) - see railway.toml's header for why that
+# setting matters and its history.
+#
+# Neither backend/pyproject.toml nor frontend/package.json sits at this
+# scanned root (both are one level down), so neither the python nor the
+# node provider has anything at the root to auto-detect and generate
+# install/build commands from. `providers` below is only to get the
+# python and node runtimes onto PATH; every actual command in `install`
+# and `build` is written out explicitly and cd's into the right
+# subdirectory.
+#
+# The nixpkgs python3 that this setup provides has NO pip module at all
+# (in nixpkgs, pip is a separate package, not part of the interpreter),
+# so `python3 -m pip` fails outright. Instead we do what the python
+# provider itself does when auto-detection works: create a venv at
+# /opt/venv (python3 -m venv bootstraps pip inside it) and install into
+# that. The venv persists into the runtime image because nixpacks phases
+# are layers of a single image - but it is NOT on PATH at runtime, which
+# is why railway.toml's startCommand calls /opt/venv/bin/* explicitly.
+#
+# No [start] section here deliberately - railway.toml's [deploy]
+# startCommand is the single source of truth for the run command, so
+# there is exactly one place that can define it.
+providers = ["python", "node"]
+
+# LibreOffice is a runtime dependency of the signature/PDF path
+# (app/documents/pdf_convert.py shells out to `soffice --convert-to pdf`),
+# not a build tool - it has to be in the final image, and nixpacks phases
+# are layers of a single image, so installing it here achieves that.
+#
+# It must be libreoffice-writer, NOT libreoffice-core. With core and
+# -common alone, soffice is on PATH and starts fine, but every conversion
+# fails with `Error: source file could not be loaded` - which reads like a
+# corrupt upload rather than a missing component, and cost real time to
+# diagnose. Do not "slim the image" by dropping back to core.
+#
+# fonts-liberation supplies metric-compatible substitutes for the Arial and
+# Times New Roman the certificate template asks for; without them line
+# breaks and pagination shift.
+#
+# This adds a few hundred MB to the image. That is accepted: the
+# alternative is a separate conversion service for a handful of
+# certificates a day.
+#
+# Node comes from an explicitly overridden setup phase rather than from the
+# node provider's own defaults, for two compounding reasons.
+#
+# First, the provider has no frontend/package.json at this scanned root to
+# read an engines.node field from (see above), so it silently fell back to
+# its default (Node 18) - too old for vite 8, which requires Node
+# >=20.19/22.12 and needs node:util's styleText export that only exists
+# from Node 20.12+.
+#
+# Second, NIXPACKS_NODE_VERSION alone cannot fix that here. It only changes
+# which attribute name the provider asks for (nodejs_<version>), and it
+# still resolves that name against the nixpkgs archive nixpacks v1.41 pins
+# for node - ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7, a November 2024
+# snapshot. Setting it to 24 failed the build outright with "undefined
+# variable 'nodejs_24'", because that snapshot only carries nodejs_18/20/22/23.
+# Nor is there a usable version in it to fall back to: its nodejs_22 is
+# 22.11.0 and its nodejs_20 is 20.18.x, both just below vite 8's
+# ^20.19.0 || >=22.12.0 floor, and nodejs_23 is an EOL odd-numbered release
+# that vitest's engines field already excludes.
+#
+# So the phase overrides nixpkgsArchive too, pointing node (and only node -
+# the python setup phase keeps its own archive) at the nixos-25.05 channel
+# revision, where nodejs_24 is 24.11.1. That matches frontend/package.json's
+# engines field and the Node version CI runs on (.github/workflows/ci.yml).
+# Node is a build-time dependency only: it compiles the frontend bundle and
+# nothing in the running container uses it, so this pin affects build output
+# reproducibility, not runtime behaviour. To move the version later, bump the
+# archive to a revision that has the wanted nodejs_* attribute rather than
+# just editing the package name.
+#
+# nixOverlays is emptied deliberately. The provider's default adds railway's
+# nix-npm-overlay to pull in a standalone npm-9_x; nodejs_24 already bundles
+# npm 11, which reads this repo's lockfileVersion 3 lockfile fine, and
+# dropping the overlay removes a second archive fetch from the build.
+[phases."node:setup"]
+nixPkgs = ["nodejs_24"]
+nixOverlays = []
+nixpkgsArchive = "ac62194c3917d5f474c1a844b6fd6da2db95077d"
+
+# `npm ci --include=dev` is explicit because nixpacks sets NODE_ENV=production
+# in the build environment, which npm otherwise reads as "omit devDependencies".
+# vite, typescript and tailwind are all devDependencies, so an omitted dev tree
+# would break the build phase below rather than this command.
+#
+# Every node/npm invocation is prefixed with `env -u LD_LIBRARY_PATH`. The
+# python setup phase exports its "libraries" derivation (which contains
+# gcc-13.3.0-lib from nixpacks' own older archive) on LD_LIBRARY_PATH so
+# compiled wheels can find libstdc++. But LD_LIBRARY_PATH outranks the
+# RUNPATH baked into the Node binary, so Node 24 from the newer archive
+# (see node:setup above) gets the gcc-13 libstdc++ instead of its own -
+# and its icu4c-76.1 needs CXXABI_1.3.15, which gcc-13's libstdc++ lacks:
+# `version 'CXXABI_1.3.15' not found`. Unsetting the variable for the node
+# commands lets the loader fall back to Node's RUNPATH, which resolves
+# every library from the matching snapshot. npm's native frontend deps
+# (rolldown etc.) are manylinux prebuilds resolved by the Ubuntu base
+# image's loader, so they don't need the nix library path either.
+[phases.install]
+cmds = [
+  "apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation && rm -rf /var/lib/apt/lists/*",
+  "python3 -m venv --copies /opt/venv && /opt/venv/bin/pip install --upgrade pip && cd backend && /opt/venv/bin/pip install .",
+  "cd frontend && env -u LD_LIBRARY_PATH npm ci --include=dev"
+]
+
+[phases.build]
+cmds = [
+  "cd frontend && env -u LD_LIBRARY_PATH npm run build"
+]

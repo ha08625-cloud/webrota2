@@ -1,0 +1,127 @@
+import { useState } from "react";
+
+import {
+  useCreateReceptionMasterSession,
+  useDeleteReceptionMasterSession,
+  useReceptionMasterSessions,
+  useReceptionStaff,
+  useUpdateReceptionMasterSession,
+} from "@/api/reception";
+import type { ApiError, Day, ReceptionMasterSession } from "@/api/types";
+import { ReceptionGrid, type ReceptionSavePayload } from "@/components/ReceptionGrid";
+import { formatHour } from "@/lib/receptionHours";
+
+const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+function apiErrorMessage(err: ApiError, fallback: string): string {
+  return typeof err.detail === "string" ? err.detail : fallback;
+}
+
+/**
+ * The weekday master template - one day at a time, not a five-day-at-once
+ * view (5 x 10 x N cells would be unreadable; a day tab is one click, see
+ * reception rota plan Task 7). ReceptionGrid/ReceptionCellPopover are the
+ * same components Task 8's day rota page reuses unchanged; this page's
+ * job is just to own the master-session queries/mutations and filter the
+ * flat template list down to the selected day before handing it to the
+ * grid.
+ */
+export function ReceptionMasterPage() {
+  // Active staff only. A deactivated member is off the template entirely -
+  // their rows are not deleted, so reactivating them brings the whole
+  // working pattern back without reassigning it, but until then there is
+  // nothing on this page to edit for someone who is not working, and a
+  // flagged (inactive) row was only noise. The day rota page still asks
+  // for the inactive ones, because a day generated before someone left
+  // has real sessions on it that must stay visible.
+  const { data: staff, isLoading: staffLoading, isError: staffError } = useReceptionStaff(false);
+  const { data: sessions, isLoading: sessionsLoading, isError: sessionsError } = useReceptionMasterSessions();
+  const createSession = useCreateReceptionMasterSession();
+  const updateSession = useUpdateReceptionMasterSession();
+  const deleteSession = useDeleteReceptionMasterSession();
+  const [activeDay, setActiveDay] = useState<Day>("Monday");
+  const [error, setError] = useState<string | null>(null);
+  const [savingRange, setSavingRange] = useState(false);
+
+  const saving = savingRange;
+
+  async function handleSave(payloads: ReceptionSavePayload<ReceptionMasterSession>[]): Promise<boolean> {
+    setError(null);
+    setSavingRange(true);
+    const failures: string[] = [];
+    for (const { staffId, hour, session, role, note } of payloads) {
+      try {
+        if (session) {
+          await updateSession.mutateAsync({ sessionId: session.session_id, role, note });
+        } else {
+          await createSession.mutateAsync({ staffId, day: activeDay, hour, role, note });
+        }
+      } catch (err) {
+        failures.push(`${formatHour(hour)}: ${apiErrorMessage(err as ApiError, "failed")}`);
+      }
+    }
+    setSavingRange(false);
+    if (failures.length > 0) setError(`Could not save every hour: ${failures.join("; ")}`);
+    return failures.length === 0;
+  }
+
+  async function handleDelete(sessions: ReceptionMasterSession[]): Promise<boolean> {
+    setError(null);
+    setSavingRange(true);
+    const failures: string[] = [];
+    for (const session of sessions) {
+      try {
+        await deleteSession.mutateAsync(session.session_id);
+      } catch (err) {
+        failures.push(`${formatHour(session.hour)}: ${apiErrorMessage(err as ApiError, "failed")}`);
+      }
+    }
+    setSavingRange(false);
+    if (failures.length > 0) setError(`Could not remove every hour: ${failures.join("; ")}`);
+    return failures.length === 0;
+  }
+
+  return (
+    <div>
+      <h1 className="text-lg font-semibold">Master Template</h1>
+      <div className="mt-4 flex gap-1 border-b border-border" role="tablist" aria-label="Day">
+        {DAYS.map((day) => (
+          <button
+            key={day}
+            type="button"
+            role="tab"
+            aria-selected={day === activeDay}
+            onClick={() => setActiveDay(day)}
+            className={`-mb-px rounded-t-md border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              day === activeDay
+                ? "border-accent text-accent"
+                : "border-transparent text-ink/60 hover:bg-ink/[0.03] hover:text-ink"
+            }`}
+          >
+            {day}
+          </button>
+        ))}
+      </div>
+
+      {error ? <p className="mt-3 rounded bg-red-50 p-2 text-sm text-red-700">{error}</p> : null}
+
+      {staffLoading || sessionsLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
+      {staffError || sessionsError ? (
+        <p className="mt-4 text-sm text-red-700">Could not load the master template.</p>
+      ) : null}
+
+      {staff && sessions ? (
+        <div className="mt-4">
+          <ReceptionGrid
+            key={activeDay}
+            staff={staff}
+            sessions={sessions.filter((s) => s.day === activeDay)}
+            onSave={handleSave}
+            onDelete={handleDelete}
+            saving={saving}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}

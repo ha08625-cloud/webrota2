@@ -1,0 +1,29 @@
+name: Dependabot auto-merge
+
+# Dependabot PRs already run the full CI suite via pull_request in ci.yml.
+# This workflow only decides whether to arm auto-merge on top of that -
+# patch-level bumps (bug fixes, semver x.y.PATCH) merge themselves once CI
+# is green; minor and major bumps are left as normal PRs for manual review.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge for patch updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

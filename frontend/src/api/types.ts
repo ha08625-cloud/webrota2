@@ -1,0 +1,1531 @@
+/**
+ * Thrown by the API client on any non-2xx response. `detail` mirrors
+ * FastAPI's error body shape where possible (its `detail` field, which is
+ * either a string or a Pydantic validation error list) but falls back to
+ * whatever the response body actually contained.
+ */
+export interface ApiError {
+  status: number;
+  detail: unknown;
+}
+
+/**
+ * TanStack Query v5's mechanism for typing every query/mutation error as
+ * ApiError by default, instead of the built-in default of Error. Without
+ * this, `useQuery`/`useMutation` callers get `error: Error | null` and
+ * any `error.status` access is a type error - apiClient's `request()`
+ * throws a plain ApiError object, never a real Error instance, so
+ * `Error` was never the right default here. Covers every hook in every
+ * api/*.ts file; no per-hook generic annotation needed.
+ */
+declare module "@tanstack/react-query" {
+  interface Register {
+    defaultError: ApiError;
+  }
+}
+
+/**
+ * The shape of one item in a standard FastAPI request-validation error
+ * (422 from Pydantic parsing the request body itself, as opposed to a
+ * business-logic 422 raised deliberately by a route). Distinguished from
+ * ValidationIssue by its `msg`/`loc` fields.
+ */
+export interface FastApiValidationError {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
+
+// --- Auth and user management (schemas/auth.py) ---
+// Task 5 added AuthUser/LoginIn/LoginOut. Task 6 (Users page) adds the
+// write-side shapes below. AuthUser doubles as the read shape for the
+// Users page's list/detail rows - it is byte-identical to UserOut, so
+// api/users.ts imports it directly rather than duplicating an identical
+// interface under a second name.
+
+/**
+ * User.access_level (models/enums.py AccessLevel), mirroring the backend
+ * wire values exactly. Three permission tiers wearing four labels:
+ * manager (user management + writes), admin (writes), doctor and nurse
+ * (reads only, and permission-identical to each other - the distinction
+ * is a label for humans, not a rule). See documentation/role_based_auth.md.
+ */
+export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
+
+/**
+ * A levelled permission (models/permissions.py). "none" is no access at
+ * all, including reads.
+ */
+export type AccessArea = "none" | "read" | "write";
+
+/**
+ * What a login may do (PermissionSet in schemas/auth.py). Two areas with
+ * three levels each and three flags; for the flags, true grants reads and
+ * writes on that area and false denies both.
+ *
+ * This is what authorization is moving to; `access_level` above stays as a
+ * label. Every field is required on the wire in both directions - the
+ * backend fills omitted keys with "denied" and returns the complete set,
+ * so a client never has to reason about a missing permission.
+ */
+export interface Permissions {
+  clinical: AccessArea;
+  reception: AccessArea;
+  signatures: boolean;
+  study_eoi: boolean;
+  user_admin: boolean;
+}
+
+/**
+ * The staff row a login is linked to (StaffLinkOut in schemas/auth.py).
+ * `active` rides along so a client can render "AB (inactive)" without a
+ * second lookup - a link to a soft-deleted doctor is a supported state,
+ * because deactivating a doctor never clears the link.
+ */
+export interface StaffLink {
+  id: number;
+  code: string;
+  active: boolean;
+}
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  name: string;
+  active: boolean;
+  access_level: AccessLevel;
+  permissions: Permissions;
+  /**
+   * The optional link from this login to the person it belongs to on the
+   * rota. Independent of `access_level`, which is a permission tier and
+   * says nothing about identity: a manager may be a doctor, a doctor-tier
+   * user may have no clinical row at all. Read it through
+   * useLinkedDoctorId() / useLinkedReceptionStaffId() rather than
+   * reaching in here.
+   */
+  linked_doctor: StaffLink | null;
+  linked_reception_staff: StaffLink | null;
+  created_at: string;
+}
+
+export interface LoginIn {
+  email: string;
+  password: string;
+}
+
+export interface LoginOut {
+  token: string;
+  user: AuthUser;
+}
+
+/**
+ * POST /auth/forgot-password body (ForgotPasswordIn in schemas/auth.py).
+ * The address is matched exactly and case-sensitively, the way login
+ * matches it, so this is sent verbatim - no trimming or lower-casing on
+ * the way out, or an address could request a reset it could never log in
+ * with. The endpoint answers 204 whatever happens.
+ */
+export interface ForgotPasswordIn {
+  email: string;
+}
+
+/**
+ * POST /auth/reset-password body (ResetPasswordIn in schemas/auth.py).
+ * The token goes in the body, never the path - api/audit.py redacts
+ * `token` out of captured bodies but records the path verbatim.
+ */
+export interface ResetPasswordIn {
+  token: string;
+  password: string;
+}
+
+/**
+ * POST /users body (UserIn in schemas/auth.py). Always creates an active
+ * user - `active` is not settable here. `access_level` is required, not
+ * defaulted: the backend deliberately makes granting a tier an explicit
+ * act (see that module's docstring).
+ */
+export interface UserIn {
+  email: string;
+  name: string;
+  password: string;
+  access_level: AccessLevel;
+  /**
+   * Required, like `access_level`. A set that grants nothing at all is
+   * rejected with 422 - "no access" is spelled `active: false` on a PATCH,
+   * not an empty permission set.
+   */
+  permissions: Permissions;
+  /** null (or omitted) = not linked. A staff row already claimed by another user is a 409. */
+  doctor_id?: number | null;
+  reception_staff_id?: number | null;
+}
+
+/**
+ * PATCH /users/{id} body (UserPatch in schemas/auth.py) - every field
+ * optional, only supplied fields are applied (exclude_unset). A supplied
+ * `password` re-hashes it and deletes every session belonging to that user
+ * server-side (routers/users.py) - this is the password-reset mechanism,
+ * there is no separate endpoint for it. A `active: false` or an
+ * `access_level` move off "manager" that would leave zero active managers
+ * is rejected with 409.
+ */
+export interface UserPatch {
+  email?: string;
+  name?: string;
+  active?: boolean;
+  access_level?: AccessLevel;
+  /** Replaces the whole set; omitting the key leaves it alone. */
+  permissions?: Permissions;
+  password?: string;
+  /**
+   * Explicit `null` clears the link; omitting the key leaves it alone.
+   * The form always sends both, so "Not linked" can actually unlink.
+   */
+  doctor_id?: number | null;
+  reception_staff_id?: number | null;
+}
+
+/**
+ * PATCH /users/me body (UserSelfPatch in schemas/auth.py). Open to every
+ * tier, and deliberately not a subset of UserPatch: `access_level` is
+ * absent so it cannot be used for self-promotion, `permissions` for the
+ * same reason, `active` so nobody can
+ * deactivate themselves past the lock-out guard, and `email` because
+ * changing your own login identity is a manager action. A supplied
+ * `password` signs the caller out everywhere, including the session making
+ * the request - the caller must handle the 401 that follows.
+ */
+export interface UserSelfPatch {
+  name?: string;
+  password?: string;
+}
+
+// --- Enums, mirroring backend/app/models/enums.py wire values exactly ---
+// (Pydantic serialises these enums by value, e.g. "draft", not "DRAFT".)
+
+export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
+export type Period = "AM" | "PM";
+export type RotaStatus = "draft" | "committed";
+export type SessionRole = "duty_primary" | "duty_secondary" | "clinic";
+export type RoomType = "D" | "C" | "W" | "SR";
+export type Site = "SHC" | "Cutteslowe" | "Wolvercote";
+
+/**
+ * MasterRotaSession.template_type (enums.py). Persisted onto
+ * RotaSession as of M3.6 so NO_SURGERY/ADMIN_TIME/WFH template slots can
+ * be told apart from a normal-but-currently-unassigned slot, which are
+ * otherwise byte-identical (room_id/clinic_type_id/role all null).
+ * REQUIRES_ROOM and PRE_ASSIGNED both render as normal sessions in the
+ * Q13 colour language; only NO_SURGERY/ADMIN_TIME trigger the grey
+ * background, and only when no role is present.
+ */
+export type MasterSessionType = "requires_room" | "no_surgery" | "admin_time" | "pre_assigned" | "wfh";
+
+/** API shape of engine.datatypes.ValidationIssue (schemas_common.py). */
+export interface ValidationIssue {
+  severity: string;
+  phase: string;
+  check: string;
+  message: string;
+  week: number | null;
+  day: Day | null;
+  period: Period | null;
+}
+
+// --- Rooms (schemas_room.py) — read-only in M3, still read-only in M4 ---
+
+export interface Room {
+  id: number;
+  code: string;
+  room_type: RoomType;
+  site: Site;
+}
+
+// --- Clinic types (schemas_clinic_type.py) ---
+
+export interface ClinicTypeSchedule {
+  id: number;
+  day: Day;
+  period: Period;
+}
+
+export interface ClinicTypeDoctorEligibility {
+  id: number;
+  doctor_id: number;
+  doctor_priority: number;
+}
+
+export interface ClinicTypeRoomEligibility {
+  id: number;
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+export interface ClinicType {
+  id: number;
+  name: string;
+  clinic_priority: number;
+  is_enabled: boolean;
+  room_required: boolean;
+  /**
+   * Free-text, nullable, no enforced values (clinic_type.py). The Q13
+   * duty-helper-vs-named-clinic colour distinction is implemented as a
+   * convention on this field ("duty_helper") rather than a schema
+   * constraint - see cellStyle.ts. Anything else (including null) renders
+   * as an ordinary named clinic.
+   */
+  category: string | null;
+  schedules: ClinicTypeSchedule[];
+  doctor_eligibilities: ClinicTypeDoctorEligibility[];
+  room_eligibilities: ClinicTypeRoomEligibility[];
+}
+
+// Write-side shapes (Task 5). POST/PUT both take the full nested
+// ClinicTypeIn - PUT replaces all child rows wholesale (replace-children
+// pattern), it does not diff against what's already there. There is no
+// "wfh_allowed" field or room_required XOR anything - room_required is a
+// plain boolean with no counterpart, despite what an earlier plan draft
+// assumed; confirmed directly against clinic_type.py, schemas_clinic_type.py,
+// and routers_clinic_types.py, none of which reference such a field.
+//
+// clinic_priority is deliberately absent here: it is server-managed (a
+// contiguous 1..N sequence over enabled clinic types, maintained by the
+// router and the dedicated PUT /clinic-types/reorder endpoint), not
+// client-settable. It still appears on ClinicType (the read shape) below.
+
+export interface ScheduleIn {
+  day: Day;
+  period: Period;
+}
+
+export interface DoctorEligIn {
+  doctor_id: number;
+  doctor_priority: number;
+}
+
+/**
+ * Exactly one of room_id / room_type, mirroring the DB check constraint
+ * (ck_ctre_room_xor) and the Pydantic model_validator. The client never
+ * constructs a row with both or neither set - ClinicTypeFormDialog's two
+ * separate add buttons and discriminated form-state shape make that
+ * structurally unrepresentable, not just discouraged.
+ */
+export interface RoomEligIn {
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+export interface ClinicTypeIn {
+  name: string;
+  is_enabled: boolean;
+  room_required: boolean;
+  category: string | null;
+  schedules: ScheduleIn[];
+  doctor_eligibilities: DoctorEligIn[];
+  room_eligibilities: RoomEligIn[];
+}
+
+/** Body for PUT /clinic-types/reorder - the full set of enabled clinic
+ * type ids in the desired order. The server rejects anything that isn't
+ * exactly the current enabled set (missing id, extra id, duplicate,
+ * or a disabled id included) with a 409.
+ */
+export interface ClinicTypeReorderIn {
+  ordered_ids: number[];
+}
+
+/**
+ * Body for PATCH /clinic-types/{id} - partial update for the two booleans
+ * only (ClinicTypePatch in schemas/clinic_type.py). name/category stay
+ * PUT-only. Both fields optional; only supplied fields are applied
+ * server-side (exclude_unset).
+ */
+export interface ClinicTypePatch {
+  is_enabled?: boolean;
+  room_required?: boolean;
+}
+
+// --- Doctors (schemas_doctor.py) ---
+
+export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP";
+
+/**
+ * Doctor.supervision_preference (enums.py). Multiplies the doctor's
+ * weighted SUPERVISION score in Phase 9C's fallback pool selection -
+ * "none" deprioritises heavily but does not exclude, "more" prioritises.
+ * Default "normal" leaves the score unweighted.
+ */
+export type SupervisionPreference = "none" | "less" | "normal" | "more";
+
+export interface Doctor {
+  id: number;
+  code: string;
+  doctor_type: DoctorType;
+  sessions_per_week: string;
+  active: boolean;
+  supervision_preference: SupervisionPreference;
+  /**
+   * Optional employment window (annual leave planning, Task 1). Null at
+   * either end means unbounded, which is every doctor that predates the
+   * feature. This is an *additional*, independent gate alongside
+   * `active`, not a replacement for it: `active` is the soft-delete flag,
+   * the window is a real employment fact, and a doctor only counts as
+   * working on a date when both hold. Enforced server-side at Phase 2,
+   * the POST /staging copy loop, and Phase 0 - the frontend reads these
+   * fields to avoid *offering* an out-of-window cell, never as the
+   * enforcement itself.
+   */
+  start_date: string | null;
+  end_date: string | null;
+}
+
+/** POST /doctors body. `active` is not settable here - always true server-side. */
+export interface DoctorIn {
+  code: string;
+  doctor_type: DoctorType;
+  sessions_per_week: string;
+  supervision_preference: SupervisionPreference;
+  /** Employment window; null means unbounded at that end. */
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+/**
+ * PATCH /doctors/{id} body - every field optional, only supplied fields
+ * are applied (DoctorPatch in schemas_doctor.py). DoctorFormDialog sends
+ * code/doctor_type/sessions_per_week together as a full set; the
+ * "Deactivate instead" action sends `active` alone; the DoctorsPage
+ * sessions/week stepper sends `sessions_per_week` alone. The DoctorsPage
+ * supervision-preference dropdown sends `supervision_preference` alone,
+ * the same pattern as the sessions/week stepper.
+ *
+ * The server applies `exclude_unset`, so an omitted `start_date`/`end_date`
+ * leaves the stored window untouched while an explicit `null` clears that
+ * end of it. DoctorFormDialog always sends both, which is what makes
+ * blanking a date in the form actually remove it.
+ */
+export interface DoctorPatch {
+  code?: string;
+  doctor_type?: DoctorType;
+  sessions_per_week?: string;
+  active?: boolean;
+  supervision_preference?: SupervisionPreference;
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+/**
+ * Exactly one of room_id / room_type, mirroring the DB check constraint
+ * (ck_dpr_room_xor) on doctor_preferred_rooms.
+ */
+export interface PreferredRoomOut {
+  id: number;
+  preference_order: number;
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+export interface PreferredRoomIn {
+  preference_order: number;
+  room_id: number | null;
+  room_type: RoomType | null;
+}
+
+/** GET /doctors/{id} - the list endpoint's DoctorOut has no preferred_rooms. */
+export interface DoctorDetail extends Doctor {
+  preferred_rooms: PreferredRoomOut[];
+}
+
+/**
+ * GET /doctors/{id}/usage - what permanently deleting this doctor would
+ * destroy. The seven counts the confirm dialog shows, not every table the
+ * purge touches (counters, snapshots, preferences and note pickers go too,
+ * as consequences of these rows).
+ */
+export interface DoctorUsage {
+  master_sessions: number;
+  rota_sessions: number;
+  committed_rotas: number;
+  staging_sessions: number;
+  leave_entries: number;
+  duty_assignments: number;
+  extra_sessions: number;
+  blocked_entries: number;
+}
+
+/**
+ * DELETE /doctors/{id} response - rows actually removed, keyed by table
+ * name. An open mapping rather than a field per table, matching the
+ * backend schema: the purge covers eighteen tables and derives these
+ * counts from one tuple in routers/doctors.py.
+ */
+export interface DoctorDeleteResult {
+  deleted: Record<string, number>;
+}
+
+// --- Leave (schemas_leave.py) ---
+
+export interface LeaveEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+  /** Annual Planner free-text note (12-char cap); null/absent outside that grid. */
+  notes?: string | null;
+}
+
+export interface LeaveIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
+}
+
+export type PeriodOrBoth = Period | "BOTH";
+
+export interface LeaveBulkIn {
+  doctor_id: number;
+  start_date: string;
+  end_date: string;
+  period: PeriodOrBoth;
+}
+
+export interface LeaveBulkSkipped {
+  date: string;
+  period: Period;
+  reason: "weekend" | "duplicate";
+}
+
+/**
+ * Extra sessions superseded by this bulk-add call. Leave is created
+ * regardless - nothing here is deleted automatically - this is reporting
+ * only, so LeavePage can warn the admin which planned extra sessions may
+ * now be stale.
+ */
+export interface LeaveBulkOut {
+  created: LeaveEntry[];
+  skipped: LeaveBulkSkipped[];
+  superseded_extra_sessions: ExtraSessionEntry[];
+}
+
+export interface LeaveBulkDeleteIn {
+  doctor_id: number;
+  start_date: string;
+  end_date: string;
+  period: PeriodOrBoth;
+}
+
+export interface LeaveBulkDeleteOut {
+  deleted_count: number;
+}
+
+// --- Leave entitlement (schemas/leave_entitlement.py) ---
+
+/**
+ * Why booked leave sessions did not charge against the balance, in
+ * *display* order. This is deliberately not the order the backend computes
+ * them in: closure is checked last there, so `closed` means "the doctor
+ * would have worked this slot but the practice was shut", not merely "a
+ * closure fell on it". See app/leave_charging.py.
+ *
+ * `no_template_row` is the one that must never be folded into a single
+ * "exempt" figure: a large count there means the doctor's master template
+ * was never populated, not that they were not due in.
+ */
+export interface LeaveExemptions {
+  closed: number;
+  weekend: number;
+  no_template_row: number;
+  no_surgery: number;
+}
+
+/**
+ * One doctor's leave entitlement, usage and balance for one leave year
+ * (1 Jan - 31 Dec). All session counts are sessions (one AM or PM half
+ * day), and every Decimal arrives as a string, like Doctor.sessions_per_week.
+ *
+ * The entitlement chain, in order: `weeks` x `sessions_per_week` =
+ * `full_year_sessions`; x `pro_rata_fraction` = `rule_sessions`;
+ * `override_sessions` replaces that when set; then carry-over and
+ * adjustment are added, giving `entitlement_sessions`. Every intermediate
+ * is on the wire so a balance can be reconstructed rather than trusted.
+ *
+ * The nullable fields are null exactly when the doctor's type has no
+ * entitlement (AHP, Locum). The list endpoint omits those doctors
+ * entirely; only the single-doctor read can return one.
+ */
+export interface LeaveEntitlement {
+  doctor_id: number;
+  doctor_code: string;
+  doctor_type: DoctorType;
+  year: number;
+  sessions_per_week: string;
+
+  weeks: string | null;
+  full_year_sessions: string | null;
+  pro_rata_fraction: string;
+  rule_sessions: string | null;
+  override_sessions: string | null;
+  carry_over_sessions: string;
+  adjustment_sessions: string;
+  entitlement_sessions: string | null;
+
+  /** Chargeable sessions - not the raw row count, which is `booked_sessions`. */
+  used_sessions: number;
+  booked_sessions: number;
+  exempt_by_reason: LeaveExemptions;
+  remaining_sessions: string | null;
+
+  /**
+   * Working sessions a week implied by the week-1 master template
+   * (everything except NO_SURGERY). Leave is *charged* against this while
+   * entitlement is *credited* against sessions_per_week, so when
+   * `sessions_mismatch` is true the balance accrues and burns in different
+   * units and the figure on screen is only as good as whichever field is
+   * wrong. An unpopulated template reads 0 and is never a mismatch - it
+   * shows up in `exempt_by_reason.no_template_row` instead.
+   */
+  template_sessions_per_week: number;
+  sessions_mismatch: boolean;
+
+  notes: string | null;
+}
+
+export interface LeaveEntitlementYear {
+  year: number;
+  from_date: string;
+  to_date: string;
+  doctors: LeaveEntitlement[];
+}
+
+// --- Extra sessions (schemas/extra_session.py, extra sessions plan) ---
+// Plans a doctor working a session they would not normally work (Task
+// 1). No bulk endpoints - a single date plus period covers the real
+// workflow, unlike leave's date-range semantics.
+
+export interface ExtraSessionEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+  /** Annual Planner free-text note (12-char cap); null/absent outside that grid. */
+  notes?: string | null;
+}
+
+export interface ExtraSessionIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
+}
+
+// --- Blocked (schemas/blocked.py, clinical rota "Blocked" planner option) ---
+// A third Annual Planner cell state, alongside leave and extra session:
+// the doctor is unavailable for clinical cover but this is deliberately
+// NOT leave (a whole-day training session is the canonical case). Written
+// only via POST /leave-planning/bulk - there is no ad-hoc CRUD router,
+// unlike LeaveEntry/ExtraSessionEntry.
+
+export interface BlockedEntry {
+  id: number;
+  doctor_id: number;
+  date: string;
+  period: Period;
+  notes?: string | null;
+}
+
+// --- Leave planning (schemas/leave_planning.py, annual leave planning) ---
+// Backs the month-at-a-time planning grid. Deliberately a separate set of
+// shapes from the range-based leave ones above: /leave stays the ad-hoc,
+// one-off path during the year, and these are cell-shaped, not
+// range-shaped.
+
+/**
+ * One (date, period)'s clinical headcount. Counts Partner and Salaried
+ * doctors only whose effective session type is requires_room or
+ * pre_assigned.
+ *
+ * A closed slot always reports `headcount: 0` alongside `is_closed: true`
+ * - Phase 2 creates no slot on a closed (date, period), so the grid
+ * renders that as "-", never as "uncovered".
+ */
+export interface CoverageSlot {
+  date: string;
+  period: Period;
+  headcount: number;
+  is_closed: boolean;
+}
+
+/**
+ * What POST /leave-planning/bulk does to one cell. "clear" removes
+ * whichever of the LeaveEntry / ExtraSessionEntry / BlockedEntry rows
+ * exists for the slot - they share the same (doctor_id, date, period)
+ * key, so there is nothing to disambiguate. Precedence across the three
+ * non-clear actions is leave > blocked > extra_session (see
+ * leave_planning.py's module docstring).
+ */
+export type PlanningAction = "leave" | "extra_session" | "blocked" | "clear";
+
+/**
+ * Why the batch declined one action. Skipping rather than failing is the
+ * point: one stale cell must not fail a 200-cell save, so none of these
+ * are errors - the save succeeded.
+ */
+export type PlanningSkipReason =
+  | "duplicate"
+  | "outside_doctor_dates"
+  | "leave_exists"
+  | "blocked_exists"
+  | "nothing_to_clear";
+
+export interface PlanningActionIn {
+  doctor_id: number;
+  date: string;
+  period: Period;
+  action: PlanningAction;
+  /** Free-text cell note (12-char cap). Ignored for "clear". */
+  notes?: string | null;
+}
+
+export interface PlanningBulkIn {
+  actions: PlanningActionIn[];
+}
+
+export interface PlanningSkipped extends PlanningActionIn {
+  reason: PlanningSkipReason;
+}
+
+/**
+ * `superseded_extra_sessions` are pre-existing extra sessions this
+ * batch's leave now covers. They are *reported*, never deleted and never
+ * a 409, exactly as /leave/bulk does - see LeaveBulkOut above.
+ */
+export interface PlanningBulkOut {
+  applied: number;
+  skipped: PlanningSkipped[];
+  superseded_extra_sessions: ExtraSessionEntry[];
+}
+
+// --- Duty (schemas_duty.py) ---
+
+export type DutyType = "primary" | "secondary";
+
+export interface DutyAssignment {
+  id: number;
+  date: string;
+  period: Period;
+  doctor_id: number;
+  duty_type: DutyType;
+}
+
+export interface DutyIn {
+  date: string;
+  period: Period;
+  doctor_id: number;
+  duty_type: DutyType;
+}
+
+export interface DutyCount {
+  doctor_id: number;
+  doctor_code: string;
+  raw_count: number;
+  /**
+   * Sessions credited to this doctor before the weighted score is
+   * computed - see ClinicCounter.opening_balance. Year-scoped for duty
+   * (the count it adjusts restarts each 1 January), and resolved from the
+   * year of the request's `from_date`; an unranged request returns "0.0".
+   */
+  opening_balance: string;
+}
+
+// --- Practice closures (schemas/closure.py, half-day practice closures plan) ---
+// Global planning data, independent of any generated rota - see
+// backend_app_models_closure.py. A rota's own closed_slots (Rota.closed_slots,
+// added in M5 Task 5, made period-granular by the half-day closures plan) is
+// a separate, per-rota snapshot taken at generation time, not derived from
+// this list at read time. Closures are per (date, period) slots - a "full
+// day" closure is two rows sharing a date, not a distinct value on `period`.
+
+export interface Closure {
+  id: number;
+  date: string;
+  period: Period;
+  name: string | null;
+}
+
+export interface ClosureIn {
+  date: string;
+  period: Period;
+  name?: string | null;
+}
+
+// A row of the fixed, system-wide bank-holiday list for a given year
+// (routers/closures.py bank-holidays endpoints). `date` is null until an
+// admin sets it for that year; setting it creates the underlying AM+PM
+// Closure pair, tagged so it can be found again by key rather than name.
+export interface BankHoliday {
+  key: string;
+  name: string;
+  date: string | null;
+}
+
+/** A single closed (date, period) slot, as reported on `Rota`/`Staging` -
+ * the wire shape of ClosedSlotOut (schemas/closure.py). */
+export interface ClosedSlot {
+  date: string;
+  period: Period;
+}
+
+// --- Schools and school holidays (schemas/school.py, school holidays plan) ---
+// Global planning data, purely informational - no engine coupling of any
+// kind. A
+// school holiday never suppresses a slot, changes a coverage total, or is
+// snapshotted per-rota; it exists only so the School Holidays page and the
+// Annual Planner's shading can show it. Date ranges, not per-slot rows,
+// unlike Closure - nothing looks these up by (date, period).
+
+export interface SchoolHoliday {
+  id: number;
+  school_id: number;
+  start_date: string;
+  end_date: string;
+  name: string | null;
+}
+
+export interface SchoolHolidayIn {
+  start_date: string;
+  end_date: string;
+  name?: string | null;
+}
+
+export interface School {
+  id: number;
+  name: string;
+  holidays: SchoolHoliday[];
+}
+
+export interface SchoolIn {
+  name: string;
+}
+
+// --- Recurring notes (schemas/recurring_note.py) ---
+// A *definition* only: a library entry with a default day, period and
+// doctor list. It schedules nothing on its own - it lands on a rota only
+// when it is picked for a run on the staging page, which copies it into a
+// StagingNote. There are no template weeks: the week a note falls on is a
+// per-run choice, so it belongs to the instance (StagingNote.week), not
+// here. doctor_ids is a plain int list, not a nested child schema,
+// matching RecurringNoteIn/Out on the backend.
+//
+// Annotation-only throughout: the copied `text` is stamped into
+// RotaSession.notes at generation time and has no effect on availability,
+// eligibility or duty.
+
+export interface RecurringNote {
+  id: number;
+  text: string;
+  day: Day;
+  period: Period;
+  is_active: boolean;
+  doctor_ids: number[];
+}
+
+export interface RecurringNoteIn {
+  text: string;
+  day: Day;
+  period: Period;
+  is_active: boolean;
+  doctor_ids: number[];
+}
+
+// --- Counters (schemas_counter.py) ---
+// Read-only: "mutation happens only through generation and swap-roles"
+// (routers_counters.py docstring) - no write hooks in api/counters.ts.
+// Neither schema includes a weighted score; counter.py's docstring
+// documents raw_count / doctor.sessions_per_week as "computed at query
+// time, not stored", but that computation currently lives only in the
+// engine (datatypes.py's weighted_clinic_score/weighted_system_score),
+// not in these API responses. CountersPage computes it client-side from
+// the joined doctor's sessions_per_week, replicating the engine's own
+// spw===0 -> Infinity rule (never "no data") for fidelity with how the
+// allocator actually treats that doctor.
+
+export interface ClinicCounter {
+  /**
+   * Null for a (doctor, clinic type) pair with no counter row yet. Rows are
+   * created lazily - on first allocation, or by the opening-balance upsert -
+   * and the list endpoint returns the full cross-product so that a doctor
+   * who has never been allocated this clinic type can still be given an
+   * opening balance. There is nothing to reset on such a row.
+   */
+  id: number | null;
+  doctor_id: number;
+  doctor_code: string;
+  clinic_type_id: number;
+  clinic_type_name: string;
+  raw_count: number;
+  /**
+   * Sessions credited to this doctor on top of `raw_count` before the
+   * weighted score is computed, so that a doctor whose count does not cover
+   * the whole period the others' counts do is not read as under-loaded.
+   * A Decimal on the backend and therefore a JSON string here (e.g. "3.2"),
+   * like `Doctor.sessions_per_week` - parse it before doing arithmetic.
+   */
+  opening_balance: string;
+}
+
+export interface SystemCounter {
+  id: number;
+  doctor_id: number;
+  doctor_code: string;
+  counter_type: SystemCounterKind;
+  raw_count: number;
+  /** See ClinicCounter.opening_balance. System counter rows are seeded per
+   * doctor, so unlike clinic counters they always exist. */
+  opening_balance: string;
+}
+
+/** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */
+export type SystemCounterKind = "room_move" | "supervision";
+
+// --- Rota (schemas_rota.py) ---
+// Deliberately named `rota_id` throughout, matching the wire field exactly
+// - not normalised to `id`. A silent `undefined` from `rota.id` (instead
+// of `rota.rota_id`) is the classic failure mode this guards against.
+
+export interface RotaSummary {
+  rota_id: number;
+  status: RotaStatus;
+  created_at: string;
+  start_date: string;
+  num_weeks: number;
+  template_start_week: number;
+  /**
+   * M3.7 addition. Null for a draft, and also null for a committed rota
+   * that predates rollback support - see RotaOut.committed_at and
+   * RotaDetailPage's rollback-eligibility check.
+   */
+  committed_at: string | null;
+  /**
+   * M6 addition. Null unless the rota has been archived; only ever
+   * non-null on a committed rota. Set via POST /rota/{id}/archive,
+   * cleared via /unarchive or automatically by rollback-commit. This
+   * endpoint returns archived rotas unfiltered - the frontend uses this
+   * field to split committed history into "Committed" and "Archived"
+   * tabs purely client-side.
+   */
+  archived_at: string | null;
+}
+
+export interface RotaSession {
+  session_id: number;
+  doctor_id: number;
+  doctor_code: string;
+  week: number;
+  day: Day;
+  period: Period;
+  room_id: number | null;
+  room_code: string | null;
+  clinic_type_id: number | null;
+  clinic_type_name: string | null;
+  role: SessionRole | null;
+  /**
+   * M3.6 addition. null covers both a legacy pre-M3.6 row and a
+   * manually-nulled one; either way it renders as a normal session, same
+   * as the backend's own null-handling (see RotaSessionOut docstring).
+   */
+  template_type: MasterSessionType | null;
+  is_wfh: boolean;
+  is_supervising: boolean;
+  is_on_leave: boolean;
+  notes: string | null;
+}
+
+export interface Rota {
+  rota_id: number;
+  status: RotaStatus;
+  created_at: string;
+  start_date: string;
+  num_weeks: number;
+  template_start_week: number;
+  sessions: RotaSession[];
+  /**
+   * M5: closed slots snapshotted at generation time (RotaClosure, not the
+   * live PracticeClosure table) - deleting or adding a closure afterwards
+   * does not change what this rota reports. Empty for a rota generated
+   * with no closures in range. Period-granular since the half-day closures
+   * plan - a full-day closure appears as two entries sharing a date.
+   */
+  closed_slots: ClosedSlot[];
+  /**
+   * M3.7 addition. Null for a draft, including one produced by rolling
+   * back a commit, and also null for a committed rota that predates
+   * rollback support - see RotaSummary.committed_at.
+   */
+  committed_at: string | null;
+  /**
+   * M6 addition. Null unless the rota has been archived; only ever
+   * non-null on a committed rota. Cleared automatically by
+   * rollback-commit alongside committed_at - see RotaSummary.archived_at.
+   */
+  archived_at: string | null;
+}
+
+export interface GenerateRotaIn {
+  start_date: string;
+  num_weeks: 1 | 2 | 4;
+  template_start_week: number;
+}
+
+export interface GenerateRotaOut {
+  rota_id: number;
+  status: RotaStatus;
+  issues: ValidationIssue[];
+}
+
+// --- Cell edit menu (M4.1 Task 1) ---
+// set-room and set-role mirror backend_app_api_schemas_rota.py exactly.
+// Both endpoints return the target session, an optional displaced
+// session (the one they stole from), and a fresh issues list.
+
+export interface SetRoomIn {
+  room_id: number | null;
+}
+
+export interface SetRoomOut {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
+/**
+ * Verbatim setter of the full (role, clinic_type_id, template_type)
+ * triple - all three fields are required (nullable, but must be present).
+ * See SetRoleIn's backend docstring: the caller (this frontend) is
+ * responsible for echoing the session's current template_type when the
+ * menu shape is meant to preserve it (duty/clinic picks) versus
+ * overwriting it (no_surgery/admin_time picks).
+ */
+export interface SetRoleIn {
+  role: SessionRole | null;
+  clinic_type_id: number | null;
+  template_type: MasterSessionType | null;
+}
+
+export interface SetRoleOut {
+  session: RotaSession;
+  displaced_session: RotaSession | null;
+  issues: ValidationIssue[];
+}
+
+// --- Generation decision log (schemas/rota.py's GenerationLogEntryOut) ---
+// API shape of engine.datatypes.DecisionLogEntry, 1:1 fields. Written once
+// per rota, in the same transaction as the rota itself
+// (generate._write_to_db()), and never mutated afterwards - unlike
+// ValidationIssue, which is re-derived live on every /issues request. See
+// GET /rota/{id}/log in api/rota.ts.
+
+export interface GenerationLogEntry {
+  sequence: number;
+  phase: string;
+  action: string;
+  message: string;
+  // What happened is `message`; why it happened is `rationale` - one line
+  // per stage of the selection (candidates, exclusions, the decisive
+  // stage), newline-separated prose built by the engine's rationale.py.
+  // Null where the decision involved no choice, or on rows generated
+  // before the field existed. Rendered verbatim, never parsed.
+  rationale: string | null;
+  week: number | null;
+  day: Day | null;
+  period: Period | null;
+  doctor_id: number | null;
+  related_doctor_id: number | null;
+  room_id: number | null;
+  related_room_id: number | null;
+  clinic_type_id: number | null;
+}
+
+// --- Master rota (schemas/master_rota.py) ---
+// Read-only view of the active template. Named session_id/template_id,
+// matching RotaSession/Rota's convention (not the plain `id` used by
+// standalone CRUD entity schemas) - these objects sit in a list
+// alongside other _id fields (doctor_id, room_id).
+
+export interface MasterRotaSession {
+  session_id: number;
+  doctor_id: number;
+  doctor_code: string;
+  doctor_type: DoctorType;
+  week: number;
+  day: Day;
+  period: Period;
+  session_type: MasterSessionType;
+  room_id: number | null;
+  room_code: string | null;
+}
+
+export interface MasterRotaTemplate {
+  template_id: number;
+  name: string;
+  sessions: MasterRotaSession[];
+}
+
+// --- Staging (schemas/staging.py, staging plan) ---
+// The editable one-off holiday-cover surface between the master template
+// and generation (Task 5). StagingSession is MasterRotaSession's shape
+// plus is_on_leave - a staging row has a real calendar date (via its
+// config's start_date), so leave is something the editor can and should
+// show, unlike the dateless master template.
+//
+// is_extra_session is derived the same way, from ExtraSessionEntry, and
+// means "a planned extra session exists for this doctor/date/period" -
+// not "this row was produced by the override". Those diverge whenever
+// the override did not fire (the template row was already working, leave
+// blocked it, the entry was added after staging started, or the cell was
+// edited back), so the StagingGrid badge is labelled "Extra planned"
+// rather than implying the row's origin.
+
+export interface StagingSession {
+  session_id: number;
+  doctor_id: number;
+  doctor_code: string;
+  doctor_type: DoctorType;
+  week: number;
+  day: Day;
+  period: Period;
+  session_type: MasterSessionType;
+  room_id: number | null;
+  room_code: string | null;
+  is_on_leave: boolean;
+  is_extra_session: boolean;
+}
+
+/**
+ * GET /staging/active and the response of every staging write endpoint's
+ * underlying staging. completed_at null means active; set means
+ * completed. closed_slots is live PracticeClosure data in the
+ * create-to-complete range, not a snapshot, period-granular since the
+ * half-day closures plan.
+ */
+export interface Staging {
+  staging_id: number;
+  config_id: number;
+  start_date: string;
+  num_weeks: number;
+  created_at: string;
+  completed_at: string | null;
+  closed_slots: ClosedSlot[];
+  sessions: StagingSession[];
+  notes: StagingNote[];
+}
+
+/**
+ * One per-run note instance, picked (copied) from a RecurringNote
+ * definition or written free-form for this run alone.
+ *
+ * `week` is a *generation* week of this run, not a template week - the
+ * template-week anchoring recurring notes used to carry is gone. The
+ * backend 422s a week above the staging's own num_weeks, so the picker
+ * must only offer 1..num_weeks.
+ *
+ * `source_note_id` is provenance, not a live link: text, day, period and
+ * doctors were copied at pick time and are never re-read from the
+ * definition, so editing or deactivating a definition leaves instances
+ * already picked untouched. Deleting one nulls source_note_id and keeps
+ * the instance. A free-form note has source_note_id null from the start,
+ * so null means "not linked to any definition" and nothing more - an
+ * unlinked ex-pick and a one-off are indistinguishable by design.
+ */
+export interface StagingNote {
+  id: number;
+  source_note_id: number | null;
+  text: string;
+  week: number;
+  day: Day;
+  period: Period;
+  doctor_ids: number[];
+}
+
+/**
+ * POST /staging/{id}/notes body. One note per call - the picker loops when
+ * a tick spans several generation weeks. The PATCH body is the same shape
+ * minus source_note_id (provenance is fixed at pick time) and is a full
+ * replace: every field is required, an omitted one 422s rather than being
+ * left alone.
+ */
+export interface StagingNoteIn {
+  source_note_id?: number | null;
+  text: string;
+  week: number;
+  day: Day;
+  period: Period;
+  doctor_ids: number[];
+}
+
+export type StagingNotePatchIn = Omit<StagingNoteIn, "source_note_id">;
+
+/** POST /staging body. Same shape as GenerateRotaIn - a staging is created
+ * from exactly the inputs generation would take, before generation runs. */
+export interface CreateStagingIn {
+  start_date: string;
+  num_weeks: 1 | 2 | 4;
+  template_start_week: number;
+}
+
+export interface StagingSessionWriteOut {
+  session: StagingSession;
+  displaced_session: StagingSession | null;
+}
+
+// --- Signatures (schemas/signature.py) ---
+// Metadata only - the image itself never travels as JSON. Uploaded via
+// apiClient.postForm, fetched via apiClient.getBlob, see api/signatures.ts.
+
+export interface SignatureMeta {
+  doctor_id: number;
+  content_type: string;
+  uploaded_at: string;
+}
+
+// --- Calendar feed (schemas/doctor.py CalendarFeedOut) ---
+// One doctor's private .ics subscription. `feed_path` is app-relative
+// (`/api/v1/calendar/<token>.ics`) on purpose: the absolute URL is composed
+// client-side from window.location.origin, because the server sits behind a
+// proxy whose forwarded scheme cannot be trusted to produce an https:// URL.
+// See api/calendarFeed.ts.
+
+export interface CalendarFeed {
+  doctor_id: number;
+  token: string;
+  feed_path: string;
+}
+
+// --- Reception rota (reception rota plan) ---
+// Independent of the clinical rota end to end - see models/reception.py's
+// docstring. Wire shapes mirror backend/app/api/schemas/reception.py
+// exactly, no client-side renaming, matching the convention documented at
+// the top of this file. ValidationIssue (defined above) is reused as-is
+// for coverage warnings - reception/schemas/common.py's ValidationIssueOut
+// is the same schema the clinical rota uses, just with `week`/`period`
+// always null.
+
+export type ReceptionRole =
+  | "phones"
+  | "prescriptions"
+  | "registrations"
+  | "front_desk"
+  | "admin"
+  | "online_triage"
+  | "rotas"
+  | "tasks"
+  | "lunch"
+  | "not_working"
+  | "other"
+  | "cutteslowe"
+  | "wolvercote";
+
+/**
+ * `code` is a reception staff member's only identifier - there is no
+ * separate name. The staff page labels this field "Name"; the wire name
+ * stays `code` to match the column and the `staff_code` joins below.
+ */
+export interface ReceptionStaff {
+  id: number;
+  code: string;
+  active: boolean;
+}
+
+/** POST /reception/staff body. `active` is not settable here - always true server-side. */
+export interface ReceptionStaffIn {
+  code: string;
+}
+
+/** PATCH /reception/staff/{id} body - every field optional, only supplied fields are applied (model_fields_set). */
+export interface ReceptionStaffPatch {
+  code?: string;
+  active?: boolean;
+}
+
+/**
+ * GET /reception/staff/{id}/usage - what a permanent delete would destroy,
+ * read by the confirm dialog before it asks. `generated_days` is not the
+ * counters page's `days_present`: it counts every generated date the member
+ * has any row on, with no leave anti-join and no rolling window (see
+ * schemas/reception.py), so the two numbers can legitimately differ.
+ */
+export interface ReceptionStaffUsage {
+  master_sessions: number;
+  rota_sessions: number;
+  generated_days: number;
+  leave_entries: number;
+}
+
+/** DELETE /reception/staff/{id} response - rows actually removed, per table. */
+export interface ReceptionStaffDeleteResult {
+  deleted: {
+    master_sessions: number;
+    rota_sessions: number;
+    leave_entries: number;
+  };
+}
+
+/**
+ * One weekday master template slot (reception_master_sessions). Row
+ * existence is the data - a staff member with no row for a (day, hour)
+ * is not expected then. `session_id`, not `id`, since this sits in a list
+ * alongside `staff_id`, matching MasterRotaSession's naming rule.
+ */
+export interface ReceptionMasterSession {
+  session_id: number;
+  staff_id: number;
+  staff_code: string;
+  day: Day;
+  hour: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/** POST /reception/master/sessions body - the full slot coordinates plus (role, note). */
+export interface ReceptionMasterSessionCreateIn {
+  staff_id: number;
+  day: Day;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+/**
+ * PATCH /reception/master/sessions/{id} body - a verbatim (role, note)
+ * pair setter, not a partial update; both fields are always required
+ * (note may be null).
+ */
+export interface ReceptionMasterSessionPatchIn {
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/** One generated day's slot (reception_rota_sessions). Same shape as ReceptionMasterSession, minus `day` - the day is fixed by the rota it belongs to. */
+export interface ReceptionRotaSession {
+  session_id: number;
+  staff_id: number;
+  staff_code: string;
+  hour: number;
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/**
+ * GET /reception/rota?date=..., GET /reception/rota/{id}, and the response
+ * of POST /reception/rota (generate): the day header plus its flat session
+ * list and freshly computed coverage warnings.
+ */
+export interface ReceptionRota {
+  rota_id: number;
+  date: string;
+  created_at: string;
+  sessions: ReceptionRotaSession[];
+  issues: ValidationIssue[];
+  /**
+   * Staff with a whole-day leave entry for this date. Their sessions are
+   * still in `sessions` - leave changes nothing about generation or row
+   * editing - but they are excluded from the coverage headcount, so the
+   * grid dims their row. Without that, a warning would report fewer staff
+   * on phones than the user can count on screen.
+   */
+  staff_on_leave: number[];
+}
+
+/** POST /reception/rota body. Weekend dates are rejected (422) by the backend validator before generation runs. */
+export interface ReceptionRotaGenerateIn {
+  date: string;
+}
+
+/** POST /reception/rota/{id}/sessions body - add one staff member to one hour of an existing day. */
+export interface ReceptionRotaSessionIn {
+  staff_id: number;
+  hour: number;
+  role?: ReceptionRole;
+  note?: string | null;
+}
+
+/** PATCH /reception/rota/{id}/sessions/{sid} body - same verbatim pair-setter contract as ReceptionMasterSessionPatchIn. */
+export interface ReceptionRotaSessionPatchIn {
+  role: ReceptionRole;
+  note: string | null;
+}
+
+/**
+ * Every mutating day-rota session endpoint (POST/PATCH) returns the
+ * written row plus freshly recomputed coverage issues, mirroring the
+ * clinical rota's mutate-then-revalidate contract - see api/reception.ts
+ * for how this gets spliced into the cache.
+ */
+export interface ReceptionSessionWriteOut {
+  session: ReceptionRotaSession;
+  issues: ValidationIssue[];
+}
+
+/**
+ * One whole day off for one reception staff member. Deliberately thinner
+ * than the clinical LeaveEntry - no period, no notes: reception's day is
+ * twenty half-hourly slots, so an AM/PM split would be an arbitrary line
+ * through it, and "off from 2pm" is already expressible (more precisely)
+ * by deleting those slots on the day rota.
+ */
+export interface ReceptionLeaveEntry {
+  id: number;
+  staff_id: number;
+  date: string;
+}
+
+/** POST /reception/leave/bulk and /bulk-delete body. */
+export interface ReceptionLeaveRangeIn {
+  staff_id: number;
+  start_date: string;
+  end_date: string;
+}
+
+/**
+ * Counts, not the clinical bulk endpoint's per-date skip list. Weekends
+ * are skipped because reception is Monday-Friday throughout, so a weekend
+ * row could never reach a rota.
+ */
+export interface ReceptionLeaveBulkOut {
+  created: number;
+  skipped_existing: number;
+  skipped_weekend: number;
+}
+
+export interface ReceptionLeaveBulkDeleteOut {
+  deleted_count: number;
+}
+
+// --- Reception counters (reception counters plan) ---
+
+/**
+ * One staff member's role counters over the window. `role_slots` is a dict
+ * keyed by role value rather than thirteen named fields, zero-filled for
+ * every role by the backend, so adding a role never needs a type edit here.
+ *
+ * `hours_worked` excludes `not_working` and nothing else; `role_slots`
+ * counts every role, `not_working` included. The two disagree by design -
+ * see receptionWeightedScore.ts for what that means for the ratio.
+ */
+export interface ReceptionCounterRow {
+  staff_id: number;
+  staff_code: string;
+  active: boolean;
+  hours_worked: number;
+  days_present: number;
+  role_slots: Partial<Record<ReceptionRole, number>>;
+}
+
+/**
+ * GET /reception/counters. Carries its own window bounds and
+ * `days_counted` - the number of distinct *generated* dates in range, not
+ * the number of days the range spans - so the page can show what produced
+ * the absolute slot counts instead of leaving a sparsely generated window
+ * indistinguishable from a quiet one.
+ */
+export interface ReceptionCounters {
+  from_date: string;
+  to_date: string;
+  days_counted: number;
+  staff: ReceptionCounterRow[];
+}
+
+// --- Audit log (schemas/audit.py) ---
+
+/**
+ * One row of the audit log: a single non-GET request that reached the API,
+ * captured by the ASGI middleware in backend/app/api/audit.py. Entries are
+ * HTTP-shaped rather than domain-shaped - "PATCH this route with this body
+ * returned 200", not "moved Dr AB from room 3 to room 5".
+ *
+ * The identity fields are frozen snapshots taken at write time, not joins:
+ * an entry still reads correctly after the user is renamed or demoted.
+ * `user_access_level` is therefore a plain string on the wire, not an
+ * AccessLevel - a historical row may name a tier that no longer exists.
+ * All three are null for a request with no authenticated actor (a failed
+ * login, an unauthenticated 401).
+ */
+export interface AuditLogEntry {
+  id: number;
+  /** UTC. The backend compares and returns wall-clock UTC regardless of the offset sent. */
+  at: string;
+  user_id: number | null;
+  user_email: string | null;
+  user_access_level: string | null;
+  method: string;
+  /**
+   * The templated route (`/rota/{rota_id}/sessions/{session_id}`), which is
+   * router-local: `include_router(prefix=)` prefixes and the `/api/v1` base
+   * are not part of it. Null when the request matched no route, or if a
+   * FastAPI upgrade stops populating `scope["route"]`. Use `path` for the
+   * real requested path.
+   */
+  route: string | null;
+  path: string;
+  /** Values are strings - the ASGI scope reports them that way, pre-coercion. */
+  path_params: Record<string, unknown> | null;
+  /**
+   * The redacted JSON request body, or an `{"_audit": ...}` marker when the
+   * body was too large, unparseable, or not JSON at all. Password-ish keys
+   * are replaced with "[redacted]" server-side.
+   */
+  request_body: Record<string, unknown> | null;
+  status_code: number;
+  outcome_detail: string | null;
+  duration_ms: number | null;
+  client_ip: string | null;
+  /**
+   * A plain-English sentence for the row ("Committed rota 12"), derived
+   * server-side from `(method, route, path_params)`. Not a column: the
+   * wording is presentation, so improving it improves historical rows too.
+   * Falls back to "METHOD /route" for an endpoint with no mapping, which
+   * a backend coverage test is meant to make impossible.
+   */
+  summary: string;
+  /**
+   * `status_code` as one of "Done" / "Rejected" / "Not allowed" /
+   * "Not found" / "System error" / "Unknown". Also derived server-side;
+   * the exact code stays on the row for the expanded detail.
+   */
+  outcome: string;
+}
+
+/**
+ * GET /audit response. `total` counts every row matching the filters, not
+ * the page, so the UI can render "x-y of total" and know whether a next
+ * page exists.
+ *
+ * Named `AuditLogList`, not `AuditLogPage`: `AuditLogPage` is the React
+ * component, and the collision would be confusing in a file importing both.
+ */
+export interface AuditLogList {
+  items: AuditLogEntry[];
+  total: number;
+}
+
+/**
+ * GET /audit query parameters. Every field is optional; omitted fields are
+ * left off the query string entirely rather than sent empty (see
+ * api/audit.ts), so the backend applies its own defaults for limit/offset.
+ *
+ * `path_contains` is a substring match with no word boundaries - `/rota/12`
+ * also matches `/rota/120`, and `/rota/12/` narrows it to that rota's
+ * sub-resources. `%` and `_` are matched literally, not as wildcards.
+ * The status and timestamp pairs are inclusive ranges; `since`/`until` are
+ * ISO 8601 strings.
+ */
+export interface AuditLogFilters {
+  limit?: number;
+  offset?: number;
+  user_id?: number;
+  path_contains?: string;
+  method?: string;
+  status_min?: number;
+  status_max?: number;
+  since?: string;
+  until?: string;
+}

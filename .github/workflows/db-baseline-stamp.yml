@@ -1,0 +1,296 @@
+name: DB baseline stamp (one-off)
+
+# TEMPORARY OPERATIONAL TOOL -- delete this file once the Railway database
+# has been stamped.
+#
+# Why it exists: consolidating the Alembic chain into a single 001 baseline
+# left Railway's alembic_version holding '028', a revision that no longer
+# exists, so every deploy dies with "Can't locate revision identified by
+# '028'" before uvicorn starts.
+#
+# Because the new 001 builds a schema identical to what the old 28-step
+# chain built, the live database already HAS the schema 001 describes -- it
+# just carries the wrong label. Correcting the label is enough; no drop and
+# no reseed. This workflow proves that premise against the live database
+# before it changes anything.
+#
+# It does NOT trust a hardcoded fingerprint. It builds a reference schema
+# from this repo's own 001 against a throwaway Postgres 16, then compares
+# the live schema against it column by column, index by index, constraint by
+# constraint, enum label by enum label. The stamp step refuses to run if
+# that comparison is not empty.
+#
+# Two things are deliberately excluded from the blocking comparison, both
+# learned from the first run against the real database:
+#
+# 1. NOT NULL constraints as catalogue rows. Postgres 18 records every NOT
+#    NULL as a named row in pg_constraint (contype='n'); Postgres 16 does
+#    not record them at all. Comparing a PG16 reference against a PG18 live
+#    database therefore produced 179 phantom "live-only" rows -- exactly the
+#    number of NOT NULL columns in the schema. Column nullability is already
+#    compared, per column, in the COL| lines, so dropping contype='n' loses
+#    no coverage and makes the comparison work across major versions.
+#
+# 2. Enum sort order (enumsortorder). The live database's enum types carry a
+#    different internal ordering than a freshly built one: types created
+#    early and extended later by ALTER TYPE ... ADD VALUE have the added
+#    labels appended, whereas a fresh build creates every label at once in
+#    the Python enum's declaration order. The label SETS are identical and
+#    are still compared. The ordering is reported separately, below, as
+#    advisory output.
+#
+#    This is not consolidation drift -- running the old 28-step chain from
+#    scratch today produces the same ordering as the new baseline (verified
+#    by pg_dump; the only differences are physical column order, which 001's
+#    docstring already documents as not preserved). It is an artefact of the
+#    live database having been built incrementally over months. Sort order
+#    affects ORDER BY, the comparison operators and MIN/MAX on an enum
+#    column, and nothing in this codebase sorts or compares by doctor_type
+#    or reception_role -- only equality and IN, which are unaffected.
+#
+# Setup: add the Railway DATABASE_PUBLIC_URL as a repository secret named
+# RAILWAY_DATABASE_URL (Settings > Secrets and variables > Actions > New
+# repository secret). Use the plain postgresql:// form -- psql does not
+# understand the postgresql+psycopg2:// form Alembic uses.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "inspect = report only (safe). stamp = apply the alembic_version fix if the schemas match. promote-user = raise one account to manager."
+        type: choice
+        required: true
+        default: inspect
+        options: [inspect, stamp, promote-user]
+      email:
+        description: "promote-user only: the email address of the account to raise to manager."
+        type: string
+        required: false
+
+permissions: {}
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # The reference database. Same image CI's migrations-postgres job uses.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rota
+          POSTGRES_PASSWORD: rota
+          POSTGRES_DB: rota_ref
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rota"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://rota:rota@localhost:5432/rota_ref
+      REF_URL: postgresql://rota:rota@localhost:5432/rota_ref
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Build the reference schema from this repo's 001
+        run: uv run alembic upgrade head
+
+      # One query, run against both databases. Emits one line per schema
+      # fact so the two can be diffed directly -- a hash alone would say
+      # "different" without saying how, and a Postgres major-version
+      # difference in how indexdef is rendered would look identical to a
+      # real schema difference.
+      - name: Write the schema-signature query
+        run: |
+          cat > /tmp/schema_sig.sql <<'SQL'
+          SELECT sig FROM (
+            SELECT 'COL|'||table_name||'|'||column_name||'|'||udt_name||'|'||is_nullable||'|'
+                   ||coalesce(column_default,'-')||'|'||coalesce(character_maximum_length::text,'-')||'|'
+                   ||coalesce(numeric_precision::text,'-')||'|'||coalesce(numeric_scale::text,'-') AS sig
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name <> 'alembic_version'
+            UNION ALL
+            SELECT 'IDX|'||indexdef FROM pg_indexes
+            WHERE schemaname='public' AND tablename <> 'alembic_version'
+            UNION ALL
+            -- Labels only, not enumsortorder. See this file's header, note 2.
+            SELECT 'ENUM|'||t.typname||'|'||e.enumlabel
+            FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
+            JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'
+            UNION ALL
+            -- contype='n' excluded: PG18 catalogues NOT NULL, PG16 does not.
+            -- Nullability is already compared in the COL| lines above.
+            SELECT 'CON|'||c.conrelid::regclass::text||'|'||c.conname||'|'||pg_get_constraintdef(c.oid)
+            FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
+            WHERE n.nspname='public' AND c.contype <> 'n'
+              AND c.conrelid::regclass::text <> 'alembic_version'
+          ) s ORDER BY sig;
+          SQL
+
+          cat > /tmp/enum_order.sql <<'SQL'
+          SELECT t.typname||': '||string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder)
+          FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
+          JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'
+          GROUP BY t.typname ORDER BY 1;
+          SQL
+
+      - name: Report the live database's current state
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LIVE_URL:-}" ]; then
+            echo "::error::RAILWAY_DATABASE_URL secret is not set. See this file's header for how to add it."
+            exit 1
+          fi
+          echo "--- Postgres versions (a major-version gap can cause cosmetic diffs below) ---"
+          echo -n "reference: "; psql "$REF_URL"  -tAc "show server_version;"
+          echo -n "live:      "; psql "$LIVE_URL" -tAc "show server_version;"
+          echo
+          echo "--- live alembic_version ---"
+          psql "$LIVE_URL" -c "SELECT * FROM alembic_version;"
+          echo "--- live table row counts (non-empty only) ---"
+          psql "$LIVE_URL" -c "
+            SELECT table_name, (xpath('/row/cnt/text()', xml_count))[1]::text::bigint AS rows
+            FROM (SELECT table_name,
+                         query_to_xml(format('select count(*) as cnt from %I.%I', table_schema, table_name),
+                                      false, true, '') AS xml_count
+                  FROM information_schema.tables
+                  WHERE table_schema='public' AND table_type='BASE TABLE') t
+            WHERE (xpath('/row/cnt/text()', xml_count))[1]::text::bigint > 0
+            ORDER BY rows DESC;"
+
+      - name: Compare the live schema against the reference
+        id: compare
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$REF_URL"  -tAf /tmp/schema_sig.sql > /tmp/ref.txt
+          psql "$LIVE_URL" -tAf /tmp/schema_sig.sql > /tmp/live.txt
+          echo "reference facts: $(wc -l < /tmp/ref.txt)"
+          echo "live facts:      $(wc -l < /tmp/live.txt)"
+          echo
+          if diff -u /tmp/ref.txt /tmp/live.txt > /tmp/diff.txt; then
+            echo "MATCH: the live schema is identical to what this repo's 001 builds."
+            echo "match=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "MISMATCH: the live schema differs from what this repo's 001 builds."
+            echo "  '-' lines are in the reference but missing live; '+' lines are live-only."
+            echo
+            cat /tmp/diff.txt
+            echo "match=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Advisory only -- never blocks the stamp. See this file's header, note 2.
+      - name: Report enum sort order (advisory)
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          psql "$REF_URL"  -tAf /tmp/enum_order.sql > /tmp/ref_enum.txt
+          psql "$LIVE_URL" -tAf /tmp/enum_order.sql > /tmp/live_enum.txt
+          if diff -u /tmp/ref_enum.txt /tmp/live_enum.txt > /tmp/enum_diff.txt; then
+            echo "Enum sort order is identical to a freshly built schema."
+          else
+            echo "NOTE: enum sort order differs from a freshly built schema."
+            echo "Expected, and not a reason to stop -- the live types were extended"
+            echo "by ALTER TYPE ... ADD VALUE over time, so added labels sit at the end."
+            echo "The label sets match (checked above). Sort order only affects ORDER BY,"
+            echo "the comparison operators and MIN/MAX on an enum column, none of which"
+            echo "this codebase uses on doctor_type or reception_role."
+            echo
+            cat /tmp/enum_diff.txt
+          fi
+
+      - name: Stamp alembic_version to 001
+        if: inputs.action == 'stamp'
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          MATCH: ${{ steps.compare.outputs.match }}
+        run: |
+          set -euo pipefail
+          if [ "$MATCH" != "true" ]; then
+            echo "::error::Refusing to stamp: the live schema does not match this repo's 001."
+            echo "Read the diff above. A real difference means the reset path (drop schema, redeploy, reseed) is the correct fix, not a stamp."
+            exit 1
+          fi
+          rows=$(psql "$LIVE_URL" -tAc "SELECT count(*) FROM alembic_version;")
+          if [ "$rows" != "1" ]; then
+            echo "::error::Expected exactly one alembic_version row, found $rows. Stopping."
+            exit 1
+          fi
+          psql "$LIVE_URL" -c "UPDATE alembic_version SET version_num='001';"
+          echo "--- alembic_version now reads ---"
+          psql "$LIVE_URL" -c "SELECT * FROM alembic_version;"
+          echo
+          echo "Done. Redeploy the Railway service; 'alembic upgrade head' will find itself already at head and start uvicorn."
+
+      # Every account that predates the role-based auth work was backfilled to
+      # 'nurse' -- the lowest tier, chosen deliberately so an accidental viewer
+      # announces itself rather than a silent over-grant. That leaves a
+      # chicken-and-egg: the Users page is manager-only, so a database whose
+      # only accounts are nurses has no way to promote anyone from the UI.
+      # seed_users.py is the documented escape hatch but only CREATES users, so
+      # it cannot raise an existing one. This step does that, and is the reason
+      # to delete this workflow promptly afterwards.
+      - name: Promote a user to manager
+        if: inputs.action == 'promote-user'
+        env:
+          LIVE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+          EMAIL: ${{ inputs.email }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EMAIL:-}" ]; then
+            echo "::error::action=promote-user requires the 'email' input."
+            exit 1
+          fi
+          echo "--- accounts before ---"
+          psql "$LIVE_URL" -c "SELECT id, email, name, access_level, active FROM users ORDER BY id;"
+          # -v plus :'em' lets psql quote the value as a SQL literal, so an
+          # apostrophe in an address is handled and the input cannot inject SQL.
+          # Two things learned the hard way, both verified against a real
+          # database rather than assumed:
+          #   - the SQL is piped in, not passed with -c: psql performs variable
+          #     interpolation when reading stdin or a file, but NOT for -c.
+          #   - existence is checked with its own SELECT rather than by counting
+          #     RETURNING lines, because psql also echoes the "UPDATE n" command
+          #     tag on stdout, which made a 1-row update look like 2.
+          # And do NOT switch to shell interpolation with $$-quoting: bash
+          # expands $$ to its own PID.
+          matches=$(printf '%s\n' "SELECT count(*) FROM users WHERE email = :'em';" \
+            | psql "$LIVE_URL" -v ON_ERROR_STOP=1 -v em="$EMAIL" -tAq)
+          if [ "$matches" = "0" ]; then
+            echo "::error::No user found with that email address. Check the list above."
+            exit 1
+          fi
+          printf '%s\n' "UPDATE users SET access_level='manager'::access_level WHERE email = :'em';" \
+            | psql "$LIVE_URL" -v ON_ERROR_STOP=1 -v em="$EMAIL" -q
+          echo "--- accounts after ---"
+          psql "$LIVE_URL" -c "SELECT id, email, name, access_level, active FROM users ORDER BY id;"
+          echo
+          echo "Done. Reload the app in the browser (a full page reload, not just"
+          echo "clicking around) -- LoginGate re-checks GET /auth/me on mount and"
+          echo "will pick up the new access level. Logging out and in also works."
+
+      - name: What to do next
+        if: inputs.action == 'inspect'
+        run: |
+          echo "Report-only run; nothing was changed."
+          echo "If the comparison above says MATCH, re-run this workflow with action=stamp."

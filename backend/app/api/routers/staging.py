@@ -1,0 +1,851 @@
+"""Staging router: create, read, edit, complete, and abandon an editable
+copy of the active template's rows for a date range.
+
+Editing mirrors the master rota template's contract verbatim (see
+routers/master_rota.py) -- pair setter, same-slot room displacement
+including the PRE_ASSIGNED -> REQUIRES_ROOM demotion, permissive verbatim
+writer with no eligibility checks. The one addition: session create 422s
+when `week` exceeds this staging's own num_weeks.
+
+Complete (POST /staging/{staging_id}/complete) runs the existing Phase
+0-12 pipeline against the staged copy's config, exactly as
+routers/rota.py's generate_rota does against a directly-submitted
+config.
+
+`create_staging`'s copy loop is not a pure copy, for two reasons.
+
+First: a template row that lands on a planned
+`ExtraSessionEntry` is written to the staged copy per the override table,
+and a planned extra session with no template row at all creates a new
+staged row. The override is skipped wherever leave already exists for the
+slot. `is_extra_session` on `StagingSessionOut` is derived the same way as
+`is_on_leave` -- it means "a planned extra session exists for this slot",
+not "the override fired here"; see `_extra_session_lookup`.
+
+Second: a row is not copied at all when its doctor is outside their
+employment window on that date, and the extra-session new-row branch
+skips the same cases. Phase 2 enforces the window too and is the
+authority, but without the skip here the admin would see and edit cells
+in `StagingGrid` that then silently vanish at Complete, with nothing on
+screen explaining why.
+
+Per-run notes (`/staging/{id}/notes`) are the third thing here that is
+not session editing. They are written against `staging.config_id`, not
+the staging row, because both generation paths run `generate(db,
+config_id)` and `load_context()` is keyed on the RotaConfig -- attaching
+there keeps the engine's lookup single-shaped. They live under this
+prefix purely to inherit `_staging_or_404` / `_require_active`, so a
+completed staging rejects note writes exactly as it rejects session
+writes. See models/recurring_note.py for what an instance is and why it
+never re-reads its definition.
+"""
+from __future__ import annotations
+
+import datetime
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from ...doctor_window import is_within_window
+from ...engine.generate import (
+    find_overlapping_committed_rota,
+    generate,
+    get_active_draft,
+    get_active_staging,
+)
+from ...engine.week_map import build_date_to_genslot, build_week_dates, template_week
+from ...models import (
+    Doctor,
+    ExtraSessionEntry,
+    LeaveEntry,
+    MasterRotaSession,
+    MasterRotaTemplate,
+    PracticeClosure,
+    RecurringNote,
+    Room,
+    RotaConfig,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
+    RotaStaging,
+    RotaStagingSession,
+    User,
+)
+from ...models.enums import MasterSessionType, RotaStatus
+from ..deps import get_current_user, get_db
+from ..schemas import (
+    ClosedSlotOut,
+    GenerateRotaOut,
+    StagingCreateIn,
+    StagingNoteIn,
+    StagingNoteOut,
+    StagingNotePatchIn,
+    StagingOut,
+    StagingSessionCreateIn,
+    StagingSessionOut,
+    StagingSessionPatchIn,
+    StagingSessionWriteOut,
+    ValidationIssueOut,
+)
+from ._doctor_ids import validate_doctor_ids
+
+router = APIRouter(prefix="/staging", tags=["staging"])
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _staging_or_404(db: Session, staging_id: int) -> RotaStaging:
+    staging = db.get(RotaStaging, staging_id)
+    if staging is None:
+        raise HTTPException(
+            status_code=404, detail=f"Staging {staging_id} not found"
+        )
+    return staging
+
+
+def _require_active(staging: RotaStaging) -> None:
+    if staging.completed_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Staging {staging.id} is completed; this operation is active-only",
+        )
+
+
+def _leave_lookup(
+    db: Session, config: RotaConfig
+) -> set[tuple[int, datetime.date, object]]:
+    """Same query shape as routers/rota.py's _leave_lookup: every leave key
+    within the config's date range."""
+    range_start = config.start_date
+    range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+    rows = db.execute(
+        select(LeaveEntry).where(
+            LeaveEntry.date >= range_start, LeaveEntry.date < range_end
+        )
+    ).scalars().all()
+    return {(e.doctor_id, e.date, e.period) for e in rows}
+
+
+def _extra_session_lookup(
+    db: Session, config: RotaConfig
+) -> set[tuple[int, datetime.date, object]]:
+    """Identical shape to _leave_lookup, over ExtraSessionEntry instead.
+
+    Used both to derive is_extra_session on read and to drive the override
+    in create_staging's copy loop."""
+    range_start = config.start_date
+    range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+    rows = db.execute(
+        select(ExtraSessionEntry).where(
+            ExtraSessionEntry.date >= range_start, ExtraSessionEntry.date < range_end
+        )
+    ).scalars().all()
+    return {(e.doctor_id, e.date, e.period) for e in rows}
+
+
+# Template types a planned extra session can override. WFH is included
+# deliberately -- remove it from this set to leave WFH template rows
+# untouched by the override.
+_OVERRIDABLE_TYPES = frozenset({
+    MasterSessionType.NO_SURGERY,
+    MasterSessionType.ADMIN_TIME,
+    MasterSessionType.WFH,
+})
+
+
+def _session_outs(
+    db: Session, config: RotaConfig, sessions: list[RotaStagingSession]
+) -> list[StagingSessionOut]:
+    """Join doctor_code/doctor_type/room_code and derive is_on_leave.
+    Shared by every endpoint returning session rows so they never drift
+    out of sync (mirrors master_rota.py's _session_outs)."""
+    doctors = {d.id: d for d in db.execute(select(Doctor)).scalars()}
+    room_codes = {r.id: r.code for r in db.execute(select(Room)).scalars()}
+    week_dates = build_week_dates(config.start_date, config.num_weeks)
+    leave = _leave_lookup(db, config)
+    extra = _extra_session_lookup(db, config)
+
+    out: list[StagingSessionOut] = []
+    for s in sessions:
+        doctor = doctors.get(s.doctor_id)
+        session_date = week_dates.get((s.week, s.day))
+        out.append(StagingSessionOut(
+            session_id=s.id,
+            doctor_id=s.doctor_id,
+            doctor_code=doctor.code if doctor is not None else "?",
+            doctor_type=doctor.doctor_type,
+            week=s.week,
+            day=s.day,
+            period=s.period,
+            session_type=s.session_type,
+            room_id=s.room_id,
+            room_code=room_codes.get(s.room_id) if s.room_id else None,
+            is_on_leave=(
+                session_date is not None
+                and (s.doctor_id, session_date, s.period) in leave
+            ),
+            is_extra_session=(
+                session_date is not None
+                and (s.doctor_id, session_date, s.period) in extra
+            ),
+        ))
+    return out
+
+
+def _closed_slots_out(
+    db: Session, config: RotaConfig
+) -> list[ClosedSlotOut]:
+    """Live PracticeClosure data in the config's range -- no snapshot exists
+    for a staging, so this is the current table, not a
+    frozen copy."""
+    range_start = config.start_date
+    range_end = config.start_date + datetime.timedelta(days=config.num_weeks * 7)
+    rows = db.execute(
+        select(PracticeClosure.date, PracticeClosure.period).where(
+            PracticeClosure.date >= range_start, PracticeClosure.date < range_end
+        )
+    ).all()
+    return [
+        ClosedSlotOut(date=d, period=p)
+        for d, p in sorted(rows, key=lambda row: (row[0], row[1].value))
+    ]
+
+
+def _notes_out(db: Session, config_id: int) -> list[StagingNoteOut]:
+    """Every per-run note instance for this run, id ascending -- the same
+    order the engine concatenates overlapping notes in, so the picker
+    shows them as the grid will."""
+    notes = db.execute(
+        select(RotaConfigNote)
+        .where(RotaConfigNote.config_id == config_id)
+        .options(selectinload(RotaConfigNote.doctors))
+        .order_by(RotaConfigNote.id.asc())
+    ).scalars().all()
+    return [StagingNoteOut.from_orm_note(n) for n in notes]
+
+
+def _note_or_404(db: Session, staging: RotaStaging, note_id: int) -> RotaConfigNote:
+    """A note belonging to another run is a 404 here, not a 403: the note
+    id is simply not addressable under this staging."""
+    note = db.get(RotaConfigNote, note_id)
+    if note is None or note.config_id != staging.config_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Note {note_id} not found in staging {staging.id}",
+        )
+    return note
+
+
+def _validate_note(
+    db: Session,
+    config: RotaConfig,
+    week: int,
+    doctor_ids: list[int],
+    source_note_id: int | None = None,
+) -> None:
+    """The three checks a stateless schema cannot make, in a fixed order
+    and each with its own message.
+
+    `week` is bounded 1..4 by the field constraint; that is necessary but
+    not sufficient -- a week-3 note on a 2-week run is silently dead,
+    exactly as StagingSessionCreateIn guards.
+
+    `source_note_id` is not required to be *active*: a definition may be
+    deactivated between page load and submit, and rejecting the copy then
+    would be a confusing failure for an operation that never re-reads it.
+    """
+    if week > config.num_weeks:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"week {week} is outside this staging's "
+                f"{config.num_weeks}-week range"
+            ),
+        )
+    validate_doctor_ids(db, doctor_ids)
+    if source_note_id is not None and db.get(RecurringNote, source_note_id) is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"source_note_id {source_note_id} does not exist",
+        )
+
+
+def _staging_out(db: Session, staging: RotaStaging) -> StagingOut:
+    config = db.get(RotaConfig, staging.config_id)
+    sessions = db.execute(
+        select(RotaStagingSession).where(RotaStagingSession.staging_id == staging.id)
+    ).scalars().all()
+    return StagingOut(
+        staging_id=staging.id,
+        config_id=staging.config_id,
+        start_date=config.start_date,
+        num_weeks=config.num_weeks,
+        created_at=staging.created_at,
+        completed_at=staging.completed_at,
+        closed_slots=_closed_slots_out(db, config),
+        sessions=_session_outs(db, config, sessions),
+        notes=_notes_out(db, staging.config_id),
+    )
+
+
+def _find_room_holder(
+    db: Session,
+    staging_id: int,
+    week: int,
+    day,
+    period,
+    room_id: int,
+    exclude_id: int | None = None,
+) -> RotaStagingSession | None:
+    """Session in the same staging slot already holding room_id, excluding
+    self. Same .first()-over-scalar_one_or_none() defensiveness as the
+    master rota / rota routers' equivalents: a duplicate holder should be
+    impossible by construction, but displacing one of them is a better
+    failure mode than a 500 on dirty data.
+
+    exclude_id is optional (None) for POST/create, where no self row
+    exists yet -- PATCH always passes the target session's own id."""
+    conditions = [
+        RotaStagingSession.staging_id == staging_id,
+        RotaStagingSession.week == week,
+        RotaStagingSession.day == day,
+        RotaStagingSession.period == period,
+        RotaStagingSession.room_id == room_id,
+    ]
+    if exclude_id is not None:
+        conditions.append(RotaStagingSession.id != exclude_id)
+    return db.execute(
+        select(RotaStagingSession).where(*conditions).order_by(RotaStagingSession.id)
+    ).scalars().first()
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("", response_model=StagingOut, status_code=201)
+def create_staging(
+    payload: StagingCreateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    """Copy the active template's rows for [start_date, start_date +
+    num_weeks) into a new run-scoped editable staging.
+
+    Checks, in order, each a 409 with a distinct message:
+    - no active draft (a draft must be resolved before starting a
+      staging, mirroring generate's own first check)
+    - no active staging (at most one globally)
+    - no committed-rota overlap for the requested range
+    - exactly one active MasterRotaTemplate (the engine's strict rule --
+      staging is a generation precursor, so this is checked here rather
+      than deferring to the master-rota GET's lowest-id resolution)
+    """
+    if get_active_draft(db) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A draft rota already exists; commit or scrap it first",
+        )
+    if get_active_staging(db) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A staging is already in progress; complete or abandon it first",
+        )
+
+    overlap = find_overlapping_committed_rota(
+        db, payload.start_date, payload.num_weeks
+    )
+    if overlap is not None:
+        existing_rota, existing_config = overlap
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A committed rota (id={existing_rota.id}) already covers "
+                f"{existing_config.start_date.isoformat()} "
+                f"({existing_config.num_weeks} week(s)); overlapping weeks "
+                "cannot be staged"
+            ),
+        )
+
+    active_templates = db.execute(
+        select(MasterRotaTemplate).where(MasterRotaTemplate.is_active.is_(True))
+    ).scalars().all()
+    if len(active_templates) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Staging requires exactly one active master rota template "
+                f"(found {len(active_templates)})"
+            ),
+        )
+    template = active_templates[0]
+
+    # template_start_week=1 always on the persisted config: staging rows
+    # are keyed by generation week, so the pipeline must see
+    # template_week() as the identity when it later runs against this
+    # config. payload.template_start_week is applied once below, to select
+    # which template weeks get copied, then discarded -- it is not stored.
+    config = RotaConfig(
+        start_date=payload.start_date,
+        num_weeks=payload.num_weeks,
+        template_start_week=1,
+    )
+    db.add(config)
+    db.flush()
+
+    staging = RotaStaging(config_id=config.id, source_template_id=template.id)
+    db.add(staging)
+    db.flush()
+
+    template_rows = db.execute(
+        select(MasterRotaSession).where(MasterRotaSession.template_id == template.id)
+    ).scalars().all()
+    rows_by_week: dict[int, list[MasterRotaSession]] = {}
+    for row in template_rows:
+        rows_by_week.setdefault(row.week, []).append(row)
+
+    # The copy loop applies the extra-session override (see the module
+    # docstring) instead of copying verbatim.
+    extra = _extra_session_lookup(db, config)
+    leave = _leave_lookup(db, config)
+    week_dates = build_week_dates(payload.start_date, payload.num_weeks)
+    covered_slots: set[tuple[int, int, object, object]] = set()
+    # Built once rather than a db.get per template row -- the copy loop
+    # touches every row in the template, several times over for a 4-week run.
+    doctors_by_id = {d.id: d for d in db.execute(select(Doctor)).scalars()}
+
+    for gen_week in range(1, payload.num_weeks + 1):
+        tw = template_week(gen_week, payload.template_start_week)
+        for row in rows_by_week.get(tw, []):
+            session_date = week_dates[(gen_week, row.day)]
+            # Recorded before the window skip below: covered_slots means "a
+            # template row exists for this slot", which stays true whether or
+            # not the row is copied, and keeps the new-row branch from
+            # reinstating a slot this loop deliberately dropped.
+            covered_slots.add((row.doctor_id, gen_week, row.day, row.period))
+
+            # no staged row for a doctor outside their employment window on
+            # this date. Phase 2 would drop it at Complete anyway; skipping
+            # here keeps the grid the admin edits and the rota they get in
+            # agreement.
+            doctor = doctors_by_id.get(row.doctor_id)
+            if doctor is not None and not is_within_window(doctor, session_date):
+                continue
+
+            session_type = row.session_type
+            room_id = row.room_id
+            slot_key = (row.doctor_id, session_date, row.period)
+            if (
+                slot_key in extra
+                and slot_key not in leave
+                and row.session_type in _OVERRIDABLE_TYPES
+            ):
+                if row.session_type == MasterSessionType.ADMIN_TIME and row.room_id is not None:
+                    session_type = MasterSessionType.PRE_ASSIGNED
+                    # room_id stays as row.room_id
+                else:
+                    session_type = MasterSessionType.REQUIRES_ROOM
+                    room_id = None
+
+            # Copied regardless of closures -- Phase 2's closed-date skip
+            # remains the single closure authority.
+            db.add(RotaStagingSession(
+                staging_id=staging.id,
+                doctor_id=row.doctor_id,
+                week=gen_week,
+                day=row.day,
+                period=row.period,
+                session_type=session_type,
+                room_id=room_id,
+            ))
+
+    # Extra sessions with no corresponding template row: the
+    # part-timer-working-an-extra-day case. Created as a new
+    # REQUIRES_ROOM row unless leave supersedes it.
+    date_to_genslot = build_date_to_genslot(week_dates)
+    extra_rows = db.execute(
+        select(ExtraSessionEntry).where(
+            ExtraSessionEntry.date >= payload.start_date,
+            ExtraSessionEntry.date
+            < payload.start_date + datetime.timedelta(days=payload.num_weeks * 7),
+        )
+    ).scalars().all()
+    for entry in extra_rows:
+        genslot = date_to_genslot.get(entry.date)
+        if genslot is None:
+            continue  # outside the range, or a weekend -- never in the map
+        gen_week, day = genslot
+        if (entry.doctor_id, gen_week, day, entry.period) in covered_slots:
+            continue  # a template row already exists for this slot
+        if (entry.doctor_id, entry.date, entry.period) in leave:
+            continue  # leave wins
+        entry_doctor = doctors_by_id.get(entry.doctor_id)
+        if entry_doctor is not None and not is_within_window(entry_doctor, entry.date):
+            # An extra session planned outside the doctor's window must not
+            # conjure a staged row.
+            continue
+        db.add(RotaStagingSession(
+            staging_id=staging.id,
+            doctor_id=entry.doctor_id,
+            week=gen_week,
+            day=day,
+            period=entry.period,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+            room_id=None,
+        ))
+
+    db.flush()
+    db.commit()
+    return _staging_out(db, staging)
+
+
+@router.get("/active", response_model=StagingOut)
+def get_active_staging_endpoint(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    staging = get_active_staging(db)
+    if staging is None:
+        raise HTTPException(status_code=404, detail="No active staging")
+    return _staging_out(db, staging)
+
+
+@router.post("/{staging_id}/complete", response_model=GenerateRotaOut)
+def complete_staging(
+    staging_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> GenerateRotaOut:
+    """Run the Phase 0-12 pipeline against the staged copy and mark the
+    staging completed.
+
+    Re-checks the two locks that could have changed since create time:
+    - no active draft (rollback_commit can produce one mid-staging even
+      though /rota/generate is blocked while staging is active)
+    - no committed-rota overlap (create-time check was fail-fast; this is
+      the authoritative re-check)
+
+    On Phase 0 failure (422): nothing here is committed, so only this
+    request's own writes are rolled back. The staging rows and its
+    RotaConfig were committed by earlier requests and survive -- this is
+    a deliberate divergence from generate_rota, which discards the
+    RotaConfig it created in the same request on failure. The user fixes
+    the offending staged edit and completes again.
+    """
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+
+    if get_active_draft(db) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A draft rota exists; commit or scrap it before completing staging",
+        )
+
+    config = db.get(RotaConfig, staging.config_id)
+    overlap = find_overlapping_committed_rota(db, config.start_date, config.num_weeks)
+    if overlap is not None:
+        existing_rota, existing_config = overlap
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A committed rota (id={existing_rota.id}) already covers "
+                f"{existing_config.start_date.isoformat()} "
+                f"({existing_config.num_weeks} week(s)); overlapping weeks "
+                "cannot be regenerated"
+            ),
+        )
+
+    result = generate(db, staging.config_id)
+    if result.status == "failed":
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                ValidationIssueOut.model_validate(i).model_dump()
+                for i in result.issues
+            ],
+        )
+
+    staging.completed_at = datetime.datetime.now(datetime.timezone.utc)
+    db.commit()
+    return GenerateRotaOut(
+        rota_id=result.rota_id,
+        status=RotaStatus.DRAFT,
+        issues=[ValidationIssueOut.model_validate(i) for i in result.issues],
+    )
+
+
+@router.patch(
+    "/{staging_id}/sessions/{session_id}",
+    response_model=StagingSessionWriteOut,
+)
+def patch_session(
+    staging_id: int,
+    session_id: int,
+    payload: StagingSessionPatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingSessionWriteOut:
+    """Verbatim (session_type, room_id) pair setter with room displacement,
+    mirroring master_rota.patch_session exactly (see its docstring)."""
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    target = db.get(RotaStagingSession, session_id)
+    if target is None or target.staging_id != staging_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in staging {staging_id}",
+        )
+
+    displaced: RotaStagingSession | None = None
+    if payload.room_id is not None:
+        room = db.get(Room, payload.room_id)
+        if room is None:
+            raise HTTPException(
+                status_code=404, detail=f"Room {payload.room_id} not found"
+            )
+        displaced = _find_room_holder(
+            db, staging_id, target.week, target.day, target.period,
+            payload.room_id, exclude_id=target.id,
+        )
+        if displaced is not None:
+            displaced.room_id = None
+            if displaced.session_type == MasterSessionType.PRE_ASSIGNED:
+                displaced.session_type = MasterSessionType.REQUIRES_ROOM
+
+    target.session_type = payload.session_type
+    target.room_id = payload.room_id
+
+    db.flush()
+    db.commit()
+
+    config = db.get(RotaConfig, staging.config_id)
+    to_serialise = [target] if displaced is None else [target, displaced]
+    outs = {s.session_id: s for s in _session_outs(db, config, to_serialise)}
+    return StagingSessionWriteOut(
+        session=outs[target.id],
+        displaced_session=outs.get(displaced.id) if displaced is not None else None,
+    )
+
+
+@router.post(
+    "/{staging_id}/sessions",
+    response_model=StagingSessionWriteOut,
+    status_code=201,
+)
+def create_session(
+    staging_id: int,
+    payload: StagingSessionCreateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingSessionWriteOut:
+    """Create a new slot in the staging, mirroring master_rota.create_session
+    (see its docstring). Additionally 422s when week exceeds this staging's
+    own num_weeks."""
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    config = db.get(RotaConfig, staging.config_id)
+
+    if payload.week > config.num_weeks:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"week {payload.week} is outside this staging's "
+                f"{config.num_weeks}-week range"
+            ),
+        )
+
+    doctor = db.get(Doctor, payload.doctor_id)
+    if doctor is None:
+        raise HTTPException(
+            status_code=404, detail=f"Doctor {payload.doctor_id} not found"
+        )
+
+    existing = db.execute(
+        select(RotaStagingSession).where(
+            RotaStagingSession.staging_id == staging_id,
+            RotaStagingSession.doctor_id == payload.doctor_id,
+            RotaStagingSession.week == payload.week,
+            RotaStagingSession.day == payload.day,
+            RotaStagingSession.period == payload.period,
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Doctor {payload.doctor_id} already has a session in "
+                f"staging {staging_id} at week {payload.week} "
+                f"{payload.day.value} {payload.period.value}"
+            ),
+        )
+
+    displaced: RotaStagingSession | None = None
+    if payload.room_id is not None:
+        room = db.get(Room, payload.room_id)
+        if room is None:
+            raise HTTPException(
+                status_code=404, detail=f"Room {payload.room_id} not found"
+            )
+        displaced = _find_room_holder(
+            db, staging_id, payload.week, payload.day, payload.period,
+            payload.room_id,
+        )
+        if displaced is not None:
+            displaced.room_id = None
+            if displaced.session_type == MasterSessionType.PRE_ASSIGNED:
+                displaced.session_type = MasterSessionType.REQUIRES_ROOM
+
+    target = RotaStagingSession(
+        staging_id=staging_id,
+        doctor_id=payload.doctor_id,
+        week=payload.week,
+        day=payload.day,
+        period=payload.period,
+        session_type=payload.session_type,
+        room_id=payload.room_id,
+    )
+    db.add(target)
+
+    db.flush()
+    db.commit()
+
+    to_serialise = [target] if displaced is None else [target, displaced]
+    outs = {s.session_id: s for s in _session_outs(db, config, to_serialise)}
+    return StagingSessionWriteOut(
+        session=outs[target.id],
+        displaced_session=outs.get(displaced.id) if displaced is not None else None,
+    )
+
+
+@router.delete("/{staging_id}/sessions/{session_id}", status_code=204)
+def delete_session(
+    staging_id: int,
+    session_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a slot from the staging, mirroring master_rota.delete_session."""
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    target = db.get(RotaStagingSession, session_id)
+    if target is None or target.staging_id != staging_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session {session_id} not found in staging {staging_id}",
+        )
+
+    db.delete(target)
+    db.commit()
+
+
+@router.post("/{staging_id}/notes", response_model=StagingOut, status_code=201)
+def create_note(
+    staging_id: int,
+    payload: StagingNoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    """Add one per-run note -- a copy of a definition (source_note_id set)
+    or a free-form one-off (source_note_id null).
+
+    One note per call. A tick spanning several generation weeks is a loop
+    on the frontend, which keeps this endpoint and its validation
+    single-shaped. Returns the whole StagingOut so the picker refreshes
+    from one response, as every other staging write does.
+    """
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    config = db.get(RotaConfig, staging.config_id)
+    _validate_note(
+        db, config, payload.week, payload.doctor_ids, payload.source_note_id
+    )
+
+    note = RotaConfigNote(
+        config_id=staging.config_id,
+        source_note_id=payload.source_note_id,
+        text=payload.text,
+        week=payload.week,
+        day=payload.day,
+        period=payload.period,
+    )
+    note.doctors = [RotaConfigNoteDoctor(doctor_id=d) for d in payload.doctor_ids]
+    db.add(note)
+    db.commit()
+    return _staging_out(db, staging)
+
+
+@router.patch("/{staging_id}/notes/{note_id}", response_model=StagingOut)
+def patch_note(
+    staging_id: int,
+    note_id: int,
+    payload: StagingNotePatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StagingOut:
+    """Full replace of every editable field. source_note_id is immutable
+    after creation (see StagingNotePatchIn) -- editing an instance is
+    exactly the divergence-from-its-definition this feature exists for,
+    and provenance records where it started."""
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    note = _note_or_404(db, staging, note_id)
+    config = db.get(RotaConfig, staging.config_id)
+    _validate_note(db, config, payload.week, payload.doctor_ids)
+
+    note.text = payload.text
+    note.week = payload.week
+    note.day = payload.day
+    note.period = payload.period
+    # Clear and flush before attaching the replacement set, for the reason
+    # recurring_notes.py's _apply gives: an unchanged doctor could
+    # otherwise trip uq_rcnd_note_doctor via an INSERT racing an
+    # unflushed DELETE.
+    note.doctors.clear()
+    db.flush()
+    note.doctors = [RotaConfigNoteDoctor(doctor_id=d) for d in payload.doctor_ids]
+    db.commit()
+    return _staging_out(db, staging)
+
+
+@router.delete("/{staging_id}/notes/{note_id}", status_code=204)
+def delete_note(
+    staging_id: int,
+    note_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+    note = _note_or_404(db, staging, note_id)
+    db.delete(note)  # ORM cascade removes RotaConfigNoteDoctor rows
+    db.commit()
+
+
+@router.delete("/{staging_id}", status_code=204)
+def abandon_staging(
+    staging_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Abandon an active staging: hard-delete the staging (sessions cascade)
+    and its RotaConfig (per-run notes cascade with it).
+
+    409 on a completed staging -- that is a retained record of the run, not
+    something this endpoint discards. Deleting the RotaConfig explicitly
+    after the staging is safe here specifically because an *active* staging
+    by construction has no GeneratedRota yet: the only path that creates
+    one is complete(), which marks completed_at in the same transaction.
+    """
+    staging = _staging_or_404(db, staging_id)
+    _require_active(staging)
+
+    config = db.get(RotaConfig, staging.config_id)
+    db.delete(staging)  # ORM cascade removes RotaStagingSession rows
+    db.flush()  # staging row must be gone before the config delete below --
+    # SQLite enforces FK constraints per-statement, and there is no
+    # relationship() between RotaConfig and RotaStaging for the unit of
+    # work to infer ordering from, so this cannot be left implicit.
+    db.delete(config)
+    db.commit()

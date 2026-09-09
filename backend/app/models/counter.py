@@ -1,55 +1,41 @@
 """Counter models.
 
-ClinicCounter supports two granularities controlled by ClinicType.counter_mode:
-- shared:   day/period are NULL; one row per (doctor, clinic_type).
-- per_slot: day/period are set; one row per (doctor, clinic_type, day, period).
+ClinicCounter is shared-only: one row per (doctor, clinic_type). An earlier
+design considered a per_slot granularity (one counter per doctor per clinic
+per day/period); this was reversed before M2. Clinics always use a single shared counter regardless of
+how many schedule slots the clinic type has.
 
-The counter is keyed on day/period *values*, never on a ClinicTypeSchedule FK,
-so the M3 replace-children edit pattern (delete + reinsert schedule rows) does
-not cascade-delete counter history.
+Weighted score ((raw_count + opening_balance) / doctor.sessions_per_week) is
+computed at query time, not stored.
 
-Uniqueness is enforced by two partial unique indexes because a plain unique over
-nullable day/period would not stop duplicate shared rows (SQL treats NULLs as
-distinct). Both partial indexes declare sqlite_where and postgresql_where to stay
-portable across the SQLite-dev / Postgres-prod split.
-
-Weighted score (raw_count / doctor.sessions_per_week) is computed at query time,
-not stored.
+`opening_balance` is a credit in sessions, added to `raw_count` before the
+score is computed, so a doctor who joined part-way through can be started
+level with their peers instead of at zero (a zero raw count otherwise reads
+as "maximally under-loaded" and the engine prefers them until they catch
+up). It is stored separately from `raw_count` and the engine never writes
+it: the draft snapshots (`counter_snapshot.py`) capture `raw_count` only, so
+a balance the engine cannot touch needs no snapshot column and cannot be
+corrupted by scrap/restore. Folding the credit into `raw_count` instead
+would make it indistinguishable from work actually done, and a reset would
+silently destroy it. Resetting a counter to zero clears the balance as well
+-- after a reset everyone is level by definition, so a surviving credit
+would re-introduce the skew it was created to remove. Negative balances are
+allowed (a doctor returning from a long absence, or a leaver whose count
+should read as already served).
 """
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, UniqueConstraint, text
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, Integer, Numeric, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from .enums import Day, Period, SystemCounterType, enum_col
+from .enums import SystemCounterType, enum_col
 
 
 class ClinicCounter(Base):
     __tablename__ = "clinic_counters"
     __table_args__ = (
-        # day and period are both NULL (shared) or both set (per_slot).
-        CheckConstraint(
-            "(day IS NULL AND period IS NULL) "
-            "OR (day IS NOT NULL AND period IS NOT NULL)",
-            name="ck_clinic_counter_day_period",
-        ),
-        Index(
-            "uq_clinic_counter_shared",
-            "doctor_id",
-            "clinic_type_id",
-            unique=True,
-            sqlite_where=text("day IS NULL"),
-            postgresql_where=text("day IS NULL"),
-        ),
-        Index(
-            "uq_clinic_counter_per_slot",
-            "doctor_id",
-            "clinic_type_id",
-            "day",
-            "period",
-            unique=True,
-            sqlite_where=text("day IS NOT NULL"),
-            postgresql_where=text("day IS NOT NULL"),
-        ),
+        UniqueConstraint("doctor_id", "clinic_type_id", name="uq_clinic_counter"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -57,9 +43,10 @@ class ClinicCounter(Base):
     clinic_type_id: Mapped[int] = mapped_column(
         ForeignKey("clinic_types.id"), nullable=False
     )
-    day: Mapped[Day | None] = mapped_column(enum_col(Day), nullable=True)
-    period: Mapped[Period | None] = mapped_column(enum_col(Period), nullable=True)
     raw_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(5, 1), nullable=False, default=Decimal("0.0"), server_default="0"
+    )
 
 
 class SystemCounter(Base):
@@ -74,3 +61,6 @@ class SystemCounter(Base):
         enum_col(SystemCounterType), nullable=False
     )
     raw_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(5, 1), nullable=False, default=Decimal("0.0"), server_default="0"
+    )

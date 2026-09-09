@@ -1,0 +1,31 @@
+# Railway deployment configuration.
+#
+# Lives at the repo root (Root Directory = "/" in the Railway dashboard's
+# Settings > Source). DATABASE_URL and CORS_ORIGINS are set in the
+# Railway dashboard; database.py reads DATABASE_URL directly.
+#
+# History: this file briefly lived at backend/railway.toml with Root
+# Directory set to "backend" (end of M3), to work around Nixpacks failing
+# to generate a build plan when backend/pyproject.toml wasn't at the
+# scanned root. That fix was correct for a backend-only deploy, but Root
+# Directory = "backend" excludes frontend/ from the build context
+# entirely - not just "not built", genuinely absent from what Railway
+# copies in. Serving the built frontend same-origin (main.py's
+# mount_frontend, M3.5) needs both backend/ and frontend/ inside one
+# build context, so Root Directory is back to "/" for M4 Task 8. See
+# nixpacks.toml (repo root) for how both get installed and built now
+# that neither project's marker file sits at the scanned root - that's
+# also why startCommand below is "cd backend && ..." again: the
+# container's working directory is the repo root, not backend/.
+#
+# Migrations run on every deploy via the && pattern: alembic upgrade
+# head is idempotent, so repeat deploys are safe.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "cd backend && /opt/venv/bin/alembic upgrade head && /opt/venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

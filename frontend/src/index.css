@@ -1,0 +1,132 @@
+/* Theme tokens. These five variables are the app's only themeable colours;
+   tailwind.config.js consumes them as rgb(var(--color-x) / <alpha-value>)
+   so that opacity modifiers (text-ink/70 and friends) keep working. Values
+   are space-separated RGB channels, not hex, because that is the only form
+   the alpha-modifier syntax accepts. Additional themes are defined here as
+   [data-theme="..."] blocks overriding the same five variables. */
+:root {
+  --color-background: 247 248 250;
+  --color-surface: 255 255 255;
+  --color-ink: 28 36 48;
+  --color-border: 221 225 230;
+  --color-accent: 79 95 166;
+}
+
+/* The four alternative palettes. Each overrides the same five variables and
+   nothing else; anything not in this list is pinned and does not move with a
+   theme (the Q13 rota cell colours, validation red, warning amber, exports).
+
+   Every palette is light. That is a real constraint, not a preference: some
+   258 pinned Tailwind utilities across ~49 components (red-100 cell fills,
+   text-red-700 validation, amber warning panels, the black closed-day
+   hatching below) assume a light ground. Surface may be tinted - it is, very
+   slightly, in each palette below - but a dark theme needs those un-pinned
+   first and is not a palette edit.
+
+   Contrast ratios were measured rather than eyeballed - ink and its
+   80/70/60/50 opacities on both backgrounds, accent on both, white on
+   accent (bg-accent buttons carry white text), and text-red-700. Nothing
+   here scores below the range the palettes already occupied, and every
+   white-on-accent pair clears 6:1. Re-measure before changing any value. */
+[data-theme="ocean"] {
+  --color-background: 231 240 246; /* #E7F0F6 */
+  --color-surface: 248 251 253; /* #F8FBFD */
+  --color-ink: 12 32 41; /* #0C2029 */
+  --color-border: 188 213 226; /* #BCD5E2 */
+  --color-accent: 14 106 133; /* #0E6A85 */
+}
+
+[data-theme="forest"] {
+  --color-background: 235 243 232; /* #EBF3E8 */
+  --color-surface: 250 252 249; /* #FAFCF9 */
+  --color-ink: 19 32 20; /* #132014 */
+  --color-border: 198 217 193; /* #C6D9C1 */
+  --color-accent: 47 107 60; /* #2F6B3C */
+}
+
+[data-theme="plum"] {
+  --color-background: 245 236 243; /* #F5ECF3 */
+  --color-surface: 253 250 252; /* #FDFAFC */
+  --color-ink: 37 26 36; /* #251A24 */
+  --color-border: 223 203 219; /* #DFCBDB */
+  --color-accent: 138 58 107; /* #8A3A6B */
+}
+
+[data-theme="sand"] {
+  --color-background: 250 240 222; /* #FAF0DE */
+  --color-surface: 254 252 248; /* #FEFCF8 */
+  --color-ink: 37 29 20; /* #251D14 */
+  --color-border: 231 215 185; /* #E7D7B9 */
+  --color-accent: 154 74 34; /* #9A4A22 */
+}
+
+/* High contrast is a second axis, not a fifth palette - see themeStore.ts.
+   These blocks come after the palettes so they win on source order at equal
+   specificity, and they leave --color-background and --color-surface alone:
+   the theme keeps its hue, and only the three variables that carry legibility
+   move. Black ink, a border that reads as a line rather than a hint (6.1:1 on
+   surface, against roughly 1.5:1 normally), and a darkened accent.
+
+   Measured: every combination clears 7:1 (WCAG AAA) for white on accent,
+   accent on surface, and ink/70 secondary text - against the 4.5:1 AA floor
+   the normal palettes meet. The accent is per-palette because CSS cannot
+   darken a variable it did not set; the shared ink and border sit in the
+   bare [data-contrast] block. */
+[data-contrast="high"] {
+  --color-ink: 0 0 0; /* #000000 */
+  --color-border: 90 96 105; /* #5A6069 */
+  --color-accent: 58 71 128; /* #3A4780 - default palette's indigo, darkened */
+}
+
+[data-theme="ocean"][data-contrast="high"] {
+  --color-accent: 10 84 104; /* #0A5468 */
+}
+
+[data-theme="forest"][data-contrast="high"] {
+  --color-accent: 36 84 48; /* #245430 */
+}
+
+[data-theme="plum"][data-contrast="high"] {
+  --color-accent: 110 46 85; /* #6E2E55 */
+}
+
+[data-theme="sand"][data-contrast="high"] {
+  --color-accent: 124 59 27; /* #7C3B1B */
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brief highlight applied by IssuesPanel when navigating to a grid cell.
+   Removed via a timeout in IssuesPanel.tsx, not by animation
+   end, so it also degrades gracefully if the class is reapplied before
+   the previous one finished clearing. */
+.issue-flash {
+  animation: issue-flash-fade 1.5s ease-out;
+}
+
+@keyframes issue-flash-fade {
+  0% {
+    outline: 2px solid rgb(var(--color-accent));
+    outline-offset: -2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+}
+
+/* "Practice closed" cells in the Annual Planner - black hatching so it
+   reads as unambiguously distinct from the "no surgery" solid grey next
+   to it, rather than another shade of grey. */
+.closed-hatch {
+  background-color: rgb(var(--color-surface));
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(0 0 0 / 0.75) 0,
+    rgb(0 0 0 / 0.75) 1.5px,
+    transparent 1.5px,
+    transparent 6px
+  );
+}

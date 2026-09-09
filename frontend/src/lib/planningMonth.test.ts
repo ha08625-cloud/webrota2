@@ -1,0 +1,697 @@
+import { describe, expect, it } from "vitest";
+
+import type { CoverageSlot, MasterSessionType, PlanningAction } from "@/api/types";
+import {
+  makeBlockedEntry,
+  makeDoctor,
+  makeExtraSessionEntry,
+  makeLeaveEntry,
+  makeSchoolHoliday,
+} from "@/test/fixtures/reference";
+import { makeMasterRotaSession } from "@/test/fixtures/masterRota";
+
+import {
+  type PendingEdit,
+  applyPendingToCoverage,
+  buildPlanningActions,
+  buildTemplateIndex,
+  isInMonth,
+  isWithinWindow,
+  mergeCellState,
+  mergeNotes,
+  overlapsRange,
+  parsePlanningCellKey,
+  planningCellKey,
+  schoolHolidayDatesInRange,
+  selectionCells,
+  serverNotes,
+  serverRows,
+  stateToAction,
+  toCellKeySet,
+  toCellState,
+  toNotesMap,
+  weekdayName,
+  weekdaysInMonth,
+} from "./planningMonth";
+
+// A Monday, matching the backend suite's own anchor convention. AA is
+// doctor 1 (Partner) and BB doctor 2 (Salaried); both work requires_room
+// Monday AM and PM on template week 1, so the baseline Monday headcount
+// is 2 and every other weekday is 0 - the same world
+// tests/test_api/test_leave_planning.py::TestCoverage sets up.
+const MONDAY = "2026-08-03";
+const TUESDAY = "2026-08-04";
+
+const AA = makeDoctor({ id: 1, code: "AA", doctor_type: "Partner" });
+const BB = makeDoctor({ id: 2, code: "BB", doctor_type: "Salaried" });
+
+function templateRow(doctorId: number, day: "Monday" | "Tuesday", period: "AM" | "PM", sessionType: MasterSessionType) {
+  return makeMasterRotaSession({ doctor_id: doctorId, week: 1, day, period, session_type: sessionType });
+}
+
+const BASE_TEMPLATE = [
+  templateRow(1, "Monday", "AM", "requires_room"),
+  templateRow(1, "Monday", "PM", "requires_room"),
+  templateRow(2, "Monday", "AM", "requires_room"),
+  templateRow(2, "Monday", "PM", "requires_room"),
+];
+
+function slot(date: string, period: "AM" | "PM", headcount: number, isClosed = false): CoverageSlot {
+  return { date, period, headcount, is_closed: isClosed };
+}
+
+const BASE_COVERAGE = [
+  slot(MONDAY, "AM", 2),
+  slot(MONDAY, "PM", 2),
+  slot(TUESDAY, "AM", 0),
+  slot(TUESDAY, "PM", 0),
+];
+
+/** Shorthand for a pending edit with no note - most tests don't care. */
+function edit(action: PlanningAction, notes = ""): PendingEdit {
+  return { action, notes };
+}
+
+function pendingMap(entries: [string, PlanningAction | PendingEdit][]): Map<string, PendingEdit> {
+  return new Map(entries.map(([key, value]) => [key, typeof value === "string" ? edit(value) : value]));
+}
+
+/** Totals for one slot, with the full world defaulted to the baseline. */
+function totalFor(
+  date: string,
+  period: "AM" | "PM",
+  {
+    coverage = BASE_COVERAGE,
+    pending = new Map<string, PendingEdit>(),
+    doctors = [AA, BB],
+    sessions = BASE_TEMPLATE,
+    leave = [],
+    extraSessions = [],
+    blocked = [],
+  }: Partial<Parameters<typeof applyPendingToCoverage>[0]> = {},
+): number | null | undefined {
+  return applyPendingToCoverage({ coverage, pending, doctors, sessions, leave, extraSessions, blocked }).get(
+    `${date}|${period}`,
+  );
+}
+
+describe("weekdaysInMonth", () => {
+  it("returns every Mon-Fri date of the month as YYYY-MM-DD", () => {
+    // 2026-08-01 is a Saturday, so August's own weekdays start on the 3rd
+    // with no lead-in borrowed from July.
+    const dates = weekdaysInMonth(2026, 8);
+    expect(dates).toContain("2026-08-03");
+    expect(dates).toContain("2026-08-31");
+  });
+
+  it("excludes weekends", () => {
+    // 2026-08-01 is a Saturday and 2026-08-02 a Sunday.
+    expect(weekdaysInMonth(2026, 8)).not.toContain("2026-08-01");
+    expect(weekdaysInMonth(2026, 8)).not.toContain("2026-08-02");
+  });
+
+  it("borrows lead-out days from the next month to complete the last week", () => {
+    // 2026-08-31 is a Monday, so the grid runs through that week's Friday.
+    const dates = weekdaysInMonth(2026, 8);
+    expect(dates[dates.length - 1]).toBe("2026-09-04");
+    expect(dates).toContain("2026-09-01");
+  });
+
+  it("borrows lead-in days from the previous month to complete the first week", () => {
+    // 2026-01-01 is a Thursday, so the grid starts from that week's Monday.
+    const dates = weekdaysInMonth(2026, 1);
+    expect(dates[0]).toBe("2025-12-29");
+    expect(dates).toContain("2026-01-01");
+  });
+
+  it("pads single-digit months and days", () => {
+    expect(weekdaysInMonth(2026, 1)).toContain("2026-01-02");
+  });
+
+  it("handles a leap February", () => {
+    const dates = weekdaysInMonth(2028, 2);
+    expect(dates).toContain("2028-02-29");
+  });
+
+  it("rolls a borrowed lead-out week into the next calendar year", () => {
+    // 2026-12-31 is a Thursday, so the grid runs one day into January 2027.
+    const dates = weekdaysInMonth(2026, 12);
+    expect(dates[dates.length - 1]).toBe("2027-01-01");
+    expect(dates).toContain("2026-12-31");
+  });
+});
+
+describe("isInMonth", () => {
+  it("is true for a date within the given month", () => {
+    expect(isInMonth("2026-08-14", 2026, 8)).toBe(true);
+  });
+
+  it("is false for a borrowed lead-in/lead-out date from an adjacent month", () => {
+    expect(isInMonth("2026-09-01", 2026, 8)).toBe(false);
+    expect(isInMonth("2025-12-29", 2026, 1)).toBe(false);
+  });
+});
+
+describe("weekdayName", () => {
+  it("maps a date onto its template day", () => {
+    expect(weekdayName(MONDAY)).toBe("Monday");
+    expect(weekdayName("2026-08-07")).toBe("Friday");
+  });
+
+  it("returns null for a weekend", () => {
+    expect(weekdayName("2026-08-01")).toBeNull();
+  });
+});
+
+describe("planningCellKey", () => {
+  it("round-trips through parsePlanningCellKey", () => {
+    expect(parsePlanningCellKey(planningCellKey(7, MONDAY, "PM"))).toEqual({
+      doctorId: 7,
+      date: MONDAY,
+      period: "PM",
+    });
+  });
+
+  it("returns null for a malformed key", () => {
+    expect(parsePlanningCellKey("nonsense")).toBeNull();
+    expect(parsePlanningCellKey(`1|${MONDAY}|EVENING`)).toBeNull();
+  });
+});
+
+describe("cell state machine", () => {
+  it("resolves leave > blocked > extra_session where more than one row exists", () => {
+    expect(toCellState({ hasLeave: true, hasExtra: true, hasBlocked: true })).toBe("leave");
+    expect(toCellState({ hasLeave: false, hasExtra: true, hasBlocked: true })).toBe("blocked");
+    expect(toCellState({ hasLeave: false, hasExtra: true, hasBlocked: false })).toBe("extra_session");
+    expect(toCellState({ hasLeave: false, hasExtra: false, hasBlocked: false })).toBe("normal");
+  });
+
+  it("lets a pending edit override the server state, with clear meaning normal", () => {
+    expect(mergeCellState("leave", undefined)).toBe("leave");
+    expect(mergeCellState("leave", edit("clear"))).toBe("normal");
+    expect(mergeCellState("normal", edit("extra_session"))).toBe("extra_session");
+    expect(mergeCellState("normal", edit("blocked"))).toBe("blocked");
+  });
+
+  it("maps normal onto the clear action", () => {
+    expect(stateToAction("normal")).toBe("clear");
+    expect(stateToAction("leave")).toBe("leave");
+    expect(stateToAction("extra_session")).toBe("extra_session");
+    expect(stateToAction("blocked")).toBe("blocked");
+  });
+});
+
+describe("notes", () => {
+  it("builds a notes map, omitting empty/null notes", () => {
+    const map = toNotesMap([
+      makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM", notes: "Training" }),
+      makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "PM", notes: null }),
+    ]);
+    expect(map.get(planningCellKey(1, MONDAY, "AM"))).toBe("Training");
+    expect(map.has(planningCellKey(1, MONDAY, "PM"))).toBe(false);
+  });
+
+  it("resolves notes with the same leave > blocked > extra_session precedence as state", () => {
+    const key = planningCellKey(1, MONDAY, "AM");
+    const leaveNotes = new Map([[key, "Leave note"]]);
+    const blockedNotes = new Map([[key, "Blocked note"]]);
+    const extraNotes = new Map([[key, "Extra note"]]);
+    expect(serverNotes(leaveNotes, extraNotes, blockedNotes, key)).toBe("Leave note");
+    expect(serverNotes(new Map(), extraNotes, blockedNotes, key)).toBe("Blocked note");
+    expect(serverNotes(new Map(), extraNotes, new Map(), key)).toBe("Extra note");
+    expect(serverNotes(new Map(), new Map(), new Map(), key)).toBe("");
+  });
+
+  it("lets a pending edit override the server notes, with clear meaning empty", () => {
+    expect(mergeNotes("Old", undefined)).toBe("Old");
+    expect(mergeNotes("Old", edit("clear"))).toBe("");
+    expect(mergeNotes("Old", edit("blocked", "New"))).toBe("New");
+  });
+});
+
+describe("isWithinWindow", () => {
+  it("treats a null bound as unbounded", () => {
+    expect(isWithinWindow({ start_date: null, end_date: null }, MONDAY)).toBe(true);
+  });
+
+  it("includes both bounds", () => {
+    expect(isWithinWindow({ start_date: MONDAY, end_date: MONDAY }, MONDAY)).toBe(true);
+  });
+
+  it("excludes dates before the start and after the end", () => {
+    expect(isWithinWindow({ start_date: TUESDAY, end_date: null }, MONDAY)).toBe(false);
+    expect(isWithinWindow({ start_date: null, end_date: MONDAY }, TUESDAY)).toBe(false);
+  });
+});
+
+describe("overlapsRange", () => {
+  it("includes a doctor who leaves mid-range", () => {
+    expect(overlapsRange({ start_date: null, end_date: "2026-08-12" }, "2026-08-03", "2026-08-31")).toBe(true);
+  });
+
+  it("includes a doctor who joins mid-range", () => {
+    expect(overlapsRange({ start_date: "2026-08-12", end_date: null }, "2026-08-03", "2026-08-31")).toBe(true);
+  });
+
+  it("excludes a window entirely before or after the range", () => {
+    expect(overlapsRange({ start_date: null, end_date: "2026-07-31" }, "2026-08-03", "2026-08-31")).toBe(false);
+    expect(overlapsRange({ start_date: "2026-09-01", end_date: null }, "2026-08-03", "2026-08-31")).toBe(false);
+  });
+});
+
+describe("schoolHolidayDatesInRange", () => {
+  it("maps each in-range date to the holiday covering it", () => {
+    const holiday = makeSchoolHoliday({ start_date: "2026-08-03", end_date: "2026-08-04" });
+    const result = schoolHolidayDatesInRange(["2026-08-03", "2026-08-04", "2026-08-05"], [holiday]);
+
+    expect([...result.keys()]).toEqual(["2026-08-03", "2026-08-04"]);
+    expect(result.get("2026-08-03")).toBe(holiday);
+  });
+
+  it("returns an empty map for a school with no holiday in range", () => {
+    const holiday = makeSchoolHoliday({ start_date: "2026-01-01", end_date: "2026-01-05" });
+    expect(schoolHolidayDatesInRange(["2026-08-03", "2026-08-04"], [holiday]).size).toBe(0);
+  });
+
+  it("includes the weekdays either side of a weekend the holiday spans", () => {
+    // Friday 31 Jul - Monday 3 Aug: the grid has no weekend columns, so
+    // only the Friday and Monday appear in `dates` at all.
+    const holiday = makeSchoolHoliday({ start_date: "2026-07-31", end_date: "2026-08-03" });
+    const result = schoolHolidayDatesInRange(["2026-07-31", "2026-08-03", "2026-08-04"], [holiday]);
+
+    expect([...result.keys()]).toEqual(["2026-07-31", "2026-08-03"]);
+  });
+});
+
+describe("buildTemplateIndex", () => {
+  it("keeps week 1 rows only", () => {
+    const index = buildTemplateIndex([
+      templateRow(1, "Monday", "AM", "requires_room"),
+      makeMasterRotaSession({ doctor_id: 1, week: 2, day: "Tuesday", period: "AM", session_type: "requires_room" }),
+    ]);
+    expect(index.get("1|Monday|AM")).toBe("requires_room");
+    expect(index.has("1|Tuesday|AM")).toBe(false);
+  });
+});
+
+// The matrix below mirrors tests/test_api/test_leave_planning.py::TestCoverage
+// case for case. If the server's rules change, both must change together
+// - a divergence here shows up as a total row that jumps when the page
+// refetches after a save.
+describe("applyPendingToCoverage", () => {
+  it("returns the server's own headcount where there are no pending edits", () => {
+    expect(totalFor(MONDAY, "AM")).toBe(2);
+    expect(totalFor(TUESDAY, "AM")).toBe(0);
+  });
+
+  it("renders a closed slot as null, not zero", () => {
+    expect(totalFor(MONDAY, "AM", { coverage: [slot(MONDAY, "AM", 0, true)] })).toBeNull();
+  });
+
+  it("drops one from the headcount for pending leave on a working slot", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("leaves the other period of the same day alone", () => {
+    expect(
+      totalFor(MONDAY, "PM", {
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("adds one for a pending extra session on a no_surgery slot", () => {
+    expect(
+      totalFor(TUESDAY, "AM", {
+        sessions: [...BASE_TEMPLATE, templateRow(1, "Tuesday", "AM", "no_surgery")],
+        pending: pendingMap([[planningCellKey(1, TUESDAY, "AM"), "extra_session"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("adds one for a pending extra session where there is no template row at all", () => {
+    expect(
+      totalFor(TUESDAY, "PM", {
+        pending: pendingMap([[planningCellKey(2, TUESDAY, "PM"), "extra_session"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("does not double-count an extra session on a slot already requires_room", () => {
+    // the override is conditional, so a flat +1 would over-count a
+    // doctor who was already working the slot.
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "extra_session"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("counts the doctor back in when a leave cell is moved to extra planned", () => {
+    // Not a contradiction of the server's "leave wins": moving the cell
+    // off leave is exactly what the click means, and buildPlanningActions
+    // emits the matching `clear` so the saved state agrees.
+    expect(
+      totalFor(MONDAY, "AM", {
+        leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        // Server headcount already reflects the leave.
+        coverage: [slot(MONDAY, "AM", 1)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "extra_session"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("treats a slot carrying both rows as leave, so clearing it counts the doctor back in once", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        extraSessions: [makeExtraSessionEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        coverage: [slot(MONDAY, "AM", 1)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "clear"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it.each(["admin_time", "wfh", "no_surgery"] as const)(
+    "counts a %s slot as zero when cleared back to normal",
+    (sessionType) => {
+      // Doctor 1's Monday AM is non-clinical, so the server's headcount is
+      // 1; clearing an existing extra session there takes it back to 0.
+      expect(
+        totalFor(MONDAY, "AM", {
+          sessions: [templateRow(1, "Monday", "AM", sessionType), templateRow(2, "Monday", "PM", "requires_room")],
+          coverage: [slot(MONDAY, "AM", 1)],
+          extraSessions: [makeExtraSessionEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+          pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "clear"]]),
+        }),
+      ).toBe(0);
+    },
+  );
+
+  it("counts a pre_assigned slot as working", () => {
+    // Clearing an extra session on a pre_assigned slot changes nothing:
+    // the doctor was already counted either way.
+    expect(
+      totalFor(TUESDAY, "AM", {
+        sessions: [...BASE_TEMPLATE, templateRow(1, "Tuesday", "AM", "pre_assigned")],
+        coverage: [slot(TUESDAY, "AM", 1)],
+        extraSessions: [makeExtraSessionEntry({ doctor_id: 1, date: TUESDAY, period: "AM" })],
+        pending: pendingMap([[planningCellKey(1, TUESDAY, "AM"), "clear"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("drops one from the headcount for pending blocked, same as leave", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "blocked"]]),
+      }),
+    ).toBe(1);
+  });
+
+  it("treats existing blocked the same way existing leave is treated", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        blocked: [makeBlockedEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        coverage: [slot(MONDAY, "AM", 1)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "clear"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("restores the headcount when existing leave is cleared", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        leave: [makeLeaveEntry({ doctor_id: 1, date: MONDAY, period: "AM" })],
+        coverage: [slot(MONDAY, "AM", 1)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "clear"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("ignores a pending edit on a doctor outside their employment window", () => {
+    const leaver = makeDoctor({ id: 3, code: "CC", doctor_type: "Partner", end_date: "2026-07-31" });
+    expect(
+      totalFor(MONDAY, "AM", {
+        doctors: [AA, BB, leaver],
+        sessions: [...BASE_TEMPLATE, templateRow(3, "Monday", "AM", "requires_room")],
+        pending: pendingMap([[planningCellKey(3, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("ignores a pending edit on a doctor with no visible row (e.g. a Trainee)", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([[planningCellKey(99, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBe(2);
+  });
+
+  it("ignores a pending edit on a closed slot", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        coverage: [slot(MONDAY, "AM", 0, true)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores a pending edit outside the fetched range", () => {
+    const totals = applyPendingToCoverage({
+      coverage: [slot(MONDAY, "AM", 2)],
+      pending: pendingMap([[planningCellKey(1, "2026-09-07", "AM"), "leave"]]),
+      doctors: [AA, BB],
+      sessions: BASE_TEMPLATE,
+      leave: [],
+      extraSessions: [],
+      blocked: [],
+    });
+    expect(totals.get(`${MONDAY}|AM`)).toBe(2);
+    expect(totals.get("2026-09-07|AM")).toBeUndefined();
+  });
+
+  it("accumulates several pending edits on the same slot", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        pending: pendingMap([
+          [planningCellKey(1, MONDAY, "AM"), "leave"],
+          [planningCellKey(2, MONDAY, "AM"), "leave"],
+        ]),
+      }),
+    ).toBe(0);
+  });
+
+  it("reads zero cover with no active template, rather than throwing", () => {
+    expect(
+      totalFor(MONDAY, "AM", {
+        sessions: [],
+        coverage: [slot(MONDAY, "AM", 0)],
+        pending: pendingMap([[planningCellKey(1, MONDAY, "AM"), "leave"]]),
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("buildPlanningActions", () => {
+  const key = planningCellKey(1, MONDAY, "AM");
+
+  function actionsFor(
+    pendingEdit: PendingEdit,
+    { leave = false, extra = false, blocked = false, serverNote = "" } = {},
+  ) {
+    const notesMap = serverNote ? new Map([[key, serverNote]]) : new Map<string, string>();
+    return buildPlanningActions({
+      pending: pendingMap([[key, pendingEdit]]),
+      leaveKeys: leave ? new Set([key]) : new Set(),
+      extraKeys: extra ? new Set([key]) : new Set(),
+      blockedKeys: blocked ? new Set([key]) : new Set(),
+      leaveNotes: leave ? notesMap : new Map(),
+      extraNotes: extra ? notesMap : new Map(),
+      blockedNotes: blocked ? notesMap : new Map(),
+    });
+  }
+
+  it("emits a single leave action on an empty cell", () => {
+    expect(actionsFor(edit("leave"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
+    ]);
+  });
+
+  it("emits a single extra_session action on an empty cell", () => {
+    expect(actionsFor(edit("extra_session"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+    ]);
+  });
+
+  it("emits a single blocked action on an empty cell, notes included", () => {
+    expect(actionsFor(edit("blocked", "Training"))).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: "Training" },
+    ]);
+  });
+
+  it("emits a clear for a cell being emptied", () => {
+    expect(actionsFor(edit("clear"), { leave: true })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+    ]);
+  });
+
+  it("clears the existing leave before adding an extra session", () => {
+    // Without the clear the endpoint would skip the extra session as
+    // "leave_exists" and the saved state would not match the grid.
+    expect(actionsFor(edit("extra_session"), { leave: true })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+    ]);
+  });
+
+  it("clears the existing extra session before adding leave", () => {
+    // Otherwise the extra session survives and comes back as a
+    // superseded-extra-session warning the admin did not ask for.
+    expect(actionsFor(edit("leave"), { extra: true })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
+    ]);
+  });
+
+  it("clears an existing extra session before adding blocked", () => {
+    expect(actionsFor(edit("blocked"), { extra: true })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: null },
+    ]);
+  });
+
+  it("emits nothing for a pending state that already matches the server, notes included", () => {
+    expect(actionsFor(edit("leave"), { leave: true })).toEqual([]);
+    expect(actionsFor(edit("clear"))).toEqual([]);
+  });
+
+  it("emits an action with no clear when only the notes change on an unchanged state", () => {
+    expect(actionsFor(edit("blocked", "New"), { blocked: true, serverNote: "Old" })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "blocked", notes: "New" },
+    ]);
+  });
+
+  it("skips a malformed key rather than posting garbage", () => {
+    expect(
+      buildPlanningActions({
+        pending: pendingMap([["nonsense", "leave"]]),
+        leaveKeys: new Set(),
+        extraKeys: new Set(),
+        blockedKeys: new Set(),
+        leaveNotes: new Map(),
+        extraNotes: new Map(),
+        blockedNotes: new Map(),
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("toCellKeySet / serverRows", () => {
+  it("builds membership keys matching planningCellKey", () => {
+    const keys = toCellKeySet([makeLeaveEntry({ doctor_id: 4, date: MONDAY, period: "PM" })]);
+    expect(serverRows(keys, new Set(), new Set(), planningCellKey(4, MONDAY, "PM"))).toEqual({
+      hasLeave: true,
+      hasExtra: false,
+      hasBlocked: false,
+    });
+  });
+});
+
+describe("selectionCells", () => {
+  // The full working week the Monday/Tuesday anchors above belong to.
+  const WEDNESDAY = "2026-08-05";
+  const THURSDAY = "2026-08-06";
+  const FRIDAY = "2026-08-07";
+  const WEEK = [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY];
+
+  /** "date|period" pairs, the readable form of the returned cells. */
+  function halves(
+    anchor: [string, "AM" | "PM"],
+    focus: [string, "AM" | "PM"],
+    dates = WEEK,
+  ): string[] {
+    return selectionCells(
+      dates,
+      1,
+      { date: anchor[0], period: anchor[1] },
+      { date: focus[0], period: focus[1] },
+    ).map((c) => `${c.date}|${c.period}`);
+  }
+
+  it("selects one half for a stationary click, not the whole day", () => {
+    expect(halves([MONDAY, "AM"], [MONDAY, "AM"])).toEqual([`${MONDAY}|AM`]);
+    expect(halves([MONDAY, "PM"], [MONDAY, "PM"])).toEqual([`${MONDAY}|PM`]);
+  });
+
+  it("selects both halves of one day when the drag spans AM to PM", () => {
+    expect(halves([MONDAY, "AM"], [MONDAY, "PM"])).toEqual([`${MONDAY}|AM`, `${MONDAY}|PM`]);
+  });
+
+  it("selects every half of a full Mon-Fri week", () => {
+    expect(halves([MONDAY, "AM"], [FRIDAY, "PM"])).toEqual(
+      WEEK.flatMap((date) => [`${date}|AM`, `${date}|PM`]),
+    );
+  });
+
+  it("starts at PM on the first day when the drag begins on a PM half", () => {
+    // "Off at lunchtime on Monday", running to the end of Wednesday.
+    expect(halves([MONDAY, "PM"], [WEDNESDAY, "PM"])).toEqual([
+      `${MONDAY}|PM`,
+      `${TUESDAY}|AM`,
+      `${TUESDAY}|PM`,
+      `${WEDNESDAY}|AM`,
+      `${WEDNESDAY}|PM`,
+    ]);
+  });
+
+  it("ends at AM on the last day when the drag ends on an AM half", () => {
+    // "Back at lunchtime on Wednesday".
+    expect(halves([MONDAY, "AM"], [WEDNESDAY, "AM"])).toEqual([
+      `${MONDAY}|AM`,
+      `${MONDAY}|PM`,
+      `${TUESDAY}|AM`,
+      `${TUESDAY}|PM`,
+      `${WEDNESDAY}|AM`,
+    ]);
+  });
+
+  it("covers exactly two halves for off-Monday-lunchtime, back-Tuesday-lunchtime", () => {
+    expect(halves([MONDAY, "PM"], [TUESDAY, "AM"])).toEqual([`${MONDAY}|PM`, `${TUESDAY}|AM`]);
+  });
+
+  it("normalises by date, so a reversed drag matches the forward one", () => {
+    expect(halves([WEDNESDAY, "AM"], [MONDAY, "PM"])).toEqual(halves([MONDAY, "PM"], [WEDNESDAY, "AM"]));
+    expect(halves([FRIDAY, "PM"], [MONDAY, "AM"])).toEqual(halves([MONDAY, "AM"], [FRIDAY, "PM"]));
+  });
+
+  it("never emits a date the grid does not render, across a weekend gap", () => {
+    // Friday and the following Monday are adjacent columns; Saturday and
+    // Sunday are not columns at all, so they cannot be selected.
+    const NEXT_MONDAY = "2026-08-10";
+    expect(halves([FRIDAY, "PM"], [NEXT_MONDAY, "AM"], [FRIDAY, NEXT_MONDAY])).toEqual([
+      `${FRIDAY}|PM`,
+      `${NEXT_MONDAY}|AM`,
+    ]);
+  });
+
+  it("returns nothing when an endpoint is not a visible column", () => {
+    expect(halves([MONDAY, "AM"], ["2026-09-01", "PM"])).toEqual([]);
+    expect(halves(["2026-09-01", "AM"], [MONDAY, "PM"])).toEqual([]);
+  });
+
+  it("carries the given doctor id on every cell", () => {
+    const cells = selectionCells(
+      WEEK,
+      7,
+      { date: MONDAY, period: "AM" },
+      { date: TUESDAY, period: "PM" },
+    );
+    expect(cells).toHaveLength(4);
+    expect(cells.every((c) => c.doctorId === 7)).toBe(true);
+  });
+});

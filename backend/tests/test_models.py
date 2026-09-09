@@ -6,23 +6,44 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models import (
+    AuditLogEntry,
     ClinicCounter,
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
+    DutyOpeningBalance,
+    GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
+    PracticeClosure,
+    ReceptionMasterSession,
+    ReceptionRota,
+    ReceptionRotaSession,
+    ReceptionStaff,
+    RecurringNote,
+    RecurringNoteDoctor,
     Room,
+    RotaClosure,
     RotaConfig,
+    RotaConfigNote,
+    RotaConfigNoteDoctor,
+    RotaGenerationLogEntry,
+    RotaStaging,
+    RotaStagingSession,
+    SystemCounter,
+    User,
 )
 from app.models.enums import (
-    ClinicCounterMode,
+    AccessLevel,
     Day,
     DoctorType,
     MasterSessionType,
     Period,
+    ReceptionRole,
     RoomType,
+    RotaStatus,
     Site,
+    SystemCounterType,
 )
 
 
@@ -40,14 +61,19 @@ def _doctor(session, code="AA", dt=DoctorType.PARTNER, spw="10.0"):
     return d
 
 
-def _clinic(session, name="Dragon", mode=ClinicCounterMode.SHARED):
-    c = ClinicType(name=name, clinic_priority=10, counter_mode=mode)
+def _clinic(session, name="Dragon"):
+    c = ClinicType(name=name, clinic_priority=10)
     session.add(c)
     session.flush()
     return c
 
 
 # --- CRUD + relationships ---
+
+def test_doctor_type_includes_locum():
+    assert DoctorType.LOCUM.value == "Locum"
+    assert DoctorType.LOCUM in DoctorType
+
 
 def test_room_crud(session):
     r = _room(session)
@@ -71,6 +97,28 @@ def test_preferred_rooms_relationship_ordered(session):
 def test_doctor_code_unique(session):
     _doctor(session, "AA")
     session.add(Doctor(code="AA", doctor_type=DoctorType.SALARIED))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_doctor_calendar_token_autopopulated_and_distinct(session):
+    """Every doctor row carries a token from creation, without the caller
+    naming one -- the invariant the feed route relies on to skip a null
+    branch. Two rows never share one.
+    """
+    a = _doctor(session, "AA")
+    b = _doctor(session, "BB")
+    assert a.calendar_token and b.calendar_token
+    assert a.calendar_token != b.calendar_token
+    # secrets.token_urlsafe(32) -> 43 urlsafe-base64 chars.
+    assert len(a.calendar_token) >= 40
+
+
+def test_doctor_calendar_token_unique(session):
+    a = _doctor(session, "AA")
+    session.add(Doctor(
+        code="BB", doctor_type=DoctorType.SALARIED, calendar_token=a.calendar_token
+    ))
     with pytest.raises(IntegrityError):
         session.flush()
 
@@ -115,19 +163,9 @@ def test_dpr_xor_neither_set_rejected(session):
         session.flush()
 
 
-# --- counter_mode default ---
+# --- ClinicCounter: shared-only, one row per (doctor, clinic_type) ---
 
-def test_clinic_type_counter_mode_defaults_shared(session):
-    c = ClinicType(name="DutyHelper", clinic_priority=99)
-    session.add(c)
-    session.flush()
-    session.refresh(c)
-    assert c.counter_mode == ClinicCounterMode.SHARED
-
-
-# --- ClinicCounter shared vs per_slot ---
-
-def test_clinic_counter_shared_unique(session):
+def test_clinic_counter_unique(session):
     d = _doctor(session)
     c = _clinic(session)
     session.add(ClinicCounter(doctor_id=d.id, clinic_type_id=c.id, raw_count=0))
@@ -137,32 +175,78 @@ def test_clinic_counter_shared_unique(session):
         session.flush()
 
 
-def test_clinic_counter_per_slot_unique_and_distinct_slots_allowed(session):
-    d = _doctor(session)
-    c = _clinic(session, mode=ClinicCounterMode.PER_SLOT)
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=Period.AM,
-    ))
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.WEDNESDAY, period=Period.AM,
-    ))
-    session.flush()  # different slots -> allowed
-
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=Period.AM,
-    ))
-    with pytest.raises(IntegrityError):
-        session.flush()
-
-
-def test_clinic_counter_day_period_check(session):
+def test_clinic_counter_opening_balance_defaults_to_zero(session):
+    """A counter created without a balance behaves exactly as it did before
+    the column existed."""
     d = _doctor(session)
     c = _clinic(session)
-    session.add(ClinicCounter(
-        doctor_id=d.id, clinic_type_id=c.id, day=Day.MONDAY, period=None,
-    ))
+    cc = ClinicCounter(doctor_id=d.id, clinic_type_id=c.id, raw_count=3)
+    session.add(cc)
+    session.flush()
+    session.refresh(cc)
+    assert cc.opening_balance == Decimal("0.0")
+
+
+def test_system_counter_opening_balance_round_trips_one_decimal(session):
+    """The credit is derived from a peer average and so is fractional --
+    Numeric(5, 1) is the storage that survives it."""
+    d = _doctor(session)
+    sc = SystemCounter(
+        doctor_id=d.id,
+        counter_type=SystemCounterType.ROOM_MOVE,
+        raw_count=0,
+        opening_balance=Decimal("3.2"),
+    )
+    session.add(sc)
+    session.flush()
+    session.refresh(sc)
+    assert sc.opening_balance == Decimal("3.2")
+
+
+def test_counter_opening_balance_may_be_negative(session):
+    """Deliberately unconstrained: the mirror case (a doctor back from a
+    long absence, a leaver already served) is real."""
+    d = _doctor(session)
+    sc = SystemCounter(
+        doctor_id=d.id,
+        counter_type=SystemCounterType.SUPERVISION,
+        raw_count=5,
+        opening_balance=Decimal("-2.0"),
+    )
+    session.add(sc)
+    session.flush()
+    session.refresh(sc)
+    assert sc.opening_balance == Decimal("-2.0")
+
+
+# --- DutyOpeningBalance: one optional row per (doctor, year) ---
+
+def test_duty_opening_balance_unique_per_doctor_and_year(session):
+    d = _doctor(session)
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
+    session.flush()
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("1.0")))
     with pytest.raises(IntegrityError):
         session.flush()
+
+
+def test_duty_opening_balance_same_doctor_other_year_allowed(session):
+    """Year-scoped by design: the duty count restarts every 1 January, so
+    each year's credit is its own row."""
+    d = _doctor(session)
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
+    session.add(DutyOpeningBalance(doctor_id=d.id, year=2027, sessions=Decimal("0.5")))
+    session.flush()
+
+
+def test_duty_opening_balance_defaults_and_optional_notes(session):
+    d = _doctor(session)
+    b = DutyOpeningBalance(doctor_id=d.id, year=2026)
+    session.add(b)
+    session.flush()
+    session.refresh(b)
+    assert b.sessions == Decimal("0.0")
+    assert b.notes is None
 
 
 # --- RotaConfig / MasterRotaSession check constraints ---
@@ -206,3 +290,692 @@ def test_weighted_clinic_score(session):
     session.flush()
     weighted = cc.raw_count / float(d.sessions_per_week)
     assert weighted == 0.5
+
+
+def test_weighted_clinic_score_with_opening_balance(session):
+    """The balance is what puts a mid-year joiner level with the group: a
+    credit of peer_score x spw lands them exactly on the peer score."""
+    d = _doctor(session, spw="4.0")
+    c = _clinic(session)
+    cc = ClinicCounter(
+        doctor_id=d.id,
+        clinic_type_id=c.id,
+        raw_count=0,
+        opening_balance=Decimal("3.2"),
+    )
+    session.add(cc)
+    session.flush()
+    weighted = (cc.raw_count + float(cc.opening_balance)) / float(d.sessions_per_week)
+    assert weighted == 0.8
+
+
+# --- PracticeClosure / RotaClosure (M5 bank-holiday weeks) ---
+
+def _rota(session, start=datetime.date(2026, 1, 5)):
+    config = RotaConfig(start_date=start, num_weeks=1, template_start_week=1)
+    session.add(config)
+    session.flush()
+    rota = GeneratedRota(config_id=config.id, status=RotaStatus.DRAFT)
+    session.add(rota)
+    session.flush()
+    return rota
+
+
+def test_practice_closure_date_and_period_unique(session):
+    session.add(PracticeClosure(
+        date=datetime.date(2026, 4, 6), period=Period.AM, name="Easter Monday"
+    ))
+    session.flush()
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.AM))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_practice_closure_other_period_same_date_allowed(session):
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.AM))
+    session.add(PracticeClosure(date=datetime.date(2026, 4, 6), period=Period.PM))
+    session.flush()  # no error: uniqueness is per (date, period)
+
+
+def test_rota_closure_unique_per_rota_date_and_period(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.flush()
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_rota_closure_other_period_same_date_allowed(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.PM))
+    session.flush()  # no error: uniqueness is per (rota_id, date, period)
+
+
+def test_rota_closure_same_date_different_rota_allowed(session):
+    rota_a = _rota(session)
+    rota_b = _rota(session)
+    session.add(RotaClosure(rota_id=rota_a.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.add(RotaClosure(rota_id=rota_b.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.flush()  # no error: uniqueness is per (rota_id, date, period)
+
+
+def test_rota_closure_cascades_on_rota_delete(session):
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(RotaClosure).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_deleting_practice_closure_does_not_affect_rota_closure_snapshot(session):
+    """PracticeClosure and RotaClosure are
+    independent tables at the model layer -- there is no FK between them, so
+    deleting a PracticeClosure can never cascade into or orphan a
+    RotaClosure snapshot row."""
+    pc = PracticeClosure(date=datetime.date(2026, 1, 5), period=Period.AM, name="Test closure")
+    session.add(pc)
+    session.flush()
+
+    rota = _rota(session)
+    session.add(RotaClosure(rota_id=rota.id, date=datetime.date(2026, 1, 5), period=Period.AM))
+    session.flush()
+
+    session.delete(pc)
+    session.flush()
+
+    snapshot = session.query(RotaClosure).filter_by(rota_id=rota.id).one()
+    assert snapshot.date == datetime.date(2026, 1, 5)
+    assert snapshot.period == Period.AM
+
+
+# --- RotaGenerationLogEntry (decision log, Task 1) ---
+
+def _log_entry(rota, sequence=0, phase="phase5", action="assign_clinic", **kwargs):
+    return RotaGenerationLogEntry(
+        rota_id=rota.id, sequence=sequence, phase=phase, action=action,
+        message=kwargs.pop("message", "Dr AA assigned to Dragon Monday AM"),
+        **kwargs,
+    )
+
+
+def test_generation_log_round_trip_ordered_by_sequence(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=1, message="second"))
+    session.add(_log_entry(rota, sequence=0, message="first"))
+    session.flush()
+    session.refresh(rota)
+
+    rows = (
+        session.query(RotaGenerationLogEntry)
+        .filter_by(rota_id=rota.id)
+        .order_by(RotaGenerationLogEntry.sequence)
+        .all()
+    )
+    assert [r.message for r in rows] == ["first", "second"]
+
+
+def test_generation_log_nullable_fields_default_none(session):
+    rota = _rota(session)
+    entry = _log_entry(rota)
+    session.add(entry)
+    session.flush()
+    session.refresh(entry)
+
+    assert entry.week is None
+    assert entry.day is None
+    assert entry.period is None
+    assert entry.doctor_id is None
+    assert entry.related_doctor_id is None
+    assert entry.room_id is None
+    assert entry.related_room_id is None
+    assert entry.clinic_type_id is None
+
+
+def test_generation_log_stores_full_entry(session):
+    rota = _rota(session)
+    entry = _log_entry(
+        rota, phase="phase7_9a", action="displace_room",
+        week=1, day=Day.MONDAY, period=Period.AM,
+        doctor_id=1, related_doctor_id=2, room_id=101, related_room_id=102,
+        message="Dr AA displaced Dr BB from D4 to D5",
+    )
+    session.add(entry)
+    session.flush()
+    session.refresh(entry)
+
+    assert entry.phase == "phase7_9a"
+    assert entry.action == "displace_room"
+    assert entry.week == 1
+    assert entry.day == Day.MONDAY
+    assert entry.period == Period.AM
+    assert entry.doctor_id == 1
+    assert entry.related_doctor_id == 2
+    assert entry.room_id == 101
+    assert entry.related_room_id == 102
+
+
+def test_generation_log_sequence_unique_per_rota(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0))
+    session.flush()
+    session.add(_log_entry(rota, sequence=0))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_generation_log_same_sequence_different_rota_allowed(session):
+    rota_a = _rota(session)
+    rota_b = _rota(session)
+    session.add(_log_entry(rota_a, sequence=0))
+    session.add(_log_entry(rota_b, sequence=0))
+    session.flush()  # no error: uniqueness is per (rota_id, sequence)
+
+
+def test_generation_log_cascades_on_rota_delete(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(RotaGenerationLogEntry).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_generation_log_entries_via_relationship(session):
+    rota = _rota(session)
+    session.add(_log_entry(rota, sequence=0, message="first"))
+    session.add(_log_entry(rota, sequence=1, message="second"))
+    session.flush()
+    session.refresh(rota)
+
+    assert len(rota.generation_log) == 2
+
+
+# --- RotaStaging / RotaStagingSession (staging plan, Task 1) ---
+
+def _template(session, name="Default"):
+    t = MasterRotaTemplate(name=name)
+    session.add(t)
+    session.flush()
+    return t
+
+
+def _config(session, start=datetime.date(2026, 4, 6)):
+    config = RotaConfig(start_date=start, num_weeks=1, template_start_week=1)
+    session.add(config)
+    session.flush()
+    return config
+
+
+def _staging(session, template=None, config=None):
+    template = template or _template(session)
+    config = config or _config(session)
+    staging = RotaStaging(config_id=config.id, source_template_id=template.id)
+    session.add(staging)
+    session.flush()
+    return staging
+
+
+def test_staging_round_trip_with_sessions(session):
+    d = _doctor(session)
+    r = _room(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.REQUIRES_ROOM,
+        room_id=r.id,
+    ))
+    session.flush()
+    session.refresh(staging)
+
+    assert len(staging.sessions) == 1
+    assert staging.sessions[0].doctor_id == d.id
+    assert staging.sessions[0].room_id == r.id
+    assert staging.completed_at is None
+
+
+def test_staging_session_slot_unique(session):
+    d = _doctor(session)
+    staging = _staging(session)
+
+    def rss():
+        return RotaStagingSession(
+            staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+            period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+        )
+
+    session.add(rss())
+    session.flush()
+
+    session.add(rss())  # duplicate slot -> rejected
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_staging_session_week_check(session):
+    d = _doctor(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=5, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_staging_cascades_sessions_on_delete(session):
+    d = _doctor(session)
+    staging = _staging(session)
+    session.add(RotaStagingSession(
+        staging_id=staging.id, doctor_id=d.id, week=1, day=Day.MONDAY,
+        period=Period.AM, session_type=MasterSessionType.NO_SURGERY,
+    ))
+    session.flush()
+
+    session.delete(staging)
+    session.flush()
+
+    remaining = session.query(RotaStagingSession).filter_by(staging_id=staging.id).all()
+    assert remaining == []
+
+
+def test_staging_config_id_unique(session):
+    config = _config(session)
+    _staging(session, config=config)
+
+    session.add(RotaStaging(
+        config_id=config.id, source_template_id=_template(session, "Second").id,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+# --- RecurringNote definitions and RotaConfigNote instances ---
+
+def _note(session, text="Partners meeting", day=Day.MONDAY, period=Period.PM):
+    n = RecurringNote(text=text, day=day, period=period)
+    session.add(n)
+    session.flush()
+    return n
+
+
+def _config_note(
+    session,
+    config,
+    text="Partners meeting",
+    week=1,
+    day=Day.MONDAY,
+    period=Period.PM,
+    source_note_id=None,
+):
+    n = RotaConfigNote(
+        config_id=config.id,
+        source_note_id=source_note_id,
+        text=text,
+        week=week,
+        day=day,
+        period=period,
+    )
+    session.add(n)
+    session.flush()
+    return n
+
+
+def test_recurring_note_round_trip_with_doctors(session):
+    d1 = _doctor(session, "AA")
+    d2 = _doctor(session, "BB")
+    note = _note(session)
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d1.id))
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d2.id))
+    session.flush()
+    session.refresh(note)
+
+    assert note.text == "Partners meeting"
+    assert note.day == Day.MONDAY
+    assert note.period == Period.PM
+    assert note.is_active is True  # Python-side default
+    assert {rnd.doctor_id for rnd in note.doctors} == {d1.id, d2.id}
+
+
+def test_recurring_note_cascades_doctors_on_delete(session):
+    d = _doctor(session)
+    note = _note(session)
+    note.doctors.append(RecurringNoteDoctor(doctor_id=d.id))
+    session.flush()
+    note_id = note.id
+
+    session.delete(note)
+    session.flush()
+
+    assert session.query(RecurringNoteDoctor).filter_by(note_id=note_id).all() == []
+
+
+def test_recurring_note_doctor_unique_per_note(session):
+    d = _doctor(session)
+    note = _note(session)
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=d.id))
+    session.flush()
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=d.id))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_recurring_note_doctor_fk_enforced(session):
+    """FK enforcement relies on the test engine's PRAGMA foreign_keys=ON;
+    the dev SQLite engine in database.py does not set it."""
+    note = _note(session)
+    session.add(RecurringNoteDoctor(note_id=note.id, doctor_id=9999))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_config_note_round_trip_with_doctors(session):
+    d1 = _doctor(session, "AA")
+    d2 = _doctor(session, "BB")
+    config = _config(session)
+    definition = _note(session)
+    note = _config_note(session, config, week=2, source_note_id=definition.id)
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d1.id))
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d2.id))
+    session.flush()
+    session.refresh(note)
+
+    assert note.config_id == config.id
+    assert note.source_note_id == definition.id
+    assert note.text == "Partners meeting"
+    assert note.week == 2
+    assert note.day == Day.MONDAY
+    assert note.period == Period.PM
+    assert {d.doctor_id for d in note.doctors} == {d1.id, d2.id}
+
+
+def test_config_note_source_note_id_is_optional(session):
+    """A free-form one-off note has no definition behind it."""
+    config = _config(session)
+    note = _config_note(session, config, text="One-off", source_note_id=None)
+    session.refresh(note)
+
+    assert note.source_note_id is None
+
+
+@pytest.mark.parametrize("bad_week", [0, 5])
+def test_config_note_week_check(session, bad_week):
+    config = _config(session)
+    with pytest.raises(IntegrityError):
+        _config_note(session, config, week=bad_week)
+
+
+def test_config_note_doctor_unique_per_note(session):
+    d = _doctor(session)
+    config = _config(session)
+    note = _config_note(session, config)
+    session.add(RotaConfigNoteDoctor(config_note_id=note.id, doctor_id=d.id))
+    session.flush()
+    session.add(RotaConfigNoteDoctor(config_note_id=note.id, doctor_id=d.id))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_deleting_config_deletes_its_notes_and_their_doctors(session):
+    """Load-bearing: abandon_staging hard-deletes the staging's RotaConfig,
+    which would raise an IntegrityError against any picked note without the
+    RotaConfig.notes cascade."""
+    d = _doctor(session)
+    config = _config(session)
+    note = _config_note(session, config)
+    note.doctors.append(RotaConfigNoteDoctor(doctor_id=d.id))
+    session.flush()
+    note_id = note.id
+
+    session.delete(config)
+    session.flush()
+
+    assert session.query(RotaConfigNote).filter_by(id=note_id).all() == []
+    assert (
+        session.query(RotaConfigNoteDoctor).filter_by(config_note_id=note_id).all()
+        == []
+    )
+
+
+def test_config_notes_may_overlap_on_same_slot(session):
+    """No uniqueness rule across notes. Two instances for the same week, day
+    and period are legal at the data layer -- Phase 2 concatenates them by id
+    ascending rather than rejecting either."""
+    config = _config(session)
+    for text in ("Partners meeting", "Practice meeting"):
+        _config_note(session, config, text=text)
+    session.flush()  # no error
+
+    assert session.query(RotaConfigNote).filter_by(config_id=config.id).count() == 2
+
+
+# --- RotaStaging.source_template_start_week ---
+
+def test_staging_source_template_start_week_defaults_to_one(session):
+    staging = _staging(session)
+    session.refresh(staging)
+    assert staging.source_template_start_week == 1
+
+
+def test_staging_source_template_start_week_round_trip(session):
+    template = _template(session)
+    config = _config(session)
+    staging = RotaStaging(
+        config_id=config.id,
+        source_template_id=template.id,
+        source_template_start_week=3,
+    )
+    session.add(staging)
+    session.flush()
+    session.refresh(staging)
+
+    assert staging.source_template_start_week == 3
+
+
+# --- Reception rota (reception rota plan, Task 1) ---
+
+def _reception_staff(session, code="RA"):
+    s = ReceptionStaff(code=code, active=True)
+    session.add(s)
+    session.flush()
+    return s
+
+
+def _reception_rota(session, date=datetime.date(2026, 8, 3)):
+    rota = ReceptionRota(date=date)
+    session.add(rota)
+    session.flush()
+    return rota
+
+
+def test_reception_role_round_trips_by_value():
+    assert ReceptionRole.PHONES.value == "phones"
+    assert ReceptionRole.PRESCRIPTIONS.value == "prescriptions"
+    assert ReceptionRole.REGISTRATIONS.value == "registrations"
+    assert ReceptionRole.FRONT_DESK.value == "front_desk"
+    assert ReceptionRole.ADMIN.value == "admin"
+    assert ReceptionRole.ONLINE_TRIAGE.value == "online_triage"
+    assert ReceptionRole.ROTAS.value == "rotas"
+    assert ReceptionRole.TASKS.value == "tasks"
+    assert ReceptionRole.LUNCH.value == "lunch"
+    assert ReceptionRole.NOT_WORKING.value == "not_working"
+    assert ReceptionRole.OTHER.value == "other"
+    assert ReceptionRole.CUTTESLOWE.value == "cutteslowe"
+    assert ReceptionRole.WOLVERCOTE.value == "wolvercote"
+
+
+@pytest.mark.parametrize("bad_hour", [7, 18.5])
+def test_reception_master_session_hour_check(session, bad_hour):
+    staff = _reception_staff(session)
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=bad_hour, role=ReceptionRole.PHONES,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+@pytest.mark.parametrize("bad_hour", [7, 18.5])
+def test_reception_rota_session_hour_check(session, bad_hour):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=bad_hour, role=ReceptionRole.PHONES,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_master_session_slot_unique(session):
+    staff = _reception_staff(session)
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+    session.add(ReceptionMasterSession(
+        staff_id=staff.id, day=Day.MONDAY, hour=9, role=ReceptionRole.OTHER,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_rota_session_slot_unique(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.OTHER,
+    ))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_rota_cascades_sessions_on_delete(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    session.add(ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    ))
+    session.flush()
+
+    session.delete(rota)
+    session.flush()
+
+    remaining = session.query(ReceptionRotaSession).filter_by(rota_id=rota.id).all()
+    assert remaining == []
+
+
+def test_reception_rota_session_displaced_role_defaults_to_none(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    row = ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9, role=ReceptionRole.PHONES,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.displaced_role is None
+
+
+def test_reception_rota_session_displaced_role_round_trips(session):
+    staff = _reception_staff(session)
+    rota = _reception_rota(session)
+    row = ReceptionRotaSession(
+        rota_id=rota.id, staff_id=staff.id, hour=9,
+        role=ReceptionRole.FRONT_DESK, displaced_role=ReceptionRole.PRESCRIPTIONS,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.displaced_role is ReceptionRole.PRESCRIPTIONS
+
+
+def test_reception_rota_date_unique(session):
+    _reception_rota(session, date=datetime.date(2026, 8, 3))
+    session.add(ReceptionRota(date=datetime.date(2026, 8, 3)))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_reception_staff_code_unique(session):
+    _reception_staff(session, code="RA")
+    session.add(ReceptionStaff(code="RA"))
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_audit_log_entry_round_trip(session):
+    user = User(
+        email="manager@example.com",
+        name="Ada",
+        password_hash="not-a-real-hash",
+        access_level=AccessLevel.MANAGER,
+    )
+    session.add(user)
+    session.flush()
+
+    entry = AuditLogEntry(
+        user_id=user.id,
+        user_email=user.email,
+        user_access_level=user.access_level.value,
+        method="PATCH",
+        route="/rota/{rota_id}/sessions/{session_id}",
+        path="/api/v1/rota/12/sessions/45",
+        path_params={"rota_id": "12", "session_id": "45"},
+        request_body={"room_id": 3, "password": "[redacted]"},
+        status_code=200,
+        duration_ms=17,
+        client_ip="10.0.0.1",
+    )
+    session.add(entry)
+    session.flush()
+    session.expire_all()
+
+    fetched = session.get(AuditLogEntry, entry.id)
+    assert fetched.method == "PATCH"
+    assert fetched.route == "/rota/{rota_id}/sessions/{session_id}"
+    assert fetched.path == "/api/v1/rota/12/sessions/45"
+    # JSON columns round-trip as dicts; path params are strings by design.
+    assert fetched.path_params == {"rota_id": "12", "session_id": "45"}
+    assert fetched.request_body == {"room_id": 3, "password": "[redacted]"}
+    assert fetched.status_code == 200
+    assert fetched.outcome_detail is None
+    # access_level is a plain string, not the enum, so historical rows
+    # survive a tier rename.
+    assert fetched.user_access_level == "manager"
+    assert isinstance(fetched.user_access_level, str)
+    # `at` defaults in Python. SQLite does not round-trip tzinfo, so the
+    # value read back is naive and must be read as UTC.
+    assert fetched.at is not None
+
+
+def test_audit_log_entry_allows_no_actor(session):
+    entry = AuditLogEntry(
+        method="POST",
+        route="/auth/login",
+        path="/api/v1/auth/login",
+        status_code=401,
+        outcome_detail="Invalid credentials",
+    )
+    session.add(entry)
+    session.flush()
+    session.expire_all()
+
+    fetched = session.get(AuditLogEntry, entry.id)
+    assert fetched.user_id is None
+    assert fetched.user_email is None
+    assert fetched.user_access_level is None
+    assert fetched.path_params is None
+    assert fetched.request_body is None
+    assert fetched.outcome_detail == "Invalid credentials"
