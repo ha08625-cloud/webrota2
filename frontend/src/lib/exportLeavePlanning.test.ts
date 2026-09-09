@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CoverageSlot, Doctor, Period } from "@/api/types";
+import type { CoverageSlot, Period } from "@/api/types";
 import {
   makeBlockedEntry,
   makeDoctor,
