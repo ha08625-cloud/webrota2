@@ -82,12 +82,11 @@ describe("ClinicalShell nav", () => {
 });
 
 describe("ClinicalShell nav by permission", () => {
-  it("keeps every entry for a writer", () => {
+  it("keeps every entry bar the reader's committed-rota view for a writer", () => {
     renderAt("/clinical/counters", PERMISSION_PRESETS.rotaAdmin);
 
     const nav = screen.getByRole("navigation");
     for (const label of [
-      "Committed Rotas",
       "Generate new rotas",
       "Master Rota",
       "Clinic Types",
@@ -100,6 +99,9 @@ describe("ClinicalShell nav by permission", () => {
     ]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
+    // Committed Rotas is the reader's view of the published rota; a writer
+    // reaches the same rotas through the generate console's commit history.
+    expect(within(nav).queryByRole("link", { name: "Committed Rotas" })).not.toBeInTheDocument();
   });
 
   // A reader's clinical nav is the three entries that mean something without
@@ -154,10 +156,11 @@ describe("ClinicalShell nav by permission", () => {
     expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
   });
 
-  it("renders the committed rotas route for a writer too", async () => {
+  it("sends a writer who followed a committed rotas link to the generate console", async () => {
     renderAt("/clinical/committed", PERMISSION_PRESETS.rotaAdmin);
 
-    expect(await screen.findByRole("heading", { name: "Committed rotas" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Committed rotas" })).not.toBeInTheDocument();
   });
 
   it("keeps the Session Management sub-tabs available to a reader", () => {
