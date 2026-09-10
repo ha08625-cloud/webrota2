@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
 import { useRota } from "@/api/rota";
-import type { AuthUser, ClosedSlot, Permissions, Rota } from "@/api/types";
+import type { AuthUser, ClosedSlot, Permissions, Rota, ValidationIssue } from "@/api/types";
 import {
   PERMISSION_PRESETS,
   makeClinicType,
@@ -15,6 +15,7 @@ import {
   makeRoom,
 } from "@/test/fixtures/reference";
 import { makeRota, makeRotaSession } from "@/test/fixtures/rota";
+import { makeValidationIssue } from "@/test/fixtures/issues";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 import type { UndoEntry } from "@/lib/undoStack";
@@ -75,12 +76,14 @@ function setUpServer({
   rooms = [makeRoom({ id: 1, code: "D1", room_type: "D" })],
   clinicTypes = [] as ReturnType<typeof makeClinicType>[],
   closures = [] as ReturnType<typeof makeClosure>[],
+  issues = [] as ValidationIssue[],
 } = {}) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
     http.get("/api/v1/rooms", () => HttpResponse.json(rooms)),
     http.get("/api/v1/clinic-types", () => HttpResponse.json(clinicTypes)),
     http.get("/api/v1/closures", () => HttpResponse.json(closures)),
+    http.get("/api/v1/rota/:id/issues", () => HttpResponse.json(issues)),
   );
 }
 
@@ -740,5 +743,72 @@ describe("RotaGrid: the linked doctor's own row", () => {
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
     expect(cell.className).toContain("bg-red-100");
     expect(within(cell).queryByText("(you)")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("RotaGrid: unresolved-room highlight", () => {
+  const NEEDS_ROOM_SESSION = { session_id: 1, doctor_id: 1, week: 1, day: "Monday" as const, period: "AM" as const };
+
+  function unresolvedRoom(doctorId: number) {
+    return makeValidationIssue({
+      check: "unresolved_room",
+      message: "AB needs a room Monday AM (week 1)",
+      week: 1,
+      day: "Monday",
+      period: "AM",
+      doctor_id: doctorId,
+    });
+  }
+
+  it("rings only the cell the unresolved_room issue names", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "AB" }), makeDoctor({ id: 2, code: "CD" })],
+      issues: [unresolvedRoom(1)],
+    });
+    const rota = makeRota({
+      num_weeks: 1,
+      sessions: [
+        makeRotaSession(NEEDS_ROOM_SESSION),
+        makeRotaSession({ session_id: 2, doctor_id: 2, week: 1, day: "Monday", period: "AM" }),
+        makeRotaSession({ session_id: 3, doctor_id: 1, week: 1, day: "Monday", period: "PM" }),
+      ],
+    });
+
+    renderRotaGrid({ rota });
+
+    const flagged = await screen.findByTestId("cell-1-1-Monday-AM");
+    expect(flagged).toHaveAttribute("data-needs-room", "true");
+    expect(flagged.className).toContain("ring-red-600");
+    // Same session, different doctor: not the one short of a room.
+    expect(screen.getByTestId("cell-2-1-Monday-AM")).not.toHaveAttribute("data-needs-room");
+    // Same doctor, different slot.
+    expect(screen.getByTestId("cell-1-1-Monday-PM")).not.toHaveAttribute("data-needs-room");
+  });
+
+  it("leaves cells unringed for issues of other checks", async () => {
+    setUpServer({
+      issues: [makeValidationIssue({ check: "role_on_incompatible_slot", week: 1, day: "Monday", period: "AM", doctor_id: 1 })],
+    });
+    const rota = makeRota({ num_weeks: 1, sessions: [makeRotaSession(NEEDS_ROOM_SESSION)] });
+
+    renderRotaGrid({ rota });
+
+    expect(await screen.findByTestId("cell-1-1-Monday-AM")).not.toHaveAttribute("data-needs-room");
+  });
+
+  it("rings the cell on a committed (read-only) rota too", async () => {
+    setUpServer({ issues: [unresolvedRoom(1)] });
+    const rota = makeRota({
+      num_weeks: 1,
+      status: "committed",
+      sessions: [makeRotaSession(NEEDS_ROOM_SESSION)],
+    });
+
+    renderRotaGrid({ rota });
+
+    const flagged = await screen.findByTestId("cell-1-1-Monday-AM");
+    expect(flagged).toHaveAttribute("data-needs-room", "true");
+    expect(flagged.className).toContain("ring-red-600");
   });
 });

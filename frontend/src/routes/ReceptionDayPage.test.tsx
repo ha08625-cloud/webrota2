@@ -195,6 +195,7 @@ describe("ReceptionDayPage", () => {
       week: null,
       day: "Monday",
       period: null,
+      doctor_id: null,
     };
     const rota = makeReceptionRota({ rota_id: 7, date: monday, sessions: [existing], issues: [shortfall] });
     const created = makeReceptionRotaSession({ session_id: 2, staff_id: 2, hour: 9, role: "phones" });

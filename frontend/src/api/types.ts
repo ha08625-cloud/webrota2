@@ -231,6 +231,13 @@ export interface ValidationIssue {
   week: number | null;
   day: Day | null;
   period: Period | null;
+  /**
+   * Set only for checks that are about one doctor's slot rather than the
+   * whole session (currently `unresolved_room`), so the grid can ring the
+   * exact cell without parsing `message`. Null for every other check, and
+   * for reception issues, which share this shape.
+   */
+  doctor_id: number | null;
 }
 
 // --- Rooms (schemas_room.py) — read-only in M3, still read-only in M4 ---

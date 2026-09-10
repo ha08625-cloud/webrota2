@@ -339,6 +339,7 @@ describe("ReceptionGrid: coverage warnings", () => {
       week: null,
       day: "Monday",
       period: null,
+      doctor_id: null,
     };
   }
 

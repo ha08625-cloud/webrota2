@@ -13,6 +13,7 @@ function makeIssue(overrides: Partial<ValidationIssue> = {}): ValidationIssue {
     week: null,
     day: "Monday",
     period: null,
+    doctor_id: null,
     ...overrides,
   };
 }
