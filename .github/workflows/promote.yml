@@ -1,0 +1,48 @@
+name: Promote main to production
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # 02:00 BST / 01:00 GMT
+  workflow_dispatch:      # also runnable on demand from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check whether there is anything to promote
+        id: check
+        run: |
+          MAIN=$(git rev-parse origin/main)
+          PROD=$(git rev-parse --verify -q origin/production || true)
+          echo "main=$MAIN production=${PROD:-<missing>}"
+          if [ "$MAIN" = "$PROD" ]; then
+            echo "No changes on main; nothing to promote."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check CI is green on main
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git rev-parse origin/main)
+          STATE=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name != "promote")]
+                  | if length == 0 then "none"
+                    elif any(.conclusion != "success" and .conclusion != "skipped") then "bad"
+                    else "good" end')
+          echo "main=$SHA ci=$STATE"
+          [ "$STATE" = "good" ] || { echo "Not promoting: CI is $STATE"; exit 1; }
+
+      - name: Fast-forward production to main
+        if: steps.check.outputs.changed == 'true'
+        run: git push origin origin/main:refs/heads/production
