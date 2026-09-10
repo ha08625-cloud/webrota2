@@ -15,8 +15,13 @@ import { addDays, formatDate, getCurrentRotaMonday, rotaWeekForMonday } from "@/
  * console - staging form, duty staffing preview, clinic enable
  * checkboxes, commit history - none of which means anything to someone
  * who only needs to know where they are working this week. A read-only
- * clinical login is sent here instead (App.tsx's CLINICAL_READER_HOME),
- * and writers get it as an ordinary nav entry.
+ * clinical login is sent here instead (App.tsx's CLINICAL_READER_HOME).
+ *
+ * It is a reader's page only: the nav entry is hidden from a login that can
+ * write in the clinical section, and App.tsx bounces such a login off the
+ * route, because the generate console's commit history and the rota detail
+ * page behind it already cover committed rotas with the lifecycle controls a
+ * writer needs.
  *
  * Deliberately not a variant of RotaDetailPage: that page is the editing
  * and lifecycle surface (commit, scrap, archive, rollback, force delete,

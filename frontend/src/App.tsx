@@ -66,13 +66,23 @@ interface NavItem {
    * disabled for them, so they are hidden rather than shown inert.
    */
   writeOnly?: boolean;
+  /**
+   * The mirror of `writeOnly`: hide this entry from a login that can write in
+   * the clinical section. Set only on Committed Rotas, which is a reader's
+   * view of the published rota. A writer reaches every rota, committed ones
+   * included, through the generate console's commit history and the rota
+   * detail page it links to, so the entry would be a second, weaker route to
+   * something they already have.
+   */
+  readerOnly?: boolean;
 }
 
 // The nav is filtered by one thing only: whether the login can write in the
-// clinical section. A writer sees every entry; a reader sees the three that
-// are useful without edit rights (Committed Rotas, Session Management and
-// Calendar Feed) and none of the reference-data pages, whose every control
-// would be disabled for them. CLINICAL_WRITE_ONLY_PATHS guards the matching
+// clinical section. A writer sees every entry bar Committed Rotas; a reader
+// sees the three that are useful without edit rights (Committed Rotas,
+// Session Management and Calendar Feed) and none of the reference-data
+// pages, whose every control would be disabled for them.
+// CLINICAL_WRITE_ONLY_PATHS and CLINICAL_READER_ONLY_PATHS guard the matching
 // routes, so hiding an entry also blocks the bookmark behind it. The two
 // entries that used to be filtered, Users and Audit Log, are their own
 // section now.
@@ -87,7 +97,7 @@ interface NavItem {
 // "Session Management" entry and switched between with the sub-tab bar in
 // SessionManagementTabs.tsx; their routes are unchanged.
 const CLINICAL_NAV_ITEMS: readonly NavItem[] = [
-  { to: "/clinical/committed", label: "Committed Rotas", end: false },
+  { to: "/clinical/committed", label: "Committed Rotas", end: false, readerOnly: true },
   { to: "/clinical", label: "Generate new rotas", end: true, writeOnly: true },
   { to: "/clinical/master-rota", label: "Master Rota", end: false, writeOnly: true },
   { to: "/clinical/clinic-types", label: "Clinic Types", end: false, writeOnly: true },
@@ -133,6 +143,19 @@ const CLINICAL_READER_HOME = "/clinical/committed";
 const CLINICAL_WRITE_ONLY_PATHS: readonly string[] = CLINICAL_NAV_ITEMS.filter(
   (item) => item.writeOnly,
 ).map((item) => item.to);
+
+/**
+ * The mirror of the above: clinical routes a writer is kept out of, matching
+ * the `readerOnly` nav entries. A writer who follows an old link to the
+ * committed-rota view lands on the generate console, whose commit history is
+ * the writer's way into the same rotas.
+ */
+const CLINICAL_WRITER_EXCLUDED_PATHS: readonly string[] = CLINICAL_NAV_ITEMS.filter(
+  (item) => item.readerOnly,
+).map((item) => item.to);
+
+/** Where a writer bounced off a `readerOnly` path is sent. */
+const CLINICAL_WRITER_HOME = "/clinical";
 
 function navLinkClass(isActive: boolean) {
   return `block px-4 py-2 text-sm ${
@@ -213,7 +236,9 @@ function ClinicalShell() {
   const { pathname } = useLocation();
   const permissions = usePermissions();
   const canWrite = canWriteArea(permissions, "clinical");
-  const navItems = CLINICAL_NAV_ITEMS.filter((item) => canWrite || !item.writeOnly);
+  const navItems = CLINICAL_NAV_ITEMS.filter((item) =>
+    canWrite ? !item.readerOnly : !item.writeOnly,
+  );
 
   // Reads are gated too, so a bookmark into a section the user cannot see
   // would otherwise render a page of failed queries. Back to the landing
@@ -229,6 +254,14 @@ function ClinicalShell() {
   // not that page.
   if (!canWrite && CLINICAL_WRITE_ONLY_PATHS.includes(pathname)) {
     return <Navigate to={CLINICAL_READER_HOME} replace />;
+  }
+
+  // And the mirror of it: a writer who lands on the reader's committed-rota
+  // view goes to the generate console, where the commit history and the rota
+  // detail page behind it cover the same ground with the editing controls
+  // their login is for.
+  if (canWrite && CLINICAL_WRITER_EXCLUDED_PATHS.includes(pathname)) {
+    return <Navigate to={CLINICAL_WRITER_HOME} replace />;
   }
 
   return (
