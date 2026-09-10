@@ -40,6 +40,14 @@ const BACKGROUND_CLASS: Record<CellBackground, string> = {
   default: "bg-white",
 };
 
+/**
+ * Red ring on a cell whose doctor has no room for that session
+ * (Phase 12's unresolved_room). Inset so it reads as a border on the cell
+ * rather than a fill - the cell's own background still carries Q13's
+ * duty/clinic colouring, which a fill would hide.
+ */
+const NEEDS_ROOM_RING = "ring-2 ring-inset ring-red-600";
+
 const FONT_CLASS: Record<FontColor, string> = {
   black: "text-ink",
   red: "text-red-700",
@@ -70,6 +78,10 @@ interface ActiveChip {
 
 function supervisedCountKey(week: number, day: Day, period: Period): string {
   return `${week}:${day}:${period}`;
+}
+
+function needsRoomKey(week: number, doctorId: number, day: Day, period: Period): string {
+  return `${week}:${doctorId}:${day}:${period}`;
 }
 
 /**
@@ -176,6 +188,26 @@ export function RotaGrid({
     }
     return map;
   }, [rota.sessions, doctors, weeks]);
+
+  /**
+   * Cells carrying an unresolved_room warning, keyed week:doctor:day:period.
+   * Sourced from the same `GET /rota/:id/issues` payload the issues panel
+   * renders (via `issue.doctor_id`, which Phase 12 sets for this check) so
+   * the ring and the panel can never disagree - deliberately not re-derived
+   * from the session rows, which would duplicate the backend's rules on
+   * which slots need a room (leave, WFH, template type) in a second place.
+   */
+  const needsRoomCells = useMemo(() => {
+    const keys = new Set<string>();
+    for (const issue of issues ?? []) {
+      if (issue.check !== "unresolved_room") continue;
+      if (issue.doctor_id === null || issue.week === null || issue.day === null || issue.period === null) {
+        continue;
+      }
+      keys.add(needsRoomKey(issue.week, issue.doctor_id, issue.day, issue.period));
+    }
+    return keys;
+  }, [issues]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -374,6 +406,7 @@ export function RotaGrid({
                   // last (Friday), where the outer frame takes over.
                   const dividerClassName = `${dayIndex === DAYS.length - 1 ? "" : "border-r-2 border-ink/40"} ${groupDividerClass}`;
                   const supervisedCount = supervisedCounts.get(supervisedCountKey(activeWeek, day, period)) ?? 0;
+                  const needsRoom = needsRoomCells.has(needsRoomKey(activeWeek, doctor.id, day, period));
                   return editable ? (
                     <EditableGridCell
                       key={day}
@@ -383,6 +416,7 @@ export function RotaGrid({
                       period={period}
                       session={session}
                       supervisedCount={supervisedCount}
+                      needsRoom={needsRoom}
                       allSessions={rota.sessions}
                       rooms={rooms ?? []}
                       clinicTypes={clinicTypes ?? []}
@@ -405,6 +439,7 @@ export function RotaGrid({
                       period={period}
                       session={session}
                       supervisedCount={supervisedCount}
+                      needsRoom={needsRoom}
                       roomsById={roomsById}
                       clinicTypesById={clinicTypesById}
                       dividerClassName={dividerClassName}
@@ -456,6 +491,12 @@ interface ReadOnlyGridCellProps {
   session: RotaSession | undefined;
   /** See RotaGrid's supervisedCounts memo - one lookup per (week, day, period), shared by every cell in the session. */
   supervisedCount: number;
+  /** True when Phase 12 raised an unresolved_room warning for this exact
+   * (week, doctor, day, period) - rings the cell in red so the "needs a
+   * room" issues can be found by eye instead of only through the issues
+   * panel. A border treatment, not a fill: cell backgrounds already carry
+   * Q13's colouring. */
+  needsRoom?: boolean;
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
   /** Heavier border-r/border-b classes for the column-to-column and
@@ -475,6 +516,7 @@ function ReadOnlyGridCell({
   period,
   session,
   supervisedCount,
+  needsRoom = false,
   roomsById,
   clinicTypesById,
   dividerClassName,
@@ -503,9 +545,11 @@ function ReadOnlyGridCell({
 
   return (
     <td
-      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${dividerClassName}`}
+      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${needsRoom ? NEEDS_ROOM_RING : ""} ${dividerClassName}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+      data-needs-room={needsRoom ? "true" : undefined}
       data-week-day-period={`${week}-${day}-${period}`}
+      title={needsRoom ? "No room assigned for this session" : undefined}
     >
       <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} supervisedCount={supervisedCount} />
     </td>
@@ -522,6 +566,12 @@ interface EditableGridCellProps {
   session: RotaSession | undefined;
   /** See RotaGrid's supervisedCounts memo - one lookup per (week, day, period), shared by every cell in the session. */
   supervisedCount: number;
+  /** True when Phase 12 raised an unresolved_room warning for this exact
+   * (week, doctor, day, period) - rings the cell in red so the "needs a
+   * room" issues can be found by eye instead of only through the issues
+   * panel. A border treatment, not a fill: cell backgrounds already carry
+   * Q13's colouring. */
+  needsRoom?: boolean;
   /** The rota's flat session list, threaded down to CellEditPopover for client-side steal detection. */
   allSessions: RotaSession[];
   rooms: Room[];
@@ -546,6 +596,7 @@ function EditableGridCell({
   period,
   session,
   supervisedCount,
+  needsRoom = false,
   allSessions,
   rooms,
   clinicTypes,
@@ -591,11 +642,15 @@ function EditableGridCell({
   const isEligibleTarget = !isSelf && activeChip !== null && canDrop(activeChip.type, activeChip.session, session);
   const isIneligibleTarget = !isSelf && activeChip !== null && !isEligibleTarget;
 
+  // The drag-target ring wins over the needs-a-room ring while a drag is
+  // in progress: both are inset rings, so showing them together would mean
+  // two ring-colour utilities on one element with no defined winner.
   const highlightClass = isEligibleTarget
     ? "ring-2 ring-inset ring-accent"
     : isIneligibleTarget
       ? "opacity-40"
       : "";
+  const needsRoomClass = needsRoom && !isEligibleTarget ? NEEDS_ROOM_RING : "";
 
   const cellBody = (
     <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} supervisedCount={supervisedCount} draggable />
@@ -619,9 +674,11 @@ function EditableGridCell({
   return (
     <td
       ref={setNodeRef}
-      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""} ${dividerClassName}`}
+      className={`border border-border px-2 py-1 text-center ${BACKGROUND_CLASS[style.background]} ${highlightClass} ${needsRoomClass} ${isOver && isEligibleTarget ? "bg-accent/10" : ""} ${dividerClassName}`}
       data-testid={`cell-${doctorId}-${week}-${day}-${period}`}
+      data-needs-room={needsRoom ? "true" : undefined}
       data-week-day-period={`${week}-${day}-${period}`}
+      title={needsRoom ? "No room assigned for this session" : undefined}
     >
       <CellEditPopover
         session={session}

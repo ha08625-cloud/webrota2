@@ -9,6 +9,7 @@ export function makeValidationIssue(overrides: Partial<ValidationIssue> = {}): V
     week: 1,
     day: "Monday",
     period: "AM",
+    doctor_id: null,
     ...overrides,
   };
 }

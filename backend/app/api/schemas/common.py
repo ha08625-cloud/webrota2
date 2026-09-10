@@ -13,5 +13,6 @@ class ValidationIssueOut(BaseModel):
     week: int | None = None
     day: Day | None = None
     period: Period | None = None
+    doctor_id: int | None = None
 
     model_config = {"from_attributes": True}

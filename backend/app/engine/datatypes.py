@@ -50,6 +50,10 @@ class ValidationIssue:
     week: int | None = None
     day: Day | None = None
     period: Period | None = None
+    #: The doctor the finding is about, when it is about one doctor's slot
+    #: rather than the session as a whole (e.g. `unresolved_room`). Lets a
+    #: caller tie the issue to a single grid cell without parsing `message`.
+    doctor_id: int | None = None
 
 
 # ---------------------------------------------------------------------------

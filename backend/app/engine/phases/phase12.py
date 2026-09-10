@@ -172,6 +172,7 @@ def _check_unresolved_rooms(context: GenerationContext, grid: RotaGrid) -> list[
             "unresolved_room", slot.week, slot.day, slot.period,
             f"{code} needs a room {slot.day.value} {slot.period.value} "
             f"(week {slot.week})",
+            doctor_id=slot.doctor_id,
         ))
     return issues
 
@@ -297,8 +298,12 @@ def _check_supervision_on_incompatible_slot(
     return issues
 
 
-def _warning(check: str, week: int, day: Day, period: Period, message: str) -> ValidationIssue:
+def _warning(
+    check: str, week: int, day: Day, period: Period, message: str,
+    doctor_id: int | None = None,
+) -> ValidationIssue:
     return ValidationIssue(
         severity="warning", phase=PHASE, check=check,
         week=week, day=day, period=period, message=message,
+        doctor_id=doctor_id,
     )

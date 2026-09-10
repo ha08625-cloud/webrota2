@@ -186,6 +186,22 @@ class TestUnresolvedRooms:
 
         assert any(i.check == "unresolved_room" for i in issues)
 
+    def test_unresolved_room_carries_the_doctor_id(self, session, config_1wk):
+        """The frontend grid rings the offending cell off `doctor_id`, so the
+        finding has to name the doctor structurally, not only in `message`."""
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        ctx, grid, counters = _build(session, config_1wk)
+        issues = run_phase12(ctx, grid)
+
+        matching = [i for i in issues if i.check == "unresolved_room"]
+        assert len(matching) == 1
+        assert matching[0].doctor_id == d.id
+
     def test_resolved_requires_room_no_warning(self, session, config_1wk):
         t = make_template(session, is_active=True)
         d = make_doctor(session, code="AA")
