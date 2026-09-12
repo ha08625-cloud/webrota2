@@ -30,7 +30,7 @@ dev = [
     # repro is three files and two conftests with no project code in it.
     # CI passes whole directories and never trips this; a developer running
     # "the files I touched" does. Lift the ceiling once 9.1.x fixes it.
-    "pytest<9.1",
+    "pytest<9.2",
 ]
 
 [build-system]
