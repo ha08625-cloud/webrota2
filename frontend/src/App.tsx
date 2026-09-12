@@ -5,9 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { triggerUnauthorized } from "@/api/client";
 import { useLogout } from "@/api/auth";
 import {
+  EditLockProvider,
   PermissionAreaProvider,
   canReadArea,
   canWriteArea,
+  useEditLock,
   usePermissions,
 } from "@/auth/AuthContext";
 import { clearToken } from "@/auth/tokenStore";
@@ -180,8 +182,16 @@ const RECEPTION_NAV_ITEMS = [
 function useHandleLogout() {
   const queryClient = useQueryClient();
   const logoutMutation = useLogout();
+  const { release: releaseEditLock } = useEditLock();
  
   async function handleLogout() {
+    // Give any section editing lock back first, while the token is still
+    // valid - logging out deletes the session, so after this point the
+    // lock could only be released by waiting out the idle timeout, and a
+    // colleague would be locked out of the section for fifteen minutes by
+    // somebody who had gone home. A no-op in the two shells that are not
+    // lockable, and best effort everywhere (see EditLockProvider).
+    await releaseEditLock();
     // Best-effort session deletion server-side; a network failure here
     // must not block the user from getting back to the login form -
     // the client-side token is cleared regardless (auth plan, Task 5).
@@ -481,8 +491,30 @@ export function App() {
             administration only - cannot read the clinical section. */}
         <Route path="/clinical/users" element={<Navigate to="/admin/users" replace />} />
         <Route path="/clinical/audit" element={<Navigate to="/admin/audit" replace />} />
-        <Route path="/clinical/*" element={<ClinicalShell />} />
-        <Route path="/reception/*" element={<ReceptionShell />} />
+        {/* The two lockable sections carry the editing lock for as long as
+            the user is anywhere inside them, which is what makes "leaving
+            the section" release it. Wrapped here rather than inside the
+            shell so the header - and the logout button in it, which gives
+            the lock back explicitly - is inside the provider too.
+            Signatures and administration are deliberately not wrapped:
+            their permissions are booleans with no read level to be
+            downgraded to, so they cannot be locked. */}
+        <Route
+          path="/clinical/*"
+          element={
+            <EditLockProvider area="clinical">
+              <ClinicalShell />
+            </EditLockProvider>
+          }
+        />
+        <Route
+          path="/reception/*"
+          element={
+            <EditLockProvider area="reception">
+              <ReceptionShell />
+            </EditLockProvider>
+          }
+        />
         <Route path="/signatures/*" element={<SignaturesShell />} />
         <Route path="/admin/*" element={<AdminShell />} />
       </Routes>

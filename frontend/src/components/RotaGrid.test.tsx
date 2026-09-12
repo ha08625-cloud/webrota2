@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { HttpResponse, http } from "msw";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
@@ -67,8 +67,13 @@ function renderRotaGrid(
   },
   permissions: Permissions = PERMISSION_PRESETS.manager,
   authUser: Partial<AuthUser> = {},
+  editLockArea?: "clinical" | "reception",
 ) {
-  return renderWithProviders(<RotaGridHarness {...props} />, { permissions, authUser });
+  return renderWithProviders(<RotaGridHarness {...props} />, {
+    permissions,
+    authUser,
+    editLockArea,
+  });
 }
 
 function setUpServer({
@@ -667,6 +672,50 @@ describe("RotaGrid for a read-only user", () => {
     expect(within(cell).getByText("D1")).toBeInTheDocument();
     // ...but nothing is drag-registered and the editor never opens.
     expect(cell.querySelector(".cursor-grab")).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(within(cell).getByText("Duty"));
+    expect(screen.queryByLabelText("Working from home")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The section editing lock lowers useCanWrite, which is what `editable`
+   * is built on - so a writer who is second into the section gets the
+   * committed-rota treatment without RotaGrid knowing the lock exists.
+   */
+  it("gives the same treatment to a writer while somebody else holds the section", async () => {
+    setUpServer();
+    server.use(
+      http.get("/api/v1/locks", () =>
+        HttpResponse.json([
+          {
+            area: "clinical",
+            // Never a fixture user's id, so it always reads as somebody else.
+            user_id: -1,
+            user_name: "Kristel",
+            acquired_at: "2026-01-01T09:00:00Z",
+            last_activity_at: "2026-01-01T09:00:00Z",
+            idle: false,
+          },
+        ]),
+      ),
+    );
+    const session = makeRotaSession({
+      doctor_id: 1,
+      day: "Monday",
+      period: "AM",
+      role: "duty_primary",
+      room_id: 1,
+      room_code: "D1",
+    });
+    const rota = makeRota({ status: "draft", num_weeks: 1, sessions: [session] });
+
+    renderRotaGrid({ rota }, PERMISSION_PRESETS.rotaAdmin, {}, "clinical");
+    const cell = await screen.findByTestId("cell-1-1-Monday-AM");
+
+    // The rota still reads in full, as it must - the lock never blocks a read.
+    expect(within(cell).getByText("Duty")).toBeInTheDocument();
+    await waitFor(() => expect(cell.querySelector(".cursor-grab")).not.toBeInTheDocument());
 
     const user = userEvent.setup();
     await user.click(within(cell).getByText("Duty"));
