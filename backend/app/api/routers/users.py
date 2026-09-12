@@ -7,7 +7,7 @@ changing anyone's permissions, and reading the user list are all user
 administration. The exception is `PATCH /users/me`, which every login can
 call on their own row.
 
-This router is one of the three in main.py's `_UNGATED` tuple -- it takes
+This router is one of the four in main.py's `_UNGATED` tuple -- it takes
 no area gate at registration time, because any such gate would 403 a
 documents-only or reception-only login on `PATCH /users/me`, and that
 endpoint exists precisely so they can change their own password. So the

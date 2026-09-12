@@ -52,6 +52,12 @@ four places where a router's area gate is not the whole answer:
                             permanently purge a staff member and every row
                             referencing them.
 
+`require_area_write(area, user)` is the same write rule applied
+imperatively, for the one router whose area arrives in the path rather than
+being fixed at registration time (routers/locks.py). It raises the
+factory's own 403 details so that the two gates are indistinguishable to a
+caller.
+
 The gates raise 403, not 404: the resource plainly exists as far as the
 caller is concerned, and for levelled areas they can often GET it.
 
@@ -74,7 +80,13 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal
 from ..email import send_password_reset
 from ..models import User, UserSession
-from ..models.permissions import AREA_KEYS, PERMISSION_KEYS, READ, WRITE
+from ..models.permissions import (
+    AREA_KEYS,
+    PERMISSION_KEYS,
+    READ,
+    can_read_area,
+    can_write_area,
+)
 from .audit import current_audit_context
 
 _UNAUTHORIZED_DETAIL = "Not authenticated"
@@ -225,16 +237,15 @@ def require_access(area: str) -> Callable[..., User]:
         if (request.method, getattr(route, "path", None)) in _SHARED_READ:
             return user
 
-        granted = (user.permissions or {}).get(area)
-        if levelled:
-            if granted == WRITE:
-                return user
-            if granted == READ:
-                if request.method in _SAFE_METHODS:
-                    return user
-                raise HTTPException(status_code=403, detail=read_only)
-        elif granted:
+        permissions = user.permissions or {}
+        if can_write_area(permissions, area):
             return user
+        if request.method in _SAFE_METHODS and can_read_area(permissions, area):
+            return user
+        # A levelled area the caller can read gets the narrower message;
+        # everything else, levelled or boolean, gets the flat denial.
+        if levelled and permissions.get(area) == READ:
+            raise HTTPException(status_code=403, detail=read_only)
         raise HTTPException(status_code=403, detail=denied)
 
     return dependency
@@ -257,3 +268,31 @@ def require_capability(name: str) -> Callable[..., User]:
         return user
 
     return dependency
+
+
+def require_area_write(area: str, user: User) -> None:
+    """The write half of `require_access`, called imperatively.
+
+    For a router whose area is not known until the request arrives, so the
+    registration-time factory cannot be used: routers/locks.py takes the
+    area as a path parameter and spans both levelled sections, which is why
+    it sits in main.py's `_UNGATED` and gates itself. Raising the same 403s
+    with the same detail strings as the factory is the point -- a caller
+    cannot tell which gate refused them, and there is one set of messages
+    to maintain.
+
+    Levelled areas only: a boolean area cannot be locked (see
+    models/permissions.LOCKABLE_AREAS), so nothing should ever ask this
+    about one, and a caller that does is a bug rather than a 403.
+    """
+    if area not in AREA_KEYS:
+        raise ValueError(f"not a levelled permission area: {area!r}")
+    permissions = user.permissions or {}
+    if can_write_area(permissions, area):
+        return
+    detail = (
+        _READ_ONLY_DETAIL[area]
+        if can_read_area(permissions, area)
+        else _FORBIDDEN_DETAIL[area]
+    )
+    raise HTTPException(status_code=403, detail=detail)
