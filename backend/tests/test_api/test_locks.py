@@ -3,8 +3,8 @@
 Every test here seeds REAL user rows. The stub identity in conftest is not
 persisted, and `edit_locks.user_id` is a foreign key to `users.id` with the
 FK pragma on, so a lock acquired by a stub alone would fail at flush.
-`_seed_user` inserts a row at the stub's own id, which is what makes the
-authenticated client and the lock holder the same person.
+conftest's client fixtures insert a row at the stub's own id, which is what
+makes the authenticated client and the lock holder the same person.
 
 `_OTHER_ID` is the other user -- the one whose lock the client under test
 runs into. Their locks are inserted directly rather than acquired through
@@ -60,8 +60,13 @@ def _seed_user(db_session, user_id, name, email=None):
 
 @pytest.fixture
 def users(db_session):
-    """The caller (at the stub's id) and the other party, both real rows."""
-    _seed_user(db_session, _SELF_ID, "Test User")
+    """The other party, as a real row.
+
+    The caller's own row is no longer seeded here: since the edit lock
+    became binding, conftest's client fixtures persist the stub identity
+    themselves (see `_seed_stub_user`), and adding it twice is a duplicate
+    key.
+    """
     _seed_user(db_session, _OTHER_ID, _OTHER_NAME)
 
 

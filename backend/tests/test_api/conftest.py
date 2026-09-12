@@ -11,8 +11,14 @@ anything off `user` beyond what routers/counters.py's `user: dict` hint
 suggests -- if a future router needs a real FK to users, switch that test
 to a real row instead of widening the stub.
 
+Every stub-based client also persists a real `users` row matching its stub
+(`_seed_stub_user`), because the edit-lock gate writes a row with an FK to
+`users.id` on every clinical or reception write.
+
 `client_no_auth` is identical but WITHOUT the get_current_user override --
-it exercises the real auth path and is what test_auth.py uses.
+it exercises the real auth path and is what test_auth.py uses. It seeds no
+user row: the tests that use it create their own logins from an empty
+table.
 
 `client_with_permissions` is a factory for the same thing carrying a
 chosen permission set -- which is what the gates read -- plus one
@@ -71,6 +77,7 @@ from app.models import (
     ReceptionStaff,
     Room,
     SystemCounter,
+    User,
 )
 from app.models.permissions import (
     DOCUMENTS_PRESET,
@@ -125,6 +132,49 @@ class _StubUser:
 
 
 _test_user = _StubUser()
+
+
+def _seed_stub_user(session_factory, stub) -> None:
+    """Persist a real `users` row matching a stub identity.
+
+    Needed since the edit lock became binding (edit-lock plan, Task 3).
+    `require_edit_lock` creates or takes a lock row on every write to a
+    clinical or reception endpoint, and `edit_locks.user_id` is a real FK
+    to `users.id` with the FK pragma on -- so a stub that exists only as an
+    override object makes every write in the suite fail at flush. The stub
+    was never persisted before because nothing looked it up; now something
+    does, and the honest fix is to make the identity real rather than to
+    soften the FK or special-case the gate.
+
+    Only the stub-based clients seed. `client_no_auth` deliberately does
+    not: test_users.py and test_auth.py create their own logins from an
+    empty table and a surprise row at id 1 would change what they count.
+
+    The row carries the stub's id and name -- which is what makes a lock it
+    holds report the right person -- but NOT its permissions. It is an FK
+    anchor, not the authorization source: every gate reads the override
+    object, never this row, so copying the permissions in would change
+    nothing about what the client can do while quietly adding a second
+    active user administrator to the table. users.py's lock-out guard
+    counts exactly that, and its tests run on the stub client, so the copy
+    would make "the last administrator" stop meaning what those tests say
+    it means.
+    """
+    db = session_factory()
+    try:
+        db.add(User(
+            id=stub.id,
+            email=stub.email,
+            name=stub.name,
+            password_hash="x",
+            active=True,
+            access_level=stub.access_level,
+            permissions=default_permissions(),
+            created_at=stub.created_at,
+        ))
+        db.commit()
+    finally:
+        db.close()
 
 
 @pytest.fixture
@@ -184,6 +234,7 @@ def client(session_factory):
         finally:
             db.close()
 
+    _seed_stub_user(session_factory, _test_user)
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = lambda: _test_user
     try:
@@ -265,6 +316,7 @@ def client_with_permissions(session_factory):
                 )
             made.append(True)
             stub = _StubUser(permissions, access_level)
+            _seed_stub_user(session_factory, stub)
             app.dependency_overrides[get_db] = _override_get_db
             app.dependency_overrides[get_current_user] = lambda: stub
             stack.callback(app.dependency_overrides.pop, get_current_user, None)

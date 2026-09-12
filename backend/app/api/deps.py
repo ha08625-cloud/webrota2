@@ -52,6 +52,13 @@ four places where a router's area gate is not the whole answer:
                             permanently purge a staff member and every row
                             referencing them.
 
+`require_edit_lock(area)` is the third gate, and the only one that is not
+about permissions: it enforces the section editing lock (models/edit_lock.py)
+on unsafe methods for the two lockable areas. main.py's loop adds it after
+`require_access` for those routers, so a caller who may not write a section
+is refused 403 before anybody is told who is in it. It answers 409, and
+reading is never blocked.
+
 `require_area_write(area, user)` is the same write rule applied
 imperatively, for the one router whose area arrives in the path rather than
 being fixed at registration time (routers/locks.py). It raises the
@@ -75,19 +82,22 @@ from collections.abc import Callable, Generator
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..email import send_password_reset
-from ..models import User, UserSession
+from ..models import EditLock, User, UserSession, is_stale
 from ..models.permissions import (
     AREA_KEYS,
+    LOCKABLE_AREAS,
     PERMISSION_KEYS,
     READ,
     can_read_area,
     can_write_area,
 )
 from .audit import current_audit_context
+from .edit_lock import edit_lock_conflict
 
 _UNAUTHORIZED_DETAIL = "Not authenticated"
 
@@ -247,6 +257,119 @@ def require_access(area: str) -> Callable[..., User]:
         if levelled and permissions.get(area) == READ:
             raise HTTPException(status_code=403, detail=read_only)
         raise HTTPException(status_code=403, detail=denied)
+
+    return dependency
+
+
+def require_edit_lock(area: str) -> Callable[..., None]:
+    """Build the section editing-lock gate for one lockable area.
+
+    The same shape as `require_access`: a factory called once per router at
+    registration time (main.py's loop adds it alongside the permission gate
+    when `_AREA[module]` is lockable), closing over the area, returning the
+    per-request dependency. `area` is validated here rather than in the
+    closure so a typo fails at import, not on the first write. Registration
+    time is also what makes this default-deny in the same way the
+    permission gate is: a new clinical or reception router is lock-gated
+    the moment somebody classifies it in `_AREA`, with no second table to
+    remember.
+
+    It is ordered AFTER `require_access` in that list, which is the
+    difference between "you may never write here" and "not right now": a
+    login with no clinical permission must get 403, never a 409 naming
+    whoever happens to be in the section.
+
+    Four cases, and only the last one refuses:
+
+      no row            create one for this caller and allow. Safe -- nobody
+                        else holds it -- and self-healing: a failed acquire
+                        call, a stale tab or any non-browser client can
+                        never end up permanently unable to write with no
+                        button to press. The frontend's acquire-on-entry is
+                        a courtesy; THIS is the boundary.
+      caller's row      stamp `last_activity_at` and allow. This bump is
+                        the idle timer in its entirety -- writes that pass
+                        this gate are the only thing that keeps a lock
+                        alive, which is what stops an open tab defeating
+                        the one route back into an abandoned section.
+      someone else,
+      idle              delete it, take it, allow. Staleness is evaluated
+                        at the moment another user asks and nowhere else.
+      someone else,
+      fresh             the shared 409 (api/edit_lock.py).
+
+    The commit is made here rather than left to the endpoint, for two
+    reasons: most endpoints commit their own work but nothing obliges them
+    to, and on the 409 path the endpoint never runs at all. A bump that
+    outlives a later endpoint error is correct rather than sloppy --
+    attempting an edit is activity, whether or not the edit landed.
+
+    Safe methods return immediately, before any query. Reading is never
+    blocked, for anyone, ever -- that is the whole reason a lock can be
+    tolerable without a force-takeover button.
+    """
+    if area not in LOCKABLE_AREAS:
+        raise ValueError(f"not a lockable area: {area!r}")
+
+    def dependency(
+        request: Request,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> None:
+        if request.method in _SAFE_METHODS:
+            return
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        lock = db.get(EditLock, area)
+
+        if lock is not None and lock.user_id == user.id:
+            lock.last_activity_at = now
+            db.commit()
+            return
+
+        if lock is not None:
+            holder = db.get(User, lock.user_id)
+            # A holder whose user row has vanished cannot be named, and the
+            # lock cannot be honoured on their behalf -- treat it as
+            # takeable rather than 500ing or blocking the section forever.
+            # routers/locks.py's acquire makes the same judgement.
+            if holder is not None and not is_stale(lock, now):
+                raise edit_lock_conflict(lock, holder.name)
+            db.delete(lock)
+            db.flush()
+
+        db.add(EditLock(
+            area=area, user_id=user.id, acquired_at=now, last_activity_at=now
+        ))
+        try:
+            db.commit()
+        except IntegrityError:
+            # Two writers raced into a section nobody held. `area` is the
+            # primary key, so exactly one insert survives and the loser
+            # arrives here; without this it would be a 500 on a path whose
+            # entire purpose is to be safe when nobody holds the lock.
+            # Whoever won holds it now, so re-read and give the ordinary
+            # answer. Re-raising when the winner cannot be named is
+            # deliberate: it is a race AND an orphaned row, the next
+            # attempt takes the orphan over by the normal route, and
+            # inventing a holder name would put a fiction in front of the
+            # user.
+            #
+            # Not covered by a test: the API suite runs SQLite on a
+            # StaticPool, where every session shares one connection and so
+            # cannot be made to race. Kept anyway -- the alternative is a
+            # 500 on the one path whose whole purpose is to be safe when
+            # nobody holds the lock.
+            db.rollback()
+            lock = db.get(EditLock, area)
+            holder = None if lock is None else db.get(User, lock.user_id)
+            if lock is not None and lock.user_id == user.id:
+                lock.last_activity_at = now
+                db.commit()
+                return
+            if holder is None:
+                raise
+            raise edit_lock_conflict(lock, holder.name) from None
 
     return dependency
 
