@@ -4,7 +4,7 @@ Revision ID: 014
 Revises: 013
 Create Date: 2026-09-12 00:00:00
 
-The section editing lock table (edit lock plan, Task 1). At most two rows
+The section editing lock table. At most two rows
 ever exist -- one per lockable area, `clinical` and `reception` -- and that
 is structural: `area` is the primary key, so "one lock per section" cannot
 be violated by a race in the acquire endpoint.

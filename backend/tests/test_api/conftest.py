@@ -137,7 +137,7 @@ _test_user = _StubUser()
 def _seed_stub_user(session_factory, stub) -> None:
     """Persist a real `users` row matching a stub identity.
 
-    Needed since the edit lock became binding (edit-lock plan, Task 3).
+    Needed since the section editing lock became binding on writes.
     `require_edit_lock` creates or takes a lock row on every write to a
     clinical or reception endpoint, and `edit_locks.user_id` is a real FK
     to `users.id` with the FK pragma on -- so a stub that exists only as an

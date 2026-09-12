@@ -231,7 +231,10 @@ export interface EditLockState {
    * the same news is not worth a second dialog.
    */
   notice: EditLockNotice | null;
-  /** Dismiss the notice above. There is no takeover button - see the plan. */
+  /**
+   * Dismiss the notice above. There is deliberately no takeover button:
+   * the idle timeout is the only route back in. See architecture.md.
+   */
   dismissNotice: () => void;
   /**
    * Give the lock back now rather than on unmount - the logout path, which

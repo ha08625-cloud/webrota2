@@ -66,7 +66,7 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
     ("PATCH", "/users/{user_id}"): "Changed a user account",
 
     # Section editing locks. Two rows per section visit, which is the
-    # budget the edit-lock plan set for them: it is why the feature has no
+    # budget the feature was designed to: it is why there is no
     # heartbeat, since a periodic ping would bury every real entry here.
     ("POST", "/locks/{area}"): "Started editing the {area} rota",
     ("DELETE", "/locks/{area}"): "Finished editing the {area} rota",

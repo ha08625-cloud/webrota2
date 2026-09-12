@@ -41,8 +41,8 @@ function makeLock(overrides: Record<string, unknown> = {}) {
 
 /**
  * There is no codegen between backend and frontend, so LOCKABLE_AREAS is a
- * second literal of the backend's tuple (models/permissions.py). This is
- * the test the plan asks for in its place: it fails if somebody adds a
+ * second literal of the backend's tuple (models/permissions.py). This test
+ * stands in for that missing single source: it fails if somebody adds a
  * lockable area on one side only.
  */
 describe("LOCKABLE_AREAS", () => {
