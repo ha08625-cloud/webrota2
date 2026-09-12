@@ -1,10 +1,9 @@
 """RotaStaging and RotaStagingSession.
 
-Editable staging step between the master rota template and generation
-(see the staging plan). A staging is a run-scoped copy of the active
-template's rows for a date range: the user makes one-off edits here, then
-the existing Phase 0-12 pipeline runs against the edited copy. The master
-template itself is never touched.
+Editable staging step between the master rota template and generation. A
+staging is a run-scoped copy of the active template's rows for a date
+range: the user makes one-off edits here, then the Phase 0-12 pipeline runs
+against the edited copy. The master template itself is never touched.
 
 `completed_at` (nullable, matching GeneratedRota.committed_at/archived_at)
 is the lifecycle marker: null means active, set means completed. "Active
@@ -29,7 +28,7 @@ create and kept as provenance of what the copy started from; nothing in the
 engine depends on it.
 
 RotaStagingSession mirrors MasterRotaSession's shape exactly, replacing
-template_id with staging_id. Real dates are not stored here - week/day/
+template_id with staging_id. Real dates are not stored here -- week/day/
 period plus the parent staging's linked RotaConfig.start_date is enough
 to derive them, same as MasterRotaSession relative to a generation run.
 """

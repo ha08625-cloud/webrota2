@@ -1,4 +1,4 @@
-"""LeaveEntry model. Not seeded in M1."""
+"""LeaveEntry model. Not seeded."""
 from sqlalchemy import Date, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 import datetime
