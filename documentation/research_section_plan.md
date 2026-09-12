@@ -1,33 +1,5 @@
 # Provisional Plan — Research section
 
-Output of the discussion chat. **This is a provisional plan, not an
-implementation plan**: it is meant to be pasted into a fresh chat, reviewed,
-corrected and expanded before any code is written. Every code fact in "State
-of the world" was read off the file it names during this chat; everything in
-"Design Decisions" is a proposal, and the four `TODO(decide)` items are
-genuinely open.
-
-## Gate before any code is written
-
-Two things to settle first, because they can save several chats.
-
-1. **Is there nowhere else for these documents to live?** This is a small
-   document store with no versioning, no retention policy and one
-   maintainer. The same gate is written at the top of
-   `documentation/governance_documents_plan.md`, which is not yet built, and
-   the same answer applies: it is justified if the alternative is genuinely
-   "nowhere" or "a folder on one person's laptop". If the practice has a
-   SharePoint that is unloved rather than absent, fixing that beats building
-   this.
-2. **The overlap with the unbuilt governance-documents area is real.** Both
-   are "upload a file, list it, download it, delete it, bytes in Postgres".
-   This plan proposes building the research one anyway and *not* waiting for
-   or generalising the governance one, because a research document belongs to
-   a study and a governance document belongs to nothing — the owning entity
-   is the whole design, not a detail. But that is a decision worth making
-   deliberately rather than discovering later. If governance documents ships
-   first, do not retrofit studies onto a flat store.
-
 ## Plan
 
 A fifth top-level section, `/research`, alongside Clinical Rota, Reception
