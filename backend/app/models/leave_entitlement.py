@@ -1,4 +1,4 @@
-"""LeaveEntitlement model (leave entitlement and balances plan).
+"""LeaveEntitlement model.
 
 One optional row per (doctor, leave year). The *rules* -- 7 weeks for a
 partner, 6 for salaried and trainee doctors, weighted by
@@ -22,9 +22,9 @@ zero:
 No `used` or `remaining` column. Used leave is counted at read time from
 `LeaveEntry` against the master template (`app/leave_charging.py`), and the
 cost of that -- a historical total moves when the template is edited -- is
-accepted. Storing an
-override here does not change that; it is the *entitlement* side that is now
-pinnable, which is what an admin needs to correct a wrong figure.
+accepted. An override here does not change that; it is the *entitlement*
+side that is pinnable, which is what an admin needs to correct a wrong
+figure.
 """
 from decimal import Decimal
 

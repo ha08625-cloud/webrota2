@@ -1,4 +1,4 @@
-"""Practice closure models (M5 bank-holiday weeks, half-day granularity).
+"""Practice closure models, at half-day granularity.
 
 PracticeClosure is global planning data (e.g. "Easter Monday") entered
 independently of any generation run -- the Duty page needs to know about a

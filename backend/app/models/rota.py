@@ -1,38 +1,29 @@
 """Generation-side models: RotaConfig, GeneratedRota, RotaSession.
 
 RotaSession stores generated assignments (room_id, clinic_type_id, role,
-is_wfh, notes) plus, as of M3.6, template_type: the MasterSessionType the
-slot had in the template at generation time, persisted directly on the row
-rather than re-derived at read time. This was changed because sessions are
-meant to be self-contained snapshots, and read-time re-derivation via
-MasterRotaSession would silently rewrite the appearance of historical
-committed rotas once master-template editing (a deferred milestone) exists.
-template_type is nullable with no backfill: pre-M3.6 rows (from
-pre-production verification only) simply read as null, which the API and
-frontend both treat as "normal session" - the same fallback the original
-re-derivation design would have produced for any legacy data anyway.
-is_on_leave is not stored; it is derived from LeaveEntry at query time.
+is_wfh, notes) plus template_type: the MasterSessionType the slot had in
+the template at generation time, persisted directly on the row rather than
+re-derived at read time. Sessions are meant to be self-contained snapshots,
+and read-time re-derivation via MasterRotaSession would let an edit to the
+master template silently rewrite the appearance of a historical committed
+rota. template_type is nullable, and a null reads as "normal session" in
+both the API and the frontend. is_on_leave is not stored; it is derived
+from LeaveEntry at query time.
 
-GeneratedRota.committed_at (nullable, no backfill) records when a rota was
-committed and is what rollback_commit() uses to find "the most recently
-committed rota" and to enforce strict reverse-chronological rollback
-order. It is set in commit_rota() and cleared in
-rollback_commit(). Rows committed before this feature shipped read as
-NULL, which rollback_commit() treats as "not rollbackable" (their
-snapshots were already deleted at commit time under the old lifecycle,
-so restoring them would be unsafe) -- see the rollback plan for the full
-reasoning.
+GeneratedRota.committed_at records when a rota was committed and is what
+rollback_commit() uses to find "the most recently committed rota" and to
+enforce strict reverse-chronological rollback order. It is set in
+commit_rota() and cleared in rollback_commit(); a committed rota with a
+NULL committed_at is treated as not rollbackable.
 
-GeneratedRota.archived_at (nullable, no backfill) is a pure visibility flag
-on committed rotas -- it hides a rota from the default "Committed" list on
-RotaPage without touching counters, sessions, or rollback eligibility. It
-is set/cleared via the archive and
-unarchive endpoints, and is also cleared by rollback_commit() when a
-rota flips back to draft (commit_rota() self-heals committed_at on
-re-commit, so a surviving archived_at would silently re-archive a
-freshly re-committed rota). rollback_commit()'s eligibility checks
-otherwise ignore archived_at entirely -- see the archive-committed-rotas
-plan for the full reasoning.
+GeneratedRota.archived_at is a pure visibility flag on committed rotas --
+it hides a rota from the default "Committed" list on RotaPage without
+touching counters, sessions, or rollback eligibility. It is set/cleared via
+the archive and unarchive endpoints, and is also cleared by
+rollback_commit() when a rota flips back to draft (commit_rota() self-heals
+committed_at on re-commit, so a surviving archived_at would silently
+re-archive a freshly re-committed rota). rollback_commit()'s eligibility
+checks otherwise ignore archived_at entirely.
 """
 import datetime
 

@@ -1,4 +1,4 @@
-"""DutyOpeningBalance model (counter opening balances plan).
+"""DutyOpeningBalance model.
 
 One optional row per (doctor, year), the sibling of `LeaveEntitlement` and
 keyed the same way for the same reason: the duty count the annual weighted

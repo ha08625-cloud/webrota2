@@ -15,6 +15,7 @@ from .enums import (
     RotaStatus,
     SessionRole,
     Site,
+    SupervisionPreference,
     SystemCounterType,
 )
 from .room import Room
@@ -60,13 +61,14 @@ from .reception import (
 
 __all__ = [
     # enums
-    "DoctorType", "RoomType", "Site", "Day", "Period", "DutyType",
-    "RotaStatus", "SystemCounterType", "MasterSessionType",
-    "SessionRole", "ReceptionRole", "AccessLevel",
+    "DoctorType", "SupervisionPreference", "RoomType", "Site", "Day",
+    "Period", "DutyType", "RotaStatus", "SystemCounterType",
+    "MasterSessionType", "SessionRole", "ReceptionRole", "AccessLevel",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
-    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry", "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
+    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry",
+    "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
     "MasterRotaTemplate",
     "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
     "GeneratedRota", "RotaSession",
