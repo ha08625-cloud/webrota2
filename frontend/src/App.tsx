@@ -14,6 +14,7 @@ import {
 } from "@/auth/AuthContext";
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { EditLockBanner, EditLockDialog } from "@/components/EditLockBanner";
 import { ThemePicker } from "@/components/ThemePicker";
 import {
   SESSION_MANAGEMENT_PATHS,
@@ -277,6 +278,13 @@ function ClinicalShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <ShellHeader title="Rota Generator" />
+      {/* Directly under the header, above the nav and the page, so it is
+          the first thing read on a section that is not the user's to edit
+          - and so it does not scroll away with the page content. Only the
+          two lockable shells carry it; the documents and administration
+          shells have no lock to report. */}
+      <EditLockBanner />
+      <EditLockDialog />
       <div className="flex flex-1">
         <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
           <ul>
@@ -397,6 +405,8 @@ function ReceptionShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <ShellHeader title="Rota Generator - Reception" />
+      <EditLockBanner />
+      <EditLockDialog />
       <div className="flex flex-1">
         <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
           <ul className="flex-1">

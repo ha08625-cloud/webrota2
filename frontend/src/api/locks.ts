@@ -53,7 +53,24 @@ export interface EditLock {
 export const lockKeys = {
   all: ["locks"] as const,
   list: () => [...lockKeys.all, "list"] as const,
+  /**
+   * The mutation key both writes below carry. It exists so the shared
+   * lock-409 handler in EditLockProvider can tell the lock's OWN calls
+   * apart from every other mutation in the app: a 409 from the acquire is
+   * the entry dialog's business and must not also raise the mid-session
+   * "you have just lost the lock" notice.
+   */
+  mutations: () => [...lockKeys.all, "mutation"] as const,
 };
+
+/**
+ * Was this mutation one of the two above? Reads the key off the mutation's
+ * own options, which is the only thing a MutationCache subscriber is given
+ * to identify it by.
+ */
+export function isLockMutationKey(key: unknown): boolean {
+  return Array.isArray(key) && key[0] === lockKeys.all[0];
+}
 
 /**
  * The discriminator on the 409 body (backend api/edit_lock.py:
@@ -130,6 +147,7 @@ export function useLocks() {
 export function useAcquireLock() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: lockKeys.mutations(),
     mutationFn: (area: LockableArea) => apiClient.post<EditLock>(`/locks/${area}`),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: lockKeys.all });
@@ -146,9 +164,39 @@ export function useAcquireLock() {
 export function useReleaseLock() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: lockKeys.mutations(),
     mutationFn: (area: LockableArea) => apiClient.delete<void>(`/locks/${area}`),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: lockKeys.all });
     },
+  });
+}
+
+/**
+ * Release on page hide: closing the tab, or navigating away from the app
+ * entirely. Not a hook and not a mutation - React has already stopped
+ * caring by the time this runs, so there is nothing to update.
+ *
+ * **Why a `keepalive` fetch and not `navigator.sendBeacon`.** A beacon
+ * cannot set request headers, and this API authenticates with a bearer
+ * token in `Authorization`; a beacon release would therefore 401 every
+ * time, and the only ways to make it work are to put a session token in a
+ * request body or to add a second, token-in-body release endpoint. Both
+ * were rejected: `fetch(..., { keepalive: true })` is the modern
+ * replacement for sendBeacon, survives the document being torn down in the
+ * same way, and *can* carry the header - so the normal endpoint and the
+ * normal auth are all that is needed.
+ *
+ * Best effort regardless, and deliberately not load-bearing: a crashed
+ * tab, a closed laptop and a dead network all release nothing, and the
+ * 15-minute idle timeout is the real answer to a holder who has gone away.
+ * The same goes for the browser coming back to a cached page after this
+ * has fired - the lock is gone, but the first write takes it again
+ * (require_edit_lock: a write with no lock takes the lock), so the section
+ * heals itself rather than stranding anyone.
+ */
+export function releaseLockOnPageHide(area: LockableArea): void {
+  void apiClient.delete<void>(`/locks/${area}`, { keepalive: true }).catch(() => {
+    // Nothing can be done and nobody is listening - see above.
   });
 }

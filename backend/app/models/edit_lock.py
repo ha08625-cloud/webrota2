@@ -40,6 +40,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
 
 # How long a lock must go without an edit before another user may take it.
+# This figure is also written into the sentence a locked-out user reads --
+# frontend/src/components/EditLockBanner.tsx, IDLE_TIMEOUT_PHRASE -- since
+# "when does this free up?" is the only question they have. There is no
+# codegen between the two halves of the app, so changing it here means
+# changing that phrase too.
 EDIT_LOCK_IDLE_TIMEOUT = datetime.timedelta(minutes=15)
 
 

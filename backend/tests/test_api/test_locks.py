@@ -129,7 +129,11 @@ class TestAcquire:
         assert detail["holder_user_id"] == _OTHER_ID
         assert detail["holder_name"] == _OTHER_NAME
         assert detail["message"] == f"{_OTHER_NAME} is editing the clinical rota"
+        # Offset-aware, for the same reason the list payload is: the
+        # dialog tells the user when the holder started, and a naive ISO
+        # string is read as local time by the browser.
         assert detail["acquired_at"] and detail["last_activity_at"]
+        assert datetime.datetime.fromisoformat(detail["acquired_at"]).tzinfo is not None
         # Refused, not taken.
         assert _lock_row(db_session, "clinical").user_id == _OTHER_ID
 
@@ -197,6 +201,21 @@ class TestList:
         assert body[0]["user_name"] == _OTHER_NAME
         assert body[0]["user_id"] == _OTHER_ID
         assert body[0]["idle"] is False
+
+    def test_timestamps_carry_a_utc_offset(self, manager_client, users, db_session):
+        """The banner reads `acquired_at` to say how long ago the holder
+        started, and `new Date()` in the browser parses an ISO string with
+        no offset as LOCAL time. SQLite hands these columns back naive, so
+        without the `as_utc` in `_out` this payload would be right on
+        Postgres and wrong by the viewer's offset in development -- the
+        worst shape of bug to find later."""
+        _insert_lock(db_session, "clinical", _OTHER_ID)
+
+        body = manager_client.get(LOCKS).json()
+        for field in ("acquired_at", "last_activity_at"):
+            parsed = datetime.datetime.fromisoformat(body[0][field])
+            assert parsed.tzinfo is not None, body[0][field]
+            assert parsed.utcoffset() == datetime.timedelta(0)
 
     def test_an_idle_lock_is_flagged_but_not_deleted(
         self, manager_client, users, db_session
