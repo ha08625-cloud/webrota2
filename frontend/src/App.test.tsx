@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import type { Permissions } from "@/api/types";
-import { AuthProvider } from "@/auth/AuthContext";
+import { AuthProvider, editLockTitle } from "@/auth/AuthContext";
 import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { server } from "@/test/msw/server";
 
@@ -22,12 +22,19 @@ import { App } from "./App";
  * by default; pass a permission set to check what a narrower login is
  * offered.
  */
-function renderAt(path: string, permissions: Permissions = PERMISSION_PRESETS.manager) {
+function renderAt(
+  path: string,
+  permissions: Permissions = PERMISSION_PRESETS.manager,
+  locks: unknown[] = [],
+) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json([])),
     http.get("/api/v1/leave", () => HttpResponse.json([])),
     http.get("/api/v1/closures", () => HttpResponse.json([])),
     http.get("/api/v1/signatures", () => HttpResponse.json([])),
+    // Nobody holds a section unless a test says so. `user_id` in a lock
+    // passed here must not be the fixture user's, or it reads as "mine".
+    http.get("/api/v1/locks", () => HttpResponse.json(locks)),
   );
   window.history.pushState({}, "", path);
 
@@ -296,6 +303,63 @@ describe("LandingPage tiles", () => {
 
     expect(screen.getByText(/no sections enabled/i)).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The section editing lock lowers useCanWrite, which roughly twenty
+ * components already consult - so the controls go read-only for free. The
+ * risk of touching that hook is everything built on the plain
+ * canWriteArea() function instead: the nav filter and the route guards,
+ * which must keep treating a locked-out writer as the writer they are.
+ * Losing the lock must take the buttons away, never the section.
+ */
+describe("section editing lock", () => {
+  const HELD_BY_SOMEONE_ELSE = [
+    {
+      area: "clinical",
+      // Never a fixture user's id, so this always reads as somebody else.
+      user_id: -1,
+      user_name: "Kristel",
+      acquired_at: "2026-01-01T09:00:00Z",
+      last_activity_at: "2026-01-01T09:00:00Z",
+      idle: false,
+    },
+  ];
+
+  it("disables the write controls and names the holder", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const gated = await screen.findAllByTitle(editLockTitle("Kristel"));
+    expect(gated.length).toBeGreaterThan(0);
+    expect(gated[0]).toBeDisabled();
+  });
+
+  it("keeps every nav entry a writer normally gets", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    await screen.findAllByTitle(editLockTitle("Kristel"));
+    const nav = screen.getByRole("navigation");
+    for (const label of ["Master Rota", "Clinic Types", "Staff", "Counters"]) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    // And not the reader's entry, which would mean the lock had been
+    // mistaken for a permission.
+    expect(within(nav).queryByRole("link", { name: "Committed Rotas" })).not.toBeInTheDocument();
+  });
+
+  it("does not redirect a locked-out writer to the reader's home", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Committed rotas" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the documents section alone - its permissions cannot be locked", async () => {
+    renderAt("/signatures", PERMISSION_PRESETS.manager, HELD_BY_SOMEONE_ELSE);
+
+    expect(await screen.findByRole("heading", { name: "Signatures" })).toBeInTheDocument();
+    expect(screen.queryByTitle(editLockTitle("Kristel"))).not.toBeInTheDocument();
   });
 });
 
