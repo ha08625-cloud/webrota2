@@ -5,7 +5,8 @@ development. All routers are registered under /api/v1.
 
 Registration is also where authorization is enforced. Every router except
 the four in _UNGATED is included with
-`dependencies=[Depends(require_access(_AREA[module]))]`. The area is
+`dependencies=[Depends(require_access(_AREA[module]))]`, plus
+`Depends(require_edit_lock(area))` for the two lockable sections. The area is
 resolved HERE because it cannot be resolved per request: FastAPI wraps each
 include_router call in an opaque _IncludedRouter, so a running request
 cannot ask which router served it. See deps.py for what each area admits.
@@ -48,8 +49,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from ..database import SessionLocal
+from ..models.permissions import LOCKABLE_AREAS
 from .audit import AuditMiddleware, current_audit_context, set_session_factory
-from .deps import require_access
+from .deps import require_access, require_edit_lock
 from .routers import (
     audit as audit_router,
     auth,
@@ -228,11 +230,27 @@ assert not set(_AREA) & set(_UNGATED), (
 )
 
 for module in _ALL_ROUTERS:
-    # _AREA[module], not .get(): an unclassified router fails at import
-    # rather than serving an unguarded section.
-    dependencies = (
-        [] if module in _UNGATED else [Depends(require_access(_AREA[module]))]
-    )
+    if module in _UNGATED:
+        dependencies = []
+    else:
+        # _AREA[module], not .get(): an unclassified router fails at import
+        # rather than serving an unguarded section.
+        area = _AREA[module]
+        dependencies = [Depends(require_access(area))]
+        # The section editing lock, on the two lockable areas only. There is
+        # deliberately NO second table listing which routers are lock-gated:
+        # the lock is per SECTION, `_AREA` already records every router's
+        # section, and a second mandatory classification would be a second
+        # thing to forget -- a new clinical router would then be permission-
+        # gated but writable straight through somebody else's lock. Reading
+        # LOCKABLE_AREAS off the area already recorded means a router is
+        # locked the moment it is classified.
+        #
+        # Order matters, and is tested. require_access first, so a login
+        # without the permission gets 403 ("never") rather than 409 ("not
+        # right now") and is never told who is in a section it cannot reach.
+        if area in LOCKABLE_AREAS:
+            dependencies.append(Depends(require_edit_lock(area)))
     app.include_router(module.router, prefix=API_PREFIX, dependencies=dependencies)
 
 

@@ -742,7 +742,7 @@ class TestLocksGateThemselves:
                 assert readonly_client.request(method, path).status_code == 403
 
     def test_each_section_is_gated_on_its_own_permission(
-        self, reception_admin_client, db_session
+        self, reception_admin_client
     ):
         """Reception at write, clinical at read: the same endpoint answers
         differently for the two areas, which is the whole reason this
@@ -750,25 +750,11 @@ class TestLocksGateThemselves:
 
         The one place here that gets past a gate, so the one place that
         needs a persisted user: `edit_locks.user_id` is a foreign key, and
-        conftest's identity stub is not a row. It is seeded at the stub's
-        own id so the acquire records the caller.
+        conftest's identity stub is not a row. Since the edit lock became
+        binding the client fixtures seed that row themselves (see
+        `_seed_stub_user`), so there is nothing to do here beyond the
+        sweep.
         """
-        import datetime
-
-        from app.models import User
-
-        db_session.add(User(
-            id=1,
-            email="locks@example.com",
-            name="Lock Holder",
-            password_hash="x",
-            active=True,
-            access_level=AccessLevel.MANAGER,
-            permissions=preset(RECEPTION_ADMIN_PRESET),
-            created_at=datetime.datetime.now(datetime.timezone.utc),
-        ))
-        db_session.commit()
-
         for method, path in self._routes("clinical"):
             assert reception_admin_client.request(method, path).status_code == 403
         for method, path in self._routes("reception"):
