@@ -31,9 +31,11 @@ Three things this router deliberately does not do:
   not editing. Bumping here would let anyone hold a section for as long as
   they kept navigating in and out of it, which is exactly the defeat the
   idle timer exists to prevent (see models/edit_lock.py).
-- **It does not make locks binding.** Nothing enforces a lock until Task 3
-  adds `require_edit_lock` to main.py's registration loop. Until then these
-  endpoints record an intention and no write consults it.
+- **It is not what makes locks binding.** These endpoints only record and
+  report an intention; enforcement is `require_edit_lock` (api/deps.py),
+  added to every lockable router by main.py's registration loop. A write
+  that never calls POST /locks is still gated, and one that acquires
+  successfully is still checked again on every write.
 
 Releasing a lock you do not hold is 204, not 404. Every caller fires this
 on *leaving* a section -- the provider unmount, the logout path, and a

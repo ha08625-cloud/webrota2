@@ -1,4 +1,4 @@
-"""EditLock: one section editing lock per lockable area (edit lock plan).
+"""EditLock: one section editing lock per lockable area.
 
 The model is a Word document on a shared drive. The first login with write
 access to enter a section holds the lock; everyone else is downgraded to

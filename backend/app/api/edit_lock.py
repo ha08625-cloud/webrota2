@@ -1,10 +1,10 @@
 """The section editing lock's API-side vocabulary: the 409 it raises.
 
 A module of its own rather than a helper inside routers/locks.py, for one
-structural reason. Task 3 of the edit-lock plan adds `require_edit_lock`,
-the dependency that enforces a lock on every clinical and reception write,
-and it must raise the SAME 409 body that POST /locks/{area} raises -- one
-shape, defined once, so the frontend has one thing to parse. That
+structural reason. `require_edit_lock` (api/deps.py), the dependency that
+enforces a lock on every clinical and reception write, must raise the SAME
+409 body that POST /locks/{area} raises -- one shape, defined once, so the
+frontend has one thing to parse. That
 dependency's natural home is next to the other gates in api/deps.py, but
 routers/locks.py imports api/deps.py (get_db, get_current_user), so
 defining the helper in the router would make deps -> routers.locks ->
