@@ -47,6 +47,11 @@ Pass 3 runs last, after all Trainee/AHP D-room demand has already been
 settled by Passes 1 and 2, so any D room still free at this point is
 surplus and safe to hand to a Partner/Salaried doctor.
 
+Every entry this module logs carries a `rationale` replaying the search
+stage by stage. That prose lives in `_log_phase7_9a.py`, one narrator per
+pass, and the narrators are constructed *before* the grid moves -- see
+that module's docstring for why the timing is load-bearing.
+
 Known gap, flagged for Phase 12 (next step): a doctor on leave still gets a
 REQUIRES_ROOM `SessionSlot` from Phase 2 (the template says they'd need a
 room if working), but this module skips leave slots entirely -- they never
@@ -64,11 +69,12 @@ from ...models.enums import (
     RoomType,
     SystemCounterType,
 )
-from .. import rationale as rat
 from ..datatypes import CounterState, DecisionLog, GenerationContext, RotaGrid, ValidationIssue
 from ..room_relocation import find_relocation_room
-
-PHASE = "phase7_9a"
+from . import _log_phase7_9a as narrate
+from ._log_phase7_9a import PHASE
+from ._shared import code as _code
+from ._shared import room_move_rank as _room_move_sort_key
 
 _DAYS = (Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY)
 _PERIODS = (Period.AM, Period.PM)
@@ -131,81 +137,28 @@ def _pass1_full_day(
         if am_slot.assigned_room_id is not None or pm_slot.assigned_room_id is not None:
             continue  # already resolved earlier in this pass
 
-        rooms_line = rat.listing(
-            "D rooms across the whole day (room-id order, the search order)",
-            _d_room_states_day(context, grid, gen_week, day, d_room_ids),
+        narr = narrate.Pass1Narrator(
+            context, grid, counters, log, gen_week, day, doctor_id, d_room_ids
         )
 
         free_room = _first_free_room_both(grid, gen_week, day, d_room_ids)
         if free_room is not None:
             grid.assign_room(gen_week, day, Period.AM, doctor_id, free_room)
             grid.assign_room(gen_week, day, Period.PM, doctor_id, free_room)
-            log.add(
-                phase=PHASE, action="assign_room",
-                week=gen_week, day=day, period=None, doctor_id=doctor_id,
-                room_id=free_room,
-                message=(
-                    f"Assigned D room {context.room_by_id[free_room].code} to "
-                    f"{_code(context, doctor_id)} for the full day (pass 1, "
-                    f"room free both sessions)."
-                ),
-                rationale=rat.stages(
-                    f"{_code(context, doctor_id)} is "
-                    f"{context.doctor_by_id[doctor_id].doctor_type.value} and needs "
-                    f"a D room for both sessions of {day.value}.",
-                    rooms_line,
-                    rat.decided(
-                        f"first D room free in both sessions -- "
-                        f"{context.room_by_id[free_room].code}; nobody was displaced"
-                    ),
-                ),
-            )
+            narr.free_room(free_room)
             continue
 
         candidate, victim_pool = _find_full_day_displacement(
             context, grid, counters, gen_week, day
         )
-        victims_line = rat.listing(
-            "Displaceable full-day D-room holders (Partner/Salaried, role-free, "
-            "not on leave), by priority tier then weighted room-move counter",
-            [
-                f"{_code(context, cand_id)} (tier {tier}: "
-                + (
-                    f"holds {context.room_by_id[am].code} AM and "
-                    f"{context.room_by_id[pm].code} PM, so displacing them frees two "
-                    f"D rooms" if tier == 1 else
-                    f"holds {context.room_by_id[am].code} all day"
-                )
-                + f", {_room_move_score_text(context, counters, cand_id)})"
-                for tier, cand_id, am, pm in victim_pool
-            ],
-        )
+        narr.note_victim_field(victim_pool)
         if candidate is None:
             issues.append(_warning(
                 "no_full_day_room", gen_week, day, None,
                 f"No free or displaceable D room for {_code(context, doctor_id)} "
                 f"(full day) on {day.value}.",
             ))
-            log.add(
-                phase=PHASE, action="no_full_day_room",
-                week=gen_week, day=day, period=None, doctor_id=doctor_id,
-                message=(
-                    f"No free or displaceable D room for "
-                    f"{_code(context, doctor_id)} (full day) on {day.value}; "
-                    f"left for pass 2."
-                ),
-                rationale=rat.stages(
-                    rooms_line,
-                    "No D room was free in both sessions, so a full-day victim was "
-                    "sought.",
-                    victims_line,
-                    rat.decided(
-                        "nothing left to try in this pass -- no Partner/Salaried "
-                        "doctor held a D room all day while free of a role and of "
-                        "leave"
-                    ),
-                ),
-            )
+            narr.no_victim()
             continue
 
         displaced_id, am_room, pm_room = candidate
@@ -218,28 +171,7 @@ def _pass1_full_day(
                 f"Could not relocate {_code(context, displaced_id)} to free a D "
                 f"room for {_code(context, doctor_id)} (full day) on {day.value}.",
             ))
-            log.add(
-                phase=PHASE, action="no_full_day_room",
-                week=gen_week, day=day, period=None, doctor_id=doctor_id,
-                related_doctor_id=displaced_id,
-                message=(
-                    f"Could not relocate {_code(context, displaced_id)} to free a "
-                    f"D room for {_code(context, doctor_id)} (full day) on "
-                    f"{day.value}; left for pass 2."
-                ),
-                rationale=rat.stages(
-                    rooms_line,
-                    victims_line,
-                    f"{_code(context, displaced_id)} was chosen as the victim "
-                    f"({_victim_decisive(context, counters, victim_pool, displaced_id)}).",
-                    rat.decided(
-                        "abandoned -- pass 1 rehouses a victim only into a C/W/SR "
-                        "room free in both sessions (their own preference list is "
-                        "deliberately not consulted here), and none was; the "
-                        "displacement was rolled back rather than half-applied"
-                    ),
-                ),
-            )
+            narr.victim_not_relocatable(victim_pool, displaced_id)
             continue
 
         # Decide the trainee's room(s) before moving the victim, while the
@@ -255,20 +187,9 @@ def _pass1_full_day(
         else:
             outcome = "split"
 
-        tier_desc = f"priority tier {tier}, tie broken on weighted room-move score"
-        victim_rationale = rat.stages(
-            f"{_code(context, doctor_id)} is "
-            f"{context.doctor_by_id[doctor_id].doctor_type.value} and needs a D room "
-            f"for both sessions of {day.value}.",
-            rooms_line,
-            "No D room was free in both sessions, so a full-day victim was sought.",
-            victims_line,
-            f"Receiving room for the victim: "
-            f"{context.room_by_id[new_room].code} -- the first C/W/SR room free in "
-            f"both sessions (pass 1 does not consult the victim's own preference "
-            f"list).",
-            rat.decided(_victim_decisive(context, counters, victim_pool, displaced_id)),
-        )
+        # Freeze the account of the displacement while the counter still
+        # reads as it did when the victim was ranked.
+        narr.note_chosen_victim(victim_pool, displaced_id, new_room)
 
         # Move the displaced doctor first -- assign_room re-points the
         # occupancy indexes, freeing their old room(s) -- then place the
@@ -281,81 +202,18 @@ def _pass1_full_day(
         if outcome == "single":
             grid.assign_room(gen_week, day, Period.AM, doctor_id, am_room)
             grid.assign_room(gen_week, day, Period.PM, doctor_id, am_room)
-            log.add(
-                phase=PHASE, action="displace_room",
-                week=gen_week, day=day, period=None, doctor_id=doctor_id,
-                related_doctor_id=displaced_id, room_id=am_room, related_room_id=new_room,
-                message=(
-                    f"Displaced {_code(context, displaced_id)} from "
-                    f"{context.room_by_id[am_room].code} to "
-                    f"{context.room_by_id[new_room].code} to free the D room for "
-                    f"{_code(context, doctor_id)} (full day, pass 1, {tier_desc})."
-                ),
-                rationale=victim_rationale,
-            )
+            narr.displaced_single(displaced_id, am_room, new_room, tier)
         elif outcome in ("consolidated_am", "consolidated_pm"):
             trainee_room = am_room if outcome == "consolidated_am" else pm_room
             grid.assign_room(gen_week, day, Period.AM, doctor_id, trainee_room)
             grid.assign_room(gen_week, day, Period.PM, doctor_id, trainee_room)
-            log.add(
-                phase=PHASE, action="displace_room",
-                week=gen_week, day=day, period=None, doctor_id=doctor_id,
-                related_doctor_id=displaced_id, room_id=trainee_room, related_room_id=new_room,
-                message=(
-                    f"Displaced {_code(context, displaced_id)} from "
-                    f"{context.room_by_id[am_room].code}/{context.room_by_id[pm_room].code} "
-                    f"to {context.room_by_id[new_room].code}, vacating both rooms for "
-                    f"{_code(context, doctor_id)}, who consolidates into "
-                    f"{context.room_by_id[trainee_room].code} for the full day "
-                    f"(full day, pass 1, {tier_desc})."
-                ),
-                rationale=rat.stages(
-                    victim_rationale,
-                    f"The victim held two different D rooms, and "
-                    f"{context.room_by_id[trainee_room].code} turned out to be free "
-                    f"in the other session as well once they left, so "
-                    f"{_code(context, doctor_id)} takes that one room all day rather "
-                    f"than being split across both.",
-                ),
+            narr.displaced_consolidated(
+                displaced_id, am_room, pm_room, trainee_room, new_room, tier
             )
         else:  # split
             grid.assign_room(gen_week, day, Period.AM, doctor_id, am_room)
             grid.assign_room(gen_week, day, Period.PM, doctor_id, pm_room)
-            log.add(
-                phase=PHASE, action="displace_room",
-                week=gen_week, day=day, period=Period.AM, doctor_id=doctor_id,
-                related_doctor_id=displaced_id, room_id=am_room, related_room_id=new_room,
-                message=(
-                    f"Displaced {_code(context, displaced_id)} from "
-                    f"{context.room_by_id[am_room].code}/{context.room_by_id[pm_room].code} "
-                    f"to {context.room_by_id[new_room].code}; {_code(context, doctor_id)} "
-                    f"takes {context.room_by_id[am_room].code} in AM (full day, pass 1, "
-                    f"{tier_desc}; room-move counter incremented once for the day, "
-                    f"covering both periods)."
-                ),
-                rationale=rat.stages(
-                    victim_rationale,
-                    f"The victim held two different D rooms and neither was free in "
-                    f"the other session once they left, so "
-                    f"{_code(context, doctor_id)} is split across both.",
-                ),
-            )
-            log.add(
-                phase=PHASE, action="displace_room",
-                week=gen_week, day=day, period=Period.PM, doctor_id=doctor_id,
-                related_doctor_id=displaced_id, room_id=pm_room, related_room_id=new_room,
-                message=(
-                    f"{_code(context, doctor_id)} takes "
-                    f"{context.room_by_id[pm_room].code} in PM, completing the full-day "
-                    f"split freed by displacing {_code(context, displaced_id)} "
-                    f"(full day, pass 1, {tier_desc})."
-                ),
-                rationale=rat.stages(
-                    victim_rationale,
-                    "Second half of the same split; the room-move counter was "
-                    "incremented once, on the AM entry, for the whole day.",
-                ),
-            )
+            narr.displaced_split(displaced_id, am_room, pm_room, new_room, tier)
 
     return issues
 
@@ -502,77 +360,27 @@ def _pass2_single_session(
         if slot.assigned_room_id is not None:
             continue  # defensive: pass 1 only ever resolves both sessions or neither
 
-        rooms_line = rat.listing(
-            f"D rooms in {period.value} (room-id order, the search order)",
-            _d_room_states_period(context, grid, gen_week, day, period, d_room_ids),
-        )
-        need_line = (
-            f"{_code(context, doctor_id)} is "
-            f"{context.doctor_by_id[doctor_id].doctor_type.value} and needs a D room "
-            f"for {day.value} {period.value}."
+        narr = narrate.Pass2Narrator(
+            context, grid, counters, log, gen_week, day, period, doctor_id, d_room_ids
         )
 
         free_room = _first_free_room_single(grid, gen_week, day, period, d_room_ids)
         if free_room is not None:
             grid.assign_room(gen_week, day, period, doctor_id, free_room)
-            log.add(
-                phase=PHASE, action="assign_room",
-                week=gen_week, day=day, period=period, doctor_id=doctor_id,
-                room_id=free_room,
-                message=(
-                    f"Assigned D room {context.room_by_id[free_room].code} to "
-                    f"{_code(context, doctor_id)} on {day.value} {period.value} "
-                    f"(pass 2, room free)."
-                ),
-                rationale=rat.stages(
-                    need_line,
-                    rooms_line,
-                    rat.decided(
-                        f"first free D room -- "
-                        f"{context.room_by_id[free_room].code}; nobody was displaced"
-                    ),
-                ),
-            )
+            narr.free_room(free_room)
             continue
 
         candidate, victim_pool = _find_single_session_displacement(
             context, grid, counters, gen_week, day, period, d_room_ids,
         )
-        victims_line = rat.listing(
-            "Displaceable D-room occupants (Partner/Salaried, role-free, not on "
-            "leave), by priority tier then weighted room-move counter",
-            [
-                f"{_code(context, cand_id)} in {context.room_by_id[room].code} "
-                f"(tier {tier_}: {_TIER_MEANINGS[tier_]}, "
-                f"{_room_move_score_text(context, counters, cand_id)})"
-                for tier_, cand_id, room in victim_pool
-            ],
-        )
+        narr.note_victim_field(victim_pool)
         if candidate is None:
             issues.append(_warning(
                 "no_single_session_room", gen_week, day, period,
                 f"No free or displaceable D room for {_code(context, doctor_id)} "
                 f"on {day.value} {period.value}.",
             ))
-            log.add(
-                phase=PHASE, action="no_single_session_room",
-                week=gen_week, day=day, period=period, doctor_id=doctor_id,
-                message=(
-                    f"No free or displaceable D room for "
-                    f"{_code(context, doctor_id)} on {day.value} {period.value}; "
-                    f"slot left without a room."
-                ),
-                rationale=rat.stages(
-                    need_line,
-                    rooms_line,
-                    victims_line,
-                    rat.decided(
-                        "nothing left to try -- every D room was held by someone "
-                        "who could not be displaced (not Partner/Salaried, on "
-                        "leave, or already holding a role)"
-                    ),
-                ),
-            )
+            narr.no_victim()
             continue
 
         displaced_id, d_room_id, tier = candidate
@@ -585,60 +393,13 @@ def _pass2_single_session(
                 f"Could not relocate {_code(context, displaced_id)} to free a D "
                 f"room for {_code(context, doctor_id)} on {day.value} {period.value}.",
             ))
-            log.add(
-                phase=PHASE, action="no_single_session_room",
-                week=gen_week, day=day, period=period, doctor_id=doctor_id,
-                related_doctor_id=displaced_id, room_id=d_room_id,
-                message=(
-                    f"Could not relocate {_code(context, displaced_id)} to free "
-                    f"{context.room_by_id[d_room_id].code} for "
-                    f"{_code(context, doctor_id)} on {day.value} {period.value}; "
-                    f"slot left without a room."
-                ),
-                rationale=rat.stages(
-                    need_line,
-                    rooms_line,
-                    victims_line,
-                    f"{_code(context, displaced_id)} was chosen as the victim "
-                    f"({_victim_decisive(context, counters, victim_pool, displaced_id)}).",
-                    rat.decided(
-                        "abandoned -- no room on their preference list, and no free "
-                        "C/W/SR room, was available to rehouse them, so the "
-                        "displacement was rolled back rather than half-applied"
-                    ),
-                ),
-            )
+            narr.victim_not_relocatable(victim_pool, displaced_id, d_room_id)
             continue
 
         grid.assign_room(gen_week, day, period, displaced_id, new_room)
         grid.assign_room(gen_week, day, period, doctor_id, d_room_id)
         counters.increment_system(displaced_id, SystemCounterType.ROOM_MOVE)
-        log.add(
-            phase=PHASE, action="displace_room",
-            week=gen_week, day=day, period=period, doctor_id=doctor_id,
-            related_doctor_id=displaced_id, room_id=d_room_id, related_room_id=new_room,
-            message=(
-                f"Displaced {_code(context, displaced_id)} from "
-                f"{context.room_by_id[d_room_id].code} to "
-                f"{context.room_by_id[new_room].code} to free the D room for "
-                f"{_code(context, doctor_id)} on {day.value} {period.value} "
-                f"(pass 2, selected on priority tier {tier}, tie broken on "
-                f"weighted room-move score)."
-            ),
-            rationale=rat.stages(
-                need_line,
-                rooms_line,
-                "No D room was free, so a victim was sought.",
-                victims_line,
-                rat.decided(
-                    _victim_decisive(context, counters, victim_pool, displaced_id)
-                ),
-                f"{_code(context, displaced_id)} was rehoused in "
-                f"{context.room_by_id[new_room].code} (first free room on their own "
-                f"preference list, else the first free C/W/SR room) and their "
-                f"room-move counter was incremented.",
-            ),
-        )
+        narr.displaced(victim_pool, displaced_id, d_room_id, new_room, tier)
 
     return issues
 
@@ -728,18 +489,16 @@ def _pass3_partner_salaried_fallback(
         if slot.assigned_room_id is not None:
             continue
 
+        narr = narrate.Pass3Narrator(
+            context, grid, log, gen_week, day, period, doctor.id
+        )
+
         chosen = None
         is_fallback = False
-        preferred = context.preferred_rooms_by_doctor.get(doctor.id, ())
-        for room_id in preferred:
+        for room_id in context.preferred_rooms_by_doctor.get(doctor.id, ()):
             if grid.is_room_free(gen_week, day, period, room_id):
                 chosen = room_id
                 break
-
-        preference_line = rat.listing(
-            f"{doctor.code}'s preferred rooms, in their stated order",
-            [_room_state(context, grid, gen_week, day, period, rid) for rid in preferred],
-        )
 
         if chosen is None:
             for room_id in fallback_sequence:
@@ -754,62 +513,11 @@ def _pass3_partner_salaried_fallback(
                 f"No free room anywhere for {doctor.code} on {day.value} "
                 f"{period.value}; slot remains unresolved.",
             ))
-            log.add(
-                phase=PHASE, action="no_partner_salaried_room",
-                week=gen_week, day=day, period=period, doctor_id=doctor.id,
-                message=(
-                    f"No free room anywhere for {doctor.code} on {day.value} "
-                    f"{period.value}; slot remains unresolved."
-                ),
-                rationale=rat.stages(
-                    preference_line,
-                    "Nothing on that list was free, and pass 3 never displaces "
-                    "anyone, so the forced fallback (every room, by type priority "
-                    "D > C > W > SR) was tried next.",
-                    rat.decided(
-                        "nothing left to try -- every room in the practice was "
-                        "occupied this session"
-                    ),
-                ),
-            )
+            narr.no_room()
             continue
 
         grid.assign_room(gen_week, day, period, doctor.id, chosen)
-        if is_fallback:
-            message = (
-                f"Assigned fallback room {context.room_by_id[chosen].code} to "
-                f"{doctor.code} (pass 3, no preferred room free; forced into "
-                f"first free room by type priority D > C > W > SR)."
-            )
-            entry_rationale = rat.stages(
-                preference_line,
-                "Nothing on that list was free, and pass 3 never displaces anyone.",
-                rat.decided(
-                    f"forced fallback -- {context.room_by_id[chosen].code} is the "
-                    f"first free room by type priority D > C > W > SR (D rooms are "
-                    f"included here because passes 1 and 2 have already taken every "
-                    f"D room the Trainees/AHPs needed)"
-                ),
-            )
-        else:
-            message = (
-                f"Assigned preferred room {context.room_by_id[chosen].code} to "
-                f"{doctor.code} (pass 3, first free room on preference list)."
-            )
-            entry_rationale = rat.stages(
-                preference_line,
-                rat.decided(
-                    f"{rat.PREFERENCE_ORDER} -- "
-                    f"{context.room_by_id[chosen].code} was the first free room on it"
-                ),
-            )
-        log.add(
-            phase=PHASE, action="assign_room",
-            week=gen_week, day=day, period=period, doctor_id=doctor.id,
-            room_id=chosen,
-            message=message,
-            rationale=entry_rationale,
-        )
+        narr.assigned(chosen, is_fallback)
 
     return issues
 
@@ -847,121 +555,6 @@ def _first_free_room_single(
         if grid.is_room_free(gen_week, day, period, room_id):
             return room_id
     return None
-
-
-def _room_move_sort_key(context: GenerationContext, counters: CounterState, doctor_id: int):
-    spw = context.spw_by_id.get(doctor_id, 0.0)
-    score = counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw)
-    code = context.doctor_by_id[doctor_id].code
-    return (score, code)
-
-
-# What each Pass 2 displacement tier means, for the decision log. Keyed to
-# `_displacement_priority`'s return values, which is the only thing that
-# may define them.
-_TIER_MEANINGS = {
-    1: "other session has no room setup to fragment",
-    2: "other session is in a different room anyway",
-    3: "same D room all day, so displacing them fragments their day",
-}
-
-
-def _room_move_score_text(
-    context: GenerationContext, counters: CounterState, doctor_id: int
-) -> str:
-    spw = context.spw_by_id.get(doctor_id, 0.0)
-    raw = counters.system.get((doctor_id, SystemCounterType.ROOM_MOVE), 0)
-    return rat.score(
-        raw,
-        spw,
-        counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw),
-        counters.system_opening_balance(doctor_id, SystemCounterType.ROOM_MOVE),
-    )
-
-
-def _victim_decisive(
-    context: GenerationContext, counters: CounterState,
-    pool: list, chosen_id: int,
-) -> str:
-    """Name the stage that actually picked `chosen_id` out of `pool`.
-
-    Shared by Passes 1 and 2: both rank victims by priority tier, then live
-    weighted room-move score, then doctor code, so both explain themselves
-    the same way. `pool` entries are `(tier, doctor_id, ...)` in either
-    pass's shape; only the first two positions are read.
-    """
-    chosen_code = _code(context, chosen_id)
-    if len(pool) == 1:
-        return f"{rat.ONLY_CANDIDATE} -- {chosen_code}"
-
-    tier = next(entry[0] for entry in pool if entry[1] == chosen_id)
-    same_tier = [entry for entry in pool if entry[0] == tier]
-    if len(same_tier) == 1:
-        return (
-            f"{rat.PRIORITY_TIER} -- {chosen_code} is alone in tier {tier} "
-            f"({_TIER_MEANINGS.get(tier, 'see the pass description')})"
-        )
-
-    best = _room_move_sort_key(context, counters, chosen_id)[0]
-    tied = [
-        entry for entry in same_tier
-        if _room_move_sort_key(context, counters, entry[1])[0] == best
-    ]
-    if len(tied) == 1:
-        return (
-            f"{rat.WEIGHTED_COUNTER} -- inside tier {tier}, {chosen_code} has the "
-            f"lowest weighted room-move score, {rat.fmt(best)}"
-        )
-    return (
-        f"{rat.ALPHABETICAL} -- {chosen_code}, tied inside tier {tier} on a weighted "
-        f"room-move score of {rat.fmt(best)}"
-    )
-
-
-def _room_state(
-    context: GenerationContext, grid: RotaGrid,
-    gen_week: int, day: Day, period: Period, room_id: int,
-) -> str:
-    occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
-    room_code = context.room_by_id[room_id].code
-    if occupant_id is None:
-        return f"{room_code}: free"
-    return f"{room_code}: held by {_code(context, occupant_id)}"
-
-
-def _d_room_states_period(
-    context: GenerationContext, grid: RotaGrid,
-    gen_week: int, day: Day, period: Period, d_room_ids: list[int],
-) -> list[str]:
-    return [
-        _room_state(context, grid, gen_week, day, period, room_id)
-        for room_id in d_room_ids
-    ]
-
-
-def _d_room_states_day(
-    context: GenerationContext, grid: RotaGrid,
-    gen_week: int, day: Day, d_room_ids: list[int],
-) -> list[str]:
-    """AM and PM state of each D room -- Pass 1 needs a room free in both,
-    so a per-period view alone would not explain its choices."""
-    states = []
-    for room_id in d_room_ids:
-        room_code = context.room_by_id[room_id].code
-        parts = []
-        for period in _PERIODS:
-            occupant_id = grid.get_room_occupant(gen_week, day, period, room_id)
-            parts.append(
-                f"{period.value} free" if occupant_id is None
-                else f"{period.value} held by {_code(context, occupant_id)}"
-            )
-        states.append(f"{room_code}: " + ", ".join(parts))
-    return states
-
-
-def _code(context: GenerationContext, doctor_id: int) -> str:
-    doctor = context.doctor_by_id.get(doctor_id)
-    return doctor.code if doctor is not None else f"id={doctor_id}"
 
 
 def _warning(check: str, week: int, day: Day, period: Period | None, message: str) -> ValidationIssue:
