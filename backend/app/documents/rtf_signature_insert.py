@@ -108,7 +108,7 @@ def insert_signature_rtf(
     """
     _require_rtf(rtf_bytes)
 
-    matches = _ANCHOR_RE.findall(rtf_bytes)
+    matches = list(_ANCHOR_RE.finditer(rtf_bytes))
     if not matches:
         raise DocumentFormatError(
             "Could not find the Signature label in this document"
@@ -119,7 +119,7 @@ def insert_signature_rtf(
             "expected exactly one -- the certificate template may have changed"
         )
 
-    match = _ANCHOR_RE.search(rtf_bytes)
+    match = matches[0]
     picture = _build_picture_group(image_bytes, content_type)
 
     return rtf_bytes[: match.end()] + picture + rtf_bytes[match.end() :]
@@ -142,7 +142,7 @@ def insert_date_rtf(rtf_bytes: bytes, date_text: str) -> bytes:
     """
     _require_rtf(rtf_bytes)
 
-    matches = _DATE_ANCHOR_RE.findall(rtf_bytes)
+    matches = list(_DATE_ANCHOR_RE.finditer(rtf_bytes))
     if not matches:
         raise DocumentFormatError("Could not find the Date label in this document")
     if len(matches) > 1:
@@ -151,7 +151,7 @@ def insert_date_rtf(rtf_bytes: bytes, date_text: str) -> bytes:
             "expected exactly one -- the certificate template may have changed"
         )
 
-    match = _DATE_ANCHOR_RE.search(rtf_bytes)
+    match = matches[0]
     formatting, terminator = match.group(1), match.group(2)
 
     # The label run is rewritten rather than appended to: its terminator moves
@@ -211,10 +211,10 @@ def _build_picture_group(image_bytes: bytes, content_type: str) -> bytes:
         UnrecognizedImageError,
         InvalidImageStreamError,
         UnexpectedEndOfFileError,
-    ):
+    ) as exc:
         raise DocumentFormatError(
             "The stored signature image could not be read"
-        )
+        ) from exc
 
     # The header is authoritative over the caller's stored content type.
     blip = _BLIP_BY_CONTENT_TYPE.get(image.content_type)
