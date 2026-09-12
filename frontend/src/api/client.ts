@@ -156,7 +156,15 @@ export const apiClient = {
       method: "PUT",
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  /**
+   * `init` exists for exactly one caller: the section editing lock's
+   * page-hide release, which needs `keepalive: true` so the request
+   * outlives the document being torn down. Deliberately narrower than
+   * RequestInit - this is not a general escape hatch for arbitrary fetch
+   * options.
+   */
+  delete: <T>(path: string, init?: Pick<RequestInit, "keepalive">) =>
+    request<T>(path, { method: "DELETE", ...init }),
 
   /** POST multipart/form-data, JSON response - e.g. signature image upload. */
   postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData),

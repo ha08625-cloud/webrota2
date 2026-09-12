@@ -36,6 +36,7 @@ import datetime
 from fastapi import HTTPException
 
 from ..models import EditLock
+from ..models.edit_lock import as_utc
 
 # How each lockable area is named in the sentence the user reads. Matches
 # the phrasing of deps._FORBIDDEN_DETAIL ("the clinical rota"), so the two
@@ -54,8 +55,16 @@ def _isoformat(value: datetime.datetime | None) -> str | None:
     """A timestamp column as an ISO string the JSON encoder need not guess
     at. `None` never happens for a persisted lock (both columns are NOT
     NULL); it is tolerated so a half-built row cannot turn a 409 into a
-    500."""
-    return None if value is None else value.isoformat()
+    500.
+
+    `as_utc` first, and it is not cosmetic: SQLite hands these columns back
+    naive, and an ISO string with no offset is parsed as LOCAL time by
+    `new Date()` in the browser. The banner reads this timestamp to say how
+    long ago the holder started, so a naive string would make it wrong by
+    the viewer's UTC offset in development while being right on Postgres --
+    the worst shape of bug to find later.
+    """
+    return None if value is None else as_utc(value).isoformat()
 
 
 def edit_lock_conflict(lock: EditLock, holder_name: str) -> HTTPException:

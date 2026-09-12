@@ -1,10 +1,12 @@
 import { HttpResponse, http } from "msw";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { Permissions } from "@/api/types";
 import { AuthProvider, editLockTitle } from "@/auth/AuthContext";
+import { clearToken, setToken } from "@/auth/tokenStore";
 import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { server } from "@/test/msw/server";
 
@@ -360,6 +362,112 @@ describe("section editing lock", () => {
 
     expect(await screen.findByRole("heading", { name: "Signatures" })).toBeInTheDocument();
     expect(screen.queryByTitle(editLockTitle("Kristel"))).not.toBeInTheDocument();
+  });
+
+  it("stands a banner naming the holder above the page", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const banner = await screen.findByRole("status");
+    expect(banner).toHaveTextContent("Kristel");
+    expect(banner).toHaveTextContent(/read it, but not make changes/);
+  });
+
+  it("carries the banner into the reception section too", async () => {
+    renderAt("/reception", PERMISSION_PRESETS.manager, [
+      { ...HELD_BY_SOMEONE_ELSE[0], area: "reception" },
+    ]);
+
+    const banner = await screen.findByRole("status");
+    expect(banner).toHaveTextContent("Kristel");
+  });
+
+  it("shows no banner in a section nobody is editing", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("explains the read-only section once, not on every page inside it", async () => {
+    server.use(
+      http.post("/api/v1/locks/:area", () =>
+        HttpResponse.json(
+          {
+            detail: {
+              message: "Kristel is editing the clinical rota",
+              code: "edit_lock_held",
+              area: "clinical",
+              holder_user_id: -1,
+              holder_name: "Kristel",
+              acquired_at: "2026-01-01T09:00:00Z",
+              last_activity_at: "2026-01-01T09:00:00Z",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Kristel is editing the clinical rota");
+    await userEvent.click(screen.getByRole("button", { name: "Continue reading" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Moving to another page in the same section. The shell - and the lock
+    // provider around it - stays mounted, so nobody should be told again;
+    // the banner is what carries the message from here on.
+    await userEvent.click(screen.getByRole("link", { name: "Master Rota" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Kristel");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Logging out has to give the lock back while the token is still valid.
+ * Afterwards the session is gone server-side, so the DELETE could only
+ * 401 - and a colleague would be told to go and ask somebody who had gone
+ * home until the idle timeout ran out.
+ */
+describe("logout releases the section editing lock", () => {
+  afterEach(() => {
+    clearToken();
+  });
+
+  it("releases before clearing the token", async () => {
+    const released: string[] = [];
+    server.use(
+      http.delete("/api/v1/locks/:area", ({ params }) => {
+        released.push(String(params.area));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    setToken("test-token");
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    await screen.findByRole("heading", { name: "Rota" });
+    await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(released).toEqual(["clinical"]));
+  });
+
+  it("logs out anyway when the release fails - it is a courtesy, not a gate", async () => {
+    let loggedOut = false;
+    server.use(
+      http.delete("/api/v1/locks/:area", () => HttpResponse.error()),
+      http.post("/api/v1/auth/logout", () => {
+        loggedOut = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    setToken("test-token");
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    await screen.findByRole("heading", { name: "Rota" });
+    await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(loggedOut).toBe(true));
   });
 });
 

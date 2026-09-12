@@ -35,12 +35,14 @@ Three things this router deliberately does not do:
   adds `require_edit_lock` to main.py's registration loop. Until then these
   endpoints record an intention and no write consults it.
 
-Releasing a lock you do not hold is 204, not 404. The page-unload path is a
-`sendBeacon` that cannot read a response, and "release whatever I have
-here, if anything" is the only thing it can usefully mean; a 404 would be
-an error nobody is listening for. The same call from someone whose lock
-expired and was taken must not delete the new holder's row, so the delete
-is conditional on the holder being the caller.
+Releasing a lock you do not hold is 204, not 404. Every caller fires this
+on *leaving* a section -- the provider unmount, the logout path, and a
+`keepalive` DELETE on page hide, which cannot read a response at all -- so
+"release whatever I have here, if anything" is the only thing the call can
+usefully mean, and a 404 would be an error nobody is listening for. The
+same call from someone whose lock expired and was taken must not delete the
+new holder's row, so the delete is conditional on the holder being the
+caller.
 """
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models import EditLock, User, is_stale
+from ...models.edit_lock import as_utc
 from ...models.permissions import LOCKABLE_AREAS, can_read_area
 from ..deps import get_current_user, get_db, require_area_write
 from ..edit_lock import edit_lock_conflict
@@ -78,12 +81,22 @@ def _validate_area(area: str) -> str:
 
 
 def _out(lock: EditLock, holder_name: str, now: datetime.datetime) -> EditLockOut:
+    """The wire shape of one lock.
+
+    Both timestamps go through `as_utc` rather than straight out of the
+    column. SQLite hands DateTime(timezone=True) back naive, and an ISO
+    string with no offset is parsed as LOCAL time by `new Date()` in the
+    browser -- so the banner's "started 20 minutes ago" would be wrong by
+    the viewer's UTC offset in development and right on Postgres. Both
+    columns are written UTC, so this is the correct reading everywhere,
+    not a SQLite patch (see models/edit_lock.py).
+    """
     return EditLockOut(
         area=lock.area,
         user_id=lock.user_id,
         user_name=holder_name,
-        acquired_at=lock.acquired_at,
-        last_activity_at=lock.last_activity_at,
+        acquired_at=as_utc(lock.acquired_at),
+        last_activity_at=as_utc(lock.last_activity_at),
         idle=is_stale(lock, now),
     )
 

@@ -1,6 +1,27 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
-import { useAcquireLock, useLocks, useReleaseLock, type LockableArea } from "@/api/locks";
+import { useQueryClient } from "@tanstack/react-query";
+
+import {
+  isEditLockError,
+  isLockMutationKey,
+  lockKeys,
+  releaseLockOnPageHide,
+  useAcquireLock,
+  useLocks,
+  useReleaseLock,
+  type EditLockConflict,
+  type LockableArea,
+} from "@/api/locks";
 import type { AuthUser, Permissions } from "@/api/types";
 import { getToken } from "@/auth/tokenStore";
 
@@ -170,6 +191,23 @@ export function usePermissionArea(): PermissionArea | null {
  * grids get their stronger read-only treatment (no drag sources, no
  * popover) from the same change.
  */
+export interface EditLockNotice {
+  /**
+   * Which moment produced this notice. "entry" is the acquire being
+   * refused on the way into the section - the one-time dialog that
+   * explains why the whole screen is read-only. "write" is a write refused
+   * mid-session, which is how a holder who went idle for fifteen minutes
+   * and lost the lock finds out: their screen still believed it could
+   * write until the server said otherwise.
+   */
+  kind: "entry" | "write";
+  /** The server's sentence, e.g. "Kristel is editing the clinical rota". */
+  message: string;
+  holderName: string;
+  /** When the holder started, or null if the server could not say. */
+  acquiredAt: string | null;
+}
+
 export interface EditLockState {
   /** The section this lock state describes, or null outside a provider. */
   area: LockableArea | null;
@@ -184,7 +222,17 @@ export interface EditLockState {
   heldByOther: boolean;
   /** Who holds it, whoever that is. Null when nobody does. */
   holderName: string | null;
+  /** When the current holder took it, for the banner. Null when nobody holds it. */
+  holderSince: string | null;
   holderIsMe: boolean;
+  /**
+   * The pending "you cannot edit here right now" notice, or null. A single
+   * slot rather than a queue, like components/Toast.tsx: the second copy of
+   * the same news is not worth a second dialog.
+   */
+  notice: EditLockNotice | null;
+  /** Dismiss the notice above. There is no takeover button - see the plan. */
+  dismissNotice: () => void;
   /**
    * Give the lock back now rather than on unmount - the logout path, which
    * clears the token before the tree unmounts and so cannot release it
@@ -206,9 +254,22 @@ const EditLockContext = createContext<EditLockState>({
   area: null,
   heldByOther: false,
   holderName: null,
+  holderSince: null,
   holderIsMe: false,
+  notice: null,
+  dismissNotice: () => {},
   release: async () => {},
 });
+
+/** The notice a 409's detail describes. */
+function noticeFrom(kind: EditLockNotice["kind"], detail: EditLockConflict): EditLockNotice {
+  return {
+    kind,
+    message: detail.message,
+    holderName: detail.holder_name,
+    acquiredAt: detail.acquired_at,
+  };
+}
 
 /**
  * Holds the lock on `area` for as long as the section is mounted.
@@ -223,6 +284,10 @@ const EditLockContext = createContext<EditLockState>({
  * that pass the server-side gate and by nothing else, so an open tab does
  * not hold a section hostage - which is what makes the absence of a force
  * takeover safe.
+ *
+ * It is also the one place that reacts to a lock 409 from ANY mutation in
+ * the app, so no grid, page or dialog has to know the lock exists. See the
+ * MutationCache subscription below.
  */
 export function EditLockProvider({
   area,
@@ -233,6 +298,10 @@ export function EditLockProvider({
 }) {
   const { user, permissions } = useAuth();
   const mayWrite = canWriteArea(permissions, area);
+  const queryClient = useQueryClient();
+
+  const [notice, setNotice] = useState<EditLockNotice | null>(null);
+  const dismissNotice = useCallback(() => setNotice(null), []);
 
   const locksQuery = useLocks();
   const acquireMutation = useAcquireLock();
@@ -267,6 +336,83 @@ export function EditLockProvider({
     };
   }, [area, mayWrite, acquire, releaseHere]);
 
+  // Closing the tab, or leaving the app for another site. The provider
+  // unmount above never runs for either, so without this the section stays
+  // locked until the idle timeout - fifteen minutes of a colleague being
+  // told to go and ask somebody who has gone home. Best effort: see
+  // releaseLockOnPageHide for why this is a keepalive fetch and not a
+  // beacon, and why a crashed tab is still the idle timeout's problem.
+  //
+  // `pagehide` rather than `beforeunload`, which mobile Safari never fires
+  // and which blocks the back/forward cache.
+  useEffect(() => {
+    if (!mayWrite) {
+      return;
+    }
+    function handlePageHide() {
+      if (getToken() === null) {
+        return;
+      }
+      releaseLockOnPageHide(area);
+    }
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [area, mayWrite]);
+
+  // The acquire being refused: somebody else is in the section, and the
+  // user is about to find their whole screen read-only with no explanation.
+  // Once per mount, which is once per section entry - the shell stays
+  // mounted while they navigate within the section, so clicking through
+  // five pages does not produce five dialogs.
+  //
+  // The ref, not just the null check, is what makes "once" true: dismissing
+  // clears the notice, and without the guard any later re-render carrying
+  // the same mutation error would put it straight back.
+  const acquireError = acquireMutation.error;
+  const entryNoticeRaised = useRef(false);
+  useEffect(() => {
+    if (entryNoticeRaised.current || !isEditLockError(acquireError)) {
+      return;
+    }
+    entryNoticeRaised.current = true;
+    setNotice(noticeFrom("entry", acquireError.detail));
+  }, [acquireError]);
+
+  // Every OTHER mutation in the app, in one place. A holder who went idle
+  // for fifteen minutes has lost the lock while their screen still
+  // believed it could write; the first save is what finds out, and the
+  // alternative to this subscription is an onError in every mutation in
+  // the codebase.
+  //
+  // Invalidating the locks query is the important half: it flips the
+  // section read-only within a second rather than up to a poll interval
+  // later, so the user is not left clicking controls that cannot work.
+  //
+  // What this does NOT do is silence a page's own error handling: a grid
+  // that shows "Could not apply that change" on any failure still shows
+  // it, underneath this dialog. Suppressing that would mean editing every
+  // one of those call sites, which is the per-mutation work this
+  // subscription exists to avoid - and the dialog is the message that
+  // explains, so the toast beneath it is redundant rather than wrong.
+  useEffect(() => {
+    return queryClient.getMutationCache().subscribe((event) => {
+      if (event.type !== "updated" || event.action.type !== "error") {
+        return;
+      }
+      const error = event.action.error;
+      if (!isEditLockError(error) || error.detail.area !== area) {
+        return;
+      }
+      // The lock's own acquire has the dialog above; a release never
+      // 409s. Letting them through here would double up on entry.
+      if (isLockMutationKey(event.mutation.options.mutationKey)) {
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: lockKeys.all });
+      setNotice(noticeFrom("write", error.detail));
+    });
+  }, [area, queryClient]);
+
   const value = useMemo<EditLockState>(() => {
     const lock = locksQuery.data?.find((row) => row.area === area) ?? null;
     const holderIsMe = lock !== null && user !== null && lock.user_id === user.id;
@@ -274,10 +420,13 @@ export function EditLockProvider({
       area,
       heldByOther: lock !== null && !holderIsMe && !lock.idle,
       holderName: lock?.user_name ?? null,
+      holderSince: lock?.acquired_at ?? null,
       holderIsMe,
+      notice,
+      dismissNotice,
       release: releaseHere,
     };
-  }, [area, locksQuery.data, user, releaseHere]);
+  }, [area, locksQuery.data, user, notice, dismissNotice, releaseHere]);
 
   return <EditLockContext.Provider value={value}>{children}</EditLockContext.Provider>;
 }
