@@ -61,6 +61,22 @@ AREA_KEYS: tuple[str, ...] = ("clinical", "reception")
 FLAG_KEYS: tuple[str, ...] = ("signatures", "study_eoi", "user_admin")
 PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 
+# The areas a section editing lock can be held on (see models/edit_lock.py).
+# These are the same two strings as AREA_KEYS today, and this is deliberately
+# a separate tuple rather than an alias: the reason they coincide is
+# structural, not incidental. Being locked out of a section means being
+# downgraded to read-only for as long as someone else holds it, and only a
+# levelled permission has a read level to be downgraded to -- a boolean area
+# (signatures, study_eoi, user_admin) has no such state, so it cannot be
+# locked. Aliasing AREA_KEYS would silently make any future levelled
+# permission lockable, and aliasing in the other direction would silently
+# stop expressing that a lockable area must be levelled.
+LOCKABLE_AREAS: tuple[str, ...] = ("clinical", "reception")
+
+# The structural half of the rule above, checked at import: a lockable area
+# that is not a levelled area is a bug, whichever tuple gained the entry.
+assert set(LOCKABLE_AREAS) <= set(AREA_KEYS)
+
 PermissionSetDict = dict[str, str | bool]
 
 DEFAULT_PERMISSIONS: PermissionSetDict = {

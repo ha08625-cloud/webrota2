@@ -48,6 +48,7 @@ from .recurring_note import (
 from .generation_log import RotaGenerationLogEntry
 from .signature import DoctorSignature
 from .user import PasswordResetToken, User, UserSession
+from .edit_lock import EDIT_LOCK_IDLE_TIMEOUT, EditLock, is_stale
 from .audit import AuditLogEntry
 from .reception import (
     ReceptionStaff,
@@ -76,6 +77,7 @@ __all__ = [
     "RecurringNote", "RecurringNoteDoctor",
     "RotaConfigNote", "RotaConfigNoteDoctor",
     "DoctorSignature", "User", "UserSession", "PasswordResetToken",
+    "EditLock", "EDIT_LOCK_IDLE_TIMEOUT", "is_stale",
     "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
     "ReceptionRotaSession",
