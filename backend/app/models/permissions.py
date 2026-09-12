@@ -176,3 +176,34 @@ EMPTY_PERMISSIONS_MESSAGE = (
     "A user needs at least one permission. To remove someone's access "
     "entirely, deactivate the user instead."
 )
+
+
+def can_read_area(permissions: PermissionSetDict, area: str) -> bool:
+    """True when `permissions` admits safe methods on `area`.
+
+    The one place the levelled/boolean distinction is resolved, so callers
+    that only want the answer do not each restate it: a levelled area is
+    readable at READ or WRITE, a boolean area is readable exactly when it
+    is set (there is no read-only view of a document generator -- see the
+    module docstring). api/deps.py's gates are written in terms of these
+    two functions, and api/routers/locks.py reuses them for an area it
+    resolves per request rather than at registration time.
+    """
+    granted = permissions.get(area)
+    if area in AREA_KEYS:
+        return granted in (READ, WRITE)
+    return bool(granted)
+
+
+def can_write_area(permissions: PermissionSetDict, area: str) -> bool:
+    """True when `permissions` admits unsafe methods on `area`.
+
+    Levelled areas need WRITE; a boolean area grants both halves or
+    neither, so it is the same test as `can_read_area`. Named after the
+    frontend's `canWriteArea`, which implements the same rule -- there is
+    no codegen between the two, so the pair is kept in step by hand.
+    """
+    granted = permissions.get(area)
+    if area in AREA_KEYS:
+        return granted == WRITE
+    return bool(granted)

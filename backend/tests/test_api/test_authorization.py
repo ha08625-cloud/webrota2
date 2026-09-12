@@ -79,11 +79,12 @@ _PARAM = re.compile(r"\{[^}]+\}")
 
 # Routes the registration-time gate deliberately does not cover: /auth
 # (login has no user; logout must work for every login), /calendar (the
-# path token is the credential) and /users/me (a write every login is
-# allowed to make on its own row). All three are covered by their own
-# targeted tests rather than by the sweeps, and appear in
-# `_AREA_FOR_PREFIX` / `_UNGATED_PATHS` as area None so the sweeps expect
-# them to be reachable by everyone.
+# path token is the credential), /users/me (a write every login is
+# allowed to make on its own row) and /locks (the area it acts on is a
+# path parameter, so the gate cannot be fixed at registration time). All
+# are covered by their own targeted tests rather than by the sweeps, and
+# appear in `_AREA_FOR_PREFIX` / `_UNGATED_PATHS` as area None so the
+# sweeps expect them to be reachable by everyone.
 _EXEMPT_PREFIXES = (f"{API_PREFIX}/auth",)
 _UNGATED_PATHS = frozenset({f"{API_PREFIX}/users/me"})
 
@@ -117,6 +118,15 @@ _AREA_FOR_PREFIX = {
     f"{API_PREFIX}/users": "user_admin",
     f"{API_PREFIX}/auth": None,
     f"{API_PREFIX}/calendar": None,
+    # The locks router is UNGATED and gates itself per endpoint, like
+    # /users -- but unlike /users it cannot be given an effective area
+    # here, because the area it acts on is a path parameter and may be
+    # either levelled section. The sweeps substitute "1" for that
+    # parameter, which is not a lockable section, so every swept /locks
+    # write answers 422 before any permission is consulted. None (reachable
+    # by everyone) is therefore what the sweeps should expect, and the
+    # gating is pinned by `TestLocksGateThemselves` below instead.
+    f"{API_PREFIX}/locks": None,
 }
 
 # The endpoints that need `user_admin` ON TOP of their router's area, so a
@@ -332,19 +342,25 @@ class TestTheExpectationTable:
             )
 
     def test_every_ungated_router_is_classified_as_ungated_or_self_gating(self):
-        """The three routers no registration-time gate covers. /auth and
-        /calendar are area None; /users is the one that gates itself, and
-        it is classified `user_admin` here because that is the rule its own
-        endpoints enforce."""
+        """The four routers no registration-time gate covers. /auth and
+        /calendar are area None; /users gates itself and is classified
+        `user_admin` here because that is the rule its own endpoints
+        enforce; /locks gates itself too but per path parameter, so it has
+        no single effective area and stays None (see
+        `TestLocksGateThemselves`)."""
         prefixes = {f"{API_PREFIX}{m.router.prefix}" for m in _UNGATED}
         assert prefixes == {
             f"{API_PREFIX}/auth",
             f"{API_PREFIX}/calendar",
             f"{API_PREFIX}/users",
+            f"{API_PREFIX}/locks",
         }
         assert _AREA_FOR_PREFIX[f"{API_PREFIX}/auth"] is None
         assert _AREA_FOR_PREFIX[f"{API_PREFIX}/calendar"] is None
         assert _AREA_FOR_PREFIX[f"{API_PREFIX}/users"] == "user_admin"
+        # Self-gating, but per path parameter rather than per endpoint; see
+        # the entry in _AREA_FOR_PREFIX and TestLocksGateThemselves.
+        assert _AREA_FOR_PREFIX[f"{API_PREFIX}/locks"] is None
 
     @pytest.mark.parametrize("profile", sorted(_PROFILES))
     def test_the_non_get_sweep_is_not_empty_for_this_profile(self, profile):
@@ -672,3 +688,93 @@ class TestAuthRouterIsUngated:
         """The gate depends on get_current_user, so a missing token still
         fails as authentication rather than authorization."""
         assert client_no_auth.post(DOCTORS, json=_NEW_DOCTOR).status_code == 401
+
+
+class TestLocksGateThemselves:
+    """The locks router is UNGATED so that one endpoint can serve both
+    levelled sections; each endpoint calls `deps.require_area_write` with
+    the area it was handed instead. That is per path parameter rather than
+    per endpoint, so the sweeps above cannot cover it: they substitute "1"
+    for `{area}`, which is not a lockable section and 422s before any
+    permission is read. This class is what stands in for them.
+
+    It sweeps the router's OWN routes, enumerated from the schema with a
+    real area substituted, so a new endpoint added to locks.py without a
+    gate fails here rather than shipping. Only the denial direction is
+    asserted: the permitted direction needs a persisted user row for the
+    lock's foreign key, which is test_locks.py's business.
+    """
+
+    LOCKS_PREFIX = f"{API_PREFIX}/locks"
+
+    def _routes(self, area):
+        collected = []
+        for path, operations in app.openapi()["paths"].items():
+            if not path.startswith(self.LOCKS_PREFIX):
+                continue
+            for method in operations:
+                if method.upper() in _SAFE:
+                    continue
+                collected.append((method.upper(), path.replace("{area}", area)))
+        return sorted(set(collected))
+
+    def test_the_sweep_below_covers_every_write_the_router_serves(self):
+        """A floor, so an emptied enumeration cannot pass silently. Two
+        today: acquire and release."""
+        assert len(self._routes("clinical")) >= 2
+
+    def test_a_login_with_no_permissions_is_refused_every_lock_write(
+        self, no_access_client
+    ):
+        for area in ("clinical", "reception"):
+            for method, path in self._routes(area):
+                resp = no_access_client.request(method, path)
+                assert resp.status_code == 403, (
+                    f"{method} {path} -> {resp.status_code}: an ungated "
+                    "endpoint in the locks router"
+                )
+
+    def test_read_on_a_section_is_not_enough_to_lock_it(self, readonly_client):
+        """Being able to read a section must not let a login block anyone
+        else in it -- a read-only login has nothing to protect."""
+        for area in ("clinical", "reception"):
+            for method, path in self._routes(area):
+                assert readonly_client.request(method, path).status_code == 403
+
+    def test_each_section_is_gated_on_its_own_permission(
+        self, reception_admin_client, db_session
+    ):
+        """Reception at write, clinical at read: the same endpoint answers
+        differently for the two areas, which is the whole reason this
+        router cannot take a registration-time gate.
+
+        The one place here that gets past a gate, so the one place that
+        needs a persisted user: `edit_locks.user_id` is a foreign key, and
+        conftest's identity stub is not a row. It is seeded at the stub's
+        own id so the acquire records the caller.
+        """
+        import datetime
+
+        from app.models import User
+
+        db_session.add(User(
+            id=1,
+            email="locks@example.com",
+            name="Lock Holder",
+            password_hash="x",
+            active=True,
+            access_level=AccessLevel.MANAGER,
+            permissions=preset(RECEPTION_ADMIN_PRESET),
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        ))
+        db_session.commit()
+
+        for method, path in self._routes("clinical"):
+            assert reception_admin_client.request(method, path).status_code == 403
+        for method, path in self._routes("reception"):
+            assert reception_admin_client.request(method, path).status_code != 403
+
+    def test_reading_the_lock_list_needs_a_session(self, client_no_auth):
+        """Covered by the GET sweep too; said here because a lock list
+        names people, and it would be an easy thing to open by accident."""
+        assert client_no_auth.get(self.LOCKS_PREFIX).status_code == 401
