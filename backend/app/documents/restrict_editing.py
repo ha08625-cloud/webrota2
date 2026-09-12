@@ -7,19 +7,14 @@ so this is a single in-place mutation before one document.save() call --
 no re-zipping, no [Content_Types].xml handling.
 
 Password hashing follows the modern ISO/IEC 29500 password verifier (the
-form current Word itself writes), not the legacy 32-bit hash:
+form current Word itself writes), not the legacy 32-bit hash -- see
+_hash_password and the w:crypt* attributes it feeds.
 
-    salt = os.urandom(16)
-    h = sha512(salt + password.encode("utf-16-le"))
-    for i in range(100_000):
-        h = sha512(h + i.to_bytes(4, "little"))
-
-w:hash and w:salt are base64 of that digest and salt respectively. This is
-a deterrent matching the previously-unprotected baseline, not real
-document security -- the node can be stripped by unzipping the docx. The
-password itself is supplied by the caller (the router reads it from an env
-var); this module stays configuration-free, only holding the fallback
-default.
+This is a deterrent matching the previously-unprotected baseline, not real
+document security: the protection node can be stripped by unzipping the
+docx. The password itself is supplied by the caller (the router reads it
+from an env var); this module stays configuration-free, only holding the
+fallback default.
 """
 import base64
 import hashlib

@@ -111,10 +111,7 @@ def _formatting(paragraph: Paragraph | None) -> tuple[object | None, object | No
     if paragraph is None:
         return None, None
     p_pr = paragraph._p.find(qn("w:pPr"))
-    r_pr = None
-    for run in paragraph.runs:
-        r_pr = run._r.find(qn("w:rPr"))
-        break
+    r_pr = paragraph.runs[0]._r.find(qn("w:rPr")) if paragraph.runs else None
     return (
         deepcopy(p_pr) if p_pr is not None else None,
         deepcopy(r_pr) if r_pr is not None else None,
@@ -190,9 +187,9 @@ def fill_eoi(
     """
     try:
         document = Document(io.BytesIO(docx_bytes))
-    except (PackageNotFoundError, zipfile.BadZipFile):
+    except (PackageNotFoundError, zipfile.BadZipFile) as exc:
         # This is the path a legacy .doc (binary, pre-OOXML) upload takes.
-        raise DocumentFormatError("File is not a valid .docx document")
+        raise DocumentFormatError("File is not a valid .docx document") from exc
 
     entries = _snapshot(document)
     by_position = {
