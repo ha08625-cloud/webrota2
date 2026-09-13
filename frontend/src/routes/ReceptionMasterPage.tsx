@@ -19,12 +19,11 @@ function apiErrorMessage(err: ApiError, fallback: string): string {
 
 /**
  * The weekday master template - one day at a time, not a five-day-at-once
- * view (5 x 10 x N cells would be unreadable; a day tab is one click, see
- * reception rota plan Task 7). ReceptionGrid/ReceptionCellPopover are the
- * same components Task 8's day rota page reuses unchanged; this page's
- * job is just to own the master-session queries/mutations and filter the
- * flat template list down to the selected day before handing it to the
- * grid.
+ * view (5 x 10 x N cells would be unreadable; a day tab is one click).
+ * ReceptionGrid/ReceptionCellPopover are the same components
+ * ReceptionDayPage reuses unchanged; this page's job is just to own the
+ * master-session queries/mutations and filter the flat template list down
+ * to the selected day before handing it to the grid.
  */
 export function ReceptionMasterPage() {
   // Active staff only. A deactivated member is off the template entirely -

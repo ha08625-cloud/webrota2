@@ -43,8 +43,8 @@ function unmatchedMessage(unmatched: string[]): string {
  * toast after the download starts.
  */
 export function EoiPage() {
-  // The endpoint is admin-tier like the rest of the non-GET routes, so a
-  // viewer gets a disabled control rather than a 403 toast.
+  // The endpoint needs the `study_eoi` permission, so a login without it
+  // gets a disabled control rather than a 403 toast.
   const writeGate = useWriteGate();
   const canWrite = writeGate.disabled !== true;
   const fillEoi = useFillEoi();

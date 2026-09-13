@@ -43,8 +43,8 @@ function tabLabel(date: string): string {
  * each tab independently one of two states decided by GET /reception/rota
  * ?date= - a 404 offers "Generate from template", a 200 renders the
  * ReceptionGrid/ReceptionCellPopover pair built for the master template
- * (Task 7) unchanged, against that date's sessions, with a coverage panel
- * beside the page header (reception rota plan, Task 8).
+ * unchanged, against that date's sessions, with a coverage panel beside
+ * the page header.
  *
  * The backend has no week concept at all - each date is still its own
  * header, generated/regenerated/deleted independently (409 if it already
@@ -70,8 +70,7 @@ export function ReceptionDayPage() {
   const { data: staff } = useReceptionStaff(true);
   // Same query key the active tab uses, so this shares its cache entry
   // rather than issuing a second request - the panel just needs the
-  // issues from it, and it lives beside the page header now, not beside
-  // the grid.
+  // issues from it.
   const { data: activeRota } = useReceptionRotaByDate(activeDate);
   const generateRota = useGenerateReceptionRota();
   const deleteRota = useDeleteReceptionRota();
@@ -127,11 +126,9 @@ export function ReceptionDayPage() {
           await deleteRota.mutateAsync({ rotaId: current.rota_id, date });
         }
         const generated = await generateRota.mutateAsync(date);
-        // Assignment is chained onto every day now, not only the newly
-        // created ones: after this button runs, every day in the week is a
-        // fresh copy of the template, so every day needs its desk manned -
-        // the old "leave existing days alone" carve-out no longer applies to
-        // a button that rebuilds them.
+        // Assignment is chained onto every day, not only the newly created
+        // ones: this button rebuilds the whole week from the template, so
+        // every day in it needs its desk manned again.
         await assignRota.mutateAsync({ rotaId: generated.rota_id, date });
       } catch (err) {
         failures.push(`${date}: ${apiErrorMessage(err as ApiError, "failed")}`);
@@ -217,9 +214,8 @@ interface ReceptionDayTabProps {
 }
 
 /**
- * One weekday's generate/regenerate/edit lifecycle - the body the single-day
- * ReceptionDayPage used to render directly, now parameterised by `date` and
- * mounted once per active tab.
+ * One weekday's generate/regenerate/edit lifecycle, parameterised by `date`
+ * and mounted once per active tab.
  */
 function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
   const writeGate = useWriteGate();
@@ -242,8 +238,8 @@ function ReceptionDayTab({ date, staff }: ReceptionDayTabProps) {
    * Generating a day means "copy the template *and* assign it" - two
    * endpoints, always chained, in the same order handleGenerateWeek uses.
    * They stay separate server-side (POST "" keeps its 409 semantics, and
-   * assignment stays independently re-runnable), but there is no longer a
-   * button that runs only the first half.
+   * assignment stays independently re-runnable), but no button here runs
+   * only the first half.
    *
    * The two failures are reported separately: a failed assignment still
    * leaves a generated day on screen, so saying "could not generate" there

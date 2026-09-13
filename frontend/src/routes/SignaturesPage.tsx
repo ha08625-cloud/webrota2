@@ -26,7 +26,7 @@ function errorMessage(err: ApiError, fallback: string): string {
  * Only used when the response carries no Content-Disposition, which the
  * server always sends - so this is a safety net, not the naming scheme.
  * It mirrors the server's format branch: .rtf comes back as a PDF, every
- * other accepted format as a .docx (rtf/pdf plan, Task 4 point 2).
+ * other accepted format as a .docx.
  */
 function fallbackFilename(uploadedName: string): string {
   const stem = uploadedName.replace(/\.[^.]*$/, "") || "document";
@@ -42,8 +42,8 @@ interface SignatureRowProps {
 
 function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
   // "Sign a document..." is gated too, even though it stores nothing: the
-  // backend gates POST /signatures/{id}/apply at admin tier along with
-  // every other non-GET route.
+  // whole signatures router needs the `signatures` permission, reads
+  // included, so there is no read-only way to use it.
   const writeGate = useWriteGate();
   const hasSignature = meta !== undefined;
   const { data: imageDataUrl } = useSignatureImage(doctor.id, hasSignature);
@@ -219,13 +219,11 @@ function SignatureRow({ doctor, meta, showToast }: SignatureRowProps) {
  * .docx comes back as a read-only .docx, a .rtf as a PDF.
  */
 export function SignaturesPage() {
-  // Admin-and-above, matching the backend: GET /signatures and the image
-  // endpoint now 403 below that tier (deps.require_admin), so a viewer
-  // would otherwise get a page of failed queries. Same shape as the Users
-  // page's manager check, and the same caveat: this is UX, the 403 is the
-  // boundary. `useCanWrite` is the admin-or-manager question the tier
-  // model already answers; the fine-grained permission model replaces it
-  // with a `signatures` capability.
+  // The `signatures` permission gates every endpoint here, reads
+  // included, so without it this page is a set of 403s. SignaturesShell
+  // already keeps such a login off the route; this is the belt to that
+  // braces, the same shape as the Users page's check. UX only - the 403
+  // is the real boundary.
   const canWrite = useCanWrite();
 
   if (!canWrite) {

@@ -10,9 +10,8 @@ import { formatDate } from "@/lib/date";
 
 /**
  * The editable holiday-cover step between the master template and
- * generation (staging plan, Task 6). At most one staging exists
- * globally, so this page takes no id - it always operates on whatever
- * GET /staging/active returns.
+ * generation. At most one staging exists globally, so this page takes no
+ * id - it always operates on whatever GET /staging/active returns.
  */
 export function StagingPage() {
   const writeGate = useWriteGate();

@@ -6,10 +6,10 @@ import type { ApiError } from "@/api/types";
 import { useCanAdminUsers, useLinkedDoctorId } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 
-/** Tooltip for the rotate control when the user is below manager. */
-// The rotate endpoint carries require_capability("user_admin") on top of
-// the clinical gate: reissuing revokes someone's live subscription, so it
-// is deliberately narrower than routine clinical editing.
+// Tooltip for a disabled rotate control. The rotate endpoint carries
+// require_capability("user_admin") on top of the clinical gate: reissuing
+// revokes someone's live subscription, so it is deliberately narrower than
+// routine clinical editing.
 const NO_ROTATE_TITLE = "Only a user administrator can issue a new link.";
 
 function errorMessage(err: ApiError, fallback: string): string {
@@ -61,7 +61,7 @@ function SubscriptionInstructions() {
  * linking) opens on that doctor, marked "(you)", which is the whole
  * point: the page's one real failure mode is picking someone else and
  * putting a colleague's rota in your calendar. The picker stays for an
- * unlinked user, and for a manager fetching someone else's URL - there
+ * unlinked user, and for an administrator fetching someone else's URL - there
  * the wrong pick is still possible, immediately obvious, and fixed by
  * re-subscribing.
  *

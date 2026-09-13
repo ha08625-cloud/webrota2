@@ -54,11 +54,12 @@ function linkedLabel(user: AuthUser): string {
 }
 
 function UsersTable() {
-  // Unlike DoctorsPage (active-only), this list always includes inactive
-  // users - deactivation must be reversible from here. Recovery from
-  // locking every manager out is not a UI path at all: the backend
-  // refuses to remove the last active manager (409), and a database that
-  // has somehow lost them all is recovered by re-running seed_users.py.
+  // Always includes inactive users - deactivation must be reversible from
+  // here. Recovering from locking every user administrator out is not a UI
+  // path at all: the backend refuses to deactivate the last active one, or
+  // to clear its `user_admin` permission (409 either way), and a database
+  // that has somehow lost them all is recovered by re-running
+  // seed/seed_users.py.
   const { data: users, isLoading, isError } = useUsers();
   const updateUser = useUpdateUser();
   const [dialogState, setDialogState] = useState<DialogState>({ open: false });
@@ -79,8 +80,10 @@ function UsersTable() {
       { id: user.id, payload },
       {
         onError: (err: ApiError) => {
-          // The 409 here is the lock-out guard: neither deactivating nor
-          // demoting the last active manager is allowed.
+          // A 409 here is the lock-out guard: the last active user
+          // administrator can be neither deactivated nor stripped of the
+          // permission. Note access_level is a label only and authorizes
+          // nothing (lib/accessLevels.ts), so changing it never trips this.
           const message = typeof err.detail === "string" ? err.detail : "Could not update this user.";
           showToast(message);
         },
