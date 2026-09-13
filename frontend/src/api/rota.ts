@@ -104,15 +104,14 @@ export function useScrapRota() {
 }
 
 /**
- * Bug-recovery escape hatch (M... force-delete plan): permanently deletes
- * a committed rota outright, with no counter restore. This is not a
- * substitute for Roll back commit - it exists for cases rollback cannot
- * reach, such as a legacy commit with committed_at null. See
+ * Bug-recovery escape hatch: permanently deletes a committed rota
+ * outright, with no counter restore. This is not a substitute for Roll
+ * back commit - it exists for cases rollback cannot reach, such as a
+ * legacy commit with committed_at null. See
  * engine.generate.force_delete_rota's docstring for the full
- * rollback-interaction caveat. Cache handling mirrors useScrapRota
- * exactly: the rota is gone, so its detail query is removed rather than
- * refetched, and the list is invalidated so rollback-eligibility on the
- * previous commit (if any) recomputes correctly on next render.
+ * rollback-interaction caveat. The list is invalidated (not just the
+ * detail removed) so rollback-eligibility on the previous commit, if
+ * any, recomputes on next render.
  */
 export function useForceDeleteRota() {
   const queryClient = useQueryClient();
@@ -126,7 +125,7 @@ export function useForceDeleteRota() {
 }
 
 /**
- * Undoes a commit one step back through commit history (M3.7): restores
+ * Undoes a commit one step back through commit history: restores
  * the rota's counters from its snapshot and flips it back to draft. The
  * response is a RotaOut with status="draft", same shape as commit's
  * response - the caller re-renders into the normal draft-editing view
@@ -146,7 +145,7 @@ export function useRollbackCommit() {
 }
 
 /**
- * Hides a committed rota from the default "Committed" list (M6). Metadata
+ * Hides a committed rota from the default "Committed" list. Metadata
  * only - no session or counter effect. The backend 409s a draft or an
  * already-archived rota; this hook does not pre-check either, matching
  * the apply-then-warn convention of every other mutation here. No
@@ -180,12 +179,12 @@ export function useUnarchiveRota() {
   });
 }
 
-// --- Session editing (Task 4) ---
+// --- Session editing ---
 // swap-roles, swap-rooms, and the session PATCH all return the full
 // updated session(s) plus a fresh issues list. None of these invalidate
 // and refetch the whole rota - they splice the response directly into
-// the existing caches, per the M4 plan ("optimistic-free updates from
-// response payloads").
+// the existing caches, so an in-progress drag is never disrupted by a
+// refetch.
 
 function spliceSessions(sessions: RotaSession[], updated: RotaSession[]): RotaSession[] {
   const byId = new Map(updated.map((s) => [s.session_id, s]));
@@ -228,8 +227,8 @@ interface SwapResponse {
  * Also serves as the undo for itself: repeating the same call with the
  * same two ids is a true inverse (the endpoint's field-exchange is
  * symmetric, including the clinic-counter adjustments), for both a true
- * swap and a move (one side null) - "swap: repeat" and "move: move
- * back" in the M4 plan are the same mechanism, not two.
+ * swap and a move (one side null): undoing a swap by repeating it and
+ * undoing a move by moving back are the same mechanism, not two.
  */
 export function useSwapRoles() {
   const queryClient = useQueryClient();
@@ -268,7 +267,7 @@ export interface PatchSessionPayload {
   isWfh: boolean;
   notes: string | null;
   /**
-   * Optional, unlike isWfh/notes (Phase 9C plan, section 5): the
+   * Optional, unlike isWfh/notes: the
    * popover's always-send-all-three contract needs it present, but
    * set-room's WFH-restore follow-up patch (replayUndo.ts) has no
    * previous value to supply and must not overwrite is_supervising with
@@ -294,13 +293,9 @@ interface PatchSessionResponse {
  *
  * Setting is_wfh true clears room_id server-side; setting it back false
  * does NOT restore a room (SessionPatchIn's own docstring) - PATCH has no
- * room_id field. This was a permanent gap through M4: there was no API
- * path to restore a cleared room at all, so RotaDetailPage's undo
- * handling surfaced it as a caveat toast rather than silently returning
- * a "successful" undo that didn't fully restore state. M4.1 Task 1's
- * nullable set-room closes the gap - replayUndo's upgraded "patch" replay
- * sequence now follows a PATCH restore with a set-room call when needed,
- * and the caveat toast path has been removed.
+ * room_id field. Restoring a cleared room is useSetRoom's job, which is
+ * why replayUndo's "patch" replay follows a PATCH restore with a
+ * set-room call when one is needed.
  */
 export function usePatchSession() {
   const queryClient = useQueryClient();
@@ -318,7 +313,7 @@ export function usePatchSession() {
   });
 }
 
-// --- Cell edit menu: set-room / set-role (M4.1 Task 2) ---
+// --- Cell edit menu: set-room / set-role ---
 // Both mirror the PATCH/swap pattern above: splice the response session(s)
 // into the rota cache, write fresh issues, no invalidate/refetch.
 

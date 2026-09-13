@@ -37,18 +37,17 @@ export interface FastApiValidationError {
 }
 
 // --- Auth and user management (schemas/auth.py) ---
-// Task 5 added AuthUser/LoginIn/LoginOut. Task 6 (Users page) adds the
-// write-side shapes below. AuthUser doubles as the read shape for the
-// Users page's list/detail rows - it is byte-identical to UserOut, so
-// api/users.ts imports it directly rather than duplicating an identical
-// interface under a second name.
+// AuthUser doubles as the read shape for the Users page's list/detail
+// rows - it is byte-identical to UserOut, so api/users.ts imports it
+// directly rather than duplicating an identical interface under a
+// second name.
 
 /**
  * User.access_level (models/enums.py AccessLevel), mirroring the backend
  * wire values exactly. Three permission tiers wearing four labels:
  * manager (user management + writes), admin (writes), doctor and nurse
  * (reads only, and permission-identical to each other - the distinction
- * is a label for humans, not a rule). See documentation/role_based_auth.md.
+ * is a label for humans, not a rule).
  */
 export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
 
@@ -213,8 +212,8 @@ export type Site = "SHC" | "Cutteslowe" | "Wolvercote";
 
 /**
  * MasterRotaSession.template_type (enums.py). Persisted onto
- * RotaSession as of M3.6 so NO_SURGERY/ADMIN_TIME/WFH template slots can
- * be told apart from a normal-but-currently-unassigned slot, which are
+ * RotaSession too, so NO_SURGERY/ADMIN_TIME/WFH template slots can be
+ * told apart from a normal-but-currently-unassigned slot, which are
  * otherwise byte-identical (room_id/clinic_type_id/role all null).
  * REQUIRES_ROOM and PRE_ASSIGNED both render as normal sessions in the
  * Q13 colour language; only NO_SURGERY/ADMIN_TIME trigger the grey
@@ -240,7 +239,7 @@ export interface ValidationIssue {
   doctor_id: number | null;
 }
 
-// --- Rooms (schemas_room.py) — read-only in M3, still read-only in M4 ---
+// --- Rooms (schemas_room.py) — read-only ---
 
 export interface Room {
   id: number;
@@ -288,13 +287,12 @@ export interface ClinicType {
   room_eligibilities: ClinicTypeRoomEligibility[];
 }
 
-// Write-side shapes (Task 5). POST/PUT both take the full nested
-// ClinicTypeIn - PUT replaces all child rows wholesale (replace-children
-// pattern), it does not diff against what's already there. There is no
-// "wfh_allowed" field or room_required XOR anything - room_required is a
-// plain boolean with no counterpart, despite what an earlier plan draft
-// assumed; confirmed directly against clinic_type.py, schemas_clinic_type.py,
-// and routers_clinic_types.py, none of which reference such a field.
+// Write-side shapes. POST/PUT both take the full nested ClinicTypeIn -
+// PUT replaces all child rows wholesale (replace-children pattern), it
+// does not diff against what's already there. room_required is a plain
+// boolean with no counterpart: there is no "wfh_allowed" field and no
+// XOR partner for it anywhere in clinic_type.py,
+// schemas_clinic_type.py or routers_clinic_types.py.
 //
 // clinic_priority is deliberately absent here: it is server-managed (a
 // contiguous 1..N sequence over enabled clinic types, maintained by the
@@ -373,9 +371,9 @@ export interface Doctor {
   active: boolean;
   supervision_preference: SupervisionPreference;
   /**
-   * Optional employment window (annual leave planning, Task 1). Null at
-   * either end means unbounded, which is every doctor that predates the
-   * feature. This is an *additional*, independent gate alongside
+   * Optional employment window. Null at either end means unbounded,
+   * which is every doctor that predates the feature. This is an
+   * *additional*, independent gate alongside
    * `active`, not a replacement for it: `active` is the soft-delete flag,
    * the window is a real employment fact, and a doctor only counts as
    * working on a date when both hold. Enforced server-side at Phase 2,
@@ -605,10 +603,10 @@ export interface LeaveEntitlementYear {
   doctors: LeaveEntitlement[];
 }
 
-// --- Extra sessions (schemas/extra_session.py, extra sessions plan) ---
-// Plans a doctor working a session they would not normally work (Task
-// 1). No bulk endpoints - a single date plus period covers the real
-// workflow, unlike leave's date-range semantics.
+// --- Extra sessions (schemas/extra_session.py) ---
+// Plans a doctor working a session they would not normally work. No bulk
+// endpoints - a single date plus period covers the real workflow, unlike
+// leave's date-range semantics.
 
 export interface ExtraSessionEntry {
   id: number;
@@ -744,13 +742,13 @@ export interface DutyCount {
   opening_balance: string;
 }
 
-// --- Practice closures (schemas/closure.py, half-day practice closures plan) ---
+// --- Practice closures (schemas/closure.py) ---
 // Global planning data, independent of any generated rota - see
-// backend_app_models_closure.py. A rota's own closed_slots (Rota.closed_slots,
-// added in M5 Task 5, made period-granular by the half-day closures plan) is
-// a separate, per-rota snapshot taken at generation time, not derived from
-// this list at read time. Closures are per (date, period) slots - a "full
-// day" closure is two rows sharing a date, not a distinct value on `period`.
+// backend_app_models_closure.py. A rota's own closed_slots
+// (Rota.closed_slots) is a separate, per-rota snapshot taken at
+// generation time, not derived from this list at read time. Closures are
+// per (date, period) slots - a "full day" closure is two rows sharing a
+// date, not a distinct value on `period`.
 
 export interface Closure {
   id: number;
@@ -782,10 +780,9 @@ export interface ClosedSlot {
   period: Period;
 }
 
-// --- Schools and school holidays (schemas/school.py, school holidays plan) ---
+// --- Schools and school holidays (schemas/school.py) ---
 // Global planning data, purely informational - no engine coupling of any
-// kind. A
-// school holiday never suppresses a slot, changes a coverage total, or is
+// kind. A school holiday never suppresses a slot, changes a coverage total, or is
 // snapshotted per-rota; it exists only so the School Holidays page and the
 // Annual Planner's shading can show it. Date ranges, not per-slot rows,
 // unlike Closure - nothing looks these up by (date, period).
@@ -907,13 +904,13 @@ export interface RotaSummary {
   num_weeks: number;
   template_start_week: number;
   /**
-   * M3.7 addition. Null for a draft, and also null for a committed rota
-   * that predates rollback support - see RotaOut.committed_at and
+   * Null for a draft, and also null for a committed rota that predates
+   * rollback support - see RotaOut.committed_at and
    * RotaDetailPage's rollback-eligibility check.
    */
   committed_at: string | null;
   /**
-   * M6 addition. Null unless the rota has been archived; only ever
+   * Null unless the rota has been archived; only ever
    * non-null on a committed rota. Set via POST /rota/{id}/archive,
    * cleared via /unarchive or automatically by rollback-commit. This
    * endpoint returns archived rotas unfiltered - the frontend uses this
@@ -936,8 +933,8 @@ export interface RotaSession {
   clinic_type_name: string | null;
   role: SessionRole | null;
   /**
-   * M3.6 addition. null covers both a legacy pre-M3.6 row and a
-   * manually-nulled one; either way it renders as a normal session, same
+   * Null covers both a legacy row written before the column existed and
+   * a manually-nulled one; either way it renders as a normal session, same
    * as the backend's own null-handling (see RotaSessionOut docstring).
    */
   template_type: MasterSessionType | null;
@@ -956,21 +953,21 @@ export interface Rota {
   template_start_week: number;
   sessions: RotaSession[];
   /**
-   * M5: closed slots snapshotted at generation time (RotaClosure, not the
+   * Closed slots snapshotted at generation time (RotaClosure, not the
    * live PracticeClosure table) - deleting or adding a closure afterwards
    * does not change what this rota reports. Empty for a rota generated
-   * with no closures in range. Period-granular since the half-day closures
-   * plan - a full-day closure appears as two entries sharing a date.
+   * with no closures in range. Period-granular: a full-day closure
+   * appears as two entries sharing a date.
    */
   closed_slots: ClosedSlot[];
   /**
-   * M3.7 addition. Null for a draft, including one produced by rolling
+   * Null for a draft, including one produced by rolling
    * back a commit, and also null for a committed rota that predates
    * rollback support - see RotaSummary.committed_at.
    */
   committed_at: string | null;
   /**
-   * M6 addition. Null unless the rota has been archived; only ever
+   * Null unless the rota has been archived; only ever
    * non-null on a committed rota. Cleared automatically by
    * rollback-commit alongside committed_at - see RotaSummary.archived_at.
    */
@@ -989,7 +986,7 @@ export interface GenerateRotaOut {
   issues: ValidationIssue[];
 }
 
-// --- Cell edit menu (M4.1 Task 1) ---
+// --- Cell edit menu ---
 // set-room and set-role mirror backend_app_api_schemas_rota.py exactly.
 // Both endpoints return the target session, an optional displaced
 // session (the one they stole from), and a fresh issues list.
@@ -1077,9 +1074,9 @@ export interface MasterRotaTemplate {
   sessions: MasterRotaSession[];
 }
 
-// --- Staging (schemas/staging.py, staging plan) ---
+// --- Staging (schemas/staging.py) ---
 // The editable one-off holiday-cover surface between the master template
-// and generation (Task 5). StagingSession is MasterRotaSession's shape
+// and generation. StagingSession is MasterRotaSession's shape
 // plus is_on_leave - a staging row has a real calendar date (via its
 // config's start_date), so leave is something the editor can and should
 // show, unlike the dateless master template.
@@ -1111,8 +1108,7 @@ export interface StagingSession {
  * GET /staging/active and the response of every staging write endpoint's
  * underlying staging. completed_at null means active; set means
  * completed. closed_slots is live PracticeClosure data in the
- * create-to-complete range, not a snapshot, period-granular since the
- * half-day closures plan.
+ * create-to-complete range, not a snapshot, and is period-granular.
  */
 export interface Staging {
   staging_id: number;
@@ -1207,7 +1203,7 @@ export interface CalendarFeed {
   feed_path: string;
 }
 
-// --- Reception rota (reception rota plan) ---
+// --- Reception rota ---
 // Independent of the clinical rota end to end - see models/reception.py's
 // docstring. Wire shapes mirror backend/app/api/schemas/reception.py
 // exactly, no client-side renaming, matching the convention documented at

@@ -17,7 +17,7 @@ export function useClinicTypes() {
 
 /**
  * Create/update/delete all just invalidate the list on success, rather
- * than splicing the response in directly (contrast Task 4's rota session
+ * than splicing the response in directly (contrast api/rota.ts's session
  * mutations, which splice to avoid disrupting an in-progress drag). The
  * clinic-types list is small and nobody is mid-gesture when this form
  * submits, so a plain refetch is simpler and just as correct.
