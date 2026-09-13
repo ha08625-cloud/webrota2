@@ -23,7 +23,7 @@ function isFastApiErrorList(detail: unknown): detail is FastApiValidationError[]
  * 422), or a list of standard FastAPI request-validation errors (422
  * from a body Pydantic itself rejected).
  *
- * Moved out of RotaPage.tsx (staging plan, Task 6) so StagingPage's
+ * Moved out of RotaPage.tsx so StagingPage's
  * complete-staging call - which returns the same GenerateRotaOut shape
  * and can fail with the same three error shapes as /rota/generate - can
  * render it identically without duplicating the type guards above.

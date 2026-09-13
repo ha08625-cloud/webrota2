@@ -16,8 +16,8 @@ import { formatDateTime } from "@/lib/date";
  *
  * Deliberately absent from both: any way to take the lock. There is no
  * takeover button anywhere in this feature, and that is what makes the
- * idle timeout safe to be the only route back into a section (see the
- * implementation plan's design decisions). A dismissable dialog and a
+ * idle timeout safe to be the only route back into a section. A
+ * dismissable dialog and a
  * banner naming a colleague are the whole mechanism: the answer to "I need
  * to edit this" is to go and ask them.
  */

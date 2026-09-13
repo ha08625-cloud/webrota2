@@ -48,7 +48,7 @@ interface ReceptionGridProps<T extends ReceptionCellData> {
   /**
    * Coverage shortfall warnings, one per (day, hour) below its rule's
    * minimum - absent on the master template page (a pattern has no
-   * headcount to fall short of), present on the day rota page (Task 8).
+   * headcount to fall short of), present on the day rota page.
    * Matched to a column by message prefix: compute_coverage_issues
    * (backend/app/api/routers/reception_rota.py) puts formatHour(hour) at
    * the start of every message for exactly this purpose - there is no
@@ -75,8 +75,8 @@ interface ReceptionGridProps<T extends ReceptionCellData> {
 }
 
 /**
- * Staff x hour grid for one day - the weekday template (Task 7) or a
- * generated day (Task 8), unchanged between the two. Sibling of
+ * Staff x hour grid for one day - the weekday template or a generated
+ * day, unchanged between the two. Sibling of
  * MasterRotaGrid/RotaGrid, not a generalisation of either: the axes
  * differ (staff x hour here vs doctor x day/period there), reception has
  * no displacement/steal concept, and there is no draft/committed or

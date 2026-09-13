@@ -93,7 +93,7 @@ export function PlanningCellPopover({
         onCloseAutoFocus={onCloseAutoFocus}
         onPointerDownOutside={(event) => {
           // Shift+click on another cell extends the selection rather than
-          // dismissing (LeavePlanningGrid, DD7). Radix's document-level
+          // dismissing (see LeavePlanningGrid). Radix's document-level
           // pointerdown runs before React's own mousedown handler, so
           // without this the anchor would already be cleared by the time
           // the extend handler ran.

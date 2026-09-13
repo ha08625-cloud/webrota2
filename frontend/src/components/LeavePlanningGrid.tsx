@@ -349,7 +349,7 @@ export function LeavePlanningGrid({
     event: MouseEvent,
   ) {
     // No selection at all for a read-only user: everything the editor
-    // could then do is a write (role-based auth, Task 3).
+    // could then do is a write.
     if (event.button !== 0 || writeGate.disabled) return;
     // Stops the browser's own text-selection drag from fighting ours.
     event.preventDefault();

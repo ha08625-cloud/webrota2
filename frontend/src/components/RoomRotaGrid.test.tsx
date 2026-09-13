@@ -108,9 +108,9 @@ describe("RoomRotaGrid", () => {
     expect(header.className).toContain("bg-gray-200");
     expect(within(header).getByText("closed")).toBeInTheDocument();
 
-    // Closed cells carry no data-testid (only occupied/available cells do,
-    // per Task 3's instructions) - locate it via the shared attribute
-    // instead and confirm it renders empty, with no "Available" text.
+    // Closed cells carry no data-testid (only occupied/available cells
+    // do) - locate it via the shared attribute instead and confirm it
+    // renders empty, with no "Available" text.
     expect(screen.queryByTestId("room-cell-1-1-Monday-AM")).not.toBeInTheDocument();
     const closedCell = document.querySelector('[data-week-day-period="1-Monday-AM"]');
     expect(closedCell).toBeEmptyDOMElement();

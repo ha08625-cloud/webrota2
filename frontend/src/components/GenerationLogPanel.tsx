@@ -13,7 +13,7 @@ interface GenerationLogPanelProps {
  * Human-readable phase labels for the filter dropdown, matching the
  * `phase` string values DecisionLogEntry/ValidationIssue both use
  * (datatypes.py). Only the five decision-logging phases appear here -
- * Phase 0/2/12 never log decisions (see the decision-log ticket's Scope).
+ * Phase 0/2/12 never log decisions.
  */
 const PHASE_OPTIONS: { value: string; label: string }[] = [
   { value: "phase4", label: "Phase 4 duty" },
@@ -68,7 +68,7 @@ function groupByWeekDay(entries: GenerationLogEntry[]): EntryGroup[] {
 }
 
 /**
- * Modal over GET /rota/{id}/log (decision-log ticket, Task 5), opened by
+ * Modal over GET /rota/{id}/log, opened by
  * a button in the rota toolbar. It used to be an inline collapsed panel
  * beside the grid, but even collapsed it claimed horizontal space and
  * narrowed the rota, so it is now a dialog: the trigger keeps the entry

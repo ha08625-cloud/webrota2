@@ -8,8 +8,7 @@ import { clearToken } from "@/auth/tokenStore";
 import { passwordRule } from "@/lib/userSchema";
 
 /**
- * Self-service password change, in the app header of every shell
- * (role-based auth, Task 3).
+ * Self-service password change, in the app header of every shell.
  *
  * This exists because /users is manager-only: without it a doctor or
  * nurse would have to ask a manager to reset their password, and that
@@ -23,7 +22,7 @@ import { passwordRule } from "@/lib/userSchema";
  * one making the request - so the very next call would 401 with no
  * explanation. Clearing the token and broadcasting a *reason* gets the
  * login form up with "your password was changed" instead of an
- * unexplained bounce (Task 3 instruction 6).
+ * unexplained bounce.
  */
 const SIGNED_OUT_MESSAGE = "Your password was changed. Please log in again with your new password.";
 

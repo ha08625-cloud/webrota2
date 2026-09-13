@@ -247,7 +247,7 @@ describe("MasterCellEditPopover: confirm-before-steal", () => {
   });
 });
 
-describe("MasterCellEditPopover: create mode (M4.4 Task 3)", () => {
+describe("MasterCellEditPopover: create mode", () => {
   it("renders the same five options with none pre-selected (no current value to compare against)", async () => {
     renderPopover({ session: null, week: 1, day: "Tuesday", period: "AM" });
     const user = openMenu();
@@ -336,7 +336,7 @@ describe("MasterCellEditPopover: create mode (M4.4 Task 3)", () => {
   });
 });
 
-describe("MasterCellEditPopover: Remove session (M4.4 Task 3, edit mode)", () => {
+describe("MasterCellEditPopover: Remove session (edit mode)", () => {
   it("renders a Remove session entry, visually separated and styled destructive", async () => {
     const onDelete = vi.fn();
     renderPopover({ onDelete });

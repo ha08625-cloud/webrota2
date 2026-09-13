@@ -8,7 +8,7 @@ import { findMasterRoomHolder } from "@/lib/slotConflict";
 
 interface MasterCellEditPopoverProps {
   /**
-   * null in create mode (M4.4 Task 3): an absent cell has no existing row
+   * null in create mode: an absent cell has no existing row
    * to read the current value, week/day/period, or session_id off of, so
    * those become required top-level props instead (see below) and every
    * "current value" read in this file goes through session?. rather than
@@ -32,8 +32,8 @@ interface MasterCellEditPopoverProps {
   /**
    * Edit mode only (session non-null). Direct action, no confirm dialog -
    * unlike a room pick, removal is never a steal-class action, and the
-   * M4.1 apply-then-warn-with-undo philosophy reserves confirmation for
-   * steal-class actions only (flagged assumption, M4.4 Task 3 plan).
+   * apply-then-warn-with-undo approach these editors share reserves
+   * confirmation for steal-class actions only.
    */
   onDelete?: () => void;
   saving: boolean;
@@ -51,12 +51,12 @@ interface PendingRoomPick {
  * Sibling of CellEditPopover, not a generalisation of it - the master
  * template's data model (session_type + room_id only: no role, no
  * clinic_type, no is_wfh/notes, no leave concept) shares nothing with
- * RotaSession beyond "a cell that opens a popover" (M4.3 plan). Every
+ * RotaSession beyond "a cell that opens a popover". Every
  * cell is editable here - there is no draft/committed gate and no
  * leave-derived inert state the way RotaGrid has.
  *
- * M4.4 Task 3 generalises this single component to also serve absent
- * cells (session=null, create mode) rather than building a sibling
+ * This single component also serves absent cells (session=null, create
+ * mode) rather than there being a sibling
  * "create popover" - the menu, room submenus, and confirm-before-steal
  * flow are identical in both modes; only the current-value highlight,
  * the Remove entry, and the exclude-self behaviour in the holder lookup
@@ -144,8 +144,8 @@ export function MasterCellEditPopover({
 
   // Read-only users get the cell as plain content with no editor
   // attached at all, rather than an editor whose every action 403s
-  // (role-based auth, Task 3). Placed after every hook above so the hook
-  // order is identical either way.
+  // Placed after every hook above so the hook order is identical either
+  // way.
   if (writeGate.disabled) {
     return <span title={writeGate.title}>{children}</span>;
   }

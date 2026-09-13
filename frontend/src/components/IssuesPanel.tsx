@@ -7,8 +7,8 @@ interface IssuesPanelProps {
   rotaId: number;
   /** Called when the panel navigates to a different week (e.g. an issue
    * on a week not currently shown). RotaDetailPage owns activeWeek state
-   * jointly with RotaGrid in Task 4 wiring; for Task 3 this only needs
-   * to flip the tab, not coordinate any edit state. */
+   * jointly with RotaGrid; this only needs to flip the tab, not
+   * coordinate any edit state. */
   onNavigateToWeek?: (week: number) => void;
 }
 
@@ -19,7 +19,7 @@ const FLASH_DURATION_MS = 1500;
  * Human-readable group headers for Phase 12's `check` identifiers. This
  * panel's data source (`GET /rota/:id/issues` -> grid_utils.run_phase12_for_rota)
  * only ever returns Phase 12 checks -- Phase 0 checks abort generation before
- * a grid exists, so they're never fetched here and surface instead as the
+ * a grid exists, so they are never fetched here and surface instead as the
  * generate-form 422 list (RotaPage.tsx), which already renders full sentences
  * with no group header. If Phase 12 gains a new check, it will fall back to
  * the raw identifier below rather than fail -- add it here when noticed.
