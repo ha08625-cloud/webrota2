@@ -1,11 +1,9 @@
 /**
  * exceljs layout primitives shared by every workbook export.
  *
- * These started out module-private at the top of exportRota.ts and moved
- * here unchanged when a second export (the Annual Leave Planner) needed
- * the same alignment and border vocabulary. Only the genuinely generic
- * pieces live here - column widths, font sizes and anything that encodes
- * one sheet's shape stay in the export that owns them.
+ * Only the genuinely generic pieces live here - column widths, font
+ * sizes and anything that encodes one sheet's shape stay in the export
+ * that owns them.
  *
  * Plain literals, no exceljs type import needed - `as const` keeps the
  * `style` properties as the literal "thin"/"thick" rather than widening

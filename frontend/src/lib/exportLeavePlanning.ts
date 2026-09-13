@@ -56,8 +56,7 @@ import {
 } from "@/lib/planningMonth";
 
 /**
- * Excel export builder for the Annual Leave Planner (leave-planner Excel
- * export plan, Task 2). Pure: no React, no DOM APIs, no top-level
+ * Excel export builder for the Annual Leave Planner. Pure: no React, no DOM APIs, no top-level
  * dependency on exceljs (see the dynamic import below) - takes plain data
  * and returns a Blob, so it can be unit tested directly in Node/Vitest.
  *

@@ -16,8 +16,9 @@ const ROOM_FONT_COLOR: Record<RoomType, FontColor> = {
 };
 
 /**
- * Q13 colour rules, single source of truth (per the M4 plan's explicit
- * "single cellStyle() function" instruction). Precedence, in order:
+ * Cell colour rules, single source of truth - every surface that colours
+ * a session cell (grid, Excel export, PDF export) goes through here
+ * rather than reimplementing the precedence. In order:
  * leave wins over everything; then WFH; then role colouring (duty /
  * duty helper / named clinic); then NO_SURGERY/ADMIN_TIME grey, which
  * only applies when no role is present; then default white.

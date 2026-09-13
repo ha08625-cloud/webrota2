@@ -24,18 +24,15 @@ export interface PivotedStagingGrid {
 
 /**
  * Sibling of pivotMasterRota (lib/pivotMasterRota.ts), not a reuse of it.
- * The staging plan's Task 6 instructions call for reusing pivotMasterRota
- * unchanged "if its input shape allows", on the assumption that week tabs
- * would then naturally span 1..num_weeks. That assumption does not hold:
- * pivotMasterRota's `weeks` is MASTER_ROTA_WEEKS, a hardcoded [1, 2, 3, 4]
- * constant (deliberately fixed there - see that file's docstring, M4.4
- * Task 5 - because the master template always has all four week slots
- * defined). A staging run has no such fixed domain: num_weeks is 1, 2, or
- * 4, chosen per run (CreateStagingIn), and there are no rows beyond it -
- * reusing pivotMasterRota unchanged would render two or three unusable
- * empty week tabs on every 1- or 2-week staging. weeks is therefore
- * taken as an explicit `numWeeks` parameter (staging.num_weeks) here
- * rather than fixed or derived from the sessions present.
+ * The two differ in their week domain, and only in that. pivotMasterRota's
+ * `weeks` is the fixed MASTER_ROTA_WEEKS [1, 2, 3, 4], because the master
+ * template always has all four week slots defined. A staging run has no
+ * such fixed domain: num_weeks is 1, 2, or 4, chosen per run
+ * (CreateStagingIn), and there are no rows beyond it - reusing
+ * pivotMasterRota here would render two or three unusable empty week tabs
+ * on every 1- or 2-week staging. So `weeks` is taken as an explicit
+ * `numWeeks` parameter (staging.num_weeks) rather than fixed, or derived
+ * from the sessions present.
  *
  * Row/cell construction is otherwise identical to pivotMasterRota, since
  * StagingSession carries the same doctor_id/week/day/period/session_type/

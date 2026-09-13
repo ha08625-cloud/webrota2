@@ -3,14 +3,12 @@ import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
 
 /** The template's week domain is a fixed 1-4 rotation, not a derived
  * range - see ck_mrs_week and template_start_week (1-4) on the backend
- * model. Constant, not exported as a function of the sessions passed in
- * (M4.4 Task 5): deriving `weeks` from the max week present broke once
- * create/delete existed - an empty/sparse week had no tab to click into
- * to populate it, and deleting the last session in week 4 collapsed the
- * tab out from under `activeWeek` state still pointing at it. The real
- * seeded template is 4 weeks already, so this changes nothing visually
- * today; it only fixes the two edge cases above. The generated-rota grid
- * is untouched - RotaConfig.num_weeks remains pivot.ts's source there. */
+ * model. Constant, not derived from the sessions passed in: deriving
+ * `weeks` from the max week present breaks create/delete - an empty or
+ * sparse week has no tab to click into to populate it, and deleting the
+ * last session in week 4 collapses the tab out from under `activeWeek`
+ * state still pointing at it. The generated-rota grid is untouched -
+ * RotaConfig.num_weeks remains pivot.ts's source there. */
 export const MASTER_ROTA_WEEKS = [1, 2, 3, 4] as const;
 
 function slotKey(doctorId: number, week: number, day: Day, period: Period): string {
@@ -29,23 +27,18 @@ export interface PivotedMasterRotaGrid {
    * Salaried, Trainee, AHP) then alphabetical by code - see
    * compareDoctorDisplayOrder - plus any inactive doctor who has
    * sessions in this template, flagged. Built from the full /doctors
-   * list (active_only=false), mirroring pivotRota's GridRow exactly
-   * (M4.3 Task 5, groundwork for M4.4's create/delete-session work,
-   * which needs a real doctor row to attach a "create session" action
-   * to even when that doctor has no sessions yet). Previously this
-   * built rows only from the doctors present in the sessions themselves
-   * (doctor_code/doctor_type via the join) - that approach had no
-   * "doctor with zero sessions" or "inactive but present" concept,
-   * accepted at the time as a read-only-view trade-off that no longer
-   * holds now that the view is editable.
+   * list (active_only=false), mirroring pivotRota's GridRow exactly:
+   * the create/delete-session actions need a real doctor row to attach
+   * to even when that doctor has no sessions yet, so rows cannot be
+   * derived from the sessions alone.
    */
   rows: MasterRotaGridRow[];
   /** Cell lookup, keyed by (doctor, week, day, period). Same "missing
    * key is the expected absent-cell shape" invariant as pivot.ts. Built
    * from sessions alone - doctors are only needed for row construction. */
   cells: Map<string, MasterRotaSession>;
-  /** Fixed 1-4 (M4.4 Task 5) - see MASTER_ROTA_WEEKS's docstring for why
-   * this is no longer derived from the sessions passed in. */
+  /** Always MASTER_ROTA_WEEKS - see its docstring for why this is not
+   * derived from the sessions passed in. */
   weeks: readonly number[];
 }
 

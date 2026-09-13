@@ -14,8 +14,8 @@ export type UndoEntry =
       previousIsWfh: boolean;
       previousNotes: string | null;
       /**
-       * Captured unconditionally at patch time (Phase 9C plan, section 5):
-       * required, like previousIsWfh, so typecheck forces every push site
+       * Captured unconditionally at patch time: required, like
+       * previousIsWfh, so typecheck forces every push site
        * to supply it. The session PATCH never has side effects on
        * is_supervising in either direction, so replaying it is a plain
        * restore of this value, no derived logic needed.
@@ -33,7 +33,7 @@ export type UndoEntry =
     }
   | {
       /**
-       * M4.1 Task 2. previousIsWfh/previousNotes exist because a room
+       * previousIsWfh/previousNotes exist because a room
        * pick can clear is_wfh server-side; restoring it goes through
        * PATCH, which needs both fields. displaced carries only what
        * replay needs to restore the other side (its own previous
@@ -53,7 +53,7 @@ export type UndoEntry =
     }
   | {
       /**
-       * M4.1 Task 2. set-role is a verbatim triple setter, so replay must
+       * set-role is a verbatim triple setter, so replay must
        * echo back the full previous (role, clinicTypeId, templateType)
        * triple for both the target and (if present) the displaced
        * session - including previous.roomId, needed only alongside
@@ -85,10 +85,9 @@ export type UndoEntry =
 /**
  * Single-level, client-side undo. A new entry always overwrites the
  * previous one - this is a "did I just mess that up" convenience, not an
- * edit history, and a page refresh loses it (both deliberate, per the M4
- * plan).
+ * edit history, and a page refresh loses it (both deliberate).
  *
- * Generic over the entry type (M4.3 Task 4): RotaDetailPage instantiates
+ * Generic over the entry type: RotaDetailPage instantiates
  * this as `useUndoStack<UndoEntry>()`, MasterRotaPage as
  * `useUndoStack<MasterUndoEntry>()` (see lib/masterUndo.ts) - the stack
  * itself has no rota-specific behaviour, only push/consume/clear on

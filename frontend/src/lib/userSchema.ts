@@ -10,8 +10,8 @@ import { EMPTY_PERMISSIONS_MESSAGE, isEmptyPermissions, permissionPreset } from 
  * visible here rather than left to fail invisibly server-side.
  *
  * Password is required on create. On edit, an empty string means "leave
- * the current password unchanged" (auth plan, Task 6 - this is the whole
- * password-reset mechanism, there is no separate flow), so the edit
+ * the current password unchanged" - this is the whole password-reset
+ * mechanism, there is no separate flow - so the edit
  * schema accepts "" as well as a valid 8-72 char password, but nothing
  * in between - a 5-character edit attempt is still rejected.
  */

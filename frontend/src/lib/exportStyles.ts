@@ -6,12 +6,12 @@ import type { PlanningCellState } from "@/lib/planningMonth";
  * BACKGROUND_CLASS / FONT_CLASS Tailwind maps, hex-for-class, against
  * Tailwind v3.4 defaults (this project's tailwind_config.js does not
  * override gray/red/blue/green) and the custom `ink` colour in
- * tailwind_config.js. cellStyle.ts remains the single Q13 authority for
+ * tailwind_config.js. cellStyle.ts remains the single authority for
  * *which* semantic value a cell gets; this file only supplies the hex
  * for each value.
  *
  * KEPT IN SYNC MANUALLY with RotaGrid.tsx's BACKGROUND_CLASS/FONT_CLASS.
- * A Q13 palette change needs an edit here AND there - see the matching
+ * A palette change needs an edit here AND there - see the matching
  * comment on BACKGROUND_CLASS in RotaGrid.tsx.
  */
 
@@ -36,11 +36,11 @@ export const FONT_HEX: Record<FontColor, string> = {
 
 /** Closed-date column fill, full column height (a deliberate divergence
  * from the UI, which greys only the header). Matches the closed header's
- * bg-gray-200 in RotaGrid.tsx (line ~281). */
+ * bg-gray-200 in RotaGrid.tsx. */
 export const CLOSED_COLUMN_HEX = "E5E7EB";
 
 /**
- * Room-sheet occupied-cell fill (M-export room-sheet plan). Deliberately
+ * Room-sheet occupied-cell fill. Deliberately
  * one shade lighter than CLOSED_COLUMN_HEX (bg-gray-100 vs bg-gray-200)
  * rather than reusing the on-screen room view's red-100: user-confirmed
  * decision to keep the export muted, and the two greys must stay visibly
