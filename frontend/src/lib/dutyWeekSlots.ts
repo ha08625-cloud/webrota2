@@ -61,8 +61,8 @@ export function firstOpenWeekday(weekStartDate: string, closedSet: Set<string>):
  * closed on only one period is an ordinary primary-only column, exactly
  * like an open day - it can never be the first fully-open weekday, so it
  * never needs the `(1st)`/`(2nd)` split. With no closures this reduces
- * exactly to the pre-M5 behaviour: firstOpenWeekday is always Monday, so
- * labels and columns are unchanged.
+ * the closure-free case: firstOpenWeekday is always Monday, so labels
+ * and columns are unchanged.
  */
 export function buildColumns(weekStartDate: string, closures: Closure[] = []): Column[] {
   const closedSet = toClosedSlotSet(closures);

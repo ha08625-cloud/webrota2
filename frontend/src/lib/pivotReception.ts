@@ -8,9 +8,9 @@ function slotKey(staffId: number, hour: number): string {
  * The subset of fields pivotReception needs off a slot row. Both
  * ReceptionMasterSession (day) and ReceptionRotaSession (day rota, no
  * `day` field - the date is fixed by the rota it belongs to) satisfy this
- * structurally, which is what lets Task 8 pass ReceptionRotaSession[]
- * through the same generic pivot/grid/popover without a second copy of
- * any of the three.
+ * structurally, which is what lets the day rota pass
+ * ReceptionRotaSession[] through the same generic pivot/grid/popover
+ * without a second copy of any of the three.
  */
 export interface ReceptionCellData {
   session_id: number;

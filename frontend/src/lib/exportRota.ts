@@ -23,8 +23,7 @@ import { getRoomCell, pivotRoomRota, type PivotedRoomGrid } from "@/lib/pivotRoo
 import { rotaDate } from "@/lib/weekDates";
 
 /**
- * Excel export builder for a committed rota (M-export plan, Task 2). Pure:
- * no React, no DOM APIs, no top-level dependency on exceljs (see the
+ * Excel export builder for a committed rota. Pure: no React, no DOM APIs, no top-level dependency on exceljs (see the
  * dynamic import below) - takes plain data and returns a Blob, so it can
  * be unit tested directly in Node/Vitest.
  *
@@ -35,8 +34,8 @@ import { rotaDate } from "@/lib/weekDates";
  * cell says, consumed by this export and the PDF export alike; this file
  * owns only the exceljs rendering of it. One doctor worksheet per generation week,
  * immediately followed by a room-occupancy worksheet for that same week
- * (M-export room-sheet plan, user-confirmed ordering: Week 1, Room Week 1,
- * Week 2, Room Week 2, ...) - reproducing the on-screen RoomRotaGrid, same
+ * (user-confirmed ordering: Week 1, Room Week 1, Week 2, Room Week 2,
+ * ...) - reproducing the on-screen RoomRotaGrid, same
  * pivotRoomRota row order (rooms grouped D/C/W/SR, per
  * compareRoomDisplayOrder), same occupied/available cell logic. The room
  * sheets deliberately reuse this file's doctor-sheet layout primitives

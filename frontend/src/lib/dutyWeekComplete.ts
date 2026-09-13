@@ -3,7 +3,7 @@ import { weekDutySlots } from './dutyWeekSlots';
 
 /**
  * True iff every required slot for the week (per weekDutySlots) has a
- * matching DutyAssignment. Closure-aware via `closures` (M5): required
+ * matching DutyAssignment. Closure-aware via `closures`: required
  * slots omit closed dates entirely, so a week with a closed Monday needs
  * no Monday assignment at all to read as complete - see dutyWeekSlots.ts.
  * No separate hardcoding here; completeness derives entirely from

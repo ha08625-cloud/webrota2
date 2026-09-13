@@ -10,9 +10,9 @@ import type { UndoEntry } from "@/lib/undoStack";
  * repeating anything.
  *
  * set-room and set-role can replay as up to two/three calls -
- * buildReplayRequest returns the full sequence (length 1 for the three
- * pre-M4.1 kinds, more for the two new ones) so RotaDetailPage can
- * execute it serially. Ordering rule: restore the displaced session
+ * buildReplayRequest returns the full sequence (length 1 for swap-roles,
+ * swap-rooms and patch; longer for set-room and set-role) so
+ * RotaDetailPage can execute it serially. Ordering rule: restore the displaced session
  * first, then the target - see set-room/set-role below.
  *
  * patch's own possible room-restore follow-up is deliberately NOT part

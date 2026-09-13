@@ -6,7 +6,7 @@ import type { PreferredRoomIn, RoomType } from "@/api/types";
  * dnd-kit can track a row across reorders. Deliberately has no
  * `preference_order` field of its own - see toWireRows for why.
  * Mirrors the `kind` discriminant pattern used for roomEligibilities in
- * Task 5's clinicTypeSchema.ts.
+ * clinicTypeSchema.ts.
  */
 export type PreferredRoomRow =
   | { id: string; kind: "room"; roomId: number }

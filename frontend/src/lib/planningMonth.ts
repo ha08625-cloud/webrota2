@@ -282,7 +282,6 @@ export function mergeCellState(
   return pending.action === "clear" ? "normal" : pending.action;
 }
 
-/** Membership set over BlockedEntry[] - same shape as toCellKeySet. */
 export function toBlockedKeySet(entries: BlockedEntry[]): Set<string> {
   return toCellKeySet(entries);
 }
@@ -408,6 +407,14 @@ export function buildTemplateIndex(sessions: MasterRotaSession[]): Map<string, M
   return index;
 }
 
+/** True when the template type is one that puts the doctor in surgery -
+ * the same COUNTED_TYPES test the coverage total uses, reused here purely
+ * to colour a normal cell (no_surgery/admin_time/wfh/no row all read as
+ * "no surgery" the same way they read as zero for coverage). */
+export function isSurgerySession(templateType: MasterSessionType | undefined): boolean {
+  return templateType !== undefined && COUNTED_TYPES.has(templateType);
+}
+
 /**
  * Whether this doctor counts toward the headcount for one slot, given
  * their week-1 template type and what the cell says.
@@ -419,14 +426,6 @@ export function buildTemplateIndex(sessions: MasterRotaSession[]): Map<string, M
  * rather than requires_room; both count, so that branch needs no
  * reproduction here.
  */
-/** True when the template type is one that puts the doctor in surgery -
- * the same COUNTED_TYPES test the coverage total uses, reused here purely
- * to colour a normal cell (no_surgery/admin_time/wfh/no row all read as
- * "no surgery" the same way they read as zero for coverage). */
-export function isSurgerySession(templateType: MasterSessionType | undefined): boolean {
-  return templateType !== undefined && COUNTED_TYPES.has(templateType);
-}
-
 function isCounted(
   templateType: MasterSessionType | undefined,
   state: PlanningCellState,

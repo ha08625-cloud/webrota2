@@ -18,12 +18,10 @@ const DOCTOR_TYPE_LABELS: Record<DoctorType, string> = {
 /**
  * Minimal shape needed to order two doctor-like things by the same
  * display convention as DOCTOR_TYPE_ORDER: grouped by type, alphabetical
- * by code within a type. Deliberately not `Doctor` itself - pivot.ts
- * sorts full Doctor objects (snake_case doctor_type/code) while
- * pivotMasterRota.ts sorts plain {doctorId, doctorCode, doctorType} rows
- * (camelCase, no full Doctor available without a second /doctors fetch -
- * see pivotMasterRota.ts). Each caller maps its own shape into this one
- * rather than the comparator trying to accept both directly.
+ * by code within a type. Deliberately not `Doctor` itself - callers hold
+ * doctor-like rows in several shapes (snake_case wire objects, camelCase
+ * grid rows), and each maps its own into this one rather than the
+ * comparator growing a union of every caller's type.
  */
 export interface DoctorDisplayOrderKey {
   type: DoctorType;
