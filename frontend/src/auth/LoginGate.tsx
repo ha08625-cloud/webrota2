@@ -62,8 +62,7 @@ function readResetToken(): string | null {
 }
 
 /**
- * Wraps the app (renamed from TokenGate now that this is a real login
- * screen, not a shared-token prompt).
+ * Wraps the app.
  *
  * On mount:
  * - A /reset-password/<token> pathname -> show the reset view, whatever
@@ -75,9 +74,9 @@ function readResetToken(): string | null {
  *   and falls back to the login form. Renders nothing while this check is
  *   in flight, which is normally too brief to notice.
  *
- * Mid-session: still listens for the 401 broadcast from apiClient
+ * Mid-session: listens for the 401 broadcast from apiClient
  * (onUnauthorized) so an expired or revoked session drops back to the
- * login form from anywhere in the app, same as the old TokenGate did.
+ * login form from anywhere in the app.
  *
  * On successful login: stores the token, then explicitly calls
  * queryClient.resetQueries() so any already-failed queries refetch
@@ -303,21 +302,12 @@ function AuthCard({
 }
 
 /**
- * Request a reset link. The confirmation is the same whatever the backend
- * did - and, deliberately, the same whether the request succeeded or
- * failed: the endpoint answers 204 for an unknown address, an inactive
- * user, a throttled request and a Mailgun failure alike, so anything the
- * UI added here (a "no account with that address", or an error banner on
- * a path the backend never distinguishes) would only re-open the
- * enumeration hole the 204 exists to close. The cost is that a genuine
- * server error looks like success; the copy therefore names the fallback
- * - ask a user administrator - rather than promising an email.
- *
- * The address is matched exactly and case-sensitively by the backend, the
- * way login matches it, so the copy has to tell the user to enter the
- * address they log in with. Do not soften that into something friendlier:
- * a typo here is indistinguishable from success, and this sentence is the
- * only thing standing between the user and a silent dead end.
+ * Request a reset link. `onSettled`, not `onSuccess`: the endpoint answers
+ * 204 for an unknown address, an inactive user, a throttled request and a
+ * Mailgun failure alike, so distinguishing success from failure in the UI
+ * would re-open the enumeration hole the 204 exists to close. The cost is
+ * that a genuine server error looks like success - see
+ * FORGOT_SENT_MESSAGE for what the copy has to carry as a result.
  */
 function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   const forgotPassword = useForgotPassword();
