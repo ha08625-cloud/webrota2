@@ -104,8 +104,7 @@ const AuthContext = createContext<AuthState>({
 });
 
 /**
- * The section a subtree belongs to, so `useCanWrite()` needs no argument and
- * the write-gated call sites that predate per-area permissions are unchanged.
+ * The section a subtree belongs to, so `useCanWrite()` needs no argument.
  * Each shell provides it; the documents shell provides it per route, since
  * its two pages are two different permissions.
  *
@@ -186,7 +185,7 @@ export function usePermissionArea(): PermissionArea | null {
  * This is not a second kind of permission, and there is deliberately no
  * `useIsLocked()` for components to consult: the lock is one more input to
  * the single question "may I write here, right now", which `useCanWrite()`
- * below already answers for roughly twenty call sites. Lowering that hook
+ * below already answers for every write-gated control. Lowering that hook
  * turns the whole section read-only with no per-component work, and the
  * grids get their stronger read-only treatment (no drag sources, no
  * popover) from the same change.
@@ -447,7 +446,7 @@ export function useEditLock(): EditLockState {
  *
  * Two inputs, one answer: the permission set says whether this login may
  * ever write here, the section editing lock says whether it may right now.
- * Reads are never gated by the lock - see useCanRead, which is unchanged.
+ * Reads are never gated by the lock - see useCanRead.
  */
 export function useCanWrite(area?: PermissionArea): boolean {
   const permissions = usePermissions();
