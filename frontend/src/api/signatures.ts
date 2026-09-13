@@ -9,7 +9,6 @@ export const signatureKeys = {
   image: (doctorId: number) => [...signatureKeys.all, doctorId, "image"] as const,
 };
 
-/** GET /signatures - the full metadata list; consumers derive a Map<doctorId, SignatureMeta>. */
 export function useSignatures() {
   return useQuery({
     queryKey: signatureKeys.list(),
@@ -70,7 +69,6 @@ export function useUploadSignature() {
   });
 }
 
-/** DELETE /signatures/{doctorId} - 204, no body. */
 export function useDeleteSignature() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -89,7 +87,7 @@ export interface ApplySignaturePayload {
 /**
  * POST /signatures/{doctorId}/apply (multipart in, docx blob out). Nothing
  * server-side changes as a result, so there is no cache to invalidate -
- * the caller (SignaturesPage, Task 5) is responsible for triggering the
+ * the caller (SignaturesPage) is responsible for triggering the
  * browser download from the resolved blob/filename.
  */
 export function useApplySignature() {

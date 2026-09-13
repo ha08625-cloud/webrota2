@@ -5,7 +5,7 @@ import type { ApiError } from "./types";
 /**
  * Relative by default so the same client code works in both dev (via the
  * Vite proxy in vite.config.ts, against a local backend) and production
- * (FastAPI serving the built SPA same-origin, per the M3.5 static mount).
+ * (FastAPI serving the built SPA same-origin from its static mount).
  * Set VITE_API_BASE_URL to develop against the deployed Railway backend
  * instead - see .env.example.
  */
@@ -17,7 +17,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
  * simply expired); the deliberate callers below pass one when the sign-out
  * was an expected consequence of something the user just did - notably a
  * successful password change, which deletes every session including the
- * current one (role-based auth, Task 3 instruction 6).
+ * current one.
  */
 type UnauthorizedListener = (reason?: string) => void;
 

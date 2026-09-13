@@ -20,10 +20,10 @@ export const doctorKeys = {
 
 /**
  * The grid needs the *full* list (active_only=false), not the default
- * active-only one: per the M4 spec, rows are active doctors plus any
- * inactive doctor who has sessions in the viewed rota, flagged - which
- * requires knowing about inactive doctors at all. DoctorsPage (Task 6)
- * calls this with `true` for its active-only management table.
+ * active-only one: its rows are active doctors plus any inactive doctor
+ * who has sessions in the viewed rota, flagged - which requires knowing
+ * about inactive doctors at all. DoctorsPage calls this with `true` for
+ * its active-only management table.
  */
 export function useDoctors(activeOnly = false) {
   return useQuery({
@@ -50,7 +50,7 @@ export function useDoctor(id: number | undefined) {
 /**
  * Create/update/delete all invalidate the doctors lists on success,
  * rather than splicing the response in directly - same rationale as
- * Task 5's clinicTypes.ts: this list is small and nobody is mid-gesture
+ * clinicTypes.ts: this list is small and nobody is mid-gesture
  * when these mutations fire, so a plain refetch is simpler and just as
  * correct. Invalidating `doctorKeys.all` covers both the active-only and
  * active_only=false list variants without needing to know which are
@@ -127,7 +127,7 @@ export interface ReplacePreferredRoomsPayload {
   rows: PreferredRoomIn[];
 }
 
-/** PUT /doctors/{id}/preferred-rooms - replace-all pattern, returns DoctorDetailOut. */
+/** Replace-all: the body is the complete new preference list, not a delta. */
 export function useReplacePreferredRooms() {
   const queryClient = useQueryClient();
   return useMutation({

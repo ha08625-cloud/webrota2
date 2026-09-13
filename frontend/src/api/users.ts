@@ -27,9 +27,9 @@ export function useUpdateSelf() {
 
 /**
  * GET /users - unlike useDoctors, there is no active_only param: the
- * users router always returns every user regardless of status (auth
- * plan, Task 3), and UsersPage needs both active and inactive rows in
- * one list so a deactivated user can be found again and reactivated.
+ * users router always returns every user regardless of status, and
+ * UsersPage needs both active and inactive rows in one list so a
+ * deactivated user can be found again and reactivated.
  */
 export function useUsers() {
   return useQuery({
