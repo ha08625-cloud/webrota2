@@ -1,9 +1,8 @@
-"""Master rota template lookups shared by two routers (no-surgery leave
-exemption plan, Task 1).
+"""Master rota template lookups shared by two routers.
 
 Pure logic with nowhere else to live given there is no services layer --
-`app/leave_planning.py`'s coverage endpoint and `app/leave.py`'s
-chargeable-count endpoint both need the same week-1 template map, and
+`api/routers/leave_planning.py`'s coverage endpoint and
+`api/routers/leave.py`'s chargeable-count endpoint both need the same week-1 template map, and
 this module is where that shared piece lives so the two definitions of
 "working" can each build on it without duplicating the query. Top-level
 under `app/` for that reason alone -- unlike `doctor_window.py`, nothing

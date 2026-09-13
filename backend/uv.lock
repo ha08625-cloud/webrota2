@@ -779,7 +779,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "icalendar", specifier = ">=7.3.0" },
     { name = "psycopg2-binary" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = "<9.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "<9.2" },
     { name = "python-docx" },
     { name = "python-multipart" },
     { name = "sqlalchemy", specifier = ">=2.0" },
