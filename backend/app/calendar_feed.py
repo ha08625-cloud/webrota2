@@ -1,4 +1,4 @@
-"""Per-doctor `.ics` calendar feed (calendar feed plan, Task 2).
+"""Per-doctor `.ics` calendar feed.
 
 Builds the iCalendar bytes for one doctor from the current database state.
 Nothing is pre-generated and nothing is cached: every request recomputes the
@@ -99,13 +99,12 @@ HISTORY_DAYS = int(os.environ.get("CALENDAR_FEED_HISTORY_DAYS", "56"))
 # duplicate rather than update.
 UID_DOMAIN = "rota.local"
 
-PRACTICE_TZ = ZoneInfo("Europe/London")
-
 # Sessions are stored as bare dates. Times are emitted as explicit UTC
 # (`DTSTART:...Z`) converted from Europe/London, which handles BST correctly,
 # needs no VTIMEZONE block, and adds no dependency. Floating local times would
 # be nearly correct for a single-site practice and wrong for anyone travelling.
 PRACTICE_TZ_NAME = "Europe/London"
+PRACTICE_TZ = ZoneInfo(PRACTICE_TZ_NAME)
 
 # How often a subscribing client is asked to re-fetch. Clients honour one or
 # the other of these, neither universally, so both are emitted.
