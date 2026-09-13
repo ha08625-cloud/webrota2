@@ -16,17 +16,17 @@ interface StagingGridProps {
   startDate: string;
   numWeeks: number;
   /** Live PracticeClosure (date, period) slots in the staging's range
-   * (not a snapshot). Greys the day
-   * header and, per Task 5, the closed period's own cells - the staging
-   * grid is the pre-generation preview of RotaGrid, so it gets the same
-   * per-cell closed treatment rather than staying editable underneath. */
+   * (not a snapshot). Greys the day header and the closed period's own
+   * cells - the staging grid is the pre-generation preview of RotaGrid, so
+   * it gets the same per-cell closed treatment rather than staying
+   * editable underneath. */
   closedSlots: ClosedSlot[];
   onToast: (message: string) => void;
 }
 
 /**
  * Doctor x (day, period) grid for an in-progress staging run. Clone of
- * MasterRotaGrid (staging plan, Task 6), not a generalisation of it -
+ * MasterRotaGrid, not a generalisation of it -
  * kept separate to avoid destabilising the existing component and its
  * tests - an accepted trade-off.
  *

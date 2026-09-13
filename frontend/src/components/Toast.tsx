@@ -46,7 +46,7 @@ export function useToast() {
  * so "which specific warnings are new" isn't reliably computable; two
  * runs with the same count could have genuinely different warnings (one
  * resolved, a different one introduced) and this would say "Applied"
- * with nothing surfaced. Accepted as a known M4 limitation - the issues
+ * with nothing surfaced. Accepted as a known limitation - the issues
  * panel itself always reflects the true current state regardless of what
  * this toast says. A composite key of check+week+day+period+message
  * would give a workable diff if this ever needs tightening.

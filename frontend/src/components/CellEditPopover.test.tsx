@@ -38,8 +38,8 @@ function renderPopover(overrides: {
       <div>Cell content</div>
     </CellEditPopover>,
     // The popover consults the auth context: a read-only user gets the
-    // cell with no editor at all (role-based auth, Task 3), which every
-    // test below would otherwise hit.
+    // cell with no editor at all, which every test below would otherwise
+    // hit.
     { wrapper: authWrapper() },
   );
 

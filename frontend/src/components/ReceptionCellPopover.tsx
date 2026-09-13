@@ -33,8 +33,8 @@ interface ReceptionCellPopoverProps<T extends ReceptionCellData> {
  * Sibling of MasterCellEditPopover, not a generalisation of it - the
  * reception slot's data model (role + free-text note only, no room, no
  * session_type, no displacement) shares nothing with MasterRotaSession's
- * edit surface beyond "a cell that opens a popover" (reception rota plan,
- * Task 7). Deliberate duplication, not a missed abstraction - see
+ * edit surface beyond "a cell that opens a popover". Deliberate
+ * duplication, not a missed abstraction - see
  * ReceptionGrid's docstring for the fuller rationale, which applies here
  * too.
  *
@@ -86,8 +86,8 @@ export function ReceptionCellPopover<T extends ReceptionCellData>({
 
   // Read-only users get the cell as plain content with no editor
   // attached at all, rather than an editor whose every action 403s
-  // (role-based auth, Task 3). Placed after every hook above so the hook
-  // order is identical either way.
+  // Placed after every hook above so the hook order is identical either
+  // way.
   if (writeGate.disabled) {
     return <span title={writeGate.title}>{children}</span>;
   }

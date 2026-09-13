@@ -34,8 +34,7 @@ type PendingAction =
 
 /**
  * Wraps a cell's rendered content as the popover trigger. Four internal
- * views (M4.1): main (WFH/notes/supervising, unchanged in shape since
- * M4 aside from the Phase 9C supervising toggle) plus room and role
+ * views: main (WFH/notes/supervising) plus room and role
  * submenus, plus a shared confirm view for steal-class picks. Stays
  * inside the single Radix Popover rather than nesting Radix menus - the
  * views are plain internal state.
@@ -144,8 +143,8 @@ export function CellEditPopover({
 
   // Read-only users get the cell as plain content with no editor
   // attached at all, rather than an editor whose every action 403s
-  // (role-based auth, Task 3). Placed after every hook above so the hook
-  // order is identical either way.
+  // Placed after every hook above so the hook order is identical either
+  // way.
   if (writeGate.disabled) {
     return <span title={writeGate.title}>{children}</span>;
   }

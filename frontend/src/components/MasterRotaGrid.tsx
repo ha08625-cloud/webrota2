@@ -15,28 +15,27 @@ interface MasterRotaGridProps {
   templateId: number;
   /** Called after any successful session edit/create/delete, so MasterRotaPage can push an undo entry and show a toast. */
   onMutationApplied?: (entry: MasterUndoEntry, toastMessage: string) => void;
-  /** Called on any mutation failure. */
   onMutationError?: () => void;
 }
 
 /**
  * Doctor x (day, period) grid for the active master template. Every cell
- * with a session opens MasterCellEditPopover (M4.3 Task 4) - there is no
+ * with a session opens MasterCellEditPopover - there is no
  * draft/committed gate and no leave concept the way RotaGrid has, so
  * unlike EditableGridCell there is no branch that suppresses the popover
  * trigger.
  *
- * M4.4 Task 3: absent cells are no longer universally inert. An absent
- * cell on an *active* doctor's row gets a faint "+" affordance opening
- * the same popover in create mode (session=null); an absent cell on an
- * inactive-flagged row stays inert (flagged assumption in the plan: you
- * don't build a new working pattern for a leaver). "Active" here reads
+ * Absent cells are not universally inert. An absent cell on an *active*
+ * doctor's row gets a faint "+" affordance opening the same popover in
+ * create mode (session=null); an absent cell on an inactive-flagged row
+ * stays inert, on the assumption that you don't build a new working
+ * pattern for a leaver. "Active" here reads
  * doctor.active directly rather than inactiveWithSessions, since the
  * latter is specifically about doctors who already have sessions -
  * an inactive doctor with zero sessions this week is still inactive.
  *
  * Rows come from /doctors (active_only=false), like RotaGrid, not from
- * the sessions payload's join fields (M4.3 Task 5, M4.4 groundwork) - a
+ * the sessions payload's join fields - a
  * doctor with zero template sessions still gets a row, and an inactive
  * doctor with sessions is flagged rather than silently dropped. See
  * pivotMasterRota's docstring for why this replaced the simpler

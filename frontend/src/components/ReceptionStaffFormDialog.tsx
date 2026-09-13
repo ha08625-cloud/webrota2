@@ -49,8 +49,8 @@ export function ReceptionStaffFormDialog({ staff, open, onOpenChange }: Receptio
 
     // The duplicate-name 409 (routers/reception_staff.py) names the field
     // in its message, so it is shown there rather than as a top-of-form
-    // banner (reception rota plan, Task 6) - unlike DoctorFormDialog's
-    // equivalent, whose 409 has no single field it unambiguously points at.
+    // banner - unlike DoctorFormDialog's equivalent, whose 409 has no
+    // single field it unambiguously points at.
     const onError = (err: ApiError) => {
       const message = typeof err.detail === "string" ? err.detail : "Could not save this staff member.";
       if (err.status === 409) {

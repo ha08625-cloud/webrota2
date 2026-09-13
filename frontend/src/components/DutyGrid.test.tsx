@@ -31,8 +31,7 @@ function setUpServer({
   );
 }
 
-// A fixed Monday used across tests - matches the "w/c 13 Jul 2026" example
-// in the implementation plan. The 4-week window this anchors runs
+// A fixed Monday used across tests. The 4-week window this anchors runs
 // 2026-07-13 (week 1 Monday) through 2026-08-07 (week 4 Friday).
 const MONDAY = "2026-07-13";
 const WEEK_START_DATES = ["2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03"];
@@ -423,7 +422,6 @@ describe("DutyGrid", () => {
   });
 
   it("displays en-dash placeholders while loading counts", async () => {
-    // Setup base routes so doctors load and the grid actually renders the chips
     setUpServer();
     
     server.use(
@@ -435,8 +433,6 @@ describe("DutyGrid", () => {
 
     renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
     
-    // Verify doctor chips rendered but the annual numbers have not
-    // populated yet.
     await waitFor(() => {
       expect(screen.getAllByText("–").length).toBeGreaterThan(0);
     });
@@ -451,7 +447,7 @@ describe("DutyGrid", () => {
   });
 });
 
-describe("DutyGrid closures (M5)", () => {
+describe("DutyGrid closures", () => {
   it("greys out a fully closed weekday's column and renders it as one inert column, not split by duty type", async () => {
     setUpServer({ closures: makeFullDayClosure({ date: "2026-07-13" }) }); // week 1's Monday
 

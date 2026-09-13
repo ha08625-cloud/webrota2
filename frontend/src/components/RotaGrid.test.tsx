@@ -33,10 +33,10 @@ function fullDaySlots(dates: string[]): ClosedSlot[] {
 }
 
 /**
- * RotaGrid takes activeWeek/onWeekChange as controlled props (Task 2) -
+ * RotaGrid takes activeWeek/onWeekChange as controlled props -
  * RotaDetailPage owns that state in production. This harness stands in
  * for that ownership so every test below keeps working with a plain
- * `renderRotaGrid({ rota })` call, matching the pre-Task-2 call shape.
+ * `renderRotaGrid({ rota })` call.
  */
 function RotaGridHarness({
   rota,
@@ -411,8 +411,8 @@ describe("RotaGrid", () => {
     renderRotaGrid({ rota });
     const cell = await screen.findByTestId("cell-1-1-Monday-AM");
 
-    // Content still renders (Q10: committed rotas display through the
-    // same grid) but nothing in the cell is drag-registered.
+    // Content still renders - a committed rota displays through the same
+    // grid - but nothing in the cell is drag-registered.
     expect(within(cell).getByText("Duty")).toBeInTheDocument();
     expect(within(cell).getByText("D1")).toBeInTheDocument();
     expect(cell.querySelector(".cursor-grab")).not.toBeInTheDocument();
@@ -424,7 +424,7 @@ describe("RotaGrid", () => {
   });
 });
 
-describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
+describe("RotaGrid: cell edit menu", () => {
   it("draft rota: leave cells render without an edit popover trigger", async () => {
     setUpServer();
     const session = makeRotaSession({
@@ -536,7 +536,7 @@ describe("RotaGrid: cell edit menu (M4.1 Task 2)", () => {
   });
 });
 
-describe("RotaGrid closures (M5)", () => {
+describe("RotaGrid closures", () => {
   it("greys out and labels a closed day's header", async () => {
     setUpServer();
     // rota.start_date "2026-07-06" is a Monday; closed_slots is the
