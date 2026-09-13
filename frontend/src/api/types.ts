@@ -221,7 +221,7 @@ export type Site = "SHC" | "Cutteslowe" | "Wolvercote";
  */
 export type MasterSessionType = "requires_room" | "no_surgery" | "admin_time" | "pre_assigned" | "wfh";
 
-/** API shape of engine.datatypes.ValidationIssue (schemas_common.py). */
+/** API shape of engine.datatypes.ValidationIssue (schemas/common.py). */
 export interface ValidationIssue {
   severity: string;
   phase: string;
@@ -239,7 +239,7 @@ export interface ValidationIssue {
   doctor_id: number | null;
 }
 
-// --- Rooms (schemas_room.py) — read-only ---
+// --- Rooms (schemas/room.py) — read-only ---
 
 export interface Room {
   id: number;
@@ -248,7 +248,7 @@ export interface Room {
   site: Site;
 }
 
-// --- Clinic types (schemas_clinic_type.py) ---
+// --- Clinic types (schemas/clinic_type.py) ---
 
 export interface ClinicTypeSchedule {
   id: number;
@@ -292,7 +292,7 @@ export interface ClinicType {
 // does not diff against what's already there. room_required is a plain
 // boolean with no counterpart: there is no "wfh_allowed" field and no
 // XOR partner for it anywhere in clinic_type.py,
-// schemas_clinic_type.py or routers_clinic_types.py.
+// schemas/clinic_type.py or routers/clinic_types.py.
 //
 // clinic_priority is deliberately absent here: it is server-managed (a
 // contiguous 1..N sequence over enabled clinic types, maintained by the
@@ -351,7 +351,7 @@ export interface ClinicTypePatch {
   room_required?: boolean;
 }
 
-// --- Doctors (schemas_doctor.py) ---
+// --- Doctors (schemas/doctor.py) ---
 
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP";
 
@@ -398,7 +398,7 @@ export interface DoctorIn {
 
 /**
  * PATCH /doctors/{id} body - every field optional, only supplied fields
- * are applied (DoctorPatch in schemas_doctor.py). DoctorFormDialog sends
+ * are applied (DoctorPatch in schemas/doctor.py). DoctorFormDialog sends
  * code/doctor_type/sessions_per_week together as a full set; the
  * "Deactivate instead" action sends `active` alone; the DoctorsPage
  * sessions/week stepper sends `sessions_per_week` alone. The DoctorsPage
@@ -444,7 +444,7 @@ export interface DoctorDetail extends Doctor {
 
 /**
  * GET /doctors/{id}/usage - what permanently deleting this doctor would
- * destroy. The seven counts the confirm dialog shows, not every table the
+ * destroy. Only the counts the confirm dialog shows, not every table the
  * purge touches (counters, snapshots, preferences and note pickers go too,
  * as consequences of these rows).
  */
@@ -469,7 +469,7 @@ export interface DoctorDeleteResult {
   deleted: Record<string, number>;
 }
 
-// --- Leave (schemas_leave.py) ---
+// --- Leave (schemas/leave.py) ---
 
 export interface LeaveEntry {
   id: number;
@@ -710,7 +710,7 @@ export interface PlanningBulkOut {
   superseded_extra_sessions: ExtraSessionEntry[];
 }
 
-// --- Duty (schemas_duty.py) ---
+// --- Duty (schemas/duty.py) ---
 
 export type DutyType = "primary" | "secondary";
 
@@ -744,7 +744,7 @@ export interface DutyCount {
 
 // --- Practice closures (schemas/closure.py) ---
 // Global planning data, independent of any generated rota - see
-// backend_app_models_closure.py. A rota's own closed_slots
+// models/closure.py. A rota's own closed_slots
 // (Rota.closed_slots) is a separate, per-rota snapshot taken at
 // generation time, not derived from this list at read time. Closures are
 // per (date, period) slots - a "full day" closure is two rows sharing a
@@ -841,17 +841,18 @@ export interface RecurringNoteIn {
   doctor_ids: number[];
 }
 
-// --- Counters (schemas_counter.py) ---
-// Read-only: "mutation happens only through generation and swap-roles"
-// (routers_counters.py docstring) - no write hooks in api/counters.ts.
-// Neither schema includes a weighted score; counter.py's docstring
-// documents raw_count / doctor.sessions_per_week as "computed at query
-// time, not stored", but that computation currently lives only in the
-// engine (datatypes.py's weighted_clinic_score/weighted_system_score),
-// not in these API responses. CountersPage computes it client-side from
-// the joined doctor's sessions_per_week, replicating the engine's own
-// spw===0 -> Infinity rule (never "no data") for fidelity with how the
-// allocator actually treats that doctor.
+// --- Counters (schemas/counter.py) ---
+// Raw counts are mutated by generation and swap-roles; the only writes
+// exposed here are reset-to-zero and the opening-balance upserts (see
+// routers/counters.py's docstring and api/counters.ts).
+//
+// Neither schema carries a weighted score: counter.py documents
+// raw_count / doctor.sessions_per_week as "computed at query time, not
+// stored", but that computation lives in the engine
+// (datatypes.py's weighted_clinic_score/weighted_system_score) and is
+// not on the wire. lib/weightedScore.ts re-implements it client-side,
+// replicating the engine's spw===0 -> Infinity rule (never "no data")
+// for fidelity with how the allocator actually treats that doctor.
 
 export interface ClinicCounter {
   /**
@@ -891,7 +892,7 @@ export interface SystemCounter {
 /** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */
 export type SystemCounterKind = "room_move" | "supervision";
 
-// --- Rota (schemas_rota.py) ---
+// --- Rota (schemas/rota.py) ---
 // Deliberately named `rota_id` throughout, matching the wire field exactly
 // - not normalised to `id`. A silent `undefined` from `rota.id` (instead
 // of `rota.rota_id`) is the classic failure mode this guards against.
@@ -987,7 +988,7 @@ export interface GenerateRotaOut {
 }
 
 // --- Cell edit menu ---
-// set-room and set-role mirror backend_app_api_schemas_rota.py exactly.
+// set-room and set-role mirror schemas/rota.py exactly.
 // Both endpoints return the target session, an optional displaced
 // session (the one they stole from), and a fresh issues list.
 
@@ -1208,7 +1209,7 @@ export interface CalendarFeed {
 // docstring. Wire shapes mirror backend/app/api/schemas/reception.py
 // exactly, no client-side renaming, matching the convention documented at
 // the top of this file. ValidationIssue (defined above) is reused as-is
-// for coverage warnings - reception/schemas/common.py's ValidationIssueOut
+// for coverage warnings - schemas/common.py's ValidationIssueOut
 // is the same schema the clinical rota uses, just with `week`/`period`
 // always null.
 
@@ -1288,7 +1289,7 @@ export interface ReceptionMasterSession {
   note: string | null;
 }
 
-/** POST /reception/master/sessions body - the full slot coordinates plus (role, note). */
+/** POST /reception/master/sessions body. */
 export interface ReceptionMasterSessionCreateIn {
   staff_id: number;
   day: Day;
