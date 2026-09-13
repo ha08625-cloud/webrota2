@@ -31,7 +31,7 @@ import { compareDoctorDisplayOrder, groupDoctorsByType } from "@/lib/groupDoctor
 
 import { formatDateWithDay } from "@/lib/date";
 
-/** Mirrors MAX_BULK_RANGE_DAYS in schemas_leave.py, so the server's own 422 is never the first line of defence. */
+/** Mirrors MAX_BULK_RANGE_DAYS in api/schemas/leave.py, so the server's own 422 is never the first line of defence. */
 const MAX_RANGE_DAYS = 366;
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -47,7 +47,7 @@ function daysBetween(start: string, end: string): number {
   return Math.round((parseLocalDate(end).getTime() - parseLocalDate(start).getTime()) / 86_400_000);
 }
 
-/** Human label for one segment in per-segment failure messages, in the same "<what>: <detail>" style the old per-period reporting used. */
+/** Human label for one segment in per-segment failure messages, in a "<what>: <detail>" style. */
 function segmentLabel(segment: LeaveSegment): string {
   if (segment.start_date === segment.end_date) {
     return `${segment.start_date} (${segment.period === "BOTH" ? "AM + PM" : segment.period})`;
@@ -80,14 +80,12 @@ export function LeavePage() {
   // that should be findable here, not hidden because they're no longer
   // an active doctor.
   const { data: allDoctors } = useDoctors(false);
-  // The range form's doctor select is deliberately narrower: active
-  // only, in *both* modes. For Add, the old reasoning holds unchanged
-  // (no legitimate reason to add new leave for someone who has left).
-  // For Remove this is a small semantics change from the old separate
-  // range-delete form, which allowed inactive doctors - keeping one
-  // doctor list keeps the unified form coherent, and an inactive
-  // doctor's rows remain deletable per-row from the table below (the
-  // filter select still lists inactive doctors to find them).
+  // The range form's doctor select is deliberately narrower: active only,
+  // in *both* modes. For Add there is no legitimate reason to book new
+  // leave for someone who has left; for Remove one shared doctor list
+  // keeps the unified form coherent, and an inactive doctor's rows remain
+  // deletable per-row from the table below (whose filter select does list
+  // inactive doctors, so they can be found).
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
 
   // The table/entitlement filter opens on the login's own doctor (staff
@@ -133,8 +131,8 @@ export function LeavePage() {
   const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId, null);
 
   // Entitlement is a per-doctor figure only: with no doctor selected there
-  // is no single balance to state, and the full-practice table that used to
-  // sit at the top of the tab was more visual load than it was worth.
+  // is no single balance to state, and a full-practice table of them would
+  // be more visual load than it is worth.
   // Undefined (still loading) and "no row for this doctor" (an AHP or locum,
   // who have no entitlement) both collapse to null - the summary renders
   // nothing either way, and the loading flag below covers the first case.
@@ -155,12 +153,11 @@ export function LeavePage() {
     : [];
 
   /**
-   * Any date change resets the half-day selects to full days. The
-   * plan's minimum requirement is resetting when crossing the
-   * single-day/multi-day boundary (the two control shapes don't map
-   * onto each other); resetting on *every* date change is a deliberate
-   * superset - a half-day choice refers to a specific day, so it should
-   * not silently survive that day changing.
+   * Any date change resets the half-day selects to full days. Crossing
+   * the single-day/multi-day boundary makes this unavoidable (the two
+   * control shapes don't map onto each other); resetting on *every* date
+   * change is a deliberate superset - a half-day choice refers to a
+   * specific day, so it should not silently survive that day changing.
    */
   function resetEdges() {
     setFirstDay("FULL");
@@ -257,8 +254,7 @@ export function LeavePage() {
     if (failures.length > 0) {
       // Partial failure is reported honestly, per segment, alongside
       // what did succeed - fulfilled segments are not rolled back and
-      // atomicity is not faked (same reasoning as the M4 Task 6
-      // PATCH-then-PUT decision).
+      // atomicity is not faked.
       setFormError(`${failures.join(" ")} ${summary}`);
     } else {
       setFormSummary(summary);

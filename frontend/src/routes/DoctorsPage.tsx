@@ -62,10 +62,10 @@ function formatWindow(doctor: Doctor): string {
 
 export function DoctorsPage() {
   const writeGate = useWriteGate();
-  // Includes inactive doctors, in their own section below. This page used
-  // to be active-only, which made a deactivation a one-way trip from the
-  // UI - no reactivate, and (now that DELETE is a permanent purge) no way
-  // to reach the delete either, for exactly the leavers it exists for.
+  // Includes inactive doctors, in their own section below: without them a
+  // deactivation is a one-way trip from the UI - no reactivate, and (DELETE
+  // being a permanent purge) no way to reach the delete either, for exactly
+  // the leavers it exists for.
   const { data: doctors, isLoading, isError } = useDoctors(false);
   // Only for the sessions/week mismatch flag below - this endpoint is the
   // one place the week-1 master template is already summarised per doctor.
@@ -118,7 +118,7 @@ export function DoctorsPage() {
   }
 
   // Both directions are the same PATCH. DELETE is a permanent purge now
-  // (routers/doctors.py) and 409s on an active doctor, so it is not the
+  // (api/routers/doctors.py) and 409s on an active doctor, so it is not the
   // deactivate path any more - it is the second step after this one.
   function handleToggleActive(doctor: Doctor) {
     setActionError(null);
@@ -151,8 +151,8 @@ export function DoctorsPage() {
   const inactiveDoctors = doctors?.filter((d) => !d.active) ?? [];
 
   // One renderer, two sections: the Active/Inactive split carries the
-  // status, so a Status column would only repeat its own heading - the
-  // convention ReceptionStaffPage already follows.
+  // status, so a Status column would only repeat its own heading - the same
+  // convention ReceptionStaffPage follows.
   function renderTable(list: Doctor[]) {
     return (
       <table className="mt-2 min-w-full text-sm">

@@ -13,10 +13,9 @@ interface DialogState {
 
 export function ReceptionStaffPage() {
   const writeGate = useWriteGate();
-  // Always includes inactive - unlike DoctorsPage (active-only), this is
-  // the only management surface for reception staff (reception rota plan,
-  // Task 6), so a deactivation must have a visible way back, the same
-  // convention UsersPage follows.
+  // Always includes inactive: this is the only management surface for
+  // reception staff, so a deactivation must have a visible way back - the
+  // same convention DoctorsPage and UsersPage follow.
   const { data: staff, isLoading, isError } = useReceptionStaff(true);
   const updateStaff = useUpdateReceptionStaff();
   const canAdminUsers = useCanAdminUsers();
@@ -37,7 +36,7 @@ export function ReceptionStaffPage() {
   }
 
   // Both directions are the same PATCH: DELETE is a permanent purge now
-  // (routers/reception_staff.py), not a soft delete, and would 409 here.
+  // (api/routers/reception_staff.py), not a soft delete, and would 409 here.
   function handleToggleActive(member: ReceptionStaff) {
     setActionError(null);
     const onError = (err: ApiError) => {
@@ -103,8 +102,8 @@ export function ReceptionStaffPage() {
     ));
   }
 
-  // The two lists carry the active/inactive distinction that used to be a
-  // Status column, so the column would only repeat its own heading.
+  // The Active/Inactive split carries the status, so a Status column would
+  // only repeat its own heading.
   function renderTable(members: ReceptionStaff[]) {
     return (
       <table className="mt-2 min-w-full text-sm">

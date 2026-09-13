@@ -18,9 +18,9 @@ const UPCOMING_WEEK_COUNT = 12;
 /**
  * Advisory duty-staffing status for every week the selected (startDate,
  * numWeeks) combination would cover - read-only, matches the marker
- * already shown on the Duty page (same isDutyWeekComplete rule, now
- * including closures - see below). Rendered in the duty preview sidebar,
- * above the DutyGrid it summarises, so a user picking a start week can see
+ * already shown on the Duty page (the same isDutyWeekComplete rule,
+ * closures included). Rendered in the duty preview sidebar, above the
+ * DutyGrid it summarises, so a user picking a start week can see
  * at a glance which weeks still need filling in before generating against
  * them. Nothing here blocks generation; the backend has no such check
  * either.
@@ -150,9 +150,9 @@ function ClinicStatusList() {
 }
 
 /**
- * The generate form no longer generates directly (staging plan, Task 6):
- * submitting creates a staging - a copy of the active template's rows for
- * the chosen range - and navigates to /staging, where the one-off edits
+ * The generate form does not generate directly: submitting creates a
+ * staging - a copy of the active template's rows for the chosen range -
+ * and navigates to /staging, where the one-off edits
  * happen before the Phase 0-12 pipeline actually runs (StagingPage's
  * "Complete and generate" action).
  */

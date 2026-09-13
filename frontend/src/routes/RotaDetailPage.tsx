@@ -35,9 +35,9 @@ import { buildReplayRequest, type ReplayRequest } from "@/lib/replayUndo";
 import { type UndoEntry, useUndoStack } from "@/lib/undoStack";
 
 /**
- * Mirrors the backend's rollback_commit() ordering guards client-side
- * (M3.7), so the rollback button never appears on a request that would
- * 409: no draft can currently exist anywhere, and this rota must be the
+ * Mirrors the backend's rollback_commit() ordering guards client-side, so
+ * the rollback button never appears on a request that would 409: no draft
+ * can currently exist anywhere, and this rota must be the
  * one with the greatest (committed_at, rota_id) among committed rotas
  * that have a non-null committed_at (a null committed_at means a rota
  * committed before rollback support existed, which is permanently
@@ -110,18 +110,17 @@ export function RotaDetailPage() {
   // since rota may still be loading on first render below.
   const [activeWeek, setActiveWeek] = useState(1);
 
-  // Task 4: page-level view toggle. The room view is read-only regardless
-  // of rota status, so it needs no editable prop and no mutation
-  // callbacks - unlike RotaGrid it is structurally incapable of an edit.
+  // Page-level view toggle. The room view is read-only regardless of rota
+  // status, so it needs no editable prop and no mutation callbacks -
+  // unlike RotaGrid it is structurally incapable of an edit.
   // The toggle deliberately does not persist across navigation; every
   // visit starts on the doctor view.
   const [view, setView] = useState<RotaView>("doctor");
 
-  // M-export plan, Task 3: same four lookups RotaGrid already fetches for
-  // Q13 colouring, so TanStack Query dedupes these against RotaGrid's own
-  // calls rather than issuing a second network request. Fetched
-  // unconditionally (not gated on isCommitted) so they're warm by the
-  // time the button would first render.
+  // The same four lookups RotaGrid already fetches for Q13 colouring, so
+  // TanStack Query dedupes these against RotaGrid's own calls rather than
+  // issuing a second network request. Fetched unconditionally (not gated on
+  // isCommitted) so they're warm by the time the button would first render.
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
   const { data: rooms, isLoading: roomsLoading } = useRooms();
   const { data: clinicTypes, isLoading: clinicTypesLoading } = useClinicTypes();
@@ -157,11 +156,8 @@ export function RotaDetailPage() {
   const isDraft = rota.status === "draft";
   const isCommitted = rota.status === "committed";
   // archived_at is a flag on a committed rota, not a third status value -
-  // the backend's RotaStatus enum only has draft/committed. This used to
-  // be (incorrectly) `rota.status === "archived"`, a comparison that
-  // could never be true against the real API and left the read-only
-  // archived view, and the Archive button's disappearance, unreachable
-  // in production.
+  // the backend's RotaStatus enum only has draft/committed, so archived-ness
+  // is never a `rota.status` comparison.
   const isArchived = rota.archived_at !== null;
 
   // Pulled out as a plain number rather than referencing rota.rota_id
@@ -232,12 +228,11 @@ export function RotaDetailPage() {
   }
 
   /**
-   * M-export plan, Task 3; extended for PDF by the PDF export plan,
-   * Task 5. Builds closureNameByDate the same way RotaGrid's own memo
-   * does (live closures list, cosmetic name lookup only - see
-   * exportRota.ts's docstring on why this is never the source of
-   * closed-ness itself), calls the chosen builder, and triggers a
-   * browser download. rota/doctors/rooms/clinicTypes are all known
+   * Builds closureNameByDate the same way RotaGrid's own memo does (live
+   * closures list, cosmetic name lookup only - see exportRota.ts's
+   * docstring on why this is never the source of closed-ness itself), calls
+   * the chosen builder, and triggers a browser download.
+   * rota/doctors/rooms/clinicTypes are all known
    * non-null here because the buttons that call this are only rendered
    * once isCommitted is true and exportLookupsLoading is false.
    *
@@ -303,11 +298,11 @@ export function RotaDetailPage() {
           lastPatchRoomId = roomId;
         }
       }
-      // Upgraded patch replay (M4.1): PATCH is_wfh=false never restores a
-      // room by itself. If the entry had a room before the original edit
-      // and the PATCH replay's own response shows it's still missing,
-      // follow up with set-room - closing what used to be a permanent
-      // gap surfaced as a caveat toast (see usePatchSession's docstring).
+      // PATCH is_wfh=false never restores a room by itself. If the entry
+      // had a room before the original edit and the PATCH replay's own
+      // response shows it's still missing, follow up with set-room -
+      // without which the room is silently lost (see usePatchSession's
+      // docstring).
       if (entry.kind === "patch" && entry.previousRoomId !== null && lastPatchRoomId === null) {
         await setRoom.mutateAsync({
           rotaId: currentRotaId,
@@ -320,8 +315,7 @@ export function RotaDetailPage() {
       // Every step in a replay sequence is idempotent-enough for a retry
       // (re-clearing a cleared value, re-assigning a held value are
       // no-ops) - re-push the whole entry so Undo retries the full
-      // sequence from the start, matching the single-call behaviour this
-      // replaces.
+      // sequence from the start.
       undoStack.push(entry);
       showToast("Undo failed");
     }
