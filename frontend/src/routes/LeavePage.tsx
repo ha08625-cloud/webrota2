@@ -8,8 +8,10 @@ import {
   useLeave,
   useLeaveEntitlements,
 } from "@/api/leave";
+import { useExtraSessions } from "@/api/extraSessions";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
 import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
+import { ExtraSessionsSection } from "@/components/ExtraSessionsSection";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
@@ -105,6 +107,10 @@ export function LeavePage() {
     isLoading: entitlementLoading,
     isError: entitlementError,
   } = useLeaveEntitlements(year);
+  // Extra sessions share the tab's doctor filter and year. The section
+  // below runs the same query, so this is one cache entry read twice, not
+  // a second request - the calendar needs the rows too, to mark them.
+  const { data: extraSessions } = useExtraSessions(filterDoctorId, year);
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
@@ -245,10 +251,10 @@ export function LeavePage() {
     if (supersededDates.length > 0) {
       // Warning, not an error - the leave was created successfully.
       // Nothing is deleted automatically; the admin decides whether to
-      // remove the planned extra sessions on the Extra Sessions page.
+      // remove the planned extra sessions in the section below.
       summary += ` Warning: this leave supersedes ${supersededDates.length} planned extra session${
         supersededDates.length === 1 ? "" : "s"
-      } (${supersededDates.join(", ")}) - review them on the Extra Sessions page.`;
+      } (${supersededDates.join(", ")}) - review them in the extra sessions list below.`;
     }
 
     if (failures.length > 0) {
@@ -607,6 +613,8 @@ export function LeavePage() {
           </tbody>
         </table>
       ) : null}
+
+      <ExtraSessionsSection filterDoctorId={filterDoctorId} />
       </div>
 
       {filterDoctorId !== null ? (
@@ -618,7 +626,11 @@ export function LeavePage() {
             isError={entitlementError}
           />
           <div className="mt-3">
-          <LeaveYearCalendar year={year} entries={entries ?? []} />
+          <LeaveYearCalendar
+            year={year}
+            entries={entries ?? []}
+            extraSessions={extraSessions ?? []}
+          />
           </div>
         </div>
       ) : null}

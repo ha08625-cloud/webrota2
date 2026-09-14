@@ -31,7 +31,6 @@ import { CountersPage } from "@/routes/CountersPage";
 import { DoctorsPage } from "@/routes/DoctorsPage";
 import { DutyPage } from "@/routes/DutyPage";
 import { EoiPage } from "@/routes/EoiPage";
-import { ExtraSessionsPage } from "@/routes/ExtraSessionsPage";
 import { LandingPage } from "@/routes/LandingPage";
 import { LeavePage } from "@/routes/LeavePage";
 import { LeavePlanningPage } from "@/routes/LeavePlanningPage";
@@ -321,10 +320,13 @@ function ClinicalShell() {
               <Route element={<SessionManagementLayout />}>
                 <Route path="leave-planning" element={<LeavePlanningPage />} />
                 <Route path="leave" element={<LeavePage />} />
-                <Route path="extra-sessions" element={<ExtraSessionsPage />} />
                 <Route path="closures" element={<ClosuresPage />} />
                 <Route path="school-holidays" element={<SchoolHolidaysPage />} />
               </Route>
+              {/* Extra sessions are a section of Individual Leave now, not a
+                  tab of their own - the old path still resolves so existing
+                  links and bookmarks land somewhere true. */}
+              <Route path="extra-sessions" element={<Navigate to="/clinical/leave" replace />} />
               <Route path="duty" element={<DutyPage />} />
               <Route path="recurring-notes" element={<RecurringNotesPage />} />
               <Route path="counters" element={<CountersPage />} />

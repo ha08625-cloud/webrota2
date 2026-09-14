@@ -56,9 +56,9 @@ describe("ClinicalShell nav", () => {
 
     const nav = screen.getByRole("navigation");
     expect(within(nav).getByRole("link", { name: "Session Management" })).toBeInTheDocument();
-    // The five sub-tabs are no longer top-level nav entries. "Closures" and
-    // "Extra Sessions" still appear on the page - in the sub-tab bar - so the
-    // assertion is scoped to the nav element.
+    // The sub-tabs are no longer top-level nav entries. "Closures" still
+    // appears on the page - in the sub-tab bar - so the assertion is scoped
+    // to the nav element.
     for (const label of ["Assign Leave", "Leave Planning", "Extra Sessions", "Closures"]) {
       expect(within(nav).queryByRole("link", { name: label })).not.toBeInTheDocument();
     }
@@ -178,12 +178,13 @@ describe("ClinicalShell nav by permission", () => {
     for (const label of [
       "Annual Planner",
       "Individual Leave",
-      "Extra Sessions",
       "Closures",
       "School Holidays",
     ]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
+    // Extra sessions are a section of Individual Leave now, not a tab.
+    expect(screen.queryByRole("tab", { name: "Extra Sessions" })).not.toBeInTheDocument();
   });
 
   // Both moved to /admin, so neither is a clinical nav entry any more,

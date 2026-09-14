@@ -7,12 +7,16 @@ import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom"
  * The session-planning pages, grouped behind one "Session Management" entry
  * in the clinical left nav (App.tsx) and switched between with the sub-tab
  * bar below. Paths are absolute and deliberately unchanged from when these
- * were five separate top-level nav entries - the grouping is presentational
+ * were separate top-level nav entries - the grouping is presentational
  * only, so nothing that links to or bookmarks them had to move.
+ *
+ * Extra sessions used to be a fifth tab of their own. Most doctors have one
+ * or two a year, which never earned a tab, so they now live as a section of
+ * Individual Leave; /clinical/extra-sessions redirects there (App.tsx).
  *
  * Exported because App.tsx needs both the first tab (where the parent nav
  * entry points) and the full path set (to light that entry up on any of the
- * five, which NavLink's own isActive cannot do for sibling paths).
+ * four, which NavLink's own isActive cannot do for sibling paths).
  *
  * Labels differ from the component names behind them - "Annual Planner" is
  * LeavePlanningPage, "Individual Leave" is LeavePage. See the label/file
@@ -21,7 +25,6 @@ import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom"
 export const SESSION_MANAGEMENT_TABS = [
   { to: "/clinical/leave-planning", label: "Annual Planner" },
   { to: "/clinical/leave", label: "Individual Leave" },
-  { to: "/clinical/extra-sessions", label: "Extra Sessions" },
   { to: "/clinical/closures", label: "Closures" },
   { to: "/clinical/school-holidays", label: "School Holidays" },
 ] as const;
@@ -142,8 +145,8 @@ export function useSessionYear(): SessionYearContextValue {
 }
 
 /**
- * The one year control for all five tabs. It sits above the tabs rather than
- * on a page, because a per-page control that silently changed four other
+ * The one year control for all the tabs. It sits above the tabs rather than
+ * on a page, because a per-page control that silently changed the other
  * tabs would read as a trap.
  */
 export function SessionYearControl() {
@@ -212,7 +215,7 @@ export function SessionManagementTabs() {
 }
 
 /**
- * Layout route wrapping the five pages, so the tab bar lives in exactly one
+ * Layout route wrapping the tabbed pages, so the tab bar lives in exactly one
  * place and cannot drift out of sync with the pages it labels. The tabbed
  * pages own no heading of their own - the active tab names the page.
  */
