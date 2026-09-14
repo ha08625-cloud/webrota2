@@ -1023,14 +1023,14 @@ describe("LeavePlanningPage", () => {
     });
   });
 
-  // --- Export to Excel (leave-planner Excel export plan, Task 3) ---
+  // --- Save and download (leave-planner Excel export plan, Task 3) ---
   //
   // The workbook itself is covered by exportLeavePlanning.test.ts and the
   // twelve coverage fetches by leavePlanning.test.tsx; the builder is
   // mocked here so these tests are about the wiring only - what the page
   // hands it, and what it does with the Blob that comes back.
 
-  describe("export to Excel", () => {
+  describe("save and download", () => {
     beforeEach(() => {
       vi.mocked(downloadBlob).mockClear();
       vi.mocked(buildLeavePlanningWorkbook).mockClear();
@@ -1088,18 +1088,71 @@ describe("LeavePlanningPage", () => {
       expect(button).not.toHaveAttribute("aria-disabled", "true");
     });
 
-    it("warns that unsaved changes are not included, only while some are pending", async () => {
+    it("saves pending edits before building the workbook", async () => {
       const user = userEvent.setup();
       setUpServer();
+      const bodies = captureBulkBodies({
+        applied: 1,
+        skipped: [],
+        superseded_extra_sessions: [],
+      });
       renderPage();
 
-      expect(
-        screen.queryByTestId("planning-export-unsaved-warning"),
-      ).not.toBeInTheDocument();
+      await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+      expect(screen.getByTestId("planning-unsaved-count")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("planning-export"));
+
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1));
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0].actions).toHaveLength(1);
+      // The save is what clears the pending map, so its absence here is
+      // also the proof the download did not run off an unsaved page.
+      expect(screen.queryByTestId("planning-unsaved-count")).not.toBeInTheDocument();
+    });
+
+    it("hands the builder the rows as they are after that save", async () => {
+      const user = userEvent.setup();
+      const saved = makeLeaveEntry({ id: 9, doctor_id: 1, date: MONDAY, period: "AM" });
+      let leaveRows: LeaveEntry[] = [];
+      setUpServer();
+      // The second read of /leave - the refetch the save triggers - is the
+      // one the workbook must be built from, not the empty first read.
+      server.use(
+        http.get("/api/v1/leave", () => HttpResponse.json(leaveRows)),
+        http.post("/api/v1/leave-planning/bulk", () => {
+          leaveRows = [saved];
+          return HttpResponse.json({ applied: 1, skipped: [], superseded_extra_sessions: [] });
+        }),
+      );
+      renderPage();
 
       await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+      await user.click(screen.getByTestId("planning-export"));
 
-      expect(screen.getByTestId("planning-export-unsaved-warning")).toBeInTheDocument();
+      await waitFor(() => expect(buildLeavePlanningWorkbook).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(buildLeavePlanningWorkbook).mock.calls[0][0].leave).toEqual([saved]);
+    });
+
+    it("does not download when the save fails", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      server.use(
+        http.post("/api/v1/leave-planning/bulk", () =>
+          HttpResponse.json({ detail: "Nope." }, { status: 400 }),
+        ),
+      );
+      renderPage();
+
+      await pickCellState(user, await findCell(1, MONDAY, "AM"), "leave");
+      await user.click(screen.getByTestId("planning-export"));
+
+      expect(await screen.findByText("Nope.")).toBeInTheDocument();
+      expect(buildLeavePlanningWorkbook).not.toHaveBeenCalled();
+      expect(downloadBlob).not.toHaveBeenCalled();
+      // The batch is one transaction, so the edits are still pending and
+      // still retryable.
+      expect(screen.getByTestId("planning-unsaved-count")).toBeInTheDocument();
     });
 
     it("reports a failed export on the page instead of throwing", async () => {
