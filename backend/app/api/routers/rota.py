@@ -72,9 +72,15 @@ from ...models import (
     RotaConfig,
     RotaGenerationLogEntry,
     RotaSession,
+    SystemCounter,
     User,
 )
-from ...models.enums import MasterSessionType, RotaStatus, SessionRole
+from ...models.enums import (
+    MasterSessionType,
+    RotaStatus,
+    SessionRole,
+    SystemCounterType,
+)
 from ..deps import get_current_user, get_db
 from ..schemas import (
     ClosedSlotOut,
@@ -220,6 +226,48 @@ def _adjust_clinic_counter(
         )
         db.add(row)
     row.raw_count = max(0, row.raw_count + delta)
+
+
+def _adjust_system_counter(
+    db: Session, doctor_id: int, counter_type: SystemCounterType, delta: int
+) -> None:
+    """Adjust a system counter's raw count. No get-or-create, no floor at 0.
+
+    Both omissions differ from `_adjust_clinic_counter` above, deliberately:
+
+    - No get-or-create, because a SystemCounter row exists for every doctor
+      and every counter type by invariant (`create_doctor` seeds them all).
+      `.scalar_one()` therefore raises on a violation rather than papering
+      over it, matching `generate._write_counters`.
+    - No `max(0, ...)` floor, because a system counter is only ever adjusted
+      on a real state transition. A negative raw count means the caller's
+      transition guard is wrong, and that is worth seeing rather than
+      silently clamping away.
+    """
+    row = db.execute(
+        select(SystemCounter).where(
+            SystemCounter.doctor_id == doctor_id,
+            SystemCounter.counter_type == counter_type,
+        )
+    ).scalar_one()
+    row.raw_count += delta
+
+
+def _is_on_leave(db: Session, config: RotaConfig, s: RotaSession) -> bool:
+    """Whether a session falls on booked leave, derived the same way
+    `_session_outs` derives `is_on_leave` for the API payload.
+
+    Leave is not stored on RotaSession -- it is looked up live from
+    LeaveEntry -- so this reads leave as it stands right now. That is the
+    accepted drift described in the WFH counter design: a counter decision
+    records leave as of the moment of the write, and leave booked or
+    cancelled afterwards does not retroactively correct it.
+    """
+    week_dates = build_week_dates(config.start_date, config.num_weeks)
+    session_date = week_dates.get((s.week, s.day))
+    if session_date is None:
+        return False
+    return (s.doctor_id, session_date, s.period) in _leave_lookup(db, config)
 
 
 def _load_swap_sessions(
@@ -612,8 +660,18 @@ def patch_session(
     has no side effects in either direction: toggling is_wfh does not
     clear it (Phase 12's supervision_on_incompatible_slot check warns
     instead), and it does not adjust the SUPERVISION system counter --
-    that counter is written at generation time only. Phase 12 re-runs and
-    its fresh issues are returned, matching the swap endpoints.
+    that counter is written at generation time only.
+
+    WFH is the one exception to that generation-time-only rule: a real
+    is_wfh transition adjusts the WFH system counter by +/-1 here. `is_wfh`
+    is toggled by hand far more often than `is_supervising` is (the cell
+    edit popover exists largely for it), so a generation-only WFH counter
+    would visibly disagree with the rota that gets committed. Sessions on
+    booked leave are skipped either way -- leave dominates WFH, as it does
+    in the engine's own tally and in Phases 5, 9C and 12.
+
+    Phase 12 re-runs and its fresh issues are returned, matching the swap
+    endpoints.
     """
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
@@ -631,7 +689,17 @@ def patch_session(
             detail="Empty patch: provide is_wfh, notes, and/or is_supervising",
         )
 
+    config = db.get(RotaConfig, rota.config_id)
+
     if "is_wfh" in fields and payload.is_wfh is not None:
+        # Guard on the transition, not on the field's presence: the undo
+        # stack (lib/replayUndo.ts) replays a notes-only edit with the
+        # entry's previous is_wfh alongside it, so "is_wfh in fields" would
+        # skew the count on every such undo.
+        if payload.is_wfh != s.is_wfh and not _is_on_leave(db, config, s):
+            _adjust_system_counter(
+                db, s.doctor_id, SystemCounterType.WFH, 1 if payload.is_wfh else -1
+            )
         s.is_wfh = payload.is_wfh
         if payload.is_wfh:
             s.room_id = None
@@ -644,7 +712,6 @@ def patch_session(
     issues = _issues_out(db, rota_id)
     db.commit()
 
-    config = db.get(RotaConfig, rota.config_id)
     out = _session_outs(db, config, [s])[0]
     return SessionPatchOut(session=out, issues=issues)
 
@@ -748,7 +815,13 @@ def set_room(
     target takes the room and is_wfh is cleared if it was true (mirrors
     the PATCH is_wfh=true room-clear rule in reverse). Assigning the room
     the target already holds is a harmless no-op (lookup excludes self).
-    No counter effect, matching swap-rooms. Draft-only.
+
+    That is_wfh clear is a counter effect: it decrements the target
+    doctor's WFH system counter by 1, exactly as PATCH is_wfh=false would,
+    since the two are the same state change reached by different routes.
+    Skipped when the session is on booked leave, which was never counted.
+    Nothing else here touches a counter -- room moves alone do not, matching
+    swap-rooms. Draft-only.
     """
     rota = _get_rota_or_404(db, rota_id)
     _require_draft(rota)
@@ -759,6 +832,7 @@ def set_room(
             detail=f"Session {session_id} not found in rota {rota_id}",
         )
 
+    config = db.get(RotaConfig, rota.config_id)
     displaced: RotaSession | None = None
     if payload.room_id is None:
         target.room_id = None
@@ -776,13 +850,16 @@ def set_room(
             displaced.room_id = None
         target.room_id = payload.room_id
         if target.is_wfh:
+            if not _is_on_leave(db, config, target):
+                _adjust_system_counter(
+                    db, target.doctor_id, SystemCounterType.WFH, -1
+                )
             target.is_wfh = False
 
     db.flush()
     issues = _issues_out(db, rota_id)
     db.commit()
 
-    config = db.get(RotaConfig, rota.config_id)
     to_serialise = [target] if displaced is None else [target, displaced]
     outs = {s.session_id: s for s in _session_outs(db, config, to_serialise)}
     return SetRoomOut(
