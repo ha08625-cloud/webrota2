@@ -4,17 +4,26 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useBankHolidays, useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
-import { useExtraSessions } from "@/api/extraSessions";
+import { extraSessionKeys, useExtraSessions } from "@/api/extraSessions";
 import {
   fetchYearCoverage,
+  leavePlanningKeys,
   useApplyPlanningBulk,
   useBlockedEntries,
   useCoverage,
 } from "@/api/leavePlanning";
-import { useLeave, useLeaveEntitlements } from "@/api/leave";
+// Aliased: `leaveKeys` is already a local name below (the set of leave cell
+// keys the grid renders from).
+import { leaveKeys as leaveQueryKeys, useLeave, useLeaveEntitlements } from "@/api/leave";
 import { useActiveMasterRota } from "@/api/masterRota";
 import { useSchools } from "@/api/schools";
-import type { ApiError, PlanningBulkOut } from "@/api/types";
+import type {
+  ApiError,
+  BlockedEntry,
+  ExtraSessionEntry,
+  LeaveEntry,
+  PlanningBulkOut,
+} from "@/api/types";
 import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeavePlanningGrid } from "@/components/LeavePlanningGrid";
@@ -348,16 +357,40 @@ export function LeavePlanningPage() {
   }
 
   /**
+   * Saves whatever is pending and then downloads the workbook - the two
+   * halves of the "Save and download" button, in that order, so what lands
+   * in the spreadsheet is what is on screen. A save that fails aborts the
+   * download rather than handing over a workbook missing the edits its
+   * label promised; the error is already on the page by then.
+   *
+   * With nothing pending `handleSave` is a no-op returning true, so a
+   * reader (who can never accumulate a pending edit - the grid's cells are
+   * write-gated) always gets a plain download from this button. That is why
+   * it carries no write gate of its own.
+   */
+  async function handleSaveAndExport() {
+    const saved = await handleSave();
+    if (!saved) return;
+    await handleExport();
+  }
+
+  /**
    * The whole leave year as one workbook. Everything but coverage is
    * already on the page unfiltered (`useLeave(null, null)` and friends are
    * whole-table reads), so the only fetching here is the twelve coverage
    * ranges - see `fetchYearCoverage` for why it is twelve and not one.
    *
-   * Two deliberate divergences from the screen, both owned by the builder
-   * and both flagged to the user: the workbook is built from saved rows
-   * only (pending edits are never exported), and it always carries the
-   * trainee rows regardless of the "Show trainees" toggle - hence
-   * `allDoctors` rather than `doctors` here.
+   * One deliberate divergence from the screen, owned by the builder and
+   * flagged to the user: it always carries the trainee rows regardless of
+   * the "Show trainees" toggle - hence `allDoctors` rather than `doctors`
+   * here.
+   *
+   * The three whole-table reads are taken from the query cache rather than
+   * from this render's `leave`/`extraSessions`/`blocked`: a save
+   * immediately before this one invalidates them, and the refetch it
+   * triggers has not reached the closure those props came from. Awaiting
+   * the refetch first is what makes the cache read the fresh rows - see
+   * `refreshExportRows`.
    *
    * Not gated on write access: every figure in it is already on screen.
    */
@@ -365,14 +398,15 @@ export function LeavePlanningPage() {
     setSaveError(null);
     setExporting(true);
     try {
+      const rows = await refreshExportRows();
       const coverageByMonth = await fetchYearCoverage(queryClient, year);
       const blob = await buildLeavePlanningWorkbook({
         year,
         doctors: allDoctors ?? [],
         entitlements: entitlement?.doctors ?? [],
-        leave: leave ?? [],
-        extraSessions: extraSessions ?? [],
-        blocked: blocked ?? [],
+        leave: rows.leave,
+        extraSessions: rows.extraSessions,
+        blocked: rows.blocked,
         closures: closures ?? [],
         schools: schools ?? [],
         templateSessions: template?.sessions ?? [],
@@ -387,6 +421,34 @@ export function LeavePlanningPage() {
     } finally {
       setExporting(false);
     }
+  }
+
+  /**
+   * Settles the three whole-table reads the workbook is built from and
+   * returns them. `refetchQueries` resolves once the fetches it starts have
+   * landed, so the `getQueryData` reads after it see post-save rows; where
+   * nothing was just written it is a cheap re-read of already-fresh
+   * queries. The hook values are the fallback for a query that has yet to
+   * populate at all.
+   *
+   * The coverage ranges need no equivalent: `fetchYearCoverage` fetches
+   * them itself, and a save invalidates them, which defeats its staleTime.
+   */
+  async function refreshExportRows() {
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: leaveQueryKeys.all }),
+      queryClient.refetchQueries({ queryKey: extraSessionKeys.all }),
+      queryClient.refetchQueries({ queryKey: leavePlanningKeys.blocked }),
+    ]);
+    return {
+      leave: queryClient.getQueryData<LeaveEntry[]>(leaveQueryKeys.list(null, null)) ?? leave ?? [],
+      extraSessions:
+        queryClient.getQueryData<ExtraSessionEntry[]>(extraSessionKeys.list(null, null)) ??
+        extraSessions ??
+        [],
+      blocked:
+        queryClient.getQueryData<BlockedEntry[]>(leavePlanningKeys.blocked) ?? blocked ?? [],
+    };
   }
 
   const unsavedCount = pending.size;
@@ -509,23 +571,6 @@ export function LeavePlanningPage() {
           Show trainees
         </label>
 
-        <button
-          type="button"
-          data-testid="planning-export"
-          onClick={handleExport}
-          disabled={exporting}
-          className="rounded border border-border px-3 py-1 text-sm disabled:opacity-50"
-        >
-          {exporting ? "Exporting..." : "Export to Excel"}
-        </button>
-        {unsavedCount > 0 ? (
-          // The workbook is built from saved rows only, the same reason
-          // the balance line carries this warning.
-          <span data-testid="planning-export-unsaved-warning" className="text-xs text-amber-700">
-            Unsaved changes are not included in the export.
-          </span>
-        ) : null}
-
         <div className="ml-auto flex items-center gap-2">
           {unsavedCount > 0 ? (
             <span
@@ -552,6 +597,18 @@ export function LeavePlanningPage() {
             {...writeGate}
           >
             Save
+          </button>
+          {/* Deliberately not write-gated and never disabled on an empty
+              pending map: with nothing to save it is the plain download the
+              old "Export to Excel" button was, which a reader may run. */}
+          <button
+            type="button"
+            data-testid="planning-export"
+            onClick={handleSaveAndExport}
+            disabled={exporting || applyBulk.isPending}
+            className="rounded border border-border px-3 py-1 text-sm disabled:opacity-50"
+          >
+            {applyBulk.isPending ? "Saving..." : exporting ? "Exporting..." : "Save and download"}
           </button>
         </div>
       </div>
