@@ -131,7 +131,13 @@ describe("DutyPage", () => {
     // Exact dates depend on today, so only the format and default
     // selection are asserted here (see date_test.ts for the period
     // arithmetic itself, tested against fixed dates).
-    expect(options[0].textContent).toMatch(/^\d{1,2} \w{3}( \d{4})? - \d{1,2} \w{3} \d{4}$/);
+    //
+    // The months are \w{3,4}, not \w{3}: en-GB's short month name for
+    // September is "Sept", not "Sep". A three-character bound passes for
+    // eleven months of the year and fails for the whole of September --
+    // and for any period label spanning it. RotaPage.test.tsx's week-label
+    // assertion already carries the same bound for the same reason.
+    expect(options[0].textContent).toMatch(/^\d{1,2} \w{3,4}( \d{4})? - \d{1,2} \w{3,4} \d{4}$/);
     expect(select.value).toBe(options[1].value);
   });
 
