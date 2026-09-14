@@ -13,7 +13,7 @@ import {
 import { useClinicTypes } from "@/api/clinicTypes";
 import { useDoctors } from "@/api/doctors";
 import { useRotaList } from "@/api/rota";
-import type { ClinicCounter, ClinicType, Doctor } from "@/api/types";
+import type { ClinicCounter, ClinicType, Doctor, SystemCounterKind } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { BALANCE_HINT, OpeningBalanceInput } from "@/components/OpeningBalanceInput";
 import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from "@/lib/weightedScore";
@@ -29,6 +29,22 @@ import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from 
 // them permanently whatever happens to the draft.
 const DRAFT_WARNING =
   " Note: a draft rota is currently active. If that draft is scrapped, raw counts will be restored to their pre-generation values and that part of this reset will be undone. Opening balances are not restored by a scrap: clearing them is permanent either way. To make the whole reset permanent, commit or scrap the draft first.";
+
+/**
+ * Display names for the system counter types, which arrive as their raw
+ * enum values (SystemCounterType in enums.py). A type with no entry here
+ * falls back to its wire value, so a counter type added server-side
+ * still renders rather than showing a blank cell.
+ */
+const SYSTEM_COUNTER_LABELS: Record<SystemCounterKind, string> = {
+  room_move: "Room moves",
+  supervision: "Supervision",
+  wfh: "WFH",
+};
+
+function systemCounterLabel(kind: SystemCounterKind): string {
+  return SYSTEM_COUNTER_LABELS[kind] ?? kind;
+}
 
 /**
  * The raw count with any credit shown beside it rather than folded into
@@ -296,6 +312,11 @@ export function CountersPage() {
           </button>
         ) : null}
       </div>
+      <p className="mt-1 text-sm text-ink/50">
+        WFH is a record of sessions worked from home, not something the generator balances yet:
+        nothing is currently allocated against this counter, so it tracks whatever the master rota
+        and any hand edits produce.
+      </p>
       {systemLoading ? <p className="mt-2 text-sm text-ink/70">Loading...</p> : null}
       {systemError ? <p className="mt-2 text-sm text-red-700">Could not load system counters.</p> : null}
       {resetSystemCounter.isError || resetAllSystemCounters.isError ? (
@@ -323,7 +344,7 @@ export function CountersPage() {
             {systemCounters.map((c) => (
               <tr key={c.id} className="border-t border-border">
                 <td className="py-1 pr-4">{c.doctor_code}</td>
-                <td className="py-1 pr-4">{c.counter_type}</td>
+                <td className="py-1 pr-4">{systemCounterLabel(c.counter_type)}</td>
                 <td className="py-1 pr-4">
                   <RawCount rawCount={c.raw_count} openingBalance={c.opening_balance} />
                 </td>
@@ -331,7 +352,7 @@ export function CountersPage() {
                 <td className="py-1 pr-4">
                   <OpeningBalanceInput
                     value={c.opening_balance}
-                    label={`Opening balance for ${c.doctor_code} ${c.counter_type}`}
+                    label={`Opening balance for ${c.doctor_code} ${systemCounterLabel(c.counter_type)}`}
                     isPending={setSystemBalance.isPending}
                     onSave={(sessions) => setSystemBalance.mutate({ counterId: c.id, sessions })}
                   />

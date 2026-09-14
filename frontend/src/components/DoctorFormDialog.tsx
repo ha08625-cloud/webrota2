@@ -8,7 +8,7 @@ import type { FormEvent } from "react";
 
 import { useCreateDoctor, useDoctor, useReplacePreferredRooms, useUpdateDoctor } from "@/api/doctors";
 import { useRooms } from "@/api/rooms";
-import type { ApiError, Doctor, DoctorType, RoomType, SupervisionPreference } from "@/api/types";
+import type { ApiError, Doctor, DoctorType, PreferenceWeight, RoomType } from "@/api/types";
 import {
   type DoctorFormValues,
   doctorFormSchema,
@@ -17,16 +17,11 @@ import {
   mapZodFieldErrors,
   toWirePayload,
 } from "@/lib/doctorSchema";
+import { PREFERENCE_OPTIONS } from "@/lib/preferenceWeights";
 import { type PreferredRoomRow, moveRow, toWireRows } from "@/lib/reorderPreferredRooms";
 
 const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "Locum", "AHP"];
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
-const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "less", label: "Less" },
-  { value: "normal", label: "Normal" },
-  { value: "more", label: "More" },
-];
 
 interface DoctorFormDialogProps {
   /** undefined = create mode. Render with a `key` on the doctor's id (or
@@ -265,16 +260,41 @@ export function DoctorFormDialog({ doctor, open, onOpenChange }: DoctorFormDialo
                 id="doc-supervision-preference"
                 value={values.supervisionPreference}
                 onChange={(e) =>
-                  setValues((v) => ({ ...v, supervisionPreference: e.target.value as SupervisionPreference }))
+                  setValues((v) => ({ ...v, supervisionPreference: e.target.value as PreferenceWeight }))
                 }
                 className="mt-1 w-full rounded border border-border p-1 text-sm"
               >
-                {SUPERVISION_PREFERENCES.map((p) => (
+                {PREFERENCE_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="doc-wfh-preference">
+                WFH preference
+              </label>
+              <select
+                id="doc-wfh-preference"
+                value={values.wfhPreference}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, wfhPreference: e.target.value as PreferenceWeight }))
+                }
+                className="mt-1 w-full rounded border border-border p-1 text-sm"
+              >
+                {PREFERENCE_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-ink/50">
+                Weights who is sent home when staff outnumber rooms. “None” is not a block on
+                working from home: a WFH session set on the master rota still happens, and still
+                counts.
+              </p>
             </div>
 
             <fieldset>

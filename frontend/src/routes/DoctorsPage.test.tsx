@@ -64,6 +64,42 @@ describe("DoctorsPage", () => {
     expect(patchBody).toEqual({ supervision_preference: "less" });
   });
 
+  it("shows the doctor's WFH preference in the inline dropdown", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", wfh_preference: "less" })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    expect(screen.getByLabelText("WFH preference for AB")).toHaveValue("less");
+  });
+
+  it("changing the WFH preference dropdown sends a PATCH with only that field", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", wfh_preference: "normal" })] });
+    let patchBody: unknown;
+    server.use(
+      http.patch("/api/v1/doctors/1", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 1, code: "AB", wfh_preference: "more" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorsPage />);
+    await screen.findByText("AB");
+
+    await user.selectOptions(screen.getByLabelText("WFH preference for AB"), "more");
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).toEqual({ wfh_preference: "more" });
+  });
+
+  it("says a WFH preference of None does not block templated WFH sessions", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", wfh_preference: "none" })] });
+    renderWithProviders(<DoctorsPage />);
+
+    await screen.findByText("AB");
+    expect(screen.getByText(/“None” still works from home/)).toBeInTheDocument();
+  });
+
   it("shows the sessions/week stepper for a Trainee but not the supervision dropdown", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "TR", doctor_type: "Trainee", sessions_per_week: "6.0" })],
@@ -73,6 +109,9 @@ describe("DoctorsPage", () => {
     await screen.findByText("TR");
     expect(screen.getByLabelText("Increase sessions per week for TR")).toBeInTheDocument();
     expect(screen.queryByLabelText("Supervision preference for TR")).not.toBeInTheDocument();
+    // Same Partner/Salaried gate as supervision. The counter itself still
+    // counts a Trainee's WFH sessions - only the dropdown is hidden.
+    expect(screen.queryByLabelText("WFH preference for TR")).not.toBeInTheDocument();
   });
 
   it("hides the sessions/week stepper for a Locum", async () => {

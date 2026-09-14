@@ -52,6 +52,7 @@ describe("DoctorFormDialog - create mode", () => {
       doctor_type: "Partner",
       sessions_per_week: "10.0",
       supervision_preference: "normal",
+      wfh_preference: "normal",
       // Blank date inputs go out as null, not "" - the server would
       // reject an empty string as an invalid date.
       start_date: null,
@@ -161,6 +162,33 @@ describe("DoctorFormDialog - create mode", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(capturedBody).toMatchObject({ supervision_preference: "more" });
+  });
+
+  it("submits the selected WFH preference in the create payload", async () => {
+    setUpServer();
+    let capturedBody: unknown;
+    server.use(
+      http.post("/api/v1/doctors", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(makeDoctor({ id: 9, code: "XY" }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    await user.type(screen.getByLabelText("Code"), "XY");
+    await user.selectOptions(screen.getByLabelText("WFH preference"), "less");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({ wfh_preference: "less" });
+  });
+
+  it("defaults a new doctor's WFH preference to normal", async () => {
+    setUpServer();
+    renderWithProviders(<DoctorFormDialog open onOpenChange={() => {}} />);
+
+    expect(await screen.findByLabelText("WFH preference")).toHaveValue("normal");
   });
 
   it("does not submit when code is empty - shows a client-side field error", async () => {
@@ -310,6 +338,31 @@ describe("DoctorFormDialog - edit mode", () => {
 
     await waitFor(() => expect(patchBody).toBeDefined());
     expect(patchBody).toMatchObject({ supervision_preference: "none" });
+  });
+
+  it("pre-fills the WFH preference and submits a change in the PATCH body", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB", wfh_preference: "more" });
+    const detail = makeDoctorDetail({ ...doctor, preferred_rooms: [] });
+    setUpServer({ doctorDetail: detail });
+
+    let patchBody: unknown;
+    server.use(
+      http.patch("/api/v1/doctors/5", async ({ request }) => {
+        patchBody = await request.json();
+        return HttpResponse.json(doctor);
+      }),
+      http.put("/api/v1/doctors/5/preferred-rooms", () => HttpResponse.json(detail)),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+    await screen.findByLabelText("Code");
+    expect(screen.getByLabelText("WFH preference")).toHaveValue("more");
+    await user.selectOptions(screen.getByLabelText("WFH preference"), "none");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).toMatchObject({ wfh_preference: "none" });
   });
 
   it("pre-fills the employment dates and sends them back unchanged in the PATCH", async () => {
