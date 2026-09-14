@@ -25,8 +25,11 @@ and alembic/env.py wraps the whole upgrade in a single
 `context.begin_transaction()` -- so a later migration in the same run would
 fail too. The rows are created instead by the existing, idempotent
 `seed/backfill_system_counters.py`, which iterates SystemCounterType and is
-already documented as the repair for missing counter rows. Run it as a deploy
-step after `alembic upgrade head`:
+already the repair for missing counter rows. It is chained into
+railway.toml's startCommand, straight after `alembic upgrade head`, so no
+deploy can land this migration without it -- shipping it as a manual step
+is what broke staging generation the first time round. To apply this
+migration to a database by hand, run the same script yourself afterwards:
 
     DATABASE_URL=<railway url> uv run python -m seed.backfill_system_counters
 

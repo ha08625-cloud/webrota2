@@ -25,6 +25,7 @@ from app.models.enums import (
 from seed.seed_rooms import seed_rooms
 from seed.seed_doctors import seed_doctors
 from seed.seed_system_counters import seed_system_counters
+from seed.backfill_system_counters import backfill_system_counters
 from seed.seed_master_rota import seed_master_rota
 from seed.seed_users import seed_users
 from app.models.permissions import (
@@ -106,6 +107,66 @@ def test_seed_system_counters(session, tmp_path):
     for c in counters:
         per_doctor.setdefault(c.doctor_id, set()).add(c.counter_type)
     assert all(types == set(SystemCounterType) for types in per_doctor.values())
+
+
+def test_backfill_system_counters_lands_rows_for_a_new_counter_type(session, tmp_path):
+    """The deploy step's job: a database seeded before a SystemCounterType
+    existed gets exactly the missing rows, and nothing else moves.
+
+    This is the failure migration 015 shipped into staging -- every doctor
+    was missing a `wfh` row, and generate._write_counters' strict
+    `.scalar_one()` turned that into a 500 on generation. The backfill is
+    chained into railway.toml's startCommand so it cannot be skipped; this
+    test stands in for that deploy by deleting one counter type's rows.
+    """
+    seed_rooms(session)
+    csv_path = tmp_path / "setup.csv"
+    _write_csv(csv_path, [
+        SETUP_HEADER,
+        ["AA", "Partner", "D4", "", "", "", "", "", "", ""],
+        ["BB", "Salaried", "C1", "", "", "", "", "", "", ""],
+    ])
+    seed_doctors(session, csv_path)
+    seed_system_counters(session)
+
+    # Simulate the pre-015 world: no rows of the newest counter type, and a
+    # non-zero count on a surviving row that must not be disturbed.
+    missing_type = SystemCounterType.WFH
+    for row in session.execute(
+        select(SystemCounter).where(SystemCounter.counter_type == missing_type)
+    ).scalars().all():
+        session.delete(row)
+    survivor = session.execute(
+        select(SystemCounter).where(
+            SystemCounter.counter_type == SystemCounterType.ROOM_MOVE
+        )
+    ).scalars().first()
+    survivor.raw_count = 7
+    session.flush()
+
+    added = backfill_system_counters(session)
+
+    assert {row.counter_type for row in added} == {missing_type}
+    assert len(added) == 2  # one per doctor
+    assert all(row.raw_count == 0 for row in added)
+    assert survivor.raw_count == 7
+
+
+def test_backfill_system_counters_is_idempotent(session, tmp_path):
+    """Safe to run on every deploy: a second pass adds nothing."""
+    seed_rooms(session)
+    csv_path = tmp_path / "setup.csv"
+    _write_csv(csv_path, [
+        SETUP_HEADER,
+        ["AA", "Partner", "D4", "", "", "", "", "", "", ""],
+    ])
+    seed_doctors(session, csv_path)
+    seed_system_counters(session)
+
+    assert backfill_system_counters(session) == []
+    assert backfill_system_counters(session) == []
+    rows = session.execute(select(SystemCounter)).scalars().all()
+    assert len(rows) == len(SystemCounterType)
 
 
 # --- master rota ---
