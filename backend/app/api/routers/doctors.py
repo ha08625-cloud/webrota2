@@ -54,10 +54,14 @@ one, the same call reception_staff.py makes for `reception_rotas`.
 Counter invariant: every doctor row has exactly one SystemCounter row per
 SystemCounterType (room_move, supervision, wfh), created here at doctor
 creation regardless of doctor_type. The seeding loop iterates the enum
-rather than naming the types, so adding a counter type needs no edit here. Trainee/AHP rows sit unused at zero -- the cost
-of a handful of dead rows buys a single unconditional invariant, closing
-the PATCH edge case where a doctor's type changes to Partner/Salaried after
-creation. `generate._write_counters` relies on this invariant via a strict
+rather than naming the types, so adding a counter type needs no edit here.
+room_move and supervision rows for Trainee/AHP doctors sit unused at zero
+-- the cost of a handful of dead rows buys a single unconditional
+invariant, closing the PATCH edge case where a doctor's type changes to
+Partner/Salaried after creation. The wfh row is the exception that shows
+why the invariant is unconditional: it is written for every doctor,
+because a Trainee with a WFH row in the master template works from home
+like anyone else. `generate._write_counters` relies on this invariant via a strict
 `.scalar_one()` and 500s the generation if it is ever violated. It has
 been violated before, by doctor rows created before the invariant existed
 -- seed/backfill_system_counters.py is the repair for that case.

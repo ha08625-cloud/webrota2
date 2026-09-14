@@ -4,19 +4,19 @@ Revision ID: 015
 Revises: 014
 Create Date: 2026-09-14 00:00:00
 
-WFH counter plan, Task 1. Three pieces of DDL and deliberately no DML:
+Three pieces of DDL and deliberately no DML:
 
 1. `supervision_preference` -> `preference_weight`. The Python enum is now
    shared by two columns (`doctors.supervision_preference` and the new
    `doctors.wfh_preference`), so the type name no longer names one of them
-   (plan D5). Migration 001 freezes its own copy of the old class so that the
+   Migration 001 freezes its own copy of the old class so that the
    baseline still creates `supervision_preference` for this to rename.
-2. `system_counter_type` gains `wfh` (plan D1): one ledger of "sessions this
+2. `system_counter_type` gains `wfh`: one ledger of "sessions this
    doctor spent working at home", which the future WFH allocation phase
    selects against.
 3. `doctors.wfh_preference`, NOT NULL, server default `normal` -- the twin of
    `supervision_preference`, carried by every doctor row regardless of
-   doctor_type (plan D8).
+   doctor_type.
 
 **No rows are inserted here.** Every doctor needs a `wfh` SystemCounter row
 (the invariant `generate._write_counters` enforces with `.scalar_one()`), but

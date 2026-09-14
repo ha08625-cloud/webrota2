@@ -21,6 +21,8 @@ Phase 7-9A  -> Resolve remaining rooms: full-day Trainee/AHP displacement, then
 Phase 9B    -> Eliminate same-day room swaps between Partners/Salaried
 Phase 9C    -> Assign trainee supervision
 Phase 12    -> Validate the completed rota (read-only; 6 checks)
+(tally)     -> Count the finished grid's WFH sessions into the WFH counter
+               (generate._tally_wfh, not a phase - no grid mutation)
 
 Not applicable to the Python architecture:
 Phase 10    -> Rota formatting (frontend/API concern, M3/M4)
@@ -198,13 +200,13 @@ The port from the original GAS design (absorbed from the now-retired `algorithms
 4. Otherwise select by lowest weighted `SUPERVISION` score (`(raw_count + opening_balance) / sessions_per_week`; `spw=0` scores infinity, never selected), scaled by the doctor's `supervision_preference` multiplier, alphabetical tiebreak by doctor code - the same selection pattern as Phase 5. Sets `is_supervising=True` and increments the selected doctor's `SUPERVISION` counter.
 5. **SR swap:** if the selected supervisor is not already sitting in an SR room, and an SR room (rooms ordered by `code` for determinism - the schema does not constrain SR to exactly one room even though the seed currently has one) is occupied by a different doctor, the two doctors' room assignments are swapped - the supervisor takes the SR room, the displaced doctor takes the supervisor's vacated room. Excluded edge case: if the selected supervisor is already sitting in an SR room, no swap happens. If no SR room is occupied by anyone else, no swap happens. The swap is a pure room move: it does not touch `is_supervising` or the `SUPERVISION` counter of either doctor beyond what step 4 already set.
 
-**Supervision preference (pool selection only):** each doctor has a `supervision_preference` (`none`/`less`/`normal`/`more`, default `normal`) that multiplies their weighted `SUPERVISION` score before the pool comparison in step 4 - `{NONE: 1_000_000, LESS: 1.5, NORMAL: 1.0, MORE: 0.66}`, hardcoded in `phase9c.py`. Lower score still wins, so a higher multiplier deprioritises. Applies uniformly to every pool candidate now that there is no SR-priority fast path to exempt from it. One scoping point remains deliberate:
+**Supervision preference (pool selection only):** each doctor has a `supervision_preference` (`none`/`less`/`normal`/`more`, default `normal`) that multiplies their weighted `SUPERVISION` score before the pool comparison in step 4 - `{NONE: 1_000_000, LESS: 1.5, NORMAL: 1.0, MORE: 0.66}`, defined once as `PREFERENCE_MULTIPLIERS` in `engine/preference.py` and re-exported by `_log_phase9c` so that selection and narration read the same numbers. The table is shared with `wfh_preference`, which is why it no longer lives in `phase9c.py` and why the enum behind both columns is named `PreferenceWeight` rather than after supervision. Lower score still wins, so a higher multiplier deprioritises. Applies uniformly to every pool candidate now that there is no SR-priority fast path to exempt from it. One scoping point remains deliberate:
 
 - **The multiplier deprioritises, it does not exclude.** A `none`-preference doctor can still be selected from the pool if they are the sole eligible doctor that session - step 3's "only eligible doctor" case has no competitor to lose to. Supervision must still happen even when the only available doctor dislikes it.
 
 The multiplier never changes what the `SUPERVISION` counter counts, only who gets picked; the Counters page continues to show the plain unmultiplied `(raw + opening_balance) / spw` score, same shared display component as `ROOM_MOVE`. When the multiplier changes the pool winner from what the raw score would have picked, the generation log message is suffixed `(preference-adjusted)`.
 
-**Manual-edit escape hatch:** `is_supervising` is included in the session PATCH (`SessionPatchIn`), applied verbatim with no eligibility check - consistent with the rest of the editing API's apply-then-warn model. Phase 12 Check 4 prong 2 (`supervision_on_incompatible_slot`) surfaces misuse on the re-run every edit endpoint already triggers. Edits never touch the `SUPERVISION` system counter, matching the existing rule that counters are written only at generation time.
+**Manual-edit escape hatch:** `is_supervising` is included in the session PATCH (`SessionPatchIn`), applied verbatim with no eligibility check - consistent with the rest of the editing API's apply-then-warn model. Phase 12 Check 4 prong 2 (`supervision_on_incompatible_slot`) surfaces misuse on the re-run every edit endpoint already triggers. Edits never touch the `SUPERVISION` system counter: that rule holds for every system counter except `WFH`, which draft edits do adjust because `is_wfh` is hand-toggled far more often - see "Counter effects of edits" in `architecture-clinical.md`.
 
 **Historical rotas:** pre-migration `RotaSession` rows read as `is_supervising=False` (migration 003's `server_default`), so `/issues` on any rota generated before this feature deployed will report `supervision_missing` for its sessions - correct, since those rotas genuinely have no supervision recorded, not a migration artifact to suppress.
 
@@ -243,3 +245,18 @@ The multiplier never changes what the `SUPERVISION` counter counts, only who get
 A session edited into a bad state can trigger both 4a and 4b at once (the flagged supervisor is now invalid, and no valid supervisor remains) - correct, not a duplicate finding.
 
 Correctness of these checks against real clinic data cannot be fully verified until clinic types exist via M3 (API) and M4 (frontend), per the M2 plan's own "Done when" criteria - M2's tests use inline-built fixtures, not seeded production-shaped data.
+
+---
+
+## Not yet implemented: WFH allocation
+
+**Status: no phase exists.** The `WFH` system counter and the per-doctor `wfh_preference` are live (see "Counters and snapshots" in `architecture-clinical.md`), but nothing selects against them: WFH appears in a generated rota only where the master template puts it, or where someone sets it by hand. The counter is the fairness ledger a future allocation phase would read, and it was shipped first deliberately, so that real WFH history has accrued by the time such a phase starts allocating rather than it starting everyone at zero.
+
+The problem the phase would solve is capacity: when the doctors working a session outnumber the rooms available for them, someone has to work from home, and the choice should be fair rather than arbitrary. Four constraints on where it could sit, none of them settled:
+
+- **Placement.** It must run before room resolution (Phase 7-9A), since the point is to shed people before rooms are contested, but it cannot run before Phases 4 and 5: duty doctors and clinic holders are not candidates, and their rooms shrink the pool it is measuring against. A new Phase 6, between 5 and 7-9A, is the obvious slot.
+- **How many go home.** That is a per-`(week, day, period)` calculation over room supply after duty and clinics have taken theirs. No existing phase computes it.
+- **Phase 9C.** `is_eligible_supervisor` and `count_supervisable_trainees` both exclude WFH slots, so sending people home can make a session unsupervisable. The phase would have to reserve supervisors or accept the warning.
+- **Phase 12.** `unresolved_room` already skips WFH slots, so the phase would silence warnings rather than create them; but "WFH on an incompatible slot" (template types, roles) would be a new question.
+
+Selection itself is the least novel part: lowest weighted `WFH` score scaled by the `wfh_preference` multiplier, alphabetical tiebreak, exactly the Phase 5 and Phase 9C pattern, with the multiplier reading the same direction-agnostic table.
