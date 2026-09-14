@@ -15,7 +15,7 @@ from .enums import (
     RotaStatus,
     SessionRole,
     Site,
-    SupervisionPreference,
+    PreferenceWeight,
     SystemCounterType,
 )
 from .room import Room
@@ -61,7 +61,7 @@ from .reception import (
 
 __all__ = [
     # enums
-    "DoctorType", "SupervisionPreference", "RoomType", "Site", "Day",
+    "DoctorType", "PreferenceWeight", "RoomType", "Site", "Day",
     "Period", "DutyType", "RotaStatus", "SystemCounterType",
     "MasterSessionType", "SessionRole", "ReceptionRole", "AccessLevel",
     # models

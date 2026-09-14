@@ -20,6 +20,7 @@ from app.models.enums import (
     Period,
     RoomType,
     Site,
+    SystemCounterType,
 )
 from seed.seed_rooms import seed_rooms
 from seed.seed_doctors import seed_doctors
@@ -99,11 +100,12 @@ def test_seed_system_counters(session, tmp_path):
     ])
     seed_doctors(session, csv_path)
     counters = seed_system_counters(session)
-    assert len(counters) == 4  # 2 doctors x 2 counter types
+    # 2 doctors x every counter type: the seed iterates SystemCounterType.
+    assert len(counters) == 2 * len(SystemCounterType)
     per_doctor = {}
     for c in counters:
-        per_doctor.setdefault(c.doctor_id, set()).add(c.counter_type.value)
-    assert all(types == {"room_move", "supervision"} for types in per_doctor.values())
+        per_doctor.setdefault(c.doctor_id, set()).add(c.counter_type)
+    assert all(types == set(SystemCounterType) for types in per_doctor.values())
 
 
 # --- master rota ---

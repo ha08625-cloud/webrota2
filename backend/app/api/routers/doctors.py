@@ -52,8 +52,9 @@ its rows carry self-contained prose, and it is purged with its rota.
 one, the same call reception_staff.py makes for `reception_rotas`.
 
 Counter invariant: every doctor row has exactly one SystemCounter row per
-SystemCounterType (room_move, supervision), created here at doctor creation
-regardless of doctor_type. Trainee/AHP rows sit unused at zero -- the cost
+SystemCounterType (room_move, supervision, wfh), created here at doctor
+creation regardless of doctor_type. The seeding loop iterates the enum
+rather than naming the types, so adding a counter type needs no edit here. Trainee/AHP rows sit unused at zero -- the cost
 of a handful of dead rows buys a single unconditional invariant, closing
 the PATCH edge case where a doctor's type changes to Partner/Salaried after
 creation. `generate._write_counters` relies on this invariant via a strict
@@ -208,6 +209,7 @@ def create_doctor(
         doctor_type=payload.doctor_type,
         sessions_per_week=payload.sessions_per_week,
         supervision_preference=payload.supervision_preference,
+        wfh_preference=payload.wfh_preference,
         active=True,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -219,7 +221,7 @@ def create_doctor(
         # counter rows below, and surfaces a duplicate-code IntegrityError
         # before any counter rows are staged.
         db.flush()
-        for counter_type in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+        for counter_type in SystemCounterType:
             db.add(
                 SystemCounter(
                     doctor_id=doctor.id, counter_type=counter_type, raw_count=0

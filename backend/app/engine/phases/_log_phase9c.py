@@ -24,7 +24,7 @@ from ...models.enums import (
     Day,
     MasterSessionType,
     Period,
-    SupervisionPreference,
+    PreferenceWeight,
     SystemCounterType,
 )
 from .. import rationale as rat
@@ -52,10 +52,10 @@ _EXCLUDED_TEMPLATE_TYPES = frozenset({
 # actual supervision history. Applies to every pool candidate now that
 # there is no SR-priority fast path to exempt.
 PREFERENCE_MULTIPLIERS = {
-    SupervisionPreference.NONE: 1_000_000,
-    SupervisionPreference.LESS: 1.5,
-    SupervisionPreference.NORMAL: 1.0,
-    SupervisionPreference.MORE: 0.66,
+    PreferenceWeight.NONE: 1_000_000,
+    PreferenceWeight.LESS: 1.5,
+    PreferenceWeight.NORMAL: 1.0,
+    PreferenceWeight.MORE: 0.66,
 }
 
 

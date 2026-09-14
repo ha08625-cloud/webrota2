@@ -13,7 +13,10 @@ Consolidating before go-live cost a reseed; after go-live it would have cost
 a production data migration. Git history is the archive for the old chain --
 this file is the description of the schema.
 
-Migrations are additive from here. Nothing downstream may edit this file.
+Migrations are additive from here. Nothing downstream may edit this file --
+with one unavoidable exception, already taken: this file imports the Python
+enums, so renaming one of those classes would break it. `SupervisionPreference`
+is therefore frozen locally below rather than imported (see its docstring).
 
 The schema is derived from app.models, which is the source of truth: every
 column, constraint name and server default here matches what
@@ -35,6 +38,7 @@ No DB-level ON DELETE CASCADE exists anywhere in this schema except
 school_holidays.school_id; every other parent/child cleanup is ORM-level
 (relationship(cascade="all, delete-orphan")).
 """
+import enum
 from typing import Sequence, Union
 
 from alembic import op
@@ -53,10 +57,28 @@ from app.models.enums import (
     RotaStatus,
     SessionRole,
     Site,
-    SupervisionPreference,
     SystemCounterType,
     _snake,
 )
+
+
+class SupervisionPreference(str, enum.Enum):
+    """Frozen copy of the enum this baseline created.
+
+    The live enum was renamed to `PreferenceWeight` (WFH counter plan, D5),
+    which renames the Postgres type to `preference_weight` in migration 015.
+    A baseline that imported the live class would name the type
+    `preference_weight` here, and 015's `ALTER TYPE supervision_preference
+    RENAME TO preference_weight` would then have nothing to rename. The
+    members are frozen rather than imported so this file keeps describing
+    the schema as it stood at 001; the rename belongs to 015.
+    """
+
+    NONE = "none"
+    LESS = "less"
+    NORMAL = "normal"
+    MORE = "more"
+
 
 revision: str = "001"
 down_revision: Union[str, None] = None

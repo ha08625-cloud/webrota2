@@ -7,6 +7,13 @@ NoResultFound 500 in generate._write_counters. Unlike seed_system_counters
 (doctor_id, counter_type) pairs first and inserts only what is missing, so
 it is safe to run repeatedly and never touches existing raw_count values.
 
+It iterates SystemCounterType, so it is also the deploy step that lands the
+rows for a *newly added* counter type: migration 015 adds the `wfh` value to
+the Postgres enum but cannot insert rows using it (Postgres forbids using an
+enum value in the transaction that added it, and alembic runs the whole
+upgrade in one transaction), so run this script after `alembic upgrade head`
+to create the wfh rows.
+
 Usage (from backend/, against the live database):
     DATABASE_URL=<Railway DATABASE_PUBLIC_URL> uv run python -m seed.backfill_system_counters
 """
@@ -16,9 +23,6 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Doctor, SystemCounter
 from app.models.enums import SystemCounterType
-
-_ALL_TYPES = (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION)
-
 
 def backfill_system_counters(session: Session) -> list[SystemCounter]:
     """Insert a zero-count row for every (doctor, counter_type) pair that
@@ -34,7 +38,7 @@ def backfill_system_counters(session: Session) -> list[SystemCounter]:
 
     added: list[SystemCounter] = []
     for did in doctor_ids:
-        for ct in _ALL_TYPES:
+        for ct in SystemCounterType:
             if (did, ct) in existing:
                 continue
             row = SystemCounter(doctor_id=did, counter_type=ct, raw_count=0)
