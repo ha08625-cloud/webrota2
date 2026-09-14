@@ -20,12 +20,27 @@
 #
 # Migrations run on every deploy via the && pattern: alembic upgrade
 # head is idempotent, so repeat deploys are safe.
+#
+# seed.backfill_system_counters runs on every deploy too, for the same
+# reason and with the same safety: it inserts a zero row for any
+# (doctor, SystemCounterType) pair that has none and never touches an
+# existing raw_count, so a deploy where the invariant already holds is a
+# no-op costing two SELECTs. It is here because a migration cannot do
+# this work itself -- Postgres forbids *using* an enum value in the
+# transaction that added it, and alembic/env.py wraps the whole upgrade
+# in one transaction, so a migration that adds a new SystemCounterType
+# (015 added `wfh`) can never insert the rows that use it. Leaving that
+# as a documented manual step is what broke staging generation after 015:
+# every doctor was missing a `wfh` row, and generate._write_counters'
+# deliberately strict .scalar_one() raised NoResultFound -> 500. Chaining
+# it here keeps that strict invariant check meaningful while removing the
+# step a human has to remember for the next counter type.
 
 [build]
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "cd backend && /opt/venv/bin/alembic upgrade head && /opt/venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "cd backend && /opt/venv/bin/alembic upgrade head && /opt/venv/bin/python -m seed.backfill_system_counters && /opt/venv/bin/uvicorn app.api.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
