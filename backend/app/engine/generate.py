@@ -1,7 +1,8 @@
 """Orchestrates the full generation pipeline and persists the result.
 
-generate() runs Phase 0 -> 2 -> 4 -> 5 -> 7-9A -> 9B -> 12 in order, then
-writes the outcome in one transaction via _write_to_db(). The caller is
+generate() runs Phase 0 -> 2 -> 4 -> 5 -> 7-9A -> 9B -> 9C -> 12 in order,
+tallies the WFH counter off the finished grid (_tally_wfh), then writes the
+outcome in one transaction via _write_to_db(). The caller is
 expected to run generate() inside its own `session.begin()` (or equivalent);
 any uncaught exception here rolls back everything, including counter
 writes. Warnings never raise -- only a Phase 0 error stops the pipeline
@@ -33,7 +34,7 @@ from ..models import (
     RotaSystemCounterSnapshot,
     SystemCounter,
 )
-from ..models.enums import RotaStatus
+from ..models.enums import RotaStatus, SystemCounterType
 from .context import load_context
 from .datatypes import CounterState, DecisionLog, GenerationResult, RotaGrid, ValidationIssue
 from .phases import (
@@ -70,10 +71,49 @@ def generate(db: Session, config_id: int) -> GenerationResult:
     issues.extend(run_phase9c(context, grid, counters, log))
     issues.extend(run_phase12(context, grid))
 
+    _tally_wfh(grid, counters)
+
     rota_id = _write_to_db(db, config_id, grid, counters, context.closed_slots, log)
 
     status = "partial" if any(i.severity == "warning" for i in issues) else "success"
     return GenerationResult(rota_id=rota_id, issues=tuple(issues), status=status)
+
+
+def _tally_wfh(grid: RotaGrid, counters: CounterState) -> None:
+    """Count every session actually worked from home into the WFH counter.
+
+    A single pass over the finished grid rather than increments scattered
+    through the phases, for two reasons. It is agnostic to what the pipeline
+    did: Phase 4 abandons a template WFH slot when it applies a duty role to
+    that doctor, and such a slot simply is not WFH in the grid by the time
+    this runs, so it is not counted without any special case here. And it
+    stays correct when a future WFH allocation phase starts adding (or
+    undoing) WFH slots of its own.
+
+    Template WFH counts, not just engine-allocated WFH: the counter means
+    "sessions this doctor spent working at home", and an allocation phase
+    that ignored fixed template WFH would hand extra WFH to doctors who
+    already have it written into the master rota.
+
+    Leave dominates WFH, as it does in Phases 5, 9C and 12: a doctor with a
+    template WFH row on a session they have booked off did not work it from
+    home, so it must not count -- otherwise every part-timer with a WFH row
+    on a popular leave day reads as over-served. Note that `is_on_leave` is
+    derived from LeaveEntry at grid-build time rather than stored on the
+    session, so the counter records leave as it stood at generation; leave
+    booked or cancelled later in the draft does not retroactively correct
+    it. That drift is accepted -- the clinic counters already behave this
+    way.
+
+    No doctor_type filter: every doctor has a WFH row and every WFH session
+    is tallied. The Partner/Salaried restriction is a Counters *page* filter
+    (`_COUNTED_TYPES`), not a rule about who the engine counts.
+    """
+    for slot in grid.slots.values():
+        if slot.is_on_leave:
+            continue
+        if slot.is_wfh:
+            counters.increment_system(slot.doctor_id, SystemCounterType.WFH)
 
 
 def _write_to_db(
@@ -154,10 +194,10 @@ def _write_counters(db: Session, counters: CounterState) -> None:
     """Upsert every counter touched during this run.
 
     Clinic counters: INSERT for keys CounterState marked new (no prior DB
-    row), UPDATE otherwise. System counters always UPDATE -- M1's
-    seed_system_counters guarantees a room_move and supervision row already
-    exists for every active doctor, so `.scalar_one()` intentionally raises
-    if that guarantee has somehow been violated, rather than silently
+    row), UPDATE otherwise. System counters always UPDATE -- doctor
+    creation seeds one row per SystemCounterType (room_move, supervision,
+    wfh) for every doctor, so `.scalar_one()` intentionally raises if that
+    guarantee has somehow been violated, rather than silently
     creating a duplicate or inconsistent row.
     """
     for (doctor_id, clinic_type_id), raw_count in counters.clinic.items():
