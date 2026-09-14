@@ -1,5 +1,14 @@
 # Implementation Plan — Research section
 
+> **Depends on `documentation/architecture_tightening_plan.md`.** Research is
+> the first module built domain-first, so this plan assumes that plan's Task 1
+> (`DAY_ORDER` extracted), Task 2 (import-linter contracts in CI) and Task 4
+> (the "adding a module" convention, and the mapper-registration composition
+> root of Decision 23 below) are done first. If the tightening plan is dropped
+> or deferred, Decisions 22–25 and the file paths throughout this plan revert
+> to the old layered layout — the *design* in Decisions 1–21 is unaffected
+> either way.
+
 ## Plan
 
 A fifth top-level section, `/research`, alongside Clinical Rota, Reception
@@ -77,6 +86,11 @@ names what is still outstanding.
 - A `research` permission (`none` / `read` / `write`), a fifth landing tile, a
   `ResearchShell`, and the migration that backfills the new key onto existing
   users.
+- The module built **domain-first** — `backend/app/research/` and
+  `frontend/src/features/research/` — as the first demonstration of the
+  convention in `documentation/architecture_tightening_plan.md`, plus the
+  mapper-registration composition root that makes a domain-first model module
+  reachable by `create_all` and Alembic. See Decisions 22–25.
 - Study CRUD: create, list, edit the persistent information and its contacts,
   delete (Setup only — Decision 12).
 - The four-stage machine: one step forward, one step back, no skipping.
@@ -190,11 +204,33 @@ names what is still outstanding.
   `school_holidays.school_id`; every other parent/child cleanup is ORM-level
   `relationship(cascade="all, delete-orphan")`. `PRAGMA foreign_keys=ON` is
   enabled in the API test engine.
-- **Latest migration is `014_edit_locks.py`** (revision `"014"`,
-  down_revision `"013"`), so this work is **`015` and `016`**.
+- **Latest migration is `015_wfh_counter_and_preference.py`** (revision
+  `"015"`, down_revision `"014"`), so this work is **`016` and `017`**.
+  *(This plan originally said 015/016, written when `014_edit_locks.py` was
+  head. Re-check the head before writing either migration — this is the second
+  time it has moved.)*
 - **`backend/tests/test_models.py` is a module, not a package.** New model
   tests go in a new sibling module (`test_research_models.py`), not in a
   `tests/test_models/` directory.
+- **`_AREA` and `_ALL_ROUTERS` in `backend/app/api/main.py` are keyed by the
+  router *module object*, not by its name or path.** So a router living outside
+  `api/routers/` works unchanged — it is one different import line in
+  `main.py`, and `main.py` is the composition root, so it is allowed to import
+  a domain package. See Decision 22.
+- **Mapper registration happens in exactly three places, all via
+  `import app.models`:** `alembic/env.py` line 12 (with the comment
+  "registers all models on Base.metadata"), `tests/conftest.py` and
+  `tests/test_api/conftest.py` (both `Base.metadata.create_all`). A model that
+  no `import app.models` reaches is a missing table in the test DB and a
+  spurious `CREATE TABLE` in the next autogenerate diff. See Decision 23.
+- **The API test fixtures live in `tests/test_api/conftest.py`, not the root
+  conftest** — `client`, `client_no_auth`, `client_with_permissions` and the
+  per-preset clients are all defined there, and its autouse
+  `_audit_to_test_engine` is documented as load-bearing against the root
+  conftest's own autouse fixture. An API test outside `tests/test_api/` gets
+  none of them. See Decision 24, and note `pyproject.toml` pins
+  `pytest<9.2` over a conftest-collection regression — this is not a repo to
+  get clever with test-package layout in.
 - **Nothing is paginated except the audit log**, by an explicit decision:
   reference data is fetched wholesale. A practice runs a handful of studies, so
   studies follow that convention.
@@ -386,6 +422,71 @@ names what is still outstanding.
     and not evidence of anything, so the extension is checked too and the real
     protection remains Decision 14's three response headers.
 
+### Layout decisions (added when this plan was aligned to the tightening plan)
+
+22. **Research is one package per side, not files scattered across the
+    technical layers.** `backend/app/research/` holds `models.py`, `router.py`,
+    `schemas.py` and `catalogue.py`; `frontend/src/features/research/` holds the
+    pages, the API hooks, the catalogue mirror and the components. This plan
+    originally put the models in `backend/app/models/study.py`, the router in
+    `backend/app/api/routers/research.py` and the schemas in
+    `backend/app/api/schemas/research.py` while *also* creating
+    `backend/app/research/catalogue.py` — a hybrid, and the thing worth fixing
+    before implementation rather than after. Research is the first module built
+    this way; clinical and reception are deliberately not retrofitted (see the
+    tightening plan's Decision 5). Nothing about FastAPI, SQLAlchemy or Alembic
+    cares where these modules live — `_AREA` is keyed by module object and
+    Alembic reads `Base.metadata` — so this costs nothing but the import lines.
+
+23. **Mapper registration moves to one composition root, and that is a
+    prerequisite, not a nicety.** Today three files do `import app.models` to
+    get every mapper onto `Base.metadata`. A domain-first model module is not
+    reached by that import, and the three candidate fixes are not equal:
+    - Adding `from ..research.models import ...` to `models/__init__.py` is one
+      line, but it makes the shared kernel import a domain — the exact edge the
+      tightening plan's contracts forbid — and it is **circular-import
+      fragile**: `app.models.__init__` would import `app.research.models`,
+      which imports `app.models.enums` and (for the two user FKs)
+      `app.models.User`. A submodule import survives the partially-initialised
+      package; `from ..models import User` resolved against a half-built
+      `__init__` does not, and whether it works depends on the line's position
+      in `__init__.py`. That is a trap for the next module, not just this one.
+    - Adding `import app.research.models` to `alembic/env.py` and both
+      conftests means three registration sites to remember per module, and
+      forgetting one is a missing table in tests or a phantom `CREATE TABLE` in
+      the next autogenerate diff.
+    - **Chosen:** a single `backend/app/model_registry.py` whose only job is to
+      import `app.models` plus every domain's models. `alembic/env.py` and both
+      conftests import that instead. One line per future module, in one place,
+      and the import-linter contract declares it a composition root — so the
+      "shared kernel must not import a domain" rule stays true with no
+      exception carved into it. It belongs in the tightening plan's Task 4
+      (the convention task), because every later module depends on it; it is
+      listed as a prerequisite in Task 2 below so this plan does not silently
+      assume it.
+
+24. **The app code goes domain-first; the tests stay where they are.** API
+    tests go in `backend/tests/test_api/test_research.py` and model tests in
+    `backend/tests/test_research_models.py` — exactly as this plan already
+    said. This is not an inconsistency to tidy up later: the `client`,
+    `client_with_permissions` and per-preset fixtures live in
+    `tests/test_api/conftest.py`, and a test outside that directory does not
+    see them. Symmetry with the app layout would cost either a fixture move
+    (touching every API test in the repo) or a duplicated conftest. Neither is
+    worth it, and `pyproject.toml`'s `pytest<9.2` pin over a conftest-collection
+    regression is a standing reminder that test layout here is not free. The
+    frontend has no equivalent constraint — its tests sit beside their
+    components, so they move with them.
+
+25. **The import contract gets a `research` entry in the same task that adds
+    the router.** A module whose boundaries are not in the contract set is a
+    module the contracts do not protect, and adding it later means adding it
+    never. The contract states that `app.research` may import the shared kernel
+    and its own internals, and must not import `app.engine`, `app.reception`,
+    `app.documents`, or any clinical or reception model module. Verify it bites
+    by adding a forbidden import locally and watching `lint-imports` fail —
+    a contract whose module expressions match nothing passes silently.
+
 ---
 
 # Task 1: The `research` permission and an empty section
@@ -407,11 +508,13 @@ this task.
   `_READ_ONLY_DETAIL`.
 - `backend/app/api/schemas/auth.py` — `research: AccessArea = "none"` on
   `PermissionSet`.
-- `backend/alembic/versions/015_research_permission.py` — backfill
+- `backend/alembic/versions/016_research_permission.py` — backfill
   `research: "none"` into every existing `users.permissions` JSON value and
   move the column `server_default` to the new `DEFAULT_PERMISSIONS_JSON`.
   Downgrade strips the key and restores the old default. Follow `010`'s shape,
-  and remember CI runs the round trip against real Postgres.
+  and remember CI runs the round trip against real Postgres. **Confirm the
+  current head first** — it was `014` when this plan was written and is `015`
+  now.
 - `frontend/src/api/types.ts` — `research: AccessArea` on `Permissions`.
 - `frontend/src/lib/permissionPresets.ts` — the new key in every entry of
   `PERMISSION_PRESETS`; the new `research` preset; `PRESET_ORDER` and
@@ -427,11 +530,29 @@ this task.
   does — do not change it), with a test for the absent-key case.
 - `frontend/src/routes/LandingPage.tsx` — a fifth `SECTIONS` entry,
   `enterable: (p) => canReadArea(p, "research")`.
-- `frontend/src/App.tsx` — a `ResearchShell` on `/research/*`, modelled on
+- `frontend/src/features/research/ResearchShell.tsx` (new) — modelled on
   `SignaturesShell`: own header, redirect to `/` unless
   `canReadArea(permissions, "research")`, one `PermissionAreaProvider
   area="research"` on the shell (not per route — unlike Documents this is one
   permission), and a placeholder index page.
+
+  **Judgement call, decide at review.** The four existing shells are defined
+  *inline* in `App.tsx`, which is already 535 lines; a fifth inline shell keeps
+  perfect symmetry with them but grows the file, and putting it in
+  `features/research/` follows Decision 22 at the cost of research looking
+  different from its four neighbours. Recommending `features/research/`, which
+  needs one small extraction: `ShellHeader` (currently `App.tsx:217`) moves to
+  `frontend/src/components/ShellHeader.tsx` so the research shell can import it
+  without importing from `App.tsx` — a features module depending on the
+  composition root is backwards. It is a ~20-line presentational component used
+  identically by all four existing shells, so the extraction is low-risk, but
+  it *is* a change to shared chrome on live code and belongs in its own commit.
+  If the review chat prefers not to touch `App.tsx`'s internals at all, put
+  `ResearchShell` inline with the others and move it when the frontend
+  convention is settled properly.
+- `frontend/src/App.tsx` — mount `<ResearchShell />` on `/research/*`
+  alongside the other four routes. If the extraction above is taken, also drop
+  `ShellHeader` and import it from `components/`.
 - Tests: `backend/tests/test_api/test_authorization.py` — add the research
   preset to `_PROFILES`; `backend/tests/test_api/test_users.py` and the
   permission fixtures; `frontend/src/App.test.tsx` for the new shell's guard;
@@ -449,19 +570,43 @@ its `_PROFILES` edit is the only backend test change this task needs.
 # Task 2: Data model and migration
 
 **A.** Task 1 is done: the permission exists and `/research` renders an empty
-shell. This task adds the schema only — no endpoints, no UI.
+shell. This task adds the schema only — no endpoints, no UI. It is also the
+first module to use the domain-first package layout (Decision 22).
+
+**Prerequisite (Decision 23).** `backend/app/model_registry.py` must exist
+before this task's models can be reached by `create_all` or by Alembic
+autogenerate. It belongs to the tightening plan's Task 4; if that task has not
+landed, create it here as the first commit of this task rather than working
+around it:
+
+- `backend/app/model_registry.py` (new) — imports `app.models` and each
+  domain's models, with a docstring saying it exists so mapper registration has
+  exactly one place to be forgotten from.
+- `backend/alembic/env.py` — `import app.model_registry` in place of
+  `import app.models` (keep the `# noqa: F401` and the explanatory comment).
+- `backend/tests/conftest.py`, `backend/tests/test_api/conftest.py` — the same
+  swap, so both `create_all` calls see every mapper.
 
 **B.** Files and deliverables:
 
 - `backend/app/models/enums.py` — a `StudyStage` enum (`setup`,
   `recruitment_open`, `recruitment_closed`, `closed`), plus the ordered tuple
-  the transitions are derived from (Decision 3).
-- `backend/app/research/catalogue.py` (new package) — the eight setup steps
-  (key, label, display order, `has_documents`) and the three key document slots
-  (slot, label). A `by_key` lookup, an `is_valid_step`, an `is_valid_slot`, and
-  a `slot_holds_one` predicate used by the router and the schemas.
+  the transitions are derived from (Decision 3). This stays in the shared
+  kernel rather than moving into `app/research/`: `models/enums.py` is where
+  every native Postgres enum in this app is declared and where `001`'s
+  `_enum()` / `_create_enum_types()` machinery expects to find them, and
+  splitting that would be a change to clinical's migration plumbing for no
+  gain. *Open question for the review chat — a stage enum used by exactly one
+  module is arguably domain data; the counter-argument is the enum-type
+  creation pattern. Decide before Task 2 starts, not during.*
+- `backend/app/research/__init__.py` (new package) — empty, or re-exporting
+  only what `main.py` needs.
+- `backend/app/research/catalogue.py` — the eight setup steps (key, label,
+  display order, `has_documents`) and the three key document slots (slot,
+  label). A `by_key` lookup, an `is_valid_step`, an `is_valid_slot`, and a
+  `slot_holds_one` predicate used by the router and the schemas.
   Dependency-free, like `models/permissions.py`.
-- `backend/app/models/study.py`:
+- `backend/app/research/models.py` (was `backend/app/models/study.py`):
   - `Study` — `name`, `cpms_code` (unique index, nullable), `study_type`,
     `website_url`, `owner_user_id` (FK `users`), `stage`, the four nullable
     stage-entry dates, `created_at`.
@@ -476,9 +621,12 @@ shell. This task adds the schema only — no endpoints, no UI.
     `relationship(cascade="all, delete-orphan")`, matching every other
     parent/child pair in this schema — not DB-level `ON DELETE CASCADE`, which
     exists in exactly one place here and is not the convention.
-- `backend/app/models/__init__.py` — import the new models so `create_all` sees
-  them (the test suite builds SQLite from the models).
-- `backend/alembic/versions/016_research_studies.py` — four tables and the
+- `backend/app/model_registry.py` — one line importing
+  `app.research.models`. **Not** `backend/app/models/__init__.py`: that would
+  make the shared kernel import a domain and is circular-import fragile, which
+  is the whole of Decision 23. `models/__init__.py` is not touched by this
+  task at all.
+- `backend/alembic/versions/017_research_studies.py` — four tables and the
   native enum type, following `001`'s `_enum()` / `_create_enum_types()`
   pattern, with the downgrade dropping the enum type explicitly.
 - `backend/tests/test_research_models.py` (a new module — `tests/test_models.py`
@@ -497,18 +645,27 @@ user FKs; say so in the docstring rather than defaulting to `SET NULL`.
 # Task 3: The REST API
 
 **A.** The permission and the schema exist. This task adds
-`backend/app/api/routers/research.py`, its schemas, and its tests. No frontend
+`backend/app/research/router.py`, its schemas, and its tests. No frontend
 work.
 
 **B.** Files and deliverables:
 
-- `backend/app/api/schemas/research.py` — `StudyOut` (with its contacts, its
+- `backend/app/research/schemas.py` (was `backend/app/api/schemas/research.py`)
+  — `StudyOut` (with its contacts, its
   setup steps and its document metadata, never the bytes), `StudyIn`,
   `StudyPatch` (contacts as a full-replace list), `StudyContactIn/Out`,
   `SetupStepPatch` (`done`, `done_on`, `note`, all optional),
   `StudyDocumentOut`. `website_url` validated to `http`/`https` only
-  (Decision 17).
-- `backend/app/api/routers/research.py`:
+  (Decision 17). It imports `api/schemas/common.py` if it needs the shared
+  base config — that module is shared kernel and stays where it is.
+- `backend/app/research/router.py` (was
+  `backend/app/api/routers/research.py`) — it imports `..api.deps`
+  (`get_current_user`, `get_db`) and `..api.routers._uploads`, both shared
+  kernel. Note the second one: `_uploads.py` currently sits inside
+  `api/routers/`, and a domain package importing from there is a wart. Leave
+  it — moving `_uploads.py` into the shared kernel proper is the tightening
+  plan's business, not this plan's, and the import is legitimate either way
+  (`safe_filename_stem` solves exactly this problem, see **C**). The endpoints:
   - `GET /research/studies`, `POST /research/studies`,
     `GET /research/studies/{id}`, `PATCH /research/studies/{id}`,
     `DELETE /research/studies/{id}` (409 outside Setup — Decision 12).
@@ -522,10 +679,22 @@ work.
     extension allowlist), `GET /research/studies/{id}/documents/{doc_id}` (the
     hardened download — Decision 14),
     `DELETE /research/studies/{id}/documents/{doc_id}`.
-- `backend/app/api/main.py` — import the router, add it to `_ALL_ROUTERS` and
-  `_AREA` (`research`). Not `_UNGATED`, not `_SHARED_READ`. No
+- `backend/app/api/main.py` — import the router and add it to `_ALL_ROUTERS`
+  and `_AREA` (`research`). Not `_UNGATED`, not `_SHARED_READ`. No
   `require_edit_lock` — research is not in `LOCKABLE_AREAS` (Decision 19), and
-  the registration loop handles that on its own.
+  the registration loop handles that on its own. **The import is a separate
+  line from the `from .routers import (...)` block**, because the router no
+  longer lives there: `from ..research import router as research_router`. Both
+  `_AREA` and `_ALL_ROUTERS` are keyed by module object, so nothing else about
+  the registration loop or its two asserts changes. Add a short comment above
+  the new import saying that domain routers live in their own packages and
+  `main.py` is the composition root that wires them — otherwise the next person
+  "tidies" it back into the `.routers` block.
+- `backend/pyproject.toml` — the `research` entry in the import-linter
+  contracts (Decision 25): `app.research` may import the shared kernel and its
+  own internals, and must not import `app.engine`, `app.reception`,
+  `app.documents`, or clinical/reception model modules. Prove it fails on a
+  deliberate violation before committing.
 - `backend/app/api/audit_descriptions.py` — one sentence per new non-GET route,
   in the UI's own vocabulary ("Opened recruitment for study 4"), or
   `test_audit_descriptions.py` fails with the missing keys.
@@ -554,27 +723,42 @@ and the persistent header, with the stage bodies stubbed.
 
 **B.** Files and deliverables:
 
-- `frontend/src/api/research.ts` — TanStack Query hooks with hierarchical keys,
-  mutations invalidating the resource root per the app convention.
-- `frontend/src/api/types.ts` — the wire mirrors (`Study`, `StudyContact`,
-  `StudySetupStep`, `StudyDocument`, `StudyStage`), enums mirrored by **value**.
-- `frontend/src/lib/researchCatalogue.ts` — the frontend mirror of the setup
-  steps and key slots (labels and order in one place, never inlined in a
-  component).
-- `frontend/src/routes/research/StudiesPage.tsx` — the index: grouped by stage,
-  Closed collapsed, a "New study" dialog, write controls through
+The whole section lives in `frontend/src/features/research/` (Decision 22).
+Existing sections are **not** moved.
+
+- `frontend/src/features/research/api.ts` (was `src/api/research.ts`) —
+  TanStack Query hooks with hierarchical keys, mutations invalidating the
+  resource root per the app convention. It imports the shared
+  `src/api/client.ts` (`postForm`, `getBlob`) — that stays put, it is the
+  shared HTTP client for every section.
+- `frontend/src/features/research/types.ts` — the wire mirrors (`Study`,
+  `StudyContact`, `StudySetupStep`, `StudyDocument`, `StudyStage`), enums
+  mirrored by **value**. **Not** `src/api/types.ts`, which keeps the shared
+  `Permissions` / `AccessArea` types only — and note Task 1 *does* edit
+  `src/api/types.ts` for the `research` permission key, because a permission is
+  shared-kernel and a study is not. Two files, two owners, deliberately.
+- `frontend/src/features/research/catalogue.ts` (was
+  `src/lib/researchCatalogue.ts`) — the frontend mirror of the setup steps and
+  key slots (labels and order in one place, never inlined in a component).
+- `frontend/src/features/research/StudiesPage.tsx` — the index: grouped by
+  stage, Closed collapsed, a "New study" dialog, write controls through
   `useWriteGate()`.
-- `frontend/src/routes/research/StudyPage.tsx` — `/research/studies/:id`: the
+- `frontend/src/features/research/StudyPage.tsx` — `/research/studies/:id`: the
   persistent header panel (the six fields, the contacts table and the three key
   documents — Decision 13), a four-stage indicator, the standing
   data-protection line (Decision 9), the advance/revert controls, and a switch
   on `stage` rendering the body.
-- `frontend/src/components/research/StudyFormDialog.tsx` — create and edit
-  including the contacts rows, Zod-validated, mirroring the server's rules
+- `frontend/src/features/research/components/StudyFormDialog.tsx` — create and
+  edit including the contacts rows, Zod-validated, mirroring the server's rules
   (including the `http`/`https` URL rule).
-- `frontend/src/App.tsx` — the two real routes inside `ResearchShell`.
-- Tests alongside each, MSW-backed, including a read-only user seeing the page
-  with its controls disabled, and the website link rendering with
+- `frontend/src/features/research/ResearchShell.tsx` — the two real routes
+  replacing the placeholder index. `App.tsx` is not touched by this task: it
+  mounts the shell and the shell owns its child routes, which is the point of
+  the section-shell pattern.
+- Tests alongside each, in `features/research/` beside the components they
+  cover (Decision 24 — the frontend has no shared-fixture constraint, so its
+  tests move with their code), MSW-backed, including a read-only user seeing
+  the page with its controls disabled, and the website link rendering with
   `rel="noopener noreferrer"`.
 
 **C.** The transition confirmation belongs here, not in Task 5: it is the
@@ -590,12 +774,13 @@ builds the Setup body in full.
 
 **B.** Files and deliverables:
 
-- `frontend/src/routes/research/SetupStage.tsx` — the eight steps in catalogue
-  order, each a tick, a date input and a note field, with a document slot on
-  the three steps whose catalogue entry says they have one. `site_pack` renders
-  its tick and note with the "the site pack stays on the intranet" copy and no
-  upload control (Decision 18).
-- `frontend/src/components/research/DocumentSlot.tsx` — one component serving
+- `frontend/src/features/research/SetupStage.tsx` — the eight steps in
+  catalogue order, each a tick, a date input and a note field, with a document
+  slot on the three steps whose catalogue entry says they have one. `site_pack`
+  renders its tick and note with the "the site pack stays on the intranet" copy
+  and no upload control (Decision 18).
+- `frontend/src/features/research/components/DocumentSlot.tsx` — one component
+  serving
   both shapes, taking a `holdsOne` flag: upload (drag and drop plus a file
   input, following `EoiPage`), the slot's document list with download and
   delete, the client-side 5 MB and type pre-checks, the replace confirmation
@@ -615,7 +800,7 @@ filename, so pass the document row's `filename` to `downloadBlob` explicitly.
 **A.** Setup works end to end. This task adds the minimum second-stage body, so
 that advancing a study lands somewhere coherent.
 
-**B.** `frontend/src/routes/research/RecruitmentOpenStage.tsx`: nothing but an
+**B.** `frontend/src/features/research/RecruitmentOpenStage.tsx`: nothing but an
 explicit "more to come here" placeholder — the persistent information and the
 three key documents are already in the shared header and must not be
 duplicated. Plus the two remaining stages rendering the same minimal body for
@@ -641,10 +826,19 @@ documentation only.
   column, the lazy step rows and the catalogue module, the two document slot
   shapes and why key slots replace, the three download headers, the
   blank-vs-completed data-protection stance, why research is levelled but not
-  lockable, and what was deliberately left out.
+  lockable, and what was deliberately left out. Also: that this is the first
+  module built domain-first, where its code lives, and why its *tests* do not
+  follow the same shape (Decision 24) — the asymmetry looks like an oversight
+  unless the reason is written down.
 - `documentation/architecture.md` — the Domains list, the Document Index, the
   permission table, and the Tech Stack auth row all name the new permission and
-  the new document.
+  the new document. If the tightening plan's "Adding a module" section exists,
+  update it from *proposed* convention to *demonstrated* convention, and record
+  the two things this module found out the hard way: mapper registration needs
+  the composition root (Decision 23), and API tests cannot leave
+  `tests/test_api/` (Decision 24). If the tightening plan has not landed, write
+  that section here instead — the convention is worth more than the plan it
+  came from.
 - Delete `documentation/research_section_plan.md`.
 
 **C.** Do not cite this plan or a task number in any code comment or
