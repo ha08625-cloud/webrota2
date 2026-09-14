@@ -4,8 +4,9 @@ CORS origins come from CORS_ORIGINS (comma-separated), defaulting to "*" for
 development. All routers are registered under /api/v1.
 
 Registration is also where authorization is enforced. Every router except
-the three in _UNGATED is included with
-`dependencies=[Depends(require_access(_AREA[module]))]`. The area is
+the four in _UNGATED is included with
+`dependencies=[Depends(require_access(_AREA[module]))]`, plus
+`Depends(require_edit_lock(area))` for the two lockable sections. The area is
 resolved HERE because it cannot be resolved per request: FastAPI wraps each
 include_router call in an opaque _IncludedRouter, so a running request
 cannot ask which router served it. See deps.py for what each area admits.
@@ -48,8 +49,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from ..database import SessionLocal
+from ..models.permissions import LOCKABLE_AREAS
 from .audit import AuditMiddleware, current_audit_context, set_session_factory
-from .deps import require_access
+from .deps import require_access, require_edit_lock
 from .routers import (
     audit as audit_router,
     auth,
@@ -64,6 +66,7 @@ from .routers import (
     leave,
     leave_entitlement,
     leave_planning,
+    locks,
     master_rota,
     reception_counters,
     reception_leave,
@@ -159,9 +162,9 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar, eoi)
+_ALL_ROUTERS = (auth, locks, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar, eoi)
 
-# The ONLY three routers that do not get a permission gate. Do not
+# The ONLY four routers that do not get a permission gate. Do not
 # extend this without a reason as specific as these:
 #   auth  -- POST /auth/login has no authenticated user by definition, and
 #            POST /auth/logout must stay reachable by every login.
@@ -176,7 +179,13 @@ _ALL_ROUTERS = (auth, rota, clinic_types, doctors, leave, leave_entitlement, lea
 #            get_current_user and so 401s even a GET. The router must never
 #            gain a non-GET endpoint -- test_authorization.py enforces both
 #            halves. See routers/calendar.py.
-_UNGATED = (auth, users, calendar)
+#   locks -- the section editing locks span BOTH levelled areas, and which
+#            one a request concerns is a path parameter rather than a
+#            property of the router, so require_access -- built once around
+#            one area at registration time -- cannot express the rule.
+#            Every endpoint calls deps.require_area_write with the area it
+#            was given instead, raising the same 403s. See routers/locks.py.
+_UNGATED = (auth, users, calendar, locks)
 
 # Router -> permission area, the one place a router's section is recorded.
 # Every gated router appears exactly once. Only the last three are judgement
@@ -221,11 +230,27 @@ assert not set(_AREA) & set(_UNGATED), (
 )
 
 for module in _ALL_ROUTERS:
-    # _AREA[module], not .get(): an unclassified router fails at import
-    # rather than serving an unguarded section.
-    dependencies = (
-        [] if module in _UNGATED else [Depends(require_access(_AREA[module]))]
-    )
+    if module in _UNGATED:
+        dependencies = []
+    else:
+        # _AREA[module], not .get(): an unclassified router fails at import
+        # rather than serving an unguarded section.
+        area = _AREA[module]
+        dependencies = [Depends(require_access(area))]
+        # The section editing lock, on the two lockable areas only. There is
+        # deliberately NO second table listing which routers are lock-gated:
+        # the lock is per SECTION, `_AREA` already records every router's
+        # section, and a second mandatory classification would be a second
+        # thing to forget -- a new clinical router would then be permission-
+        # gated but writable straight through somebody else's lock. Reading
+        # LOCKABLE_AREAS off the area already recorded means a router is
+        # locked the moment it is classified.
+        #
+        # Order matters, and is tested. require_access first, so a login
+        # without the permission gets 403 ("never") rather than 409 ("not
+        # right now") and is never told who is in a section it cannot reach.
+        if area in LOCKABLE_AREAS:
+            dependencies.append(Depends(require_edit_lock(area)))
     app.include_router(module.router, prefix=API_PREFIX, dependencies=dependencies)
 
 

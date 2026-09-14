@@ -12,7 +12,7 @@ import type { ApiError } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 
-/** Mirrors MAX_RECEPTION_LEAVE_RANGE_DAYS in schemas/reception.py, so the server's 422 is never the first line of defence. */
+/** Mirrors MAX_RECEPTION_LEAVE_RANGE_DAYS in api/schemas/reception.py, so the server's 422 is never the first line of defence. */
 const MAX_RANGE_DAYS = 366;
 
 function errorDetail(err: unknown, fallback: string): string {

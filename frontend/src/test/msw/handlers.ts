@@ -34,6 +34,23 @@ export const handlers: HttpHandler[] = [
       { status: 400 },
     ),
   ),
+  // Section editing locks. Nobody holds anything by default, so every
+  // existing suite keeps seeing a writable section; a test about being
+  // locked out stubs a row. The two writes are stubbed because
+  // EditLockProvider fires them on entering and leaving a lockable shell,
+  // which App.test.tsx does on every render.
+  http.get("/api/v1/locks", () => HttpResponse.json([])),
+  http.post("/api/v1/locks/:area", ({ params }) =>
+    HttpResponse.json({
+      area: params.area,
+      user_id: 1,
+      user_name: "Test User",
+      acquired_at: "2026-01-01T09:00:00Z",
+      last_activity_at: "2026-01-01T09:00:00Z",
+      idle: false,
+    }),
+  ),
+  http.delete("/api/v1/locks/:area", () => new HttpResponse(null, { status: 204 })),
   http.get("/api/v1/rooms", () => HttpResponse.json([])),
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),

@@ -30,10 +30,6 @@ import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from 
 const DRAFT_WARNING =
   " Note: a draft rota is currently active. If that draft is scrapped, raw counts will be restored to their pre-generation values and that part of this reset will be undone. Opening balances are not restored by a scrap: clearing them is permanent either way. To make the whole reset permanent, commit or scrap the draft first.";
 
-// Same order the generation engine iterates clinic types in (Phase 5):
-// clinic_priority ascending, then id ascending as a tiebreak. Using this
-// for the tab order (rather than alphabetical) means the tab layout
-// matches the order doctors already see on the clinic types admin page.
 /**
  * The raw count with any credit shown beside it rather than folded into
  * it: "how many of these has this doctor actually done" must stay
@@ -49,6 +45,10 @@ function RawCount({ rawCount, openingBalance }: { rawCount: number; openingBalan
   );
 }
 
+// Same order the generation engine iterates clinic types in (Phase 5):
+// clinic_priority ascending, then id ascending as a tiebreak. Using this
+// for the tab order (rather than alphabetical) means the tab layout
+// matches the order doctors already see on the clinic types admin page.
 function sortByClinicPriority(clinicTypes: ClinicType[]): ClinicType[] {
   return [...clinicTypes].sort((a, b) => a.clinic_priority - b.clinic_priority || a.id - b.id);
 }
@@ -66,7 +66,7 @@ export function CountersPage() {
   // happen to exist), so a clinic with zero counters still gets a tab,
   // and the tabs still appear even before generation has run at all.
   // Deletion is blocked server-side while a clinic type has any counter
-  // rows (see routers_clinic_types.py), so every counter's clinic_type_id
+  // rows (see api/routers/clinic_types.py), so every counter's clinic_type_id
   // is guaranteed to still be present in this list.
   const { data: clinicTypes, isLoading: clinicTypesLoading, isError: clinicTypesError } = useClinicTypes();
   // Loading/error states are deliberately not surfaced here: a draft

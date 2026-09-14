@@ -1,17 +1,19 @@
-"""Generation decision log (Task 1 of the decision-log ticket).
+"""Generation decision log.
 
 `RotaGenerationLogEntry` persists the `DecisionLogEntry` records a
 generation run collects in `engine.datatypes.DecisionLog` -- one row per
 decision the engine made (clinic assignment, room displacement, swap
 resolution, supervision assignment, duty application) while building a
-rota. It is a diagnostic artifact, not a data model to build further
-features on top of, which drives its two deliberate conventions:
+rota.
 
 Each row carries two texts: `message` (what happened, one line) and
 `rationale` (why, one line per stage of the selection -- see
 `engine/rationale.py`). Both are frozen prose written at generation time
 and are never re-derived, which is what lets the log survive reference
 data changing underneath it.
+
+It is a diagnostic artifact, not a data model to build further features on
+top of, which drives its two deliberate conventions:
 
 1. `doctor_id`, `related_doctor_id`, `room_id`, `related_room_id`, and
    `clinic_type_id` are plain nullable integers with **no FK
@@ -69,8 +71,7 @@ class RotaGenerationLogEntry(Base):
     # Multi-line "why", built by engine/rationale.py: the candidates the
     # phase compared, what ruled the rest out, and which stage decided.
     # Nullable because a decision that involved no choice (a skipped closed
-    # date, a WFH abandonment) has nothing to explain, and because rows
-    # written before this column existed have none.
+    # date, a WFH abandonment) has nothing to explain.
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     rota: Mapped["GeneratedRota"] = relationship(back_populates="generation_log")  # noqa: F821

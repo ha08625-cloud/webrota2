@@ -14,7 +14,7 @@ export function MasterRotaPage() {
   // Own instances, separate from MasterRotaGrid's - used only to execute
   // undo replay steps, same pattern as RotaDetailPage's page-level
   // mutation instances alongside RotaGrid's own forward-edit instances.
-  // Three hooks (M4.4 Task 4), matching the three replay-step ops
+  // Three hooks, matching the three replay-step ops
   // buildMasterReplaySteps can produce (patch/create/delete).
   const updateSession = useUpdateMasterSession();
   const createSession = useCreateMasterSession();

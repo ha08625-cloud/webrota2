@@ -1,10 +1,11 @@
-"""Reception role counters over a rolling window (reception counters, Task 1).
+"""Reception role counters over a rolling window.
 
 The single implementation of "how much of each role has each reception staff
-member done lately". `GET /reception/counters` calls it today; a future
-front-desk-rotation generator will call it as its fairness input. Both go
-through `compute_role_counters` rather than re-deriving the aggregate, so the
-API and the generator can never disagree about what a counter means.
+member done lately". `GET /reception/counters` reads it for the counters
+page, and the front-desk and phones assignment steps read it as their
+fairness input. Both go through `compute_role_counters` rather than
+re-deriving the aggregate, so the API and the generator can never disagree
+about what a counter means.
 
 **Derived at read time, never stored.** This is the deliberate divergence from
 the clinical side's `clinic_counters` / `counter_snapshots` tables. A rolling
@@ -55,7 +56,7 @@ from .models import (
 )
 from .models.enums import ReceptionRole
 
-# Roles that do not count toward hours worked. Matches ReceptionHoursPage's
+# Roles that do not count toward hours worked. Matches ReceptionCountersPage's
 # existing rule exactly, so the page's two hours figures cannot disagree about
 # what "working" means -- `lunch` therefore counts as working time, as it does
 # there today. That is a deliberate choice with a known cost (it inflates the

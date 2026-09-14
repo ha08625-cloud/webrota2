@@ -22,10 +22,10 @@ import { rotaDate } from "@/lib/weekDates";
 
 /**
  * The pure, library-agnostic document model for the committed-rota PDF
- * export (PDF export plan, Task 3). **Nothing here may import pdfmake** -
- * this suite must run with pdfmake uninstalled. The pdfmake serialisation
- * layer (Task 4) consumes `RotaPdfDocument` and adds nothing to it but
- * drawing.
+ * export. **Nothing here may import pdfmake** - this suite must run with
+ * pdfmake uninstalled. The pdfmake serialisation layer
+ * (lib/exportRotaPdf.ts) consumes `RotaPdfDocument` and adds nothing to
+ * it but drawing.
  *
  * The split exists because a PDF Blob is close to untestable: the honest
  * ceiling on asserting against one is "non-empty, starts with %PDF". So
@@ -44,7 +44,7 @@ import { rotaDate } from "@/lib/weekDates";
  * first row of a doctor's pair is AM, the second PM, implicit), and day headers
  * are compact ("MON 10th").
  *
- * Room-occupancy pages (Task 6) interleave with the doctor pages in the
+ * Room-occupancy pages interleave with the doctor pages in the
  * same order the Excel export's sheets use - Week 1, Room Week 1, Week 2,
  * ... - and reuse every structure below unchanged: a room's AM/PM pair is
  * a two-row block with the room code merged across it, exactly as a
@@ -108,7 +108,7 @@ export interface PdfPage extends PdfPageContent {
    * document either: a room page has one block per room instead of one
    * per doctor and shorter cells in each, so it is usually much shorter
    * than a doctor page, and sharing a size would shrink it to the doctor
-   * pages' fit for no reason (Task 6, note C).
+   * pages' fit for no reason.
    */
   bodyFontSize: number;
 }

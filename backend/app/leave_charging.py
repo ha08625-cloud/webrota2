@@ -1,4 +1,4 @@
-"""Leave chargeability rule (no-surgery leave exemption plan, Task 2).
+"""Leave chargeability rule.
 
 A booked `LeaveEntry` slot is **exempt** (not chargeable against the doctor's
 leave) when any of the following holds, checked in this precedence order:
@@ -97,8 +97,7 @@ def summarise_leave_charging(
     """Totals a `LeaveEntry` iterable against the exemption rule.
 
     Reads `doctor_id` off each entry rather than taking one as a parameter,
-    so a mixed-doctor iterable summarises correctly with no change -- the
-    property the later multi-doctor register view relies on.
+    so a mixed-doctor iterable summarises correctly with no change.
     """
     exempt_by_reason = {reason: 0 for reason in _ALL_REASONS}
     total = 0

@@ -4,9 +4,10 @@ import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
+import type { LockableArea } from "@/api/locks";
 import type { AccessLevel, AuthUser, Permissions } from "@/api/types";
 import type { PermissionArea } from "@/auth/AuthContext";
-import { AuthProvider, PermissionAreaProvider } from "@/auth/AuthContext";
+import { AuthProvider, EditLockProvider, PermissionAreaProvider } from "@/auth/AuthContext";
 
 import { makeAuthUser } from "./fixtures/reference";
 
@@ -49,6 +50,14 @@ interface RenderWithProvidersOptions {
    * default keeps every other test seeing the pre-link behaviour.
    */
   authUser?: Partial<AuthUser>;
+  /**
+   * Mount the tree inside an EditLockProvider for this section, so a test
+   * can put it under a section editing lock (stub GET /locks with a row
+   * held by another user id). Omitted by default: the lock is not part of
+   * most components' questions, and the provider's default value - nobody
+   * holds anything - is what an unwrapped tree already sees.
+   */
+  editLockArea?: LockableArea;
 }
 
 export function renderWithProviders(ui: ReactElement, options: RenderWithProvidersOptions = {}) {
@@ -60,7 +69,16 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
     permissions,
     area = "clinical",
     authUser = {},
+    editLockArea,
   } = options;
+
+  function withEditLock(children: ReactNode) {
+    return editLockArea ? (
+      <EditLockProvider area={editLockArea}>{children}</EditLockProvider>
+    ) : (
+      children
+    );
+  }
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -77,16 +95,18 @@ export function renderWithProviders(ui: ReactElement, options: RenderWithProvide
             ...authUser,
           })}
         >
-          <PermissionAreaProvider area={area}>
-            <MemoryRouter initialEntries={[route]}>
-              <Routes>
-                <Route path={path} element={ui} />
-                {additionalRoutes.map((r) => (
-                  <Route key={r.path} path={r.path} element={r.element} />
-                ))}
-              </Routes>
-            </MemoryRouter>
-          </PermissionAreaProvider>
+          {withEditLock(
+            <PermissionAreaProvider area={area}>
+              <MemoryRouter initialEntries={[route]}>
+                <Routes>
+                  <Route path={path} element={ui} />
+                  {additionalRoutes.map((r) => (
+                    <Route key={r.path} path={r.path} element={r.element} />
+                  ))}
+                </Routes>
+              </MemoryRouter>
+            </PermissionAreaProvider>,
+          )}
         </AuthProvider>
       </QueryClientProvider>,
     ),

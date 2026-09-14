@@ -6,20 +6,18 @@ Independent of the clinical rota (doctors, master_rota, engine/) end to end --
 the only things shared are auth, the app shell, the HTTP client, and
 deployment. Reception has a much simpler shape than the clinical rota: one
 day at a time, half-hourly slots 7:30am-6:30pm (RECEPTION_HOURS, twenty-two
-per day),
-one role per staff member per slot (phones/other).
+per day), one ReceptionRole per staff member per slot.
 
-**Half-hour granularity.** `hour` stays the field/column name everywhere --
-it is still "the hour of day a slot starts" -- but it is a float, not an
-int: valid values are X.0 or X.5 (e.g. 8.5 is 8:30am), not just whole hours.
-This was chosen over renaming `hour` to something like `slot` (which would
-have touched the API contract, every schema/router/frontend reference, and
-every test) because X.5 reads unambiguously as a half hour and the column's
-meaning does not change, only its precision. RECEPTION_FIRST_HOUR/
-RECEPTION_LAST_HOUR/RECEPTION_HOURS below are unchanged in spirit from the
-original hourly model (still mirrored in the frontend's
-lib/receptionHours.ts, still "widening opening hours is a migration") --
-only the step between values shrank from 1 to 0.5.
+**Half-hour granularity.** `hour` names the field and the column
+everywhere -- it is "the hour of day a slot starts" -- but it is a float,
+not an int: valid values are X.0 or X.5 (e.g. 8.5 is 8:30am), not just
+whole hours. This was chosen over renaming `hour` to something like `slot`
+(which would have touched the API contract, every schema/router/frontend
+reference, and every test) because X.5 reads unambiguously as a half hour
+and the column's meaning does not change, only its precision.
+RECEPTION_FIRST_HOUR/RECEPTION_LAST_HOUR/RECEPTION_HOURS below are mirrored
+in the frontend's lib/receptionHours.ts, and widening opening hours is a
+migration.
 
 Row existence is the data, exactly as on master_rota_sessions: a staff member
 with no row for a given (day, hour) is not expected at that hour. Editing a
@@ -115,8 +113,8 @@ class ReceptionMasterSession(Base):
     """One weekday master template, keyed by (staff, day, hour) -- not five
     separate per-weekday templates. There is no header/version table: no
     active/inactive concept and no staging exist for reception, so a header
-    would only reproduce master_rota_templates.is_active's documented
-    ambiguity for no benefit."""
+    would only add master_rota_templates.is_active's app-enforced
+    single-active rule for no benefit."""
 
     __tablename__ = "reception_master_sessions"
     __table_args__ = (
@@ -239,7 +237,7 @@ class ReceptionLeaveEntry(Base):
     """One whole day off for one reception staff member.
 
     Deliberately thinner than the clinical LeaveEntry: no `period` column
-    and no `notes`. Reception's day is twenty half-hourly slots, so an
+    and no `notes`. Reception's day is twenty-two half-hourly slots, so an
     AM/PM split would be an arbitrary line through the middle of it, and
     the finer-grained "off from 2pm" case is already expressible -- and
     more precisely -- by deleting the slots or tagging them

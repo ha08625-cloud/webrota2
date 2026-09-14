@@ -128,8 +128,7 @@ def enum_col(py_enum: type[enum.Enum]) -> SAEnum:
     same named type once per table, breaking ``create_all`` /
     ``alembic upgrade head``. One shared instance per enum lets SQLAlchemy
     deduplicate type creation within Base.metadata. SQLite is unaffected
-    (renders VARCHAR + CHECK). Flagged in the M1 plan's implementation note;
-    fixed here at M3 as part of finalising the Postgres baseline.
+    (renders VARCHAR + CHECK).
     """
     cached = _ENUM_TYPE_CACHE.get(py_enum)
     if cached is None:

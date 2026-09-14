@@ -17,10 +17,7 @@ export const dutyKeys = {
       : ([...dutyKeys.all, "counts"] as const),
 };
 
-/**
- * No filtering per the M4 plan's Task 6 scope ("table of assignments per
- * the duty API") - unlike Leave, no doctor/date filter was called for.
- */
+/** Unfiltered - unlike leave, no doctor/date filter was called for. */
 export function useDuty() {
   return useQuery({
     queryKey: dutyKeys.list(),

@@ -12,7 +12,7 @@ import {
 } from "@/lib/rotaPdfModel";
 
 /**
- * PDF export builder for a committed rota (PDF export plan, Task 4).
+ * PDF export builder for a committed rota.
  * Deliberately thin: every decision worth testing - row order, cell text,
  * colour, and the fitted font size - was already made by rotaPdfModel.ts,
  * which is exhaustively unit tested against plain objects. This file only
@@ -32,8 +32,8 @@ import {
  *
  * ---
  *
- * **Task 1 spike findings, recorded here because they are surprising and
- * the compiler cannot enforce them.**
+ * **pdfmake integration findings, recorded here because they are
+ * surprising and the compiler cannot enforce them.**
  *
  * *1. Both dynamic imports need `.default` - the opposite of the exceljs
  * export, so do not copy that file's import line.* The pdfmake browser
@@ -288,7 +288,7 @@ export async function buildRotaPdf(
   closureNameByDate: Map<string, string | null>,
 ): Promise<Blob> {
   // Room pages on, for parity with the Excel export's `Room Week N`
-  // sheets (Task 6). They roughly double the page count, and unlike the
+  // sheets. They roughly double the page count, and unlike the
   // doctor grid they have no counterpart in the practice's paper rota.
   const model = buildRotaPdfModel(rota, doctors, rooms, clinicTypes, closureNameByDate, {
     includeRoomPages: true,

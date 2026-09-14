@@ -61,8 +61,8 @@ describe("IssuesPanel", () => {
   // This test exercises navigateTo() in isolation against a hand-built
   // fixture div carrying data-week-day-period, not the real grid - it
   // does NOT catch the anchor moving to a different element in RotaGrid
-  // (e.g. the M4.x header-collapse that moved this attribute from the
-  // per-(day,period) <th> onto each body <td>). RotaGrid_test.tsx's
+  // (e.g. the header-collapse change that moved this attribute from the
+  // per-(day,period) <th> onto each body <td>). RotaGrid.test.tsx's
   // "stamps data-week-day-period on the body cell" test is what
   // actually guards the real anchor location - keep both in sync if
   // RotaGrid's markup changes again.

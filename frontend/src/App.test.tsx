@@ -1,10 +1,12 @@
 import { HttpResponse, http } from "msw";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { Permissions } from "@/api/types";
-import { AuthProvider } from "@/auth/AuthContext";
+import { AuthProvider, editLockTitle } from "@/auth/AuthContext";
+import { clearToken, setToken } from "@/auth/tokenStore";
 import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { server } from "@/test/msw/server";
 
@@ -22,12 +24,19 @@ import { App } from "./App";
  * by default; pass a permission set to check what a narrower login is
  * offered.
  */
-function renderAt(path: string, permissions: Permissions = PERMISSION_PRESETS.manager) {
+function renderAt(
+  path: string,
+  permissions: Permissions = PERMISSION_PRESETS.manager,
+  locks: unknown[] = [],
+) {
   server.use(
     http.get("/api/v1/doctors", () => HttpResponse.json([])),
     http.get("/api/v1/leave", () => HttpResponse.json([])),
     http.get("/api/v1/closures", () => HttpResponse.json([])),
     http.get("/api/v1/signatures", () => HttpResponse.json([])),
+    // Nobody holds a section unless a test says so. `user_id` in a lock
+    // passed here must not be the fixture user's, or it reads as "mine".
+    http.get("/api/v1/locks", () => HttpResponse.json(locks)),
   );
   window.history.pushState({}, "", path);
 
@@ -296,6 +305,169 @@ describe("LandingPage tiles", () => {
 
     expect(screen.getByText(/no sections enabled/i)).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The section editing lock lowers useCanWrite, which roughly twenty
+ * components already consult - so the controls go read-only for free. The
+ * risk of touching that hook is everything built on the plain
+ * canWriteArea() function instead: the nav filter and the route guards,
+ * which must keep treating a locked-out writer as the writer they are.
+ * Losing the lock must take the buttons away, never the section.
+ */
+describe("section editing lock", () => {
+  const HELD_BY_SOMEONE_ELSE = [
+    {
+      area: "clinical",
+      // Never a fixture user's id, so this always reads as somebody else.
+      user_id: -1,
+      user_name: "Kristel",
+      acquired_at: "2026-01-01T09:00:00Z",
+      last_activity_at: "2026-01-01T09:00:00Z",
+      idle: false,
+    },
+  ];
+
+  it("disables the write controls and names the holder", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const gated = await screen.findAllByTitle(editLockTitle("Kristel"));
+    expect(gated.length).toBeGreaterThan(0);
+    expect(gated[0]).toBeDisabled();
+  });
+
+  it("keeps every nav entry a writer normally gets", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    await screen.findAllByTitle(editLockTitle("Kristel"));
+    const nav = screen.getByRole("navigation");
+    for (const label of ["Master Rota", "Clinic Types", "Staff", "Counters"]) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    // And not the reader's entry, which would mean the lock had been
+    // mistaken for a permission.
+    expect(within(nav).queryByRole("link", { name: "Committed Rotas" })).not.toBeInTheDocument();
+  });
+
+  it("does not redirect a locked-out writer to the reader's home", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Committed rotas" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the documents section alone - its permissions cannot be locked", async () => {
+    renderAt("/signatures", PERMISSION_PRESETS.manager, HELD_BY_SOMEONE_ELSE);
+
+    expect(await screen.findByRole("heading", { name: "Signatures" })).toBeInTheDocument();
+    expect(screen.queryByTitle(editLockTitle("Kristel"))).not.toBeInTheDocument();
+  });
+
+  it("stands a banner naming the holder above the page", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const banner = await screen.findByRole("status");
+    expect(banner).toHaveTextContent("Kristel");
+    expect(banner).toHaveTextContent(/read it, but not make changes/);
+  });
+
+  it("carries the banner into the reception section too", async () => {
+    renderAt("/reception", PERMISSION_PRESETS.manager, [
+      { ...HELD_BY_SOMEONE_ELSE[0], area: "reception" },
+    ]);
+
+    const banner = await screen.findByRole("status");
+    expect(banner).toHaveTextContent("Kristel");
+  });
+
+  it("shows no banner in a section nobody is editing", async () => {
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    expect(await screen.findByRole("heading", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("explains the read-only section once, not on every page inside it", async () => {
+    server.use(
+      http.post("/api/v1/locks/:area", () =>
+        HttpResponse.json(
+          {
+            detail: {
+              message: "Kristel is editing the clinical rota",
+              code: "edit_lock_held",
+              area: "clinical",
+              holder_user_id: -1,
+              holder_name: "Kristel",
+              acquired_at: "2026-01-01T09:00:00Z",
+              last_activity_at: "2026-01-01T09:00:00Z",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin, HELD_BY_SOMEONE_ELSE);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Kristel is editing the clinical rota");
+    await userEvent.click(screen.getByRole("button", { name: "Continue reading" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Moving to another page in the same section. The shell - and the lock
+    // provider around it - stays mounted, so nobody should be told again;
+    // the banner is what carries the message from here on.
+    await userEvent.click(screen.getByRole("link", { name: "Master Rota" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Kristel");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Logging out has to give the lock back while the token is still valid.
+ * Afterwards the session is gone server-side, so the DELETE could only
+ * 401 - and a colleague would be told to go and ask somebody who had gone
+ * home until the idle timeout ran out.
+ */
+describe("logout releases the section editing lock", () => {
+  afterEach(() => {
+    clearToken();
+  });
+
+  it("releases before clearing the token", async () => {
+    const released: string[] = [];
+    server.use(
+      http.delete("/api/v1/locks/:area", ({ params }) => {
+        released.push(String(params.area));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    setToken("test-token");
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    await screen.findByRole("heading", { name: "Rota" });
+    await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(released).toEqual(["clinical"]));
+  });
+
+  it("logs out anyway when the release fails - it is a courtesy, not a gate", async () => {
+    let loggedOut = false;
+    server.use(
+      http.delete("/api/v1/locks/:area", () => HttpResponse.error()),
+      http.post("/api/v1/auth/logout", () => {
+        loggedOut = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    setToken("test-token");
+    renderAt("/clinical", PERMISSION_PRESETS.rotaAdmin);
+
+    await screen.findByRole("heading", { name: "Rota" });
+    await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(loggedOut).toBe(true));
   });
 });
 

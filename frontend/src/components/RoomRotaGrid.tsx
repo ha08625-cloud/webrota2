@@ -169,7 +169,7 @@ interface RoomCellProps {
 }
 
 /**
- * Cell logic, in order (M4.x room-view plan, Task 3): closed date first
+ * Cell logic, in order: closed date first
  * (must precede the occupancy lookup - see closedSlotSet above),
  * then occupied (a session holds this room this slot), then available.
  * Every branch carries data-week-day-period so IssuesPanel navigation

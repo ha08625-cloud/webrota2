@@ -42,7 +42,7 @@ function sameDoctorSet(a: number[], b: number[]): boolean {
 }
 
 /**
- * Whether un-ticking a definition needs a confirm (D6). An instance that
+ * Whether un-ticking a definition needs a confirm. An instance that
  * still matches the definition it was copied from is removed silently;
  * anything the user has since changed for this run is worth a prompt.
  *
@@ -63,7 +63,7 @@ export function instancesDiverged(instances: StagingNote[], definition: Recurrin
 }
 
 /**
- * The D5 warning: the slots where Phase 2 will build no SessionSlot, so
+ * The missing-slot warning: the slots where Phase 2 will build no SessionSlot, so
  * the note has nothing to land on and vanishes silently.
  *
  * Two of the three suppressors are visible from the staging payload - no
@@ -279,8 +279,8 @@ interface WeekPickerDialogProps {
   onConfirm: (weeks: number[]) => void;
 }
 
-/** A tick on a multi-week run asks which generation weeks it applies to
- * (D4), defaulting to week 1 only. Each ticked week becomes its own
+/** A tick on a multi-week run asks which generation weeks it applies to,
+ * defaulting to week 1 only. Each ticked week becomes its own
  * independently editable instance - this is a per-run choice, not a
  * recurrence stored on the definition. */
 function WeekPickerDialog({

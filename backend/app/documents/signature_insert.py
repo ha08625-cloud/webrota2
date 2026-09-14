@@ -32,9 +32,9 @@ def insert_signature(docx_bytes: bytes, image_bytes: bytes) -> Document:
     """
     try:
         document = Document(io.BytesIO(docx_bytes))
-    except (PackageNotFoundError, zipfile.BadZipFile):
+    except (PackageNotFoundError, zipfile.BadZipFile) as exc:
         # This is the path a legacy .doc (binary, pre-OOXML) upload takes.
-        raise DocumentFormatError("File is not a valid .docx document")
+        raise DocumentFormatError("File is not a valid .docx document") from exc
 
     if len(document.tables) < 1:
         raise DocumentFormatError("Document contains no table")

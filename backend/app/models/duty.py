@@ -1,4 +1,4 @@
-"""DutyAssignment model: the pre-planned duty rota input. Not seeded in M1."""
+"""DutyAssignment model: the pre-planned duty rota input. Not seeded."""
 from sqlalchemy import Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 import datetime

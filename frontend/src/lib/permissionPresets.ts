@@ -52,7 +52,8 @@ export const PERMISSION_PRESETS = {
 
 export type PermissionPresetName = keyof typeof PERMISSION_PRESETS;
 
-/** A fresh copy: the preset objects themselves are shared and frozen. */
+/** A fresh copy - PERMISSION_PRESETS' objects are shared module state, and
+ * the editor mutates what this returns. */
 export function permissionPreset(name: PermissionPresetName): Permissions {
   return { ...PERMISSION_PRESETS[name] };
 }

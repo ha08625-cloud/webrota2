@@ -15,6 +15,7 @@ from .enums import (
     RotaStatus,
     SessionRole,
     Site,
+    SupervisionPreference,
     SystemCounterType,
 )
 from .room import Room
@@ -48,6 +49,7 @@ from .recurring_note import (
 from .generation_log import RotaGenerationLogEntry
 from .signature import DoctorSignature
 from .user import PasswordResetToken, User, UserSession
+from .edit_lock import EDIT_LOCK_IDLE_TIMEOUT, EditLock, is_stale
 from .audit import AuditLogEntry
 from .reception import (
     ReceptionStaff,
@@ -59,13 +61,14 @@ from .reception import (
 
 __all__ = [
     # enums
-    "DoctorType", "RoomType", "Site", "Day", "Period", "DutyType",
-    "RotaStatus", "SystemCounterType", "MasterSessionType",
-    "SessionRole", "ReceptionRole", "AccessLevel",
+    "DoctorType", "SupervisionPreference", "RoomType", "Site", "Day",
+    "Period", "DutyType", "RotaStatus", "SystemCounterType",
+    "MasterSessionType", "SessionRole", "ReceptionRole", "AccessLevel",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
-    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry", "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
+    "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry",
+    "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
     "MasterRotaTemplate",
     "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
     "GeneratedRota", "RotaSession",
@@ -76,6 +79,7 @@ __all__ = [
     "RecurringNote", "RecurringNoteDoctor",
     "RotaConfigNote", "RotaConfigNoteDoctor",
     "DoctorSignature", "User", "UserSession", "PasswordResetToken",
+    "EditLock", "EDIT_LOCK_IDLE_TIMEOUT", "is_stale",
     "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
     "ReceptionRotaSession",

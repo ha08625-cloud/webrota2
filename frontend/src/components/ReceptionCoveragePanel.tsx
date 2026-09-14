@@ -5,9 +5,9 @@ interface ReceptionCoveragePanelProps {
    * The day rota's current coverage shortfall warnings - passed in from
    * the page's current GET/mutation response, never fetched separately
    * here. Every mutating day-rota endpoint already returns freshly
-   * recomputed issues alongside the written session (reception rota
-   * plan, Task 8), which is what lets the page splice a mutation
-   * response straight into this panel with no second request.
+   * recomputed issues alongside the written session, which is what lets
+   * the page splice a mutation response straight into this panel with no
+   * second request.
    */
   issues: ValidationIssue[];
 }

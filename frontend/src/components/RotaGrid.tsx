@@ -43,7 +43,7 @@ const BACKGROUND_CLASS: Record<CellBackground, string> = {
 /**
  * Red ring on a cell whose doctor has no room for that session
  * (Phase 12's unresolved_room). Inset so it reads as a border on the cell
- * rather than a fill - the cell's own background still carries Q13's
+ * rather than a fill - the cell's own background still carries the
  * duty/clinic colouring, which a fill would hide.
  */
 const NEEDS_ROOM_RING = "ring-2 ring-inset ring-red-600";
@@ -85,10 +85,10 @@ function needsRoomKey(week: number, doctorId: number, day: Day, period: Period):
 }
 
 /**
- * Rota grid: week tabs, pivoted doctor x (day, period) table, full Q13
- * cell colouring. Used both for draft rotas (editable) and committed
- * rotas (Q10 for free - read-only automatically, since `editable` below
- * is derived from rota.status). Drag sources/targets and the edit
+ * Rota grid: week tabs, pivoted doctor x (day, period) table, full
+ * duty/clinic cell colouring. Used both for draft rotas (editable) and
+ * committed rotas (read-only automatically, since `editable` below is
+ * derived from rota.status). Drag sources/targets and the edit
  * popover simply aren't rendered for a committed rota - there is no
  * separate read-only component variant to keep in sync.
  */
@@ -103,8 +103,7 @@ export function RotaGrid({
   // A read-only user gets exactly the committed-rota treatment: the
   // existing read-only path already renders no drag sources and no
   // popover, so folding the access check into `editable` reuses it
-  // wholesale rather than adding a second way to be non-editable
-  // (role-based auth, Task 3).
+  // wholesale rather than adding a second way to be non-editable.
   const canWrite = useCanWrite();
   const editable = rota.status === "draft" && canWrite;
 
@@ -115,7 +114,7 @@ export function RotaGrid({
   // no row in this rota - sees the grid exactly as before. The treatment
   // is a left edge and a "(you)" label on the sticky doctor column,
   // deliberately not a background fill: cell backgrounds already carry
-  // Q13's colouring and must stay readable.
+  // the duty/clinic colouring and must stay readable.
   const linkedDoctorId = useLinkedDoctorId();
 
   const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
@@ -141,7 +140,7 @@ export function RotaGrid({
   );
 
   /**
-   * (date, period) closed-slot lookup for this rota (M5) - authoritative
+   * (date, period) closed-slot lookup for this rota - authoritative
    * from rota.closed_slots, the RotaClosure snapshot taken at generation
    * time, never the live PracticeClosure table (see RotaOut docstring): a
    * closure added or removed afterwards must not change how an
@@ -152,8 +151,8 @@ export function RotaGrid({
   const closedSlotSet = useMemo(() => toClosedSlotSet(rota.closed_slots), [rota.closed_slots]);
 
   /**
-   * Closure name lookup, purely cosmetic (M5 plan: "column header may
-   * show the closure name if present"). Deliberately sourced from the
+   * Closure name lookup, purely cosmetic - the column header shows the
+   * closure name when there is one. Deliberately sourced from the
    * *live* closures list, unlike closedSlotSet above - a closure's name
    * is display-only trivia, not part of what makes a date "closed" for
    * this rota, so falling back to no name (rather than snapshotting it)
@@ -167,7 +166,7 @@ export function RotaGrid({
   }, [closures]);
 
   /**
-   * Supervising badge counts (Phase 9C plan, section 5): computed once
+   * Supervising badge counts (Phase 9C): computed once
    * per (week, day, period) here, not per cell render - every cell in a
    * session shares the same count, and only the flagged supervisor's
    * cell ever displays it. Keyed rather than threaded as a nested
@@ -479,7 +478,7 @@ export function RotaGrid({
 }
 
 // --- Read-only cell (committed rotas, or any rota with editable=false) ---
-// Unchanged from Task 3: no dnd-kit hooks, no popover - a committed rota
+// No dnd-kit hooks and no popover - a committed rota
 // should never call useDraggable/useDroppable, since those require a
 // DndContext ancestor that this path deliberately doesn't render.
 
@@ -495,7 +494,7 @@ interface ReadOnlyGridCellProps {
    * (week, doctor, day, period) - rings the cell in red so the "needs a
    * room" issues can be found by eye instead of only through the issues
    * panel. A border treatment, not a fill: cell backgrounds already carry
-   * Q13's colouring. */
+   * the duty/clinic colouring. */
   needsRoom?: boolean;
   roomsById: Map<number, Room>;
   clinicTypesById: Map<number, ClinicType>;
@@ -505,7 +504,7 @@ interface ReadOnlyGridCellProps {
    * re-derived here. */
   dividerClassName: string;
   /** True when this exact (date, period) slot is closed - greys the cell
-   * distinctly from an ordinary absent cell (Task 5). */
+   * distinctly from an ordinary absent cell. */
   closed?: boolean;
 }
 
@@ -570,7 +569,7 @@ interface EditableGridCellProps {
    * (week, doctor, day, period) - rings the cell in red so the "needs a
    * room" issues can be found by eye instead of only through the issues
    * panel. A border treatment, not a fill: cell backgrounds already carry
-   * Q13's colouring. */
+   * the duty/clinic colouring. */
   needsRoom?: boolean;
   /** The rota's flat session list, threaded down to CellEditPopover for client-side steal detection. */
   allSessions: RotaSession[];
@@ -656,8 +655,8 @@ function EditableGridCell({
     <CellContent session={session} fontColorClass={FONT_CLASS[style.fontColor]} supervisedCount={supervisedCount} draggable />
   );
 
-  // Leave cells: the popover trigger is not rendered at all (M4.1 plan) -
-  // there is nothing to edit on a session the doctor isn't working.
+  // Leave cells: the popover trigger is not rendered at all - there is
+  // nothing to edit on a session the doctor isn't working.
   if (session.is_on_leave) {
     return (
       <td
@@ -802,7 +801,7 @@ function DraggableChip({ type, session, className = "" }: { type: ChipType; sess
  * The floating copy DragOverlay portals to the pointer position while a
  * drag is in progress. Deliberately unstyled beyond matching the chip's
  * own text size/weight - it's a drag affordance, not a second place to
- * apply Q13's room-type font colour (the original chip already dims via
+ * apply the room-type font colour (the original chip already dims via
  * isDragging rather than needing this to carry that signal too).
  */
 function ChipOverlayPreview({ activeChip }: { activeChip: ActiveChip }) {

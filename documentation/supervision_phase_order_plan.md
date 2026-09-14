@@ -240,7 +240,7 @@ entry are otherwise unchanged. The new booking step logs its own entry
 neither `is_supervising` nor any counter — **including `ROOM_MOVE`**, even
 when D3 moves a doctor out of a pre-assigned room.
 
-## Task 2: Engine — supervisor-immobility guards
+## Task 2: Engine — supervisor immobility and re-rooming the displaced
 
 **State of the world:** Task 1 done: 9C runs before 7–9A and seats the
 supervisor in SR.

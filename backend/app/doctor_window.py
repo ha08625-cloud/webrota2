@@ -1,11 +1,11 @@
-"""The doctor employment window predicate (annual leave planning, Task 1).
+"""The doctor employment window predicate.
 
 A `Doctor` may carry an optional `start_date` / `end_date` pair; null at
 either end means unbounded. Everything that asks "does this doctor work on
-this date" -- the leave and extra-session entry endpoints, the leave
-planning grid, the `POST /staging` copy loop, Phase 0 and Phase 2 -- goes
-through `is_within_window` here rather than re-deriving the comparison, so
-the rule cannot drift between the API layer and the engine.
+this date" -- the leave, duty and extra-session endpoints, the leave planning
+grid, the `POST /staging` copy loop, and the engine phases -- goes through
+`is_within_window` here rather than re-deriving the comparison, so the rule
+cannot drift between the API layer and the engine.
 
 Deliberately top-level under `app/` rather than under `app/api/`: the
 engine imports it too, and `engine/` importing from `api/` would invert the
@@ -42,8 +42,8 @@ def is_within_window(doctor: _HasWindow, day: datetime.date) -> bool:
 def window_error_detail(doctor: _HasWindow, day: datetime.date) -> str:
     """A human message naming the doctor and the window they fall outside.
 
-    Used verbatim as the 422 detail on the single-entry leave and
-    extra-session endpoints.
+    The 422 detail on the single-entry leave and extra-session endpoints; the
+    duty endpoint embeds it in a longer message.
     """
     if doctor.start_date is not None and doctor.end_date is not None:
         window = f"works {doctor.start_date.isoformat()} to {doctor.end_date.isoformat()}"

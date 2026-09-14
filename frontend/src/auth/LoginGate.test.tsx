@@ -221,11 +221,8 @@ describe("LoginGate", () => {
 
       const known = (await screen.findByRole("status")).textContent;
       expect(known).toContain("Check your email for a link to reset your password");
-      // The two clauses that stop a real user hitting a silent dead end.
-      // Junk folder: this From address is new and rarely used, and the
-      // first live test landed there. Address correct: the backend matches
-      // exactly and case-sensitively, so a typo is indistinguishable from
-      // success.
+      // The two clauses that stop a real user hitting a silent dead end -
+      // see FORGOT_SENT_MESSAGE for why each one is load-bearing.
       expect(known).toContain("junk folder");
       expect(known).toContain("check your email address is correct");
 

@@ -1,9 +1,8 @@
 """Counter models.
 
-ClinicCounter is shared-only: one row per (doctor, clinic_type). An earlier
-design considered a per_slot granularity (one counter per doctor per clinic
-per day/period); this was reversed before M2. Clinics always use a single shared counter regardless of
-how many schedule slots the clinic type has.
+ClinicCounter is shared-only: one row per (doctor, clinic_type). A clinic
+always uses a single shared counter regardless of how many schedule slots
+the clinic type has -- there is no per-(day, period) counter granularity.
 
 Weighted score ((raw_count + opening_balance) / doctor.sessions_per_week) is
 computed at query time, not stored.

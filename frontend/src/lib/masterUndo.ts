@@ -8,13 +8,10 @@ import type { Day, MasterSessionType, Period } from "@/api/types";
  * template's three write endpoints (PATCH/POST/DELETE) have their own,
  * much smaller replay logic below.
  *
- * A discriminated union (M4.4 Task 4), mirroring lib/undoStack.ts's
- * UndoEntry "kind" convention: "patch" is the M4.3 shape (renamed from
- * an interim "edit" used while this was being built ahead of the plan's
- * own task order - see Task 3's note, now resolved by this task's exact
- * naming), "create"/"delete" are new. previous/displaced are captured
- * from the grid's pre-mutation session objects at click time, same
- * convention as the rota entries in undoStack.ts.
+ * A discriminated union mirroring lib/undoStack.ts's UndoEntry "kind"
+ * convention. previous/displaced are captured from the grid's
+ * pre-mutation session objects at click time, same convention as the
+ * rota entries in undoStack.ts.
  */
 export interface MasterPatchUndoEntry {
   kind: "patch";
@@ -51,8 +48,8 @@ export interface MasterDeleteUndoEntry {
    * this exact slot via POST. Flat, not nested (unlike patch/create's
    * displaced), since there's only ever one thing to restore here: the
    * "Remove session" forward action is direct/unconfirmed and never
-   * displaces anything (M4.4 Task 3), so there's no displaced sibling
-   * to also carry. */
+   * displaces anything, so there's no displaced sibling to also
+   * carry. */
   doctorId: number;
   week: number;
   day: Day;
@@ -72,8 +69,8 @@ export type MasterReplayStep =
  * Displaced-first ordering is preserved across all three kinds - restore
  * whatever was stolen from before undoing the action that stole it:
  *
- * "patch": the original M4.3 ordering - restore the displaced session's
- * pair, then the target's own previous pair. Restoring the displaced
+ * "patch": restore the displaced session's
+ * pair first, then the target's own previous pair. Restoring the displaced
  * session to PRE_ASSIGNED + its room will itself auto-displace the
  * target server-side (still holding that room from the forward edit) -
  * harmless, because the very next step overwrites the target with its
@@ -149,11 +146,9 @@ const SESSION_TYPE_LABEL: Record<MasterSessionType, string> = {
 };
 
 /**
- * "AB Monday AM set to Pre-assigned D1" / "AB Monday AM set to No
- * surgery". No issues concept on the template (Phase 12 doesn't run
- * here - see the router docstring), so this is a plain description of
- * what changed, not mutationAppliedMessage's before/after issue-count
- * delta.
+ * There is no issues concept on the template (Phase 12 doesn't run here -
+ * see the router docstring), so this is a plain description of what
+ * changed, not mutationAppliedMessage's before/after issue-count delta.
  */
 export function masterMutationAppliedMessage(
   doctorCode: string,
@@ -167,8 +162,6 @@ export function masterMutationAppliedMessage(
   return `${doctorCode} ${day} ${period} set to ${withRoom}`;
 }
 
-/** "AB Monday AM session added (No surgery)" / "AB Monday AM session
- * added (Pre-assigned D1)" (M4.4 Task 3). */
 export function masterSessionCreatedMessage(
   doctorCode: string,
   day: Day,
@@ -181,7 +174,6 @@ export function masterSessionCreatedMessage(
   return `${doctorCode} ${day} ${period} session added (${withRoom})`;
 }
 
-/** "AB Monday AM session removed" (M4.4 Task 3). */
 export function masterSessionDeletedMessage(doctorCode: string, day: Day, period: Period): string {
   return `${doctorCode} ${day} ${period} session removed`;
 }

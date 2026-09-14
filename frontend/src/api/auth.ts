@@ -31,8 +31,8 @@ export function useLogout() {
  * GET /auth/me - used by LoginGate to verify a stored token is still
  * valid before trusting it and rendering the app. `enabled` is passed in
  * explicitly rather than defaulted to true: LoginGate must not fire this
- * at all when there is no stored token (auth plan, Task 5 - "no token ->
- * login form immediately, do not wait for a request to fail"). `retry:
+ * at all when there is no stored token - no token means the login form
+ * immediately, rather than waiting for a request to fail. `retry:
  * false` because a 401 here is an expected, meaningful result (token
  * expired/revoked), not a transient failure worth retrying - the global
  * queryClient default in main.tsx already skips retries on 4xx, this is

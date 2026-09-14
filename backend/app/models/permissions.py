@@ -61,6 +61,22 @@ AREA_KEYS: tuple[str, ...] = ("clinical", "reception")
 FLAG_KEYS: tuple[str, ...] = ("signatures", "study_eoi", "user_admin")
 PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 
+# The areas a section editing lock can be held on (see models/edit_lock.py).
+# These are the same two strings as AREA_KEYS today, and this is deliberately
+# a separate tuple rather than an alias: the reason they coincide is
+# structural, not incidental. Being locked out of a section means being
+# downgraded to read-only for as long as someone else holds it, and only a
+# levelled permission has a read level to be downgraded to -- a boolean area
+# (signatures, study_eoi, user_admin) has no such state, so it cannot be
+# locked. Aliasing AREA_KEYS would silently make any future levelled
+# permission lockable, and aliasing in the other direction would silently
+# stop expressing that a lockable area must be levelled.
+LOCKABLE_AREAS: tuple[str, ...] = ("clinical", "reception")
+
+# The structural half of the rule above, checked at import: a lockable area
+# that is not a levelled area is a bug, whichever tuple gained the entry.
+assert set(LOCKABLE_AREAS) <= set(AREA_KEYS)
+
 PermissionSetDict = dict[str, str | bool]
 
 DEFAULT_PERMISSIONS: PermissionSetDict = {
@@ -160,3 +176,34 @@ EMPTY_PERMISSIONS_MESSAGE = (
     "A user needs at least one permission. To remove someone's access "
     "entirely, deactivate the user instead."
 )
+
+
+def can_read_area(permissions: PermissionSetDict, area: str) -> bool:
+    """True when `permissions` admits safe methods on `area`.
+
+    The one place the levelled/boolean distinction is resolved, so callers
+    that only want the answer do not each restate it: a levelled area is
+    readable at READ or WRITE, a boolean area is readable exactly when it
+    is set (there is no read-only view of a document generator -- see the
+    module docstring). api/deps.py's gates are written in terms of these
+    two functions, and api/routers/locks.py reuses them for an area it
+    resolves per request rather than at registration time.
+    """
+    granted = permissions.get(area)
+    if area in AREA_KEYS:
+        return granted in (READ, WRITE)
+    return bool(granted)
+
+
+def can_write_area(permissions: PermissionSetDict, area: str) -> bool:
+    """True when `permissions` admits unsafe methods on `area`.
+
+    Levelled areas need WRITE; a boolean area grants both halves or
+    neither, so it is the same test as `can_read_area`. Named after the
+    frontend's `canWriteArea`, which implements the same rule -- there is
+    no codegen between the two, so the pair is kept in step by hand.
+    """
+    granted = permissions.get(area)
+    if area in AREA_KEYS:
+        return granted == WRITE
+    return bool(granted)

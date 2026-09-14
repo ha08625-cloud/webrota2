@@ -1,5 +1,6 @@
 """Pydantic schemas for the API."""
 from .common import ValidationIssueOut
+from .edit_lock import EditLockOut
 from .rota import (
     GenerateRotaIn,
     GenerateRotaOut,
@@ -182,4 +183,5 @@ __all__ = [
     "ReceptionLeaveBulkOut", "ReceptionLeaveBulkDeleteIn",
     "ReceptionLeaveBulkDeleteOut",
     "ReceptionCounterRowOut", "ReceptionCountersOut",
+    "EditLockOut",
 ]

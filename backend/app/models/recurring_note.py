@@ -18,9 +18,10 @@ which is provenance for the UI only -- it is never re-read for content).
 A free-form one-off note has `source_note_id = NULL` from the start.
 
 Meetings move constantly for leave and other commitments, so a stored
-fortnightly recurrence was wrong more often than right; that is why
-`recurring_note_weeks` is gone and `week` here is a generation week of this
-run, bounded in the router against the run's own `num_weeks`.
+fortnightly recurrence would be wrong more often than right. A definition
+therefore carries no recurrence at all: `week` lives on the instance, is a
+generation week of this run, and is bounded in the router against the run's
+own `num_weeks`.
 
 Three things about this feature are deliberate and easy to get wrong:
 
@@ -45,22 +46,22 @@ slots); the window case is an accepted blind spot. Leave is *not* a
 suppressor -- Phase 2 builds the slot with `is_on_leave=True`, so a note on
 a doctor on leave still appears, which is right for a meeting.
 
-The stamp is a default, not a derived value: grid_utils.rebuild_rota_grid()
-reads notes back off the persisted RotaSession row and never re-derives it,
-so editing or clearing a note on the draft grid behaves exactly as it does
-today, and a cleared note is never restored. Note that instances live and
-die with their `RotaConfig`: scrapping a draft discards the picked notes,
-exactly as it already discards every staged session edit, and there is no
-route that regenerates against an existing config.
+Phase 2 stamps the instance text onto `SessionSlot.notes` as a default,
+not a derived value: grid_utils.rebuild_rota_grid() reads notes back off
+the persisted RotaSession row and never re-derives them, so editing or
+clearing a note on the draft grid sticks and a cleared note is never
+restored. Instances live and die with their `RotaConfig`: scrapping a draft
+discards the picked notes, exactly as it discards every staged session
+edit, and there is no route that regenerates against an existing config.
 
 Cascade from parent to children is ORM-level (relationship(cascade="all,
 delete-orphan")), matching every other parent/child pair in this schema --
-there is no DB-level ON DELETE CASCADE anywhere. The `RotaConfig.notes`
-relationship is load-bearing rather than tidiness: routers/staging.py's
-abandon_staging hard-deletes the staging *and* its RotaConfig, which would
-raise an IntegrityError against any picked note without it. doctor_id is a
-plain FK to doctors.id with no ondelete, because doctors are soft-deleted
-only.
+school holidays aside, there is no DB-level ON DELETE CASCADE. The
+`RotaConfig.notes` relationship is load-bearing rather than tidiness:
+routers/staging.py's abandon_staging hard-deletes the staging *and* its
+RotaConfig, which would raise an IntegrityError against any picked note
+without it. doctor_id is a plain FK to doctors.id with no ondelete, because
+doctors are soft-deleted only.
 """
 from sqlalchemy import (
     Boolean,

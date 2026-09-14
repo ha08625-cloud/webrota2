@@ -22,7 +22,7 @@ function setUpServer({
 }
 
 describe("MasterRotaGrid", () => {
-  it("renders all four week tabs even with sessions only in week 1 (M4.4 Task 5)", async () => {
+  it("renders all four week tabs even with sessions only in week 1", async () => {
     setUpServer();
     const session = makeMasterRotaSession({
       session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
@@ -47,7 +47,7 @@ describe("MasterRotaGrid", () => {
     expect(within(cell).getByLabelText("Add session for AB Monday AM")).toBeInTheDocument();
   });
 
-  it("gives an active doctor with zero template sessions a row (M4.4 groundwork)", async () => {
+  it("gives an active doctor with zero template sessions a row", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     renderWithProviders(<MasterRotaGrid sessions={[]} templateId={5} />);
 
@@ -200,7 +200,7 @@ describe("MasterRotaGrid", () => {
   });
 });
 
-describe("MasterRotaGrid: create (M4.4 Task 3)", () => {
+describe("MasterRotaGrid: create", () => {
   it("a successful create reflects in the grid, driven by the live query cache append", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     const template = makeMasterRotaTemplate({ template_id: 5, sessions: [] });
@@ -300,7 +300,7 @@ describe("MasterRotaGrid: create (M4.4 Task 3)", () => {
   });
 });
 
-describe("MasterRotaGrid: delete (M4.4 Task 3)", () => {
+describe("MasterRotaGrid: delete", () => {
   it("a successful delete removes the cell content, driven by the live query cache filter", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 1, code: "AB", active: true })] });
     const session = makeMasterRotaSession({

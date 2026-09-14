@@ -5,46 +5,17 @@ import { makeStagingSession } from "@/test/fixtures/staging";
 
 import { getStagingCell, pivotStaging } from "./pivotStaging";
 
+// Row/cell behaviour lives in pivotSessions.test.ts - the num_weeks-driven
+// week domain is the only thing pivotStaging adds, so it is what is
+// covered here.
+
 describe("pivotStaging", () => {
-  it("builds rows from the doctors list, ordered by code within a type", () => {
-    const doctors = [
-      makeDoctor({ id: 2, code: "ZZ" }),
-      makeDoctor({ id: 1, code: "AA" }),
-    ];
-    const grid = pivotStaging([], doctors, 1);
+  it("builds rows and cells for a staging run", () => {
+    const doctors = [makeDoctor({ id: 2, code: "ZZ" }), makeDoctor({ id: 1, code: "AA" })];
+    const session = makeStagingSession({ doctor_id: 1, week: 2, day: "Wednesday", period: "PM" });
+    const grid = pivotStaging([session], doctors, 2);
     expect(grid.rows.map((r) => r.doctor.code)).toEqual(["AA", "ZZ"]);
-  });
-
-  it("groups rows by doctor type before alphabetising by code", () => {
-    const doctors = [
-      makeDoctor({ id: 1, code: "ZZ", doctor_type: "AHP" }),
-      makeDoctor({ id: 2, code: "AA", doctor_type: "Trainee" }),
-      makeDoctor({ id: 3, code: "BB", doctor_type: "Salaried" }),
-      makeDoctor({ id: 4, code: "YY", doctor_type: "Partner" }),
-    ];
-    const grid = pivotStaging([], doctors, 1);
-    expect(grid.rows.map((r) => r.doctor.code)).toEqual(["YY", "BB", "AA", "ZZ"]);
-  });
-
-  it("gives an active doctor a row even with zero staged sessions", () => {
-    const doctors = [makeDoctor({ id: 1, code: "AA", active: true })];
-    const grid = pivotStaging([], doctors, 1);
-    expect(grid.rows.map((r) => r.doctor.code)).toEqual(["AA"]);
-    expect(grid.rows[0].inactiveWithSessions).toBe(false);
-  });
-
-  it("flags an inactive doctor who has staged sessions rather than dropping them", () => {
-    const doctors = [makeDoctor({ id: 1, code: "AA", active: false })];
-    const sessions = [makeStagingSession({ doctor_id: 1, doctor_code: "AA" })];
-    const grid = pivotStaging(sessions, doctors, 1);
-    expect(grid.rows.map((r) => r.doctor.code)).toEqual(["AA"]);
-    expect(grid.rows[0].inactiveWithSessions).toBe(true);
-  });
-
-  it("drops an inactive doctor with no staged sessions", () => {
-    const doctors = [makeDoctor({ id: 1, code: "AA", active: false })];
-    const grid = pivotStaging([], doctors, 1);
-    expect(grid.rows).toEqual([]);
+    expect(getStagingCell(grid, 1, 2, "Wednesday", "PM")).toBe(session);
   });
 
   it("derives the week list from the numWeeks parameter, not from sessions or a fixed 1-4", () => {
@@ -62,14 +33,7 @@ describe("pivotStaging", () => {
     expect(grid.weeks).toEqual([1]);
   });
 
-  it("looks a session up by its exact (doctor, week, day, period) key", () => {
-    const session = makeStagingSession({ doctor_id: 1, week: 2, day: "Wednesday", period: "PM" });
-    const grid = pivotStaging([session], [], 2);
-    expect(getStagingCell(grid, 1, 2, "Wednesday", "PM")).toBe(session);
-  });
-
-  it("returns undefined for an absent slot", () => {
-    const grid = pivotStaging([makeStagingSession({ doctor_id: 1 })], [], 1);
-    expect(getStagingCell(grid, 1, 1, "Tuesday", "AM")).toBeUndefined();
+  it("clamps a zero-week staging to a single tab rather than rendering none", () => {
+    expect(pivotStaging([], [], 0).weeks).toEqual([1]);
   });
 });

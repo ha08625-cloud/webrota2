@@ -8,7 +8,7 @@ generation's own increments and any manual swap edits -- happen against the
 live counter tables. Scrapping the draft restores every snapshotted value and
 deletes any counter rows created after the snapshot.
 
-Committing no longer deletes the snapshot. The live values become the
+Committing does not delete the snapshot. The live values become the
 baseline for future generations, but the snapshot itself persists as a
 permanent audit record: it is what rollback_commit() restores from when
 undoing a commit, walking backwards through commit history one step at a
@@ -16,12 +16,12 @@ time. A snapshot is deleted only when its rota is eventually scrapped --
 directly from a draft, or after being rolled back from committed.
 
 Rows are write-once: no unique constraints, no updates. At most one draft
-exists at a time (enforced at the API layer), but snapshot storage is no
-longer bounded to "at most one rota's worth" in total -- every committed
-rota that is never rolled back keeps its snapshot rows indefinitely, so
-total storage grows by roughly (doctors x clinic types) + system rows per
-commit. No retention/archival policy exists yet; this is an accepted
-tradeoff, not an oversight -- see the rollback-of-commits plan.
+exists at a time (enforced at the API layer), but snapshot storage is not
+bounded to "at most one rota's worth" in total -- every committed rota that
+is never rolled back keeps its snapshot rows indefinitely, so total storage
+grows by roughly (doctors x clinic types) + system rows per commit. No
+retention/archival policy exists yet; this is an accepted tradeoff, not an
+oversight.
 """
 from sqlalchemy import ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column

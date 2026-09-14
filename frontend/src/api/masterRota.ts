@@ -19,7 +19,7 @@ export function useActiveMasterRota() {
   });
 }
 
-// --- Session editing (M4.3 Task 2) ---
+// --- Session editing ---
 // PATCH is a verbatim (session_type, room_id) pair setter with server-side
 // room displacement - see backend routers/master_rota.py's patch_session
 // docstring. This hook is a thin wire wrapper: it splices the response
@@ -33,12 +33,7 @@ export interface UpdateMasterSessionPayload {
   roomId: number | null;
 }
 
-/**
- * Shared { session, displaced_session } response shape for PATCH, POST,
- * and (implicitly) DELETE's absence of a body - mirrors the backend's
- * M4.4 rename of MasterSessionPatchOut to MasterSessionWriteOut, since
- * this is now the create response too, not just the patch response.
- */
+/** Shared response shape for PATCH and POST (backend: MasterSessionWriteOut). */
 interface MasterSessionWriteResponse {
   session: MasterRotaSession;
   displaced_session: MasterRotaSession | null;
@@ -77,7 +72,7 @@ export function useUpdateMasterSession() {
   });
 }
 
-// --- Session create/delete (M4.4 Task 2) ---
+// --- Session create/delete ---
 // POST/DELETE mirror the same splice-in-place/no-invalidate philosophy as
 // PATCH above, but the cache operation differs: create has no existing row
 // to match by session_id, so the new session is appended rather than

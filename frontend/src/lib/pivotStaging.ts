@@ -1,70 +1,42 @@
 import type { Day, Doctor, Period, StagingSession } from "@/api/types";
-import { compareDoctorDisplayOrder } from "@/lib/groupDoctors";
+import {
+  getSessionCell,
+  pivotSessions,
+  weekNumbers,
+  type PivotedSessionGrid,
+} from "@/lib/pivotSessions";
 
-function slotKey(doctorId: number, week: number, day: Day, period: Period): string {
-  return `${doctorId}:${week}:${day}:${period}`;
-}
-
-export interface StagingGridRow {
-  doctor: Doctor;
-  /** True if this doctor is inactive but has sessions in the viewed staging. */
-  inactiveWithSessions: boolean;
-}
-
-export interface PivotedStagingGrid {
-  /** Same display-order rules as pivotMasterRota's rows (active doctors
-   * grouped by type then alphabetical by code, plus any inactive doctor
-   * with sessions in this staging, flagged). */
-  rows: StagingGridRow[];
-  /** Cell lookup, keyed by (doctor, week, day, period). Missing key is
-   * the expected absent-cell shape. */
-  cells: Map<string, StagingSession>;
+export interface PivotedStagingGrid extends PivotedSessionGrid<StagingSession> {
+  /** 1..num_weeks - see pivotStaging for why this is a parameter rather
+   * than pivotMasterRota's fixed [1, 2, 3, 4]. */
   weeks: readonly number[];
 }
 
 /**
- * Sibling of pivotMasterRota (lib/pivotMasterRota.ts), not a reuse of it.
- * The staging plan's Task 6 instructions call for reusing pivotMasterRota
- * unchanged "if its input shape allows", on the assumption that week tabs
- * would then naturally span 1..num_weeks. That assumption does not hold:
- * pivotMasterRota's `weeks` is MASTER_ROTA_WEEKS, a hardcoded [1, 2, 3, 4]
- * constant (deliberately fixed there - see that file's docstring, M4.4
- * Task 5 - because the master template always has all four week slots
- * defined). A staging run has no such fixed domain: num_weeks is 1, 2, or
- * 4, chosen per run (CreateStagingIn), and there are no rows beyond it -
- * reusing pivotMasterRota unchanged would render two or three unusable
- * empty week tabs on every 1- or 2-week staging. weeks is therefore
- * taken as an explicit `numWeeks` parameter (staging.num_weeks) here
- * rather than fixed or derived from the sessions present.
+ * The staging run's grid. Rows and cells are pivotSessions' - see there
+ * for the display-order and absent-cell rules. The week domain is this
+ * pivot's own contribution, and the only thing that distinguishes it
+ * from pivotRota and pivotMasterRota.
  *
- * Row/cell construction is otherwise identical to pivotMasterRota, since
- * StagingSession carries the same doctor_id/week/day/period/session_type/
- * room_id shape (plus is_on_leave, unused for pivoting).
+ * pivotMasterRota's `weeks` is the fixed MASTER_ROTA_WEEKS [1, 2, 3, 4],
+ * because the master template always has all four week slots defined. A
+ * staging run has no such fixed domain: num_weeks is 1, 2, or 4, chosen
+ * per run (CreateStagingIn), and there are no rows beyond it - fixing
+ * `weeks` at four here would render two or three unusable empty week
+ * tabs on every 1- or 2-week staging. So `weeks` is taken as an explicit
+ * `numWeeks` parameter (staging.num_weeks) rather than fixed, or derived
+ * from the sessions present. Clamped to at least one week so the grid
+ * always has a tab to render.
  */
 export function pivotStaging(
   sessions: StagingSession[],
   doctors: Doctor[],
   numWeeks: number,
 ): PivotedStagingGrid {
-  const cells = new Map<string, StagingSession>();
-  const doctorIdsWithSessions = new Set<number>();
-
-  for (const session of sessions) {
-    cells.set(slotKey(session.doctor_id, session.week, session.day, session.period), session);
-    doctorIdsWithSessions.add(session.doctor_id);
-  }
-
-  const rows: StagingGridRow[] = doctors
-    .filter((doctor) => doctor.active || doctorIdsWithSessions.has(doctor.id))
-    .sort((a, b) => compareDoctorDisplayOrder({ type: a.doctor_type, code: a.code }, { type: b.doctor_type, code: b.code }))
-    .map((doctor) => ({
-      doctor,
-      inactiveWithSessions: !doctor.active && doctorIdsWithSessions.has(doctor.id),
-    }));
-
-  const weeks = Array.from({ length: Math.max(numWeeks, 1) }, (_, i) => i + 1);
-
-  return { rows, cells, weeks };
+  return {
+    ...pivotSessions(sessions, doctors),
+    weeks: weekNumbers(Math.max(numWeeks, 1)),
+  };
 }
 
 export function getStagingCell(
@@ -74,5 +46,5 @@ export function getStagingCell(
   day: Day,
   period: Period,
 ): StagingSession | undefined {
-  return grid.cells.get(slotKey(doctorId, week, day, period));
+  return getSessionCell(grid, doctorId, week, day, period);
 }
