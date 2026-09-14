@@ -241,8 +241,10 @@ describe("LeavePage", () => {
     expect(screen.queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add range" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove range" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Period")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Date")).not.toBeInTheDocument();
+    // The extra-sessions section below has a Period and a Date of its own,
+    // so these are scoped to the removed leave form's own controls.
+    expect(document.querySelector("#leave-period")).toBeNull();
+    expect(document.querySelector("#leave-date")).toBeNull();
   });
 
   describe("add mode", () => {
@@ -435,7 +437,7 @@ describe("LeavePage", () => {
 
       expect(
         await screen.findByText(
-          "1 entries added. Warning: this leave supersedes 1 planned extra session (2026-07-13) - review them on the Extra Sessions page.",
+          "1 entries added. Warning: this leave supersedes 1 planned extra session (2026-07-13) - review them in the extra sessions list below.",
         ),
       ).toBeInTheDocument();
     });

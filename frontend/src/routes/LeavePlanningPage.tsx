@@ -119,7 +119,7 @@ function summariseSave(result: PlanningBulkOut): string {
       superseded.length === 1 ? "" : "s"
     } (${superseded.map((e) => e.date).join(", ")}) ${
       superseded.length === 1 ? "is" : "are"
-    } superseded by leave saved here - review on the Extra Sessions page.`;
+    } superseded by leave saved here - review on the Individual Leave tab.`;
   }
 
   return summary;

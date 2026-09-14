@@ -10,6 +10,18 @@ import { useSessionYear } from "@/components/SessionManagementTabs";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 
+/**
+ * Planned one-off extra sessions, as a section of the Individual Leave tab
+ * rather than a tab of its own. Most doctors have one or two extra sessions
+ * a year, which never justified a fifth tab; sitting them under the same
+ * doctor filter and the same year as leave also puts the two halves of "when
+ * is this doctor in" on one screen, and lets the year calendar show both.
+ *
+ * It deliberately has no doctor filter of its own - the Individual Leave
+ * tab's one filter drives this list too, so the two lists can never end up
+ * describing different doctors.
+ */
+
 function errorDetail(err: unknown, fallback: string): string {
   const apiErr = err as ApiError | undefined;
   if (apiErr && typeof apiErr.detail === "string") {
@@ -28,16 +40,20 @@ function isWeekend(dateString: string): boolean {
   return day === 0 || day === 6;
 }
 
-export function ExtraSessionsPage() {
+export interface ExtraSessionsSectionProps {
+  /** The Individual Leave tab's doctor filter, or null for all doctors. */
+  filterDoctorId: number | null;
+}
+
+export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionProps) {
   const writeGate = useWriteGate();
-  // The filter reads against *all* doctors (including inactive), same
-  // reasoning as LeavePage's filter: a deactivated doctor's historical
-  // entries should still be findable here.
+  // Reads against *all* doctors (including inactive), same reasoning as
+  // LeavePage's filter: a deactivated doctor's historical entries should
+  // still be listed here.
   const { data: allDoctors } = useDoctors(false);
   const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
 
-  const [filterDoctorId, setFilterDoctorId] = useState<number | null>(null);
   const { year } = useSessionYear();
   const { data: entries, isLoading, isError } = useExtraSessions(filterDoctorId, year);
   const createExtraSession = useCreateExtraSession();
@@ -55,7 +71,6 @@ export function ExtraSessionsPage() {
   const [formSummary, setFormSummary] = useState<string | null>(null);
 
   const addDoctorGroups = groupDoctorsByType(activeDoctors);
-  const filterDoctorGroups = groupDoctorsByType(allDoctors ?? []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -75,12 +90,16 @@ export function ExtraSessionsPage() {
       await createExtraSession.mutateAsync({ doctor_id: formDoctorId, date, period });
       // The date typed here is deliberately not clamped to the selected year;
       // when it falls outside it, the new row will not appear in the list
-      // below, so the message says where it did go.
+      // below, so the message says where it did go. The same is true of the
+      // doctor: the list follows the tab's filter, not this form.
       const addedYear = date.slice(0, 4);
+      const hiddenByFilter = filterDoctorId !== null && filterDoctorId !== formDoctorId;
       setFormSummary(
-        addedYear === String(year)
-          ? "Extra session added."
-          : `Added in ${addedYear} - switch the year to see it.`,
+        addedYear !== String(year)
+          ? `Added in ${addedYear} - switch the year to see it.`
+          : hiddenByFilter
+            ? "Extra session added - change the doctor filter above to see it."
+            : "Extra session added.",
       );
       setDate("");
     } catch (err) {
@@ -97,17 +116,19 @@ export function ExtraSessionsPage() {
   const pending = createExtraSession.isPending;
 
   return (
-    <div>
+    <section className="mt-8 border-t border-border pt-4" data-testid="extra-sessions-section">
+      <h2 className="text-sm font-semibold">Extra sessions</h2>
+
       {activeStaging ? (
-        <div className="mt-4 rounded border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
-          A staging is currently in progress. Changes made here will not affect it - only extra
-          sessions planned before a staging is created are applied to it.
+        <div className="mt-2 rounded border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
+          A staging is currently in progress. Changes to extra sessions will not affect it - only
+          extra sessions planned before a staging is created are applied to it.
         </div>
       ) : null}
 
       <form
         onSubmit={handleSubmit}
-        className="mt-4 flex flex-wrap items-end gap-2 rounded border border-border p-3"
+        className="mt-2 flex flex-wrap items-end gap-2 rounded border border-border p-3"
       >
         <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="extra-session-doctor">
@@ -169,30 +190,6 @@ export function ExtraSessionsPage() {
       {formError ? <p className="mt-2 text-sm text-red-700">{formError}</p> : null}
       {formSummary ? <p className="mt-2 text-sm text-ink/70">{formSummary}</p> : null}
 
-      <div className="mt-6">
-        <label className="text-sm font-medium" htmlFor="extra-session-filter">
-          Doctor
-        </label>
-        <select
-          id="extra-session-filter"
-          value={filterDoctorId ?? ""}
-          onChange={(e) => setFilterDoctorId(e.target.value === "" ? null : Number(e.target.value))}
-          className="ml-2 rounded border border-border p-1 text-sm"
-        >
-          <option value="">All doctors</option>
-          {filterDoctorGroups.map((group) => (
-            <optgroup key={group.type} label={group.label}>
-              {group.doctors.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code}
-                  {d.active ? "" : " (inactive)"}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load extra sessions.</p> : null}
 
@@ -214,7 +211,9 @@ export function ExtraSessionsPage() {
             {entries.map((entry: ExtraSessionEntry) => (
               <tr key={entry.id} className="border-t border-border">
                 <td className="py-1 pr-4">{formatDateWithDay(entry.date)}</td>
-                <td className="py-1 pr-4">{doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}</td>
+                <td className="py-1 pr-4">
+                  {doctorsById.get(entry.doctor_id)?.code ?? entry.doctor_id}
+                </td>
                 <td className="py-1 pr-4">{entry.period}</td>
                 <td className="py-1">
                   <button
@@ -223,7 +222,7 @@ export function ExtraSessionsPage() {
                     className="text-xs text-red-700 disabled:opacity-50"
                     {...writeGate}
                   >
-                    Delete
+                    Delete extra session
                   </button>
                 </td>
               </tr>
@@ -231,6 +230,6 @@ export function ExtraSessionsPage() {
           </tbody>
         </table>
       ) : null}
-    </div>
+    </section>
   );
 }

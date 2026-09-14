@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { makeLeaveEntry } from "@/test/fixtures/reference";
+import { makeExtraSessionEntry, makeLeaveEntry } from "@/test/fixtures/reference";
 
 import { LeaveYearCalendar } from "./LeaveYearCalendar";
 
@@ -32,6 +32,49 @@ describe("LeaveYearCalendar", () => {
     );
 
     expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute("data-state", "none");
+  });
+
+  it("marks extra sessions in their own state, full for both halves", () => {
+    render(
+      <LeaveYearCalendar
+        year={2026}
+        entries={[]}
+        extraSessions={[
+          makeExtraSessionEntry({ date: "2026-08-03", period: "AM" }),
+          makeExtraSessionEntry({ date: "2026-08-03", period: "PM" }),
+          makeExtraSessionEntry({ date: "2026-08-04", period: "AM" }),
+          makeExtraSessionEntry({ date: "2027-08-05", period: "AM" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute("data-state", "extra-full");
+    expect(screen.getByTestId("year-cal-2026-08-04")).toHaveAttribute("data-state", "extra-half");
+    // Outside the displayed year, same as leave.
+    expect(screen.getByTestId("year-cal-2026-08-05")).toHaveAttribute("data-state", "none");
+  });
+
+  it("lets full-day leave win a day that also carries an extra session, and marks a split day as both", () => {
+    render(
+      <LeaveYearCalendar
+        year={2026}
+        entries={[
+          makeLeaveEntry({ date: "2026-08-03", period: "AM" }),
+          makeLeaveEntry({ date: "2026-08-03", period: "PM" }),
+          makeLeaveEntry({ date: "2026-08-04", period: "AM" }),
+        ]}
+        extraSessions={[
+          makeExtraSessionEntry({ date: "2026-08-03", period: "AM" }),
+          makeExtraSessionEntry({ date: "2026-08-04", period: "PM" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute("data-state", "full");
+    expect(screen.getByTestId("year-cal-2026-08-04")).toHaveAttribute(
+      "data-state",
+      "leave-and-extra",
+    );
   });
 
   it("captions the year without offering its own year control", () => {
