@@ -3,8 +3,12 @@
 Counter views, resets and opening balances. Reads are live values (committed
 baseline plus any in-progress draft's increments and edits). Raw counts are
 mutated here only by reset-to-zero -- rows are updated, never deleted, so the
-draft snapshot/scrap lifecycle is undisturbed; all other raw-count mutation
-happens through generation and swap-roles.
+draft snapshot/scrap lifecycle is undisturbed. All other raw-count mutation
+happens in the rota router: generation, swap-roles (clinic counters), and
+the two draft edits that change `is_wfh` -- `PATCH /rota/{id}/sessions/{sid}`
+and `POST /rota/{id}/sessions/{sid}/set-room`, both of which adjust the WFH
+system counter. WFH is the only system counter written outside generation;
+see `patch_session`'s docstring for why it is the exception.
 
 Opening balances (`app/models/counter.py`) are the second mutation, and they
 behave differently in two ways worth stating here:
