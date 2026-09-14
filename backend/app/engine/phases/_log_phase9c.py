@@ -8,9 +8,12 @@ out, rather than only the final number -- and `_ineligible_lines` accounts
 for every Partner/Salaried doctor in the session who is not in the pool at
 all.
 
-`_PREFERENCE_MULTIPLIERS` and `supervision_score` live here because the
-selection sort and its explanation must read the same numbers; `phase9c.py`
-imports them back for its sort key.
+`supervision_score` lives here because the selection sort and its
+explanation must read the same numbers; `phase9c.py` imports it back for
+its sort key. `PREFERENCE_MULTIPLIERS` itself now lives in
+`engine/preference.py`, shared with the WFH preference, and is re-exported
+from here so that both the sort and the narration keep reading the one
+table through a single name.
 
 Timing matters in one place: both accounts of a selection are built
 *before* the winner's supervision counter is incremented. Incrementing
@@ -24,7 +27,6 @@ from ...models.enums import (
     Day,
     MasterSessionType,
     Period,
-    PreferenceWeight,
     SystemCounterType,
 )
 from .. import rationale as rat
@@ -35,6 +37,11 @@ from ..datatypes import (
     RotaGrid,
     SessionSlot,
 )
+# Imported (and re-exported via __all__) rather than defined here, so the
+# sort key and this narration read one table -- see the module docstring.
+# It applies to every pool candidate now that there is no SR-priority fast
+# path to exempt.
+from ..preference import PREFERENCE_MULTIPLIERS
 
 # Owned here rather than in `phase9c.py` so the narration can stamp it
 # without importing its caller; the phase imports it back from here.
@@ -43,20 +50,6 @@ PHASE = "phase9c"
 _EXCLUDED_TEMPLATE_TYPES = frozenset({
     MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME,
 })
-
-# Deprioritises (does not exclude) pool candidates by supervision
-# preference. NONE uses a large finite multiplier rather than math.inf so
-# that relative ordering between multiple "none"-preference doctors is
-# preserved when they are the only candidates left -- math.inf would
-# collapse them all to the alphabetical tiebreak regardless of their
-# actual supervision history. Applies to every pool candidate now that
-# there is no SR-priority fast path to exempt.
-PREFERENCE_MULTIPLIERS = {
-    PreferenceWeight.NONE: 1_000_000,
-    PreferenceWeight.LESS: 1.5,
-    PreferenceWeight.NORMAL: 1.0,
-    PreferenceWeight.MORE: 0.66,
-}
 
 
 def supervision_score(

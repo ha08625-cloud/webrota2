@@ -644,3 +644,175 @@ class TestGenerateFromStaging:
         assert row.template_type == MasterSessionType.PRE_ASSIGNED
         assert row.room_id == staging_room.id
         assert row.room_id != template_room.id
+
+class TestWfhCounterTally:
+    """`_tally_wfh` counts every session actually worked from home, off the
+    finished grid (WFH counter plan, D1/D4/D9).
+
+    Each fixture seeds the WFH SystemCounter rows explicitly, because
+    `make_doctor` does not: the live invariant that every doctor has one row
+    per counter type is enforced at doctor creation in the API router, and
+    `_write_counters` relies on it via `.scalar_one()`.
+    """
+
+    def _wfh_count(self, session, doctor) -> int:
+        return session.execute(
+            select(SystemCounter).where(
+                SystemCounter.doctor_id == doctor.id,
+                SystemCounter.counter_type == SystemCounterType.WFH,
+            )
+        ).scalar_one().raw_count
+
+    def test_template_wfh_sessions_are_counted(self, session, monday):
+        """Two template WFH slots for one doctor, none for the other: the
+        counter reflects the template even though no phase allocated WFH
+        (D1 -- the ledger means "sessions spent working at home").
+        """
+        t = make_template(session, is_active=True)
+        home = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        office = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER)
+        make_room(session, code="D1", room_type=RoomType.D)
+        for doc in (home, office):
+            make_system_counter(session, doc, SystemCounterType.WFH)
+
+        for period in (Period.AM, Period.PM):
+            make_master_session(
+                session, t, home, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.WFH,
+            )
+            make_master_session(
+                session, t, office, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.REQUIRES_ROOM,
+            )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        assert self._wfh_count(session, home) == 2
+        assert self._wfh_count(session, office) == 0
+
+    def test_wfh_counter_accumulates_across_generations(self, session, monday):
+        """The tally increments the stored counter rather than replacing it:
+        a doctor starting on 3 ends on 4 after one WFH session.
+        """
+        t = make_template(session, is_active=True)
+        home = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_system_counter(session, home, SystemCounterType.WFH, raw_count=3)
+        make_master_session(
+            session, t, home, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        assert generate(session, config.id).rota_id is not None
+        assert self._wfh_count(session, home) == 4
+
+    def test_wfh_abandoned_by_duty_is_not_counted(self, session, monday):
+        """Phase 4 clears `is_wfh` when it applies a duty role to a templated
+        WFH slot. Because the tally reads the finished grid, that slot is
+        simply absent -- no special case in `_tally_wfh` (D4).
+        """
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_room(session, code="D1", room_type=RoomType.D)
+        make_system_counter(session, duty_doc, SystemCounterType.WFH)
+        make_system_counter(session, duty_doc, SystemCounterType.ROOM_MOVE)
+
+        # AM is taken by duty and loses its WFH; PM stays WFH.
+        for period in (Period.AM, Period.PM):
+            make_master_session(
+                session, t, duty_doc, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.WFH,
+            )
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        am = session.execute(
+            select(RotaSession).where(
+                RotaSession.rota_id == result.rota_id,
+                RotaSession.doctor_id == duty_doc.id,
+                RotaSession.period == Period.AM,
+            )
+        ).scalar_one()
+        assert am.is_wfh is False
+        assert self._wfh_count(session, duty_doc) == 1
+
+    def test_wfh_on_leave_is_not_counted(self, session, monday):
+        """Leave dominates WFH (D9): a template WFH row on a booked-off
+        session was not worked from home, so it must not count.
+        """
+        t = make_template(session, is_active=True)
+        home = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_system_counter(session, home, SystemCounterType.WFH)
+
+        for period in (Period.AM, Period.PM):
+            make_master_session(
+                session, t, home, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.WFH,
+            )
+        make_leave(session, home, monday, Period.AM)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        assert self._wfh_count(session, home) == 1
+
+    def test_wfh_is_counted_for_every_doctor_type(self, session, monday):
+        """No doctor_type filter (D8): a Trainee with a template WFH row is
+        counted like anyone else. The Partner/Salaried restriction is a
+        Counters *page* filter, not a rule about who the engine counts.
+        """
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="CC", doctor_type=DoctorType.TRAINEE)
+        make_system_counter(session, trainee, SystemCounterType.WFH)
+        make_master_session(
+            session, t, trainee, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        assert generate(session, config.id).rota_id is not None
+        assert self._wfh_count(session, trainee) == 1
+
+    def test_scrap_restores_wfh_counter(self, session, monday):
+        """The snapshot/scrap lifecycle covers the new counter with no
+        change: `_snapshot_counters` runs before `_write_counters` and
+        captures every row.
+        """
+        t = make_template(session, is_active=True)
+        home = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        make_system_counter(session, home, SystemCounterType.WFH, raw_count=5)
+        make_master_session(
+            session, t, home, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert self._wfh_count(session, home) == 6
+
+        scrap_rota(session, result.rota_id)
+        assert self._wfh_count(session, home) == 5
