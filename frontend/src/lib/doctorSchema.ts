@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-import type { Doctor, DoctorIn, DoctorType, SupervisionPreference } from "@/api/types";
+import type { Doctor, DoctorIn, DoctorType, PreferenceWeight } from "@/api/types";
 
 const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "Locum", "AHP"]);
-const supervisionPreferenceEnum = z.enum(["none", "less", "normal", "more"]);
+// One enum for both preference columns - they are the same
+// PreferenceWeight server-side (enums.py).
+const preferenceWeightEnum = z.enum(["none", "less", "normal", "more"]);
 
 export const doctorFormSchema = z
   .object({
@@ -15,7 +17,8 @@ export const doctorFormSchema = z
      * Doctor.sessions_per_week: string (Decimal(4,1) server-side).
      */
     sessionsPerWeek: z.number().nonnegative("Must be zero or more"),
-    supervisionPreference: supervisionPreferenceEnum,
+    supervisionPreference: preferenceWeightEnum,
+    wfhPreference: preferenceWeightEnum,
     /**
      * The optional employment window. Held as "" rather than null in form
      * state because that is what an empty `<input type="date">` reports;
@@ -44,6 +47,7 @@ export function emptyFormValues(): DoctorFormValues {
     doctorType: "Partner",
     sessionsPerWeek: 10.0,
     supervisionPreference: "normal",
+    wfhPreference: "normal",
     startDate: "",
     endDate: "",
   };
@@ -55,6 +59,7 @@ export function formValuesFromDoctor(doctor: Doctor): DoctorFormValues {
     doctorType: doctor.doctor_type,
     sessionsPerWeek: Number(doctor.sessions_per_week),
     supervisionPreference: doctor.supervision_preference,
+    wfhPreference: doctor.wfh_preference,
     startDate: doctor.start_date ?? "",
     endDate: doctor.end_date ?? "",
   };
@@ -65,7 +70,8 @@ export function toWirePayload(values: DoctorFormValues): DoctorIn {
     code: values.code,
     doctor_type: values.doctorType as DoctorType,
     sessions_per_week: values.sessionsPerWeek.toFixed(1),
-    supervision_preference: values.supervisionPreference as SupervisionPreference,
+    supervision_preference: values.supervisionPreference as PreferenceWeight,
+    wfh_preference: values.wfhPreference as PreferenceWeight,
     // Blank means "no limit", which on the wire is null - never "".
     // Sent explicitly rather than omitted so the PATCH path can *clear*
     // a window that was previously set; DoctorPatch applies exclude_unset,

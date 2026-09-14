@@ -129,6 +129,32 @@ describe("CountersPage", () => {
     expect(await within(panel).findByText("-")).toBeInTheDocument();
   });
 
+  it("renders a friendly label for each system counter type rather than its raw enum value", async () => {
+    setUpServer({
+      systemCounters: [
+        makeSystemCounter({ id: 1, doctor_id: 1, doctor_code: "AB", counter_type: "room_move" }),
+        makeSystemCounter({ id: 2, doctor_id: 1, doctor_code: "AB", counter_type: "supervision" }),
+        makeSystemCounter({ id: 3, doctor_id: 1, doctor_code: "AB", counter_type: "wfh" }),
+      ],
+    });
+    renderWithProviders(<CountersPage />);
+
+    const table = await screen.findByRole("table", { name: "System counters" });
+    expect(within(table).getByText("Room moves")).toBeInTheDocument();
+    expect(within(table).getByText("Supervision")).toBeInTheDocument();
+    expect(within(table).getByText("WFH")).toBeInTheDocument();
+    expect(within(table).queryByText("room_move")).not.toBeInTheDocument();
+  });
+
+  it("says the WFH counter is a record rather than something the generator balances", async () => {
+    setUpServer();
+    renderWithProviders(<CountersPage />);
+
+    expect(
+      await screen.findByText(/WFH is a record of sessions worked from home/),
+    ).toBeInTheDocument();
+  });
+
   it("shows the live-values note", async () => {
     setUpServer();
     renderWithProviders(<CountersPage />);
@@ -299,7 +325,7 @@ describe("CountersPage", () => {
 
       const table = await screen.findByRole("table", { name: "System counters" });
       const user = userEvent.setup();
-      const input = within(table).getByLabelText("Opening balance for AB room_move");
+      const input = within(table).getByLabelText("Opening balance for AB Room moves");
       await user.clear(input);
       // Negative balances are allowed - a returner, or a leaver whose
       // count should be treated as already served.

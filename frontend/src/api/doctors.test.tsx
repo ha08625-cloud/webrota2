@@ -56,11 +56,13 @@ describe("useCreateDoctor", () => {
     const { result } = renderHook(() => useCreateDoctor(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate({
       code: "XY", doctor_type: "Partner", sessions_per_week: "10.0", supervision_preference: "normal",
+      wfh_preference: "normal",
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(capturedBody).toEqual({
       code: "XY", doctor_type: "Partner", sessions_per_week: "10.0", supervision_preference: "normal",
+      wfh_preference: "normal",
     });
   });
 });

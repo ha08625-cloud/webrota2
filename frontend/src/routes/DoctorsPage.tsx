@@ -2,24 +2,18 @@ import { useState } from "react";
 
 import { useDoctors, useUpdateDoctor } from "@/api/doctors";
 import { useLeaveEntitlements } from "@/api/leave";
-import type { ApiError, Doctor, DoctorType, SupervisionPreference } from "@/api/types";
+import type { ApiError, Doctor, DoctorType, PreferenceWeight } from "@/api/types";
 import { useCanAdminUsers, useWriteGate } from "@/auth/AuthContext";
 import { DeleteDoctorDialog } from "@/components/DeleteDoctorDialog";
 import { DoctorFormDialog } from "@/components/DoctorFormDialog";
 import { formatDate } from "@/lib/date";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
+import { PREFERENCE_OPTIONS } from "@/lib/preferenceWeights";
 
 interface DialogState {
   open: boolean;
   doctor?: Doctor;
 }
-
-const SUPERVISION_PREFERENCES: { value: SupervisionPreference; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "less", label: "Less" },
-  { value: "normal", label: "Normal" },
-  { value: "more", label: "More" },
-];
 
 // Sessions/week is shown for the salaried-headcount types - Partner,
 // Salaried and Trainee. sessions_per_week feeds the Phase 5 weighted
@@ -33,12 +27,24 @@ const SESSIONS_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee"];
 // types are eligible Phase 9C supervisors - a Trainee is the supervisee.
 const SUPERVISION_TYPES: DoctorType[] = ["Partner", "Salaried"];
 
+// WFH preference is offered to the same two types, matching the
+// Partner/Salaried filter the Counters page applies to the WFH counter
+// the preference weights against. Unlike supervision this is a display
+// decision rather than a data restriction: every doctor row carries a
+// wfh_preference column, and every doctor's WFH sessions are counted -
+// a Trainee with a template WFH row included.
+const WFH_TYPES: DoctorType[] = ["Partner", "Salaried"];
+
 function showSessions(doctorType: DoctorType): boolean {
   return SESSIONS_TYPES.includes(doctorType);
 }
 
 function showSupervision(doctorType: DoctorType): boolean {
   return SUPERVISION_TYPES.includes(doctorType);
+}
+
+function showWfh(doctorType: DoctorType): boolean {
+  return WFH_TYPES.includes(doctorType);
 }
 
 /**
@@ -101,10 +107,16 @@ export function DoctorsPage() {
     updateDoctor.mutate({ id: doctor.id, payload: { sessions_per_week: next.toFixed(1) } });
   }
 
-  function handleSupervisionPreferenceChange(doctor: Doctor, value: SupervisionPreference) {
+  function handleSupervisionPreferenceChange(doctor: Doctor, value: PreferenceWeight) {
     if (updateDoctor.isPending) return;
     if (value === doctor.supervision_preference) return;
     updateDoctor.mutate({ id: doctor.id, payload: { supervision_preference: value } });
+  }
+
+  function handleWfhPreferenceChange(doctor: Doctor, value: PreferenceWeight) {
+    if (updateDoctor.isPending) return;
+    if (value === doctor.wfh_preference) return;
+    updateDoctor.mutate({ id: doctor.id, payload: { wfh_preference: value } });
   }
 
   function openCreate() {
@@ -162,6 +174,7 @@ export function DoctorsPage() {
             <th className="py-1 pr-4 font-medium">Type</th>
             <th className="py-1 pr-4 font-medium">Sessions/week</th>
             <th className="py-1 pr-4 font-medium">Supervision</th>
+            <th className="py-1 pr-4 font-medium">WFH</th>
             <th className="py-1 pr-4 font-medium">Works</th>
             <th className="py-1" />
           </tr>
@@ -169,7 +182,7 @@ export function DoctorsPage() {
         {groupDoctorsByType(list).map((group) => (
           <tbody key={group.type}>
             <tr className="border-t border-border bg-ink/5">
-              <th colSpan={6} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
+              <th colSpan={7} className="py-1 pr-4 text-left text-xs font-semibold uppercase text-ink/70">
                 {group.label}
               </th>
             </tr>
@@ -177,6 +190,7 @@ export function DoctorsPage() {
               const sessionsVisible = showSessions(d.doctor_type);
               const templateSessions = templateSessionsByDoctor.get(d.id);
               const supervisionVisible = showSupervision(d.doctor_type);
+              const wfhVisible = showWfh(d.doctor_type);
               return (
                 <tr key={d.id} className="border-t border-border">
                   <td className="py-1 pr-4">{d.code}</td>
@@ -227,12 +241,32 @@ export function DoctorsPage() {
                         value={d.supervision_preference}
                         disabled={updateDoctor.isPending}
                         onChange={(e) =>
-                          handleSupervisionPreferenceChange(d, e.target.value as SupervisionPreference)
+                          handleSupervisionPreferenceChange(d, e.target.value as PreferenceWeight)
                         }
                         className="rounded border border-border p-1 text-sm disabled:opacity-50"
                         {...writeGate}
                       >
-                        {SUPERVISION_PREFERENCES.map((p) => (
+                        {PREFERENCE_OPTIONS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-ink/40">—</span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-4">
+                    {wfhVisible ? (
+                      <select
+                        aria-label={`WFH preference for ${d.code}`}
+                        value={d.wfh_preference}
+                        disabled={updateDoctor.isPending}
+                        onChange={(e) => handleWfhPreferenceChange(d, e.target.value as PreferenceWeight)}
+                        className="rounded border border-border p-1 text-sm disabled:opacity-50"
+                        {...writeGate}
+                      >
+                        {PREFERENCE_OPTIONS.map((p) => (
                           <option key={p.value} value={p.value}>
                             {p.label}
                           </option>
@@ -343,6 +377,14 @@ export function DoctorsPage() {
             </section>
           ) : null}
         </>
+      ) : null}
+
+      {activeDoctors.length > 0 || inactiveDoctors.length > 0 ? (
+        <p className="mt-4 text-xs text-ink/50">
+          WFH preference weights who is picked to work from home when staff outnumber rooms. It is
+          not a block: “None” still works from home on any WFH session set on the master rota, and
+          that session still counts towards their WFH counter.
+        </p>
       ) : null}
 
       {templateSessionsByDoctor.size > 0 ? (

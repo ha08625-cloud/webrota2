@@ -356,12 +356,15 @@ export interface ClinicTypePatch {
 export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP";
 
 /**
- * Doctor.supervision_preference (enums.py). Multiplies the doctor's
- * weighted SUPERVISION score in Phase 9C's fallback pool selection -
- * "none" deprioritises heavily but does not exclude, "more" prioritises.
- * Default "normal" leaves the score unweighted.
+ * PreferenceWeight (enums.py) - the shared four-step weighting behind
+ * both `supervision_preference` and `wfh_preference`. It multiplies the
+ * doctor's weighted score wherever the engine selects on one of those
+ * counters: "none" deprioritises heavily but does not exclude, "more"
+ * prioritises, and the default "normal" leaves the score unweighted.
+ * Selection is lowest-score-wins throughout, so the same four values
+ * read correctly for a burden (supervision) and a perk (WFH) alike.
  */
-export type SupervisionPreference = "none" | "less" | "normal" | "more";
+export type PreferenceWeight = "none" | "less" | "normal" | "more";
 
 export interface Doctor {
   id: number;
@@ -369,7 +372,14 @@ export interface Doctor {
   doctor_type: DoctorType;
   sessions_per_week: string;
   active: boolean;
-  supervision_preference: SupervisionPreference;
+  supervision_preference: PreferenceWeight;
+  /**
+   * Weights this doctor in the (future) WFH allocation phase. It is not
+   * a veto over the master template: a doctor set to "none" who has a
+   * WFH row in the template still works that session from home, and it
+   * still counts towards their WFH system counter.
+   */
+  wfh_preference: PreferenceWeight;
   /**
    * Optional employment window. Null at either end means unbounded,
    * which is every doctor that predates the feature. This is an
@@ -390,7 +400,8 @@ export interface DoctorIn {
   code: string;
   doctor_type: DoctorType;
   sessions_per_week: string;
-  supervision_preference: SupervisionPreference;
+  supervision_preference: PreferenceWeight;
+  wfh_preference: PreferenceWeight;
   /** Employment window; null means unbounded at that end. */
   start_date?: string | null;
   end_date?: string | null;
@@ -402,8 +413,8 @@ export interface DoctorIn {
  * code/doctor_type/sessions_per_week together as a full set; the
  * "Deactivate instead" action sends `active` alone; the DoctorsPage
  * sessions/week stepper sends `sessions_per_week` alone. The DoctorsPage
- * supervision-preference dropdown sends `supervision_preference` alone,
- * the same pattern as the sessions/week stepper.
+ * supervision-preference and WFH-preference dropdowns each send their
+ * own field alone, the same pattern as the sessions/week stepper.
  *
  * The server applies `exclude_unset`, so an omitted `start_date`/`end_date`
  * leaves the stored window untouched while an explicit `null` clears that
@@ -415,7 +426,8 @@ export interface DoctorPatch {
   doctor_type?: DoctorType;
   sessions_per_week?: string;
   active?: boolean;
-  supervision_preference?: SupervisionPreference;
+  supervision_preference?: PreferenceWeight;
+  wfh_preference?: PreferenceWeight;
   start_date?: string | null;
   end_date?: string | null;
 }
@@ -890,7 +902,7 @@ export interface SystemCounter {
 }
 
 /** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */
-export type SystemCounterKind = "room_move" | "supervision";
+export type SystemCounterKind = "room_move" | "supervision" | "wfh";
 
 // --- Rota (schemas/rota.py) ---
 // Deliberately named `rota_id` throughout, matching the wire field exactly
