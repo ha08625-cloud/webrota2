@@ -65,7 +65,8 @@ from app.models.enums import (
 class SupervisionPreference(str, enum.Enum):
     """Frozen copy of the enum this baseline created.
 
-    The live enum was renamed to `PreferenceWeight` (WFH counter plan, D5),
+    The live enum was renamed to `PreferenceWeight` once a second column
+    (`wfh_preference`) started sharing it,
     which renames the Postgres type to `preference_weight` in migration 015.
     A baseline that imported the live class would name the type
     `preference_weight` here, and 015's `ALTER TYPE supervision_preference

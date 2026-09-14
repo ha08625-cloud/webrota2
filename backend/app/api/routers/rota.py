@@ -259,7 +259,7 @@ def _is_on_leave(db: Session, config: RotaConfig, s: RotaSession) -> bool:
 
     Leave is not stored on RotaSession -- it is looked up live from
     LeaveEntry -- so this reads leave as it stands right now. That is the
-    accepted drift described in the WFH counter design: a counter decision
+    accepted drift in the WFH counter's design: a counter decision
     records leave as of the moment of the write, and leave booked or
     cancelled afterwards does not retroactively correct it.
     """

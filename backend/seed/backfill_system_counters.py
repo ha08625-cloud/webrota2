@@ -24,6 +24,7 @@ from app.database import SessionLocal
 from app.models import Doctor, SystemCounter
 from app.models.enums import SystemCounterType
 
+
 def backfill_system_counters(session: Session) -> list[SystemCounter]:
     """Insert a zero-count row for every (doctor, counter_type) pair that
     does not already exist. Returns the rows added (empty list if the

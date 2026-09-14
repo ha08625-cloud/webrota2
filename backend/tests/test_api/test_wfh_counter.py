@@ -1,4 +1,4 @@
-"""WFH system counter adjustments on draft edits (WFH counter plan, Task 3).
+"""WFH system counter adjustments on draft edits.
 
 The WFH counter is the one system counter written outside generation: a
 manual is_wfh toggle in a draft moves it, because is_wfh is hand-edited far

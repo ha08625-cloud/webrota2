@@ -647,7 +647,7 @@ class TestGenerateFromStaging:
 
 class TestWfhCounterTally:
     """`_tally_wfh` counts every session actually worked from home, off the
-    finished grid (WFH counter plan, D1/D4/D9).
+    finished grid: template WFH included, leave excluded.
 
     Each fixture seeds the WFH SystemCounter rows explicitly, because
     `make_doctor` does not: the live invariant that every doctor has one row
