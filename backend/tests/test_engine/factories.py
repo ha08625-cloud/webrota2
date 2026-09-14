@@ -40,7 +40,7 @@ from app.models.enums import (
     Period,
     RoomType,
     Site,
-    SupervisionPreference,
+    PreferenceWeight,
 )
 
 # clinic_types.clinic_priority has a partial unique index over enabled
@@ -61,7 +61,7 @@ def make_room(session, code="D1", room_type=RoomType.D, site=Site.SHC) -> Room:
 
 def make_doctor(
     session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0", active=True,
-    supervision_preference=SupervisionPreference.NORMAL,
+    supervision_preference=PreferenceWeight.NORMAL,
     start_date=None, end_date=None,
 ) -> Doctor:
     d = Doctor(

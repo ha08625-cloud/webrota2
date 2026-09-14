@@ -11,14 +11,15 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ...models.enums import DoctorType, RoomType, SupervisionPreference
+from ...models.enums import DoctorType, RoomType, PreferenceWeight
 
 
 class DoctorIn(BaseModel):
     code: str = Field(min_length=1)
     doctor_type: DoctorType
     sessions_per_week: Decimal = Decimal("10.0")
-    supervision_preference: SupervisionPreference = SupervisionPreference.NORMAL
+    supervision_preference: PreferenceWeight = PreferenceWeight.NORMAL
+    wfh_preference: PreferenceWeight = PreferenceWeight.NORMAL
     start_date: datetime.date | None = None
     end_date: datetime.date | None = None
 
@@ -29,7 +30,8 @@ class DoctorPatch(BaseModel):
     doctor_type: DoctorType | None = None
     sessions_per_week: Decimal | None = None
     active: bool | None = None
-    supervision_preference: SupervisionPreference | None = None
+    supervision_preference: PreferenceWeight | None = None
+    wfh_preference: PreferenceWeight | None = None
     start_date: datetime.date | None = None
     end_date: datetime.date | None = None
 
@@ -61,7 +63,8 @@ class DoctorOut(BaseModel):
     doctor_type: DoctorType
     sessions_per_week: Decimal
     active: bool
-    supervision_preference: SupervisionPreference
+    supervision_preference: PreferenceWeight
+    wfh_preference: PreferenceWeight
     start_date: datetime.date | None = None
     end_date: datetime.date | None = None
     model_config = {"from_attributes": True}

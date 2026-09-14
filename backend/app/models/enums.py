@@ -18,7 +18,15 @@ class DoctorType(str, enum.Enum):
     AHP = "AHP"
 
 
-class SupervisionPreference(str, enum.Enum):
+class PreferenceWeight(str, enum.Enum):
+    """How strongly a doctor wants something the engine allocates by fairness.
+
+    Shared by `Doctor.supervision_preference` and `Doctor.wfh_preference`:
+    both feed the same `PREFERENCE_MULTIPLIERS` table and both
+    read the same way under lowest-score-wins selection, whether the thing
+    being allocated is a burden (supervision) or a perk (WFH).
+    """
+
     NONE = "none"
     LESS = "less"
     NORMAL = "normal"
@@ -64,6 +72,7 @@ class RotaStatus(str, enum.Enum):
 class SystemCounterType(str, enum.Enum):
     ROOM_MOVE = "room_move"
     SUPERVISION = "supervision"
+    WFH = "wfh"
 
 
 class MasterSessionType(str, enum.Enum):

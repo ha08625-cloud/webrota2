@@ -7,8 +7,9 @@ id, and the reset-then-scrap interaction (scrap must undo a mid-draft reset by
 restoring the pre-generation snapshot).
 
 Uses the shared `client`/`db_session`/`seeded` fixtures from conftest.py.
-`seeded` gives doctors AA (Partner) and BB (Salaried), each with ROOM_MOVE
-and SUPERVISION system counters at raw_count=0.
+`seeded` gives doctors AA (Partner) and BB (Salaried), each with one system
+counter row per SystemCounterType (ROOM_MOVE, SUPERVISION, WFH) at
+raw_count=0.
 
 Auth coverage for this router (and every other router) now lives centrally
 in test_auth.py (auth plan, Task 4) -- the per-router TestAuth class that
@@ -127,7 +128,7 @@ class TestResetAllSystem:
             c.raw_count = 9
         db_session.commit()
         counter_ids = [c.id for c in counters]
-        assert len(counter_ids) == 4  # AA/BB x ROOM_MOVE/SUPERVISION
+        assert len(counter_ids) == 6  # AA/BB x ROOM_MOVE/SUPERVISION/WFH
 
         resp = client.post("/api/v1/counters/system/reset-all")
         assert resp.status_code == 204

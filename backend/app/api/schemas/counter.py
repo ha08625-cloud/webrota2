@@ -75,5 +75,5 @@ class ClinicOpeningBalanceIn(_OpeningBalanceBase):
 
 class SystemOpeningBalanceIn(_OpeningBalanceBase):
     """Upsert body for a system counter. Keyed on the counter id in the path,
-    which is always available -- `create_doctor` seeds a ROOM_MOVE and a
-    SUPERVISION row for every doctor."""
+    which is always available -- `create_doctor` seeds one row per
+    SystemCounterType (ROOM_MOVE, SUPERVISION, WFH) for every doctor."""

@@ -37,10 +37,7 @@ class TestDoctors:
         rows = db_session.execute(
             select(SystemCounter).where(SystemCounter.doctor_id == doctor_id)
         ).scalars().all()
-        assert {r.counter_type for r in rows} == {
-            SystemCounterType.ROOM_MOVE,
-            SystemCounterType.SUPERVISION,
-        }
+        assert {r.counter_type for r in rows} == set(SystemCounterType)
         assert all(r.raw_count == 0 for r in rows)
 
     def test_create_doctor_sets_calendar_token(self, client, db_session, seeded):
@@ -228,7 +225,7 @@ class TestDeleteDoctor:
         # Reported per table, and the counts are real rather than zeroes.
         assert deleted["master_rota_sessions"] == 2
         assert deleted["rota_sessions"] > 0
-        assert deleted["system_counters"] == 2
+        assert deleted["system_counters"] == len(SystemCounterType)
 
         db_session.expire_all()
         assert db_session.get(Doctor, doctor_id) is None

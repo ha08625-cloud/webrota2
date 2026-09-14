@@ -382,7 +382,7 @@ def seeded(client, db_session):
     s.add_all([c1, d1, aa, bb])
     s.flush()
     for doc in (aa, bb):
-        for ct in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+        for ct in SystemCounterType:
             s.add(SystemCounter(doctor_id=doc.id, counter_type=ct, raw_count=0))
     template = MasterRotaTemplate(name="Default", is_active=True)
     s.add(template)
@@ -427,7 +427,7 @@ def seeded_no_d_rooms(client, db_session):
     s.add_all([c1, c2, aa, tt, uu])
     s.flush()
     for doc in (aa, tt, uu):
-        for ct in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+        for ct in SystemCounterType:
             s.add(SystemCounter(doctor_id=doc.id, counter_type=ct, raw_count=0))
     s.add(DoctorPreferredRoom(doctor_id=aa.id, preference_order=1, room_id=c1.id))
     template = MasterRotaTemplate(name="Default", is_active=True)

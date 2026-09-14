@@ -67,7 +67,7 @@ def _add_doctor(db, code, doctor_type):
     )
     db.add(doctor)
     db.flush()
-    for ct in (SystemCounterType.ROOM_MOVE, SystemCounterType.SUPERVISION):
+    for ct in SystemCounterType:
         db.add(SystemCounter(doctor_id=doctor.id, counter_type=ct, raw_count=0))
     db.commit()
     return doctor.id

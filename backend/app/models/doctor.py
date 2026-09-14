@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..api.auth_utils import new_session_token
 from ..database import Base
-from .enums import DoctorType, RoomType, SupervisionPreference, enum_col
+from .enums import DoctorType, RoomType, PreferenceWeight, enum_col
 
 
 class Doctor(Base):
@@ -30,11 +30,24 @@ class Doctor(Base):
         Numeric(4, 1), nullable=False, default=Decimal("10.0")
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    supervision_preference: Mapped[SupervisionPreference] = mapped_column(
-        enum_col(SupervisionPreference),
+    supervision_preference: Mapped[PreferenceWeight] = mapped_column(
+        enum_col(PreferenceWeight),
         nullable=False,
-        default=SupervisionPreference.NORMAL,
-        server_default=SupervisionPreference.NORMAL.value,
+        default=PreferenceWeight.NORMAL,
+        server_default=PreferenceWeight.NORMAL.value,
+    )
+    # Weighting for the (future) WFH allocation phase, and the twin of
+    # supervision_preference -- same enum, same multiplier table, opposite
+    # sign of favour. It governs *allocation* only: a WFH row in the master
+    # template is always honoured and always counted, even for a doctor set
+    # to NONE, so "none" means "never allocated WFH", not "never works from
+    # home". Carried by every doctor row regardless of doctor_type; only the
+    # Doctors-page dropdown is gated to Partner/Salaried.
+    wfh_preference: Mapped[PreferenceWeight] = mapped_column(
+        enum_col(PreferenceWeight),
+        nullable=False,
+        default=PreferenceWeight.NORMAL,
+        server_default=PreferenceWeight.NORMAL.value,
     )
     # Employment window: the doctor works only on dates within it. Null at
     # either end means unbounded, which is every pre-existing row and the

@@ -10,7 +10,7 @@ from app.models.enums import (
     MasterSessionType,
     Period,
     RoomType,
-    SupervisionPreference,
+    PreferenceWeight,
     SystemCounterType,
 )
 
@@ -177,7 +177,7 @@ class TestSrSwap:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(
             session, code="PP", doctor_type=DoctorType.PARTNER,
-            supervision_preference=SupervisionPreference.NONE,
+            supervision_preference=PreferenceWeight.NONE,
         )
         sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
         pool_doctor = make_doctor(session, code="QQ", doctor_type=DoctorType.PARTNER)
@@ -260,11 +260,11 @@ class TestPoolPath:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         raw_lower = make_doctor(
             session, code="ZZ", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.LESS,
+            supervision_preference=PreferenceWeight.LESS,
         )
         raw_higher = make_doctor(
             session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.MORE,
+            supervision_preference=PreferenceWeight.MORE,
         )
         room_lower = make_room(session, code="D1", room_type=RoomType.D)
         room_higher = make_room(session, code="D2", room_type=RoomType.D)
@@ -298,7 +298,7 @@ class TestPoolPath:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         only_candidate = make_doctor(
             session, code="PP", doctor_type=DoctorType.PARTNER,
-            supervision_preference=SupervisionPreference.NONE,
+            supervision_preference=PreferenceWeight.NONE,
         )
         d_room = make_room(session, code="D1", room_type=RoomType.D)
 
@@ -327,11 +327,11 @@ class TestPoolPath:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         low_score = make_doctor(
             session, code="ZZ", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.NORMAL,
+            supervision_preference=PreferenceWeight.NORMAL,
         )
         high_score = make_doctor(
             session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.NORMAL,
+            supervision_preference=PreferenceWeight.NORMAL,
         )
         room_low = make_room(session, code="D1", room_type=RoomType.D)
         room_high = make_room(session, code="D2", room_type=RoomType.D)
@@ -402,11 +402,11 @@ class TestDecisionLogRationale:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         joiner = make_doctor(
             session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.NORMAL,
+            supervision_preference=PreferenceWeight.NORMAL,
         )
         peer = make_doctor(
             session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.NORMAL,
+            supervision_preference=PreferenceWeight.NORMAL,
         )
         _requires_room(session, t, trainee)
         _pre_assigned(session, t, joiner, make_room(session, code="D1", room_type=RoomType.D))
@@ -440,11 +440,11 @@ class TestDecisionLogRationale:
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         keen = make_doctor(
             session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.MORE,
+            supervision_preference=PreferenceWeight.MORE,
         )
         reluctant = make_doctor(
             session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0",
-            supervision_preference=SupervisionPreference.LESS,
+            supervision_preference=PreferenceWeight.LESS,
         )
         _requires_room(session, t, trainee)
         _pre_assigned(session, t, keen, make_room(session, code="D1", room_type=RoomType.D))
