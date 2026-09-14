@@ -77,45 +77,46 @@ function describeSpan(span: {
 export function LeavePage() {
   const writeGate = useWriteGate();
   const linkedDoctorId = useLinkedDoctorId();
-  // The filter reads against *all* doctors (including inactive) - a
-  // deactivated doctor's historical leave entries are still real rows
-  // that should be findable here, not hidden because they're no longer
-  // an active doctor.
+  // Reads against *all* doctors (including inactive) - a deactivated
+  // doctor's historical leave entries are still real rows that should be
+  // findable here, not hidden because they're no longer an active doctor.
+  // Inactive doctors are labelled as such in the select and cannot be the
+  // target of a *new* booking (see canAddFor below); the tab's read views
+  // and its delete paths still reach them.
   const { data: allDoctors } = useDoctors(false);
-  // The range form's doctor select is deliberately narrower: active only,
-  // in *both* modes. For Add there is no legitimate reason to book new
-  // leave for someone who has left; for Remove one shared doctor list
-  // keeps the unified form coherent, and an inactive doctor's rows remain
-  // deletable per-row from the table below (whose filter select does list
-  // inactive doctors, so they can be found).
-  const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
 
-  // The table/entitlement filter opens on the login's own doctor (staff
-  // linking) when there is one, so "my leave" is the first thing on
-  // screen. An initial value only - "All doctors" and every other choice
-  // sticks - and the *form* below deliberately does not get the same
-  // treatment: defaulting a write form to yourself is one mis-click from
-  // booking leave for the wrong person.
-  const [filterDoctorId, setFilterDoctorId] = useState<number | null>(linkedDoctorId);
+  // One doctor selection drives the whole tab: the add/remove form, the
+  // table, the entitlement balance, the year calendar and the extra
+  // sessions section below. Previously these were three separate selects
+  // (form, table filter, extra sessions form), which could disagree with
+  // each other; a single control makes "who am I looking at" unambiguous.
+  //
+  // It opens on the login's own doctor (staff linking) when there is one,
+  // so "my leave" is the first thing on screen; an initial value only,
+  // every other choice sticks. Note the consequence of merging: for a
+  // linked user the *write* form now opens pre-aimed at themselves, which
+  // the separate form select deliberately avoided. Unlinked logins
+  // (admins booking on others' behalf) still open on "All doctors", with
+  // the write controls disabled until they pick someone.
+  const [doctorId, setDoctorId] = useState<number | null>(linkedDoctorId);
   // The year shared by the whole Session Management tab strip, so the
   // table, the balance and the year-at-a-glance grid are always describing
   // the same year as the other tabs.
   const { year } = useSessionYear();
-  const { data: entries, isLoading, isError } = useLeave(filterDoctorId, year);
+  const { data: entries, isLoading, isError } = useLeave(doctorId, year);
   const {
     data: entitlement,
     isLoading: entitlementLoading,
     isError: entitlementError,
   } = useLeaveEntitlements(year);
-  // Extra sessions share the tab's doctor filter and year. The section
+  // Extra sessions share the tab's doctor selection and year. The section
   // below runs the same query, so this is one cache entry read twice, not
   // a second request - the calendar needs the rows too, to mark them.
-  const { data: extraSessions } = useExtraSessions(filterDoctorId, year);
+  const { data: extraSessions } = useExtraSessions(doctorId, year);
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
   const [mode, setMode] = useState<"add" | "remove">("add");
-  const [formDoctorId, setFormDoctorId] = useState<number | "">("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [firstDay, setFirstDay] = useState<FirstDayOption>("FULL");
@@ -125,16 +126,13 @@ export function LeavePage() {
   const [formSummary, setFormSummary] = useState<string | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
 
-  // The preview needs the *form* doctor's existing leave, which may
-  // differ from the table's filter doctor - the hook's cache key is
-  // already parameterised by doctor id, so the two queries coexist.
-  // With no doctor selected this shares the table's unfiltered query
-  // cache; the preview isn't rendered in that state anyway.
-  // Deliberately *not* year-filtered, unlike the table above: a range
-  // running into next year overlaps entries the selected year's window
-  // would not return, and a missed overlap warning is the one failure this
-  // preview exists to prevent.
-  const { data: previewLeave } = useLeave(formDoctorId === "" ? null : formDoctorId, null);
+  // The preview reads the selected doctor's leave across *every* year,
+  // deliberately unlike the table above: a range running into next year
+  // overlaps entries the selected year's window would not return, and a
+  // missed overlap warning is the one failure this preview exists to
+  // prevent. With no doctor selected this shares the table's unfiltered
+  // query cache; the preview isn't rendered in that state anyway.
+  const { data: previewLeave } = useLeave(doctorId, null);
 
   // Entitlement is a per-doctor figure only: with no doctor selected there
   // is no single balance to state, and a full-practice table of them would
@@ -143,13 +141,18 @@ export function LeavePage() {
   // who have no entitlement) both collapse to null - the summary renders
   // nothing either way, and the loading flag below covers the first case.
   const entitlementRow =
-    filterDoctorId === null
+    doctorId === null
       ? null
-      : ((entitlement?.doctors ?? []).find((row) => row.doctor_id === filterDoctorId) ?? null);
+      : ((entitlement?.doctors ?? []).find((row) => row.doctor_id === doctorId) ?? null);
 
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
-  const filterDoctorGroups = groupDoctorsByType(allDoctors ?? []);
-  const addDoctorGroups = groupDoctorsByType(activeDoctors);
+  const doctorGroups = groupDoctorsByType(allDoctors ?? []);
+  const selectedDoctor = doctorId === null ? null : (doctorsById.get(doctorId) ?? null);
+  // New bookings are for active doctors only - there is no legitimate
+  // reason to book leave for someone who has left. Removing is still
+  // allowed for an inactive doctor, because their historical rows are
+  // real and were already deletable per-row from the table below.
+  const canAddFor = selectedDoctor !== null && selectedDoctor.active;
 
   const isSingleDay = startDate !== "" && startDate === endDate;
   const datesValid = startDate !== "" && endDate !== "" && startDate <= endDate;
@@ -188,8 +191,8 @@ export function LeavePage() {
   }
 
   function resetDatesAfterSuccess() {
-    // Doctor and mode deliberately persist - entering several ranges
-    // for one doctor in a row is the common batch pattern.
+    // The tab's doctor and the mode deliberately persist - entering
+    // several ranges for one doctor in a row is the common batch pattern.
     setStartDate("");
     setEndDate("");
     resetEdges();
@@ -311,8 +314,12 @@ export function LeavePage() {
     setFormError(null);
     setFormSummary(null);
 
-    if (formDoctorId === "" || !startDate || !endDate) {
+    if (doctorId === null || !startDate || !endDate) {
       setFormError("Doctor, start date and end date are required.");
+      return;
+    }
+    if (mode === "add" && !canAddFor) {
+      setFormError("Leave cannot be added for an inactive doctor.");
       return;
     }
     if (endDate < startDate) {
@@ -326,9 +333,9 @@ export function LeavePage() {
 
     const plan = expandLeaveRange(startDate, endDate, edges.firstDay, edges.lastDay);
     if (mode === "add") {
-      await submitAdd(formDoctorId, plan);
+      await submitAdd(doctorId, plan);
     } else {
-      await submitRemove(formDoctorId, plan);
+      await submitRemove(doctorId, plan);
     }
   }
 
@@ -354,6 +361,14 @@ export function LeavePage() {
 
   const pending = bulkCreateLeave.isPending || bulkDeleteLeave.isPending;
 
+  // The shared select's "All doctors" is a valid *reading* state but not a
+  // valid write target, so the form says so rather than failing on submit.
+  const formDisabled = doctorId === null || (mode === "add" && !canAddFor);
+  const formDisabledReason =
+    doctorId === null
+      ? "Choose a doctor above to add or remove leave."
+      : "This doctor is inactive - leave can be removed but not added.";
+
   const blocks = collapseLeaveEntries(entries ?? []).sort((a, b) => {
     const doctorA = doctorsById.get(a.doctor_id);
     const doctorB = doctorsById.get(b.doctor_id);
@@ -370,11 +385,40 @@ export function LeavePage() {
   });
 
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+    <div>
+      <div className="mt-4">
+        <label className="text-sm font-medium" htmlFor="leave-doctor">
+          Doctor
+        </label>
+        <select
+          id="leave-doctor"
+          value={doctorId ?? ""}
+          onChange={(e) => setDoctorId(e.target.value === "" ? null : Number(e.target.value))}
+          className="ml-2 rounded border border-border p-1 text-sm"
+        >
+          <option value="">All doctors</option>
+          {doctorGroups.map((group) => (
+            <optgroup key={group.type} label={group.label}>
+              {group.doctors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.code}
+                  {d.active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-ink/50">
+          Drives everything on this tab - the form below, the leave list, the balance, the
+          calendar and the extra sessions section.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
       <div className="min-w-0 lg:flex-1">
       <form
         onSubmit={handleSubmit}
-        className={`mt-4 flex flex-wrap items-end gap-2 rounded border p-3 ${
+        className={`mt-3 flex flex-wrap items-end gap-2 rounded border p-3 ${
           mode === "remove" ? "border-red-300 bg-red-50/40" : "border-border"
         }`}
       >
@@ -404,32 +448,6 @@ export function LeavePage() {
           </label>
         </fieldset>
 
-        <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="leave-range-doctor">
-            Doctor
-          </label>
-          <select
-            id="leave-range-doctor"
-            value={formDoctorId}
-            onChange={(e) => {
-                const value = e.target.value === "" ? "" : Number(e.target.value);
-                setFormDoctorId(value);
-                setFilterDoctorId(value === "" ? null : value);
-              }}
-            className="mt-1 rounded border border-border p-1 text-sm"
-          >
-            <option value="">Select...</option>
-            {addDoctorGroups.map((group) => (
-              <optgroup key={group.type} label={group.label}>
-                {group.doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.code}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
         <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="leave-range-start">
             Start date
@@ -508,7 +526,7 @@ export function LeavePage() {
 
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || formDisabled}
           className={`rounded px-4 py-1 text-sm font-medium text-white disabled:opacity-50 ${
             mode === "remove" ? "bg-red-700" : "bg-accent"
           }`}
@@ -517,6 +535,10 @@ export function LeavePage() {
           {mode === "remove" ? "Remove leave" : "Add leave"}
         </button>
 
+        {formDisabled ? (
+          <p className="w-full text-xs text-ink/50">{formDisabledReason}</p>
+        ) : null}
+
         {mode === "remove" ? (
           <p className="w-full text-xs text-ink/50">
             Removes every matching entry in the range, including weekends. This cannot be undone
@@ -524,44 +546,20 @@ export function LeavePage() {
           </p>
         ) : null}
 
-        {formDoctorId !== "" && datesValid ? (
+        {doctorId !== null && datesValid ? (
           <div className="w-full">
             <LeaveRangePreview
               mode={mode}
               startDate={startDate}
               endDate={endDate}
               segments={segments}
-              existingEntries={(previewLeave ?? []).filter((e) => e.doctor_id === formDoctorId)}
+              existingEntries={(previewLeave ?? []).filter((e) => e.doctor_id === doctorId)}
             />
           </div>
         ) : null}
       </form>
       {formError ? <p className="mt-2 text-sm text-red-700">{formError}</p> : null}
       {formSummary ? <p className="mt-2 text-sm text-ink/70">{formSummary}</p> : null}
-
-      <div className="mt-6">
-        <label className="text-sm font-medium" htmlFor="leave-filter">
-          Doctor
-        </label>
-        <select
-          id="leave-filter"
-          value={filterDoctorId ?? ""}
-          onChange={(e) => setFilterDoctorId(e.target.value === "" ? null : Number(e.target.value))}
-          className="ml-2 rounded border border-border p-1 text-sm"
-        >
-          <option value="">All doctors</option>
-          {filterDoctorGroups.map((group) => (
-            <optgroup key={group.type} label={group.label}>
-              {group.doctors.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code}
-                  {d.active ? "" : " (inactive)"}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
 
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load leave entries.</p> : null}
@@ -614,10 +612,10 @@ export function LeavePage() {
         </table>
       ) : null}
 
-      <ExtraSessionsSection filterDoctorId={filterDoctorId} />
+      <ExtraSessionsSection doctorId={doctorId} canAdd={canAddFor} />
       </div>
 
-      {filterDoctorId !== null ? (
+      {doctorId !== null ? (
         <div className="min-w-0 lg:flex-1">
           <LeaveEntitlementSummary
             year={year}
@@ -634,6 +632,7 @@ export function LeavePage() {
           </div>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

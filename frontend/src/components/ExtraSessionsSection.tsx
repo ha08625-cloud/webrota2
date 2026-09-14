@@ -8,7 +8,6 @@ import type { ApiError, ExtraSessionEntry, Period } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { useSessionYear } from "@/components/SessionManagementTabs";
 import { formatDateWithDay, parseLocalDate } from "@/lib/date";
-import { groupDoctorsByType } from "@/lib/groupDoctors";
 
 /**
  * Planned one-off extra sessions, as a section of the Individual Leave tab
@@ -17,9 +16,10 @@ import { groupDoctorsByType } from "@/lib/groupDoctors";
  * doctor filter and the same year as leave also puts the two halves of "when
  * is this doctor in" on one screen, and lets the year calendar show both.
  *
- * It deliberately has no doctor filter of its own - the Individual Leave
- * tab's one filter drives this list too, so the two lists can never end up
- * describing different doctors.
+ * It deliberately has no doctor select of its own - the Individual Leave
+ * tab has a single doctor control that drives this section's list *and*
+ * its add form, so nothing on the tab can end up describing a different
+ * doctor from anything else on it.
  */
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -41,21 +41,26 @@ function isWeekend(dateString: string): boolean {
 }
 
 export interface ExtraSessionsSectionProps {
-  /** The Individual Leave tab's doctor filter, or null for all doctors. */
-  filterDoctorId: number | null;
+  /** The Individual Leave tab's selected doctor, or null for all doctors. */
+  doctorId: number | null;
+  /**
+   * Whether a new session may be planned for that doctor - false for "All
+   * doctors" and for an inactive one. The tab owns this rule so leave and
+   * extra sessions answer it the same way.
+   */
+  canAdd: boolean;
 }
 
-export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionProps) {
+export function ExtraSessionsSection({ doctorId, canAdd }: ExtraSessionsSectionProps) {
   const writeGate = useWriteGate();
   // Reads against *all* doctors (including inactive), same reasoning as
-  // LeavePage's filter: a deactivated doctor's historical entries should
+  // LeavePage's select: a deactivated doctor's historical entries should
   // still be listed here.
   const { data: allDoctors } = useDoctors(false);
-  const activeDoctors = (allDoctors ?? []).filter((d) => d.active);
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
 
   const { year } = useSessionYear();
-  const { data: entries, isLoading, isError } = useExtraSessions(filterDoctorId, year);
+  const { data: entries, isLoading, isError } = useExtraSessions(doctorId, year);
   const createExtraSession = useCreateExtraSession();
   const deleteExtraSession = useDeleteExtraSession();
 
@@ -64,20 +69,21 @@ export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionPro
   // plainly rather than leaving the admin to discover it the hard way.
   const { data: activeStaging } = useActiveStaging();
 
-  const [formDoctorId, setFormDoctorId] = useState<number | "">("");
   const [date, setDate] = useState("");
   const [period, setPeriod] = useState<Period>("AM");
   const [formError, setFormError] = useState<string | null>(null);
   const [formSummary, setFormSummary] = useState<string | null>(null);
-
-  const addDoctorGroups = groupDoctorsByType(activeDoctors);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setFormError(null);
     setFormSummary(null);
 
-    if (formDoctorId === "" || !date) {
+    if (doctorId === null || !canAdd) {
+      setFormError("Choose an active doctor above to plan an extra session.");
+      return;
+    }
+    if (!date) {
       setFormError("Doctor and date are required.");
       return;
     }
@@ -87,19 +93,16 @@ export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionPro
     }
 
     try {
-      await createExtraSession.mutateAsync({ doctor_id: formDoctorId, date, period });
+      await createExtraSession.mutateAsync({ doctor_id: doctorId, date, period });
       // The date typed here is deliberately not clamped to the selected year;
       // when it falls outside it, the new row will not appear in the list
-      // below, so the message says where it did go. The same is true of the
-      // doctor: the list follows the tab's filter, not this form.
+      // below, so the message says where it did go. The doctor can no longer
+      // hide a new row this way - the list and this form share one select.
       const addedYear = date.slice(0, 4);
-      const hiddenByFilter = filterDoctorId !== null && filterDoctorId !== formDoctorId;
       setFormSummary(
         addedYear !== String(year)
           ? `Added in ${addedYear} - switch the year to see it.`
-          : hiddenByFilter
-            ? "Extra session added - change the doctor filter above to see it."
-            : "Extra session added.",
+          : "Extra session added.",
       );
       setDate("");
     } catch (err) {
@@ -131,28 +134,6 @@ export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionPro
         className="mt-2 flex flex-wrap items-end gap-2 rounded border border-border p-3"
       >
         <div>
-          <label className="block text-xs font-medium text-ink/70" htmlFor="extra-session-doctor">
-            Doctor
-          </label>
-          <select
-            id="extra-session-doctor"
-            value={formDoctorId}
-            onChange={(e) => setFormDoctorId(e.target.value === "" ? "" : Number(e.target.value))}
-            className="mt-1 rounded border border-border p-1 text-sm"
-          >
-            <option value="">Select...</option>
-            {addDoctorGroups.map((group) => (
-              <optgroup key={group.type} label={group.label}>
-                {group.doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.code}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="extra-session-date">
             Date
           </label>
@@ -180,12 +161,19 @@ export function ExtraSessionsSection({ filterDoctorId }: ExtraSessionsSectionPro
         </div>
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !canAdd}
           className="rounded bg-accent px-4 py-1 text-sm font-medium text-white disabled:opacity-50"
           {...writeGate}
         >
           Add extra session
         </button>
+        {!canAdd ? (
+          <p className="w-full text-xs text-ink/50">
+            {doctorId === null
+              ? "Choose a doctor above to plan an extra session."
+              : "This doctor is inactive - extra sessions cannot be planned for them."}
+          </p>
+        ) : null}
       </form>
       {formError ? <p className="mt-2 text-sm text-red-700">{formError}</p> : null}
       {formSummary ? <p className="mt-2 text-sm text-ink/70">{formSummary}</p> : null}

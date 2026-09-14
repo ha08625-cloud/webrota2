@@ -30,10 +30,10 @@ function firstWeekdayOfAugust(year: number): string {
 
 /** The section under the shared-year provider, on `year`, the way the
  * Individual Leave tab mounts it. */
-function renderOnYear(year: number, filterDoctorId: number | null = null) {
+function renderOnYear(year: number, doctorId: number | null = null) {
   return renderWithProviders(
     <SessionYearProvider>
-      <ExtraSessionsSection filterDoctorId={filterDoctorId} />
+      <ExtraSessionsSection doctorId={doctorId} canAdd={doctorId !== null} />
     </SessionYearProvider>,
     { route: `/?year=${year}` },
   );
@@ -49,22 +49,10 @@ function setUpServer({
   );
 }
 
-/**
- * The form's doctor select starts with only "Select..." until the
- * /doctors fetch resolves - same race LeavePage_test.tsx_'s equivalent
- * helper guards against.
- */
-async function selectFormDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
-  const select = await screen.findByLabelText("Doctor", { selector: "#extra-session-doctor" });
-  const option = await within(select).findByRole("option", { name: code });
-  await user.selectOptions(select, option);
-  return select;
-}
-
 describe("ExtraSessionsSection", () => {
   it("shows an empty-state message when there are no entries", async () => {
     setUpServer();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
 
     expect(
       await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`),
@@ -91,7 +79,7 @@ describe("ExtraSessionsSection", () => {
     expect(params.get("to_date")).toBe(`${CURRENT_YEAR + 1}-12-31`);
   });
 
-  it("follows the tab's doctor filter rather than offering one of its own", async () => {
+  it("follows the tab's doctor selection rather than offering a select of its own", async () => {
     setUpServer();
     let requestedUrl = "";
     server.use(
@@ -110,13 +98,14 @@ describe("ExtraSessionsSection", () => {
       expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
     });
     expect(document.querySelector("#extra-session-filter")).toBeNull();
+    expect(document.querySelector("#extra-session-doctor")).toBeNull();
   });
 
   it("renders a row per extra session entry", async () => {
     setUpServer({
       entries: [makeExtraSessionEntry({ id: 1, doctor_id: 1, date: "2026-08-03", period: "AM" })],
     });
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
 
     const table = await screen.findByRole("table");
     expect(screen.getByText("Mon, 2026-08-03")).toBeInTheDocument();
@@ -138,8 +127,7 @@ describe("ExtraSessionsSection", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
-    await selectFormDoctor(user, "AB");
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
     await user.type(
       screen.getByLabelText("Date", { selector: "#extra-session-date" }),
       "2026-08-03",
@@ -165,8 +153,7 @@ describe("ExtraSessionsSection", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
-    await selectFormDoctor(user, "AB");
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
     await user.type(
       screen.getByLabelText("Date", { selector: "#extra-session-date" }),
       outOfYearDate,
@@ -178,30 +165,30 @@ describe("ExtraSessionsSection", () => {
     ).toBeInTheDocument();
   });
 
-  it("hints where an entry went when the tab is filtered to another doctor", async () => {
-    setUpServer({
-      doctors: [
-        makeDoctor({ id: 1, code: "AB", active: true }),
-        makeDoctor({ id: 2, code: "CD", active: true }),
-      ],
-    });
-    const inYearDate = firstWeekdayOfAugust(CURRENT_YEAR);
-    server.use(
-      http.post("/api/v1/extra-sessions", () =>
-        HttpResponse.json({ id: 1, doctor_id: 1, date: inYearDate, period: "AM" }, { status: 201 }),
-      ),
-    );
-
-    const user = userEvent.setup();
-    // The list is filtered to doctor 2; the form adds one for doctor 1.
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={2} />);
-    await selectFormDoctor(user, "AB");
-    await user.type(screen.getByLabelText("Date", { selector: "#extra-session-date" }), inYearDate);
-    await user.click(screen.getByRole("button", { name: "Add extra session" }));
+  it("disables the add form with a hint while the tab is on All doctors", async () => {
+    setUpServer();
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
 
     expect(
-      await screen.findByText("Extra session added - change the doctor filter above to see it."),
+      await screen.findByText("Choose a doctor above to plan an extra session."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add extra session" })).toBeDisabled();
+  });
+
+  it("disables the add form for an inactive doctor, whose entries it still lists", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 2, code: "ZZ", active: false })],
+      entries: [makeExtraSessionEntry({ id: 1, doctor_id: 2, date: "2026-08-03", period: "AM" })],
+    });
+    renderWithProviders(<ExtraSessionsSection doctorId={2} canAdd={false} />);
+
+    expect(
+      await screen.findByText(
+        "This doctor is inactive - extra sessions cannot be planned for them.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add extra session" })).toBeDisabled();
+    expect(within(await screen.findByRole("table")).getByText("ZZ")).toBeInTheDocument();
   });
 
   it("blocks submission with an inline error for a weekend date, without calling the API", async () => {
@@ -218,8 +205,7 @@ describe("ExtraSessionsSection", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
-    await selectFormDoctor(user, "AB");
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
     // 2026-08-08 is a Saturday.
     await user.type(
       screen.getByLabelText("Date", { selector: "#extra-session-date" }),
@@ -247,8 +233,7 @@ describe("ExtraSessionsSection", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
-    await selectFormDoctor(user, "AB");
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
     await user.type(
       screen.getByLabelText("Date", { selector: "#extra-session-date" }),
       "2026-08-03",
@@ -263,14 +248,14 @@ describe("ExtraSessionsSection", () => {
   it("shows the active-staging banner when a staging is in progress", async () => {
     setUpServer();
     server.use(http.get("/api/v1/staging/active", () => HttpResponse.json(makeStaging())));
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
 
     expect(await screen.findByText(/A staging is currently in progress/)).toBeInTheDocument();
   });
 
   it("hides the banner when no staging is active (the default 404)", async () => {
     setUpServer();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
 
     await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`);
     expect(screen.queryByText(/A staging is currently in progress/)).not.toBeInTheDocument();
@@ -296,7 +281,7 @@ describe("ExtraSessionsSection", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<ExtraSessionsSection filterDoctorId={null} />);
+    renderWithProviders(<ExtraSessionsSection doctorId={null} canAdd={false} />);
     const table = await screen.findByRole("table");
     within(table).getByText("Mon, 2026-08-03");
 

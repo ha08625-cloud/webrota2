@@ -49,15 +49,15 @@ function captureLeaveRequests(leave: ReturnType<typeof makeLeaveEntry>[] = []) {
 }
 
 /**
- * The form's doctor select starts with only "Select..." until the
+ * The tab's one doctor select starts with only "All doctors" until the
  * /doctors fetch resolves - selecting an option before then fails with
  * "Value not found in options". Every test that interacts with this
  * select waits for its target option to actually be there first,
  * mirroring the `within(select).findByRole("option", ...)` pattern
  * ClinicTypeFormDialog_test.tsx established for the same race.
  */
-async function selectFormDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
-  const select = await screen.findByLabelText("Doctor", { selector: "#leave-range-doctor" });
+async function selectDoctor(user: ReturnType<typeof userEvent.setup>, code: string) {
+  const select = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
   const option = await within(select).findByRole("option", { name: code });
   await user.selectOptions(select, option);
   return select;
@@ -146,34 +146,46 @@ describe("LeavePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("the doctor filter select includes inactive doctors", async () => {
+  it("the doctor select includes inactive doctors", async () => {
     setUpServer({ doctors: [makeDoctor({ id: 2, code: "ZZ", active: false })] });
     renderWithProviders(<LeavePage />);
 
-    const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+    const filter = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
     expect(await within(filter).findByRole("option", { name: "ZZ (inactive)" })).toBeInTheDocument();
   });
 
-  it("the form doctor select excludes inactive doctors in both modes", async () => {
+  it("selecting an inactive doctor disables Add leave but leaves Remove leave usable", async () => {
     setUpServer({
       doctors: [makeDoctor({ id: 1, code: "AB", active: true }), makeDoctor({ id: 2, code: "ZZ", active: false })],
     });
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
 
-    const formSelect = await screen.findByLabelText("Doctor", { selector: "#leave-range-doctor" });
-    expect(await within(formSelect).findByRole("option", { name: "AB" })).toBeInTheDocument();
-    expect(within(formSelect).queryByRole("option", { name: /ZZ/ })).not.toBeInTheDocument();
+    // The one select must list inactive doctors - their historical rows
+    // are still real and have to be findable - so the *add* path is what
+    // refuses them, not the list of options.
+    await selectDoctor(user, "ZZ (inactive)");
 
-    // Deliberate semantics change from the old separate range-delete
-    // form, which allowed inactive doctors: the unified form is
-    // active-only in Remove mode too (per-row table delete still covers
-    // inactive doctors' historical entries).
+    expect(screen.getByRole("button", { name: "Add leave" })).toBeDisabled();
+    expect(
+      screen.getByText("This doctor is inactive - leave can be removed but not added."),
+    ).toBeInTheDocument();
+
     await user.click(screen.getByRole("radio", { name: "Remove leave" }));
-    expect(within(formSelect).queryByRole("option", { name: /ZZ/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove leave" })).toBeEnabled();
   });
 
-  it("the filter select groups doctors into type optgroups in Partner, Salaried, Trainee, AHP order", async () => {
+  it("disables the form with a hint while the select is on All doctors", async () => {
+    setUpServer();
+    renderWithProviders(<LeavePage />);
+
+    expect(await screen.findByRole("button", { name: "Add leave" })).toBeDisabled();
+    expect(
+      screen.getByText("Choose a doctor above to add or remove leave."),
+    ).toBeInTheDocument();
+  });
+
+  it("the doctor select groups doctors into type optgroups in Partner, Salaried, Trainee, AHP order", async () => {
     setUpServer({
       doctors: [
         makeDoctor({ id: 1, code: "TR1", doctor_type: "Trainee", active: true }),
@@ -184,7 +196,7 @@ describe("LeavePage", () => {
     renderWithProviders(<LeavePage />);
 
     const filter = (await screen.findByLabelText("Doctor", {
-      selector: "#leave-filter",
+      selector: "#leave-doctor",
     })) as HTMLSelectElement;
     await within(filter).findByRole("option", { name: "PA1" });
 
@@ -192,7 +204,7 @@ describe("LeavePage", () => {
     expect(groupLabels).toEqual(["Partners", "Salaried", "Trainees"]);
   });
 
-  it("the form select groups doctors alphabetically within each type", async () => {
+  it("the doctor select groups doctors alphabetically within each type", async () => {
     setUpServer({
       doctors: [
         makeDoctor({ id: 1, code: "LFM", doctor_type: "Partner", active: true }),
@@ -203,7 +215,7 @@ describe("LeavePage", () => {
     renderWithProviders(<LeavePage />);
 
     const formSelect = (await screen.findByLabelText("Doctor", {
-      selector: "#leave-range-doctor",
+      selector: "#leave-doctor",
     })) as HTMLSelectElement;
     await within(formSelect).findByRole("option", { name: "CL" });
 
@@ -213,7 +225,7 @@ describe("LeavePage", () => {
     expect(optionCodes).toEqual(["CL", "DT", "LFM"]);
   });
 
-  it("selecting a doctor in the filter refetches with doctor_id", async () => {
+  it("selecting a doctor refetches the table with doctor_id", async () => {
     setUpServer();
     let capturedUrl = "";
     server.use(
@@ -225,7 +237,7 @@ describe("LeavePage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<LeavePage />);
-    const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+    const filter = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
     const option = await within(filter).findByRole("option", { name: "AB" });
 
     await user.selectOptions(filter, option);
@@ -254,7 +266,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.click(screen.getByRole("button", { name: "Add leave" }));
 
@@ -273,7 +285,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.selectOptions(
         screen.getByLabelText("First day", { selector: "#leave-range-first-day" }),
@@ -312,7 +324,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-15", "2026-07-15");
 
       expect(screen.queryByLabelText("First day")).not.toBeInTheDocument();
@@ -369,7 +381,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.selectOptions(
         screen.getByLabelText("First day", { selector: "#leave-range-first-day" }),
@@ -402,7 +414,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.selectOptions(
         screen.getByLabelText("Last day", { selector: "#leave-range-last-day" }),
@@ -431,7 +443,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-13");
       await user.click(screen.getByRole("button", { name: "Add leave" }));
 
@@ -448,7 +460,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-17", "2026-07-13");
       await user.click(screen.getByRole("button", { name: "Add leave" }));
 
@@ -462,7 +474,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-01-01", "2027-06-01");
       await user.click(screen.getByRole("button", { name: "Add leave" }));
 
@@ -475,7 +487,7 @@ describe("LeavePage", () => {
 
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.selectOptions(
         screen.getByLabelText("First day", { selector: "#leave-range-first-day" }),
@@ -499,7 +511,7 @@ describe("LeavePage", () => {
       await screen.findByRole("button", { name: "Add leave" });
       expect(screen.queryByTestId("leave-range-preview")).not.toBeInTheDocument();
 
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
 
       expect(await screen.findByTestId("leave-range-preview")).toBeInTheDocument();
@@ -522,7 +534,7 @@ describe("LeavePage", () => {
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
       await user.click(await screen.findByRole("radio", { name: "Remove leave" }));
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.selectOptions(
         screen.getByLabelText("First day", { selector: "#leave-range-first-day" }),
@@ -575,7 +587,7 @@ describe("LeavePage", () => {
       const user = userEvent.setup();
       renderWithProviders(<LeavePage />);
       await user.click(await screen.findByRole("radio", { name: "Remove leave" }));
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
       await typeDates(user, "2026-07-13", "2026-07-17");
       await user.click(screen.getByRole("button", { name: "Remove leave" }));
 
@@ -705,8 +717,7 @@ describe("LeavePage", () => {
     }
 
     async function filterTo(user: ReturnType<typeof userEvent.setup>, code: string) {
-      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
-      await user.selectOptions(filter, await within(filter).findByRole("option", { name: code }));
+      await selectDoctor(user, code);
     }
 
     it("shows nothing until a doctor is selected", async () => {
@@ -776,12 +787,12 @@ describe("LeavePage", () => {
   describe("the linked doctor default", () => {
     const LINKED_AB = { linked_doctor: { id: 1, code: "AB", active: true } };
 
-    it("opens the filter on the doctor this login is linked to", async () => {
+    it("opens the select on the doctor this login is linked to", async () => {
       setUpServer();
       captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
       renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
 
-      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
       await waitFor(() => expect(filter).toHaveValue("1"));
       expect(await screen.findByTestId("leave-year-calendar")).toBeInTheDocument();
     });
@@ -791,29 +802,38 @@ describe("LeavePage", () => {
       captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
       renderWithProviders(<LeavePage />);
 
-      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
       expect(filter).toHaveValue("");
       expect(screen.queryByTestId("leave-year-calendar")).not.toBeInTheDocument();
     });
 
-    it("leaves the add/remove form's doctor unselected for a linked user", async () => {
+    it("aims the add/remove form at the linked doctor too, now the select is shared", async () => {
       setUpServer();
       captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
+      const bodies = captureBulkBodies();
+      const user = userEvent.setup();
       renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
 
-      // Deliberate: defaulting a *write* form to yourself is one mis-click
-      // from booking leave for the wrong person.
-      const form = await screen.findByLabelText("Doctor", { selector: "#leave-range-doctor" });
-      expect(form).toHaveValue("");
+      // The consequence of one shared select: a linked login's write form
+      // opens pre-aimed at themselves, where the old separate form select
+      // deliberately started blank. Unlinked logins - the ones booking on
+      // other people's behalf - still open on "All doctors" with the form
+      // disabled, which the case above covers.
+      await screen.findByRole("option", { name: "AB" });
+      await typeDates(user, "2026-08-03", "2026-08-03");
+      await user.click(screen.getByRole("button", { name: "Add leave" }));
+
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0].doctor_id).toBe(1);
     });
 
-    it("lets a linked user filter back to All doctors", async () => {
+    it("lets a linked user go back to All doctors", async () => {
       const user = userEvent.setup();
       setUpServer();
       captureEntitlementYears([makeLeaveEntitlement({ doctor_id: 1, doctor_code: "AB" })]);
       renderWithProviders(<LeavePage />, { authUser: LINKED_AB });
 
-      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-filter" });
+      const filter = await screen.findByLabelText("Doctor", { selector: "#leave-doctor" });
       await waitFor(() => expect(filter).toHaveValue("1"));
 
       await user.selectOptions(filter, within(filter).getByRole("option", { name: "All doctors" }));
@@ -843,7 +863,7 @@ describe("LeavePage", () => {
       const urls = captureLeaveRequests();
       renderOnYear(CURRENT_YEAR + 1);
 
-      await selectFormDoctor(user, "AB");
+      await selectDoctor(user, "AB");
 
       // Two queries for the same doctor: the table's, bounded to the year,
       // and the preview's, which must see a range running past 31 December.
