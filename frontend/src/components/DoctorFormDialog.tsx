@@ -21,6 +21,10 @@ import { PREFERENCE_OPTIONS } from "@/lib/preferenceWeights";
 import { type PreferredRoomRow, moveRow, toWireRows } from "@/lib/reorderPreferredRooms";
 
 const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "Locum", "AHP", "Nurse"];
+/** TR is deliberately absent: unlike SR, which a doctor may legitimately
+ * prefer, a TR room (the nurse treatment rooms TR1-3 and the Cutteslowe
+ * kitchen CK) is never a valid preference - no generation phase allocates
+ * one, and the API rejects a TR preference by id or by type. */
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
 
 interface DoctorFormDialogProps {
@@ -371,6 +375,7 @@ export function DoctorFormDialog({ doctor, open, onOpenChange }: DoctorFormDialo
                       Add specific room...
                     </option>
                     {(rooms ?? [])
+                      .filter((r) => r.room_type !== "TR")
                       .filter((r) => !rows.some((row) => row.kind === "room" && row.roomId === r.id))
                       .map((r) => (
                         <option key={r.id} value={r.id}>

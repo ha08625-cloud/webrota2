@@ -208,7 +208,7 @@ export type Day = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
 export type Period = "AM" | "PM";
 export type RotaStatus = "draft" | "committed";
 export type SessionRole = "duty_primary" | "duty_secondary" | "clinic";
-export type RoomType = "D" | "C" | "W" | "SR";
+export type RoomType = "D" | "C" | "W" | "SR" | "TR";
 export type Site = "SHC" | "Cutteslowe" | "Wolvercote";
 
 /**

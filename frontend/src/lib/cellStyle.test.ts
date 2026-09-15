@@ -106,15 +106,39 @@ describe("cellStyle", () => {
   });
 
   it.each([
+    ["SHC", "black"],
+    ["Cutteslowe", "red"],
+    ["Wolvercote", "blue"],
+  ] as const)("site %s maps to font colour %s", (site, expected) => {
+    const room = makeRoom({ id: 1, site });
+    const session = makeRotaSession({ room_id: 1 });
+    const { roomsById, clinicTypesById } = maps([room]);
+    expect(cellStyle(session, roomsById, clinicTypesById).fontColor).toBe(expected);
+  });
+
+  it.each([
     ["D", "black"],
     ["SR", "black"],
     ["C", "red"],
     ["W", "blue"],
-  ] as const)("room type %s maps to font colour %s", (roomType, expected) => {
-    const room = makeRoom({ id: 1, room_type: roomType });
-    const session = makeRotaSession({ room_id: 1 });
-    const { roomsById, clinicTypesById } = maps([room]);
-    expect(cellStyle(session, roomsById, clinicTypesById).fontColor).toBe(expected);
+  ] as const)(
+    "the pre-TR room types keep their colour, since each sits on exactly one site: %s -> %s",
+    (roomType, expected) => {
+      const room = makeRoom({ id: 1, room_type: roomType });
+      const session = makeRotaSession({ room_id: 1 });
+      const { roomsById, clinicTypesById } = maps([room]);
+      expect(cellStyle(session, roomsById, clinicTypesById).fontColor).toBe(expected);
+    },
+  );
+
+  it("colours the two halves of the TR type differently - TR is the reason the mapping is keyed on site", () => {
+    // TR1-3 are SHC treatment rooms; CK is the Cutteslowe kitchen, and the
+    // red off-site signal is the whole point of the colour there.
+    const tr1 = makeRoom({ id: 1, code: "TR1", room_type: "TR", site: "SHC" });
+    const ck = makeRoom({ id: 2, code: "CK", room_type: "TR", site: "Cutteslowe" });
+    const { roomsById, clinicTypesById } = maps([tr1, ck]);
+    expect(cellStyle(makeRotaSession({ room_id: 1 }), roomsById, clinicTypesById).fontColor).toBe("black");
+    expect(cellStyle(makeRotaSession({ room_id: 2 }), roomsById, clinicTypesById).fontColor).toBe("red");
   });
 
   it("no room_id renders black font colour", () => {

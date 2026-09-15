@@ -1,4 +1,4 @@
-import type { ClinicType, Room, RoomType, RotaSession } from "@/api/types";
+import type { ClinicType, Room, RotaSession, Site } from "@/api/types";
 
 export type CellBackground = "leave" | "wfh" | "duty" | "duty_helper" | "clinic" | "no_surgery" | "default";
 export type FontColor = "black" | "red" | "blue";
@@ -8,11 +8,21 @@ export interface CellStyle {
   fontColor: FontColor;
 }
 
-const ROOM_FONT_COLOR: Record<RoomType, FontColor> = {
-  D: "black",
-  SR: "black",
-  C: "red",
-  W: "blue",
+/**
+ * Font colour encodes where the room is, nothing else: SHC black,
+ * Cutteslowe red, Wolvercote blue.
+ *
+ * Keyed on site rather than room type. Room type used to be a faithful
+ * proxy for site (D and SR are SHC, C is Cutteslowe, W is Wolvercote)
+ * only because no type spanned two sites - TR breaks that, since TR1-3
+ * are SHC treatment rooms while CK is the Cutteslowe kitchen, and the
+ * red "off-site at Cutteslowe" signal is the whole point of the colour
+ * for CK. For the fourteen pre-TR rooms this mapping is identical output.
+ */
+const SITE_FONT_COLOR: Record<Site, FontColor> = {
+  SHC: "black",
+  Cutteslowe: "red",
+  Wolvercote: "blue",
 };
 
 /**
@@ -83,7 +93,7 @@ function fontColorFor(session: RotaSession, roomsById: Map<number, Room>): FontC
   if (room === undefined) {
     return "black";
   }
-  return ROOM_FONT_COLOR[room.room_type];
+  return SITE_FONT_COLOR[room.site];
 }
 
 export function isAbsent(session: RotaSession | undefined): boolean {
