@@ -9,7 +9,7 @@ import type { StudyStage } from "./types";
  * so this stub says "more to come here" and nothing else.
  *
  * It does not repeat the persistent details or the three key documents:
- * `StudyPage` draws those above every stage body (Decision 13), so a
+ * `StudyPage` draws those above every stage body, so a
  * study that has left setup still shows its current flow chart, leaflet
  * and consent form, and whom to ring about them.
  *

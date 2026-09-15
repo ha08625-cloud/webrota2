@@ -44,7 +44,7 @@ describe("StudyPage header", () => {
 
   // A link out of the app, from a value another user typed: the http/https
   // rule keeps a javascript: URL out of the href, and these two attributes
-  // keep the opened tab from reaching back (Decision 17).
+  // keep the opened tab from reaching back.
   it("renders the website link with rel=noopener noreferrer", async () => {
     renderStudy(makeStudy({ website_url: "https://example.test/acme" }));
 
@@ -234,7 +234,7 @@ describe("StudyPage delete", () => {
   });
 
   // Deletion is reachable only in setup; afterwards a study is a record
-  // and is closed instead (Decision 12).
+  // and is closed instead.
   it("does not offer deletion once a study has left setup", async () => {
     renderStudy(makeStudy({ stage: "recruitment_open" }));
 

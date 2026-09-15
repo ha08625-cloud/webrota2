@@ -48,7 +48,7 @@ describe("SetupStage", () => {
   });
 
   // A study starts with no step rows at all; absence is "not done"
-  // rather than missing (Decision 6).
+  // rather than missing.
   it("renders a step with no row server-side as unticked and empty", () => {
     renderStage(makeStudy({ setup_steps: [] }));
 
@@ -161,7 +161,7 @@ describe("SetupStage", () => {
     }
   });
 
-  // Decision 18: the site pack stays on the intranet, so the step is a
+  // The site pack stays on the intranet, so the step is a
   // tick and a note with no way to copy the pack across.
   it("points the site pack step at the intranet instead of offering a slot", () => {
     renderStage();

@@ -10,7 +10,7 @@
  * `STUDY_STAGE_ORDER` decides what "one stage forward" means; the order
  * repeated here is for display and for naming the next stage in a
  * confirmation, and a mismatch would be a copy error, not a protocol one -
- * the server never takes a stage from the client (Decision 4).
+ * the server never takes a stage from the client.
  */
 
 export type StudyStage = "setup" | "recruitment_open" | "recruitment_closed" | "closed";
@@ -40,7 +40,7 @@ export interface StudyContact {
 }
 
 /** A contact as the edit dialog sends it - no id, because contacts are
- * saved as a full replace on the study PATCH (Decision 17). */
+ * saved as a full replace on the study PATCH. */
 export interface StudyContactIn {
   name: string;
   role: string | null;

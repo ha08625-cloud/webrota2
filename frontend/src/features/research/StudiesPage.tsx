@@ -18,7 +18,8 @@ import type { Study, StudyStage } from "./types";
  * study is looked up rather than scanned for.
  */
 
-/** Closed studies are a record, not a working list - Decision 16. */
+/** Closed studies are a record rather than a working list: the group is
+ * counted but not listed until somebody asks for it. */
 const COLLAPSED_BY_DEFAULT: StudyStage = "closed";
 
 function StudyRow({ study }: { study: Study }) {

@@ -14,7 +14,7 @@ import type { Study, StudyIn } from "./types";
  * else is constrained - notably contact emails are free text, because
  * `StudyContactIn` does not validate them either. The one rule worth
  * having twice is the URL: the header renders it as a link, and a stored
- * `javascript:` URL rendered as a link is stored XSS (Decision 17). The
+ * `javascript:` URL rendered as a link is stored XSS. The
  * server is still the one that enforces it.
  */
 

@@ -14,7 +14,7 @@
  * `flow_chart` appears in both tables and means a different thing in
  * each: a step key that owns no document slot, and a key document slot
  * that is not a step's. The file belongs in the header so it stays
- * visible in every stage; the step survives as a tick only (Decision 8).
+ * visible in every stage; the step survives as a tick only.
  */
 
 export interface SetupStep {
@@ -54,7 +54,7 @@ export interface KeyDocumentSlot {
 }
 
 /** The three documents the team actually opens, shown in the study header
- * in every stage. All three are blank study templates (Decision 9). */
+ * in every stage. All three are blank study templates. */
 export const KEY_DOCUMENT_SLOTS: readonly KeyDocumentSlot[] = [
   { slot: "flow_chart", label: "Flow chart" },
   { slot: "patient_information_leaflet", label: "Patient information leaflet" },

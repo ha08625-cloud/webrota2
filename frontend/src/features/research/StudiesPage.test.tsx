@@ -48,7 +48,7 @@ describe("StudiesPage", () => {
   });
 
   // Closed studies are a record rather than a working list, so the group
-  // is counted but not listed until it is asked for (Decision 16).
+  // is counted but not listed until it is asked for.
   it("collapses the Closed group until it is expanded", async () => {
     server.use(
       http.get("/api/v1/research/studies", () =>

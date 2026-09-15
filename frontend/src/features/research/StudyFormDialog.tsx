@@ -23,7 +23,7 @@ import type { Study } from "./types";
  *
  * The contacts rows are edited here rather than through endpoints of
  * their own because the API has none: a study PATCH carrying `contacts`
- * is a full replace (Decision 17). So the dialog always sends the whole
+ * is a full replace. So the dialog always sends the whole
  * list, and a row removed here is a row deleted on save.
  *
  * Stage is not editable from this dialog, deliberately - it is the study

@@ -16,14 +16,14 @@ import type { Study, StudySetupStep } from "./types";
  * The catalogue is the list, not the server's rows. A study starts with
  * no step rows at all and the first write to a step creates it, so a step
  * the server has never heard of renders as "not done" rather than as
- * missing - absence is data here (Decision 6). That is why this maps over
+ * missing - absence is data here. That is why this maps over
  * `SETUP_STEPS` and looks each key up, instead of mapping over
  * `study.setup_steps`.
  *
  * Nothing here blocks anything. The checklist is a reminder list; the
  * only thing that reads it is the "Open recruitment" confirmation in
  * `StudyPage`, which names what is still outstanding and then lets the
- * user through (Decision 5).
+ * user through.
  */
 
 interface SetupStageProps {
