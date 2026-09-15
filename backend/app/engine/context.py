@@ -28,7 +28,7 @@ from ..models import (
     RotaStaging,
     RotaStagingSession,
 )
-from ..models.enums import Day, Period, RoomType
+from ..models.enums import DAY_ORDER, Day, Period, RoomType
 from .datatypes import (
     ClinicDoctorEligibility,
     ClinicSchedule,
@@ -36,7 +36,6 @@ from .datatypes import (
     GenerationContext,
 )
 from .week_map import (
-    DAY_ORDER,
     build_date_to_genslot,
     build_first_open_weekday,
     build_week_dates,

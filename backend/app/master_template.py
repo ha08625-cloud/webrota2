@@ -13,9 +13,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .engine.week_map import DAY_ORDER
 from .models import MasterRotaSession, MasterRotaTemplate
-from .models.enums import Day, MasterSessionType, Period
+from .models.enums import DAY_ORDER, Day, MasterSessionType, Period
 
 WEEKDAY_MAX = 4  # Mon=0 ... Fri=4 (Python date.weekday())
 

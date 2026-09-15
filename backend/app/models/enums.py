@@ -54,6 +54,17 @@ class Day(str, enum.Enum):
     FRIDAY = "Friday"
 
 
+# Monday..Friday offsets in days from the week's Monday. Callers rely on the
+# dict's insertion order (Monday..Friday) as well as on the offsets themselves.
+DAY_ORDER: dict[Day, int] = {
+    Day.MONDAY: 0,
+    Day.TUESDAY: 1,
+    Day.WEDNESDAY: 2,
+    Day.THURSDAY: 3,
+    Day.FRIDAY: 4,
+}
+
+
 class Period(str, enum.Enum):
     AM = "AM"
     PM = "PM"

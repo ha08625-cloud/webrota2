@@ -10,16 +10,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from ..models.enums import Day, Period
-
-# Monday..Friday offsets in days from the week's Monday.
-DAY_ORDER: dict[Day, int] = {
-    Day.MONDAY: 0,
-    Day.TUESDAY: 1,
-    Day.WEDNESDAY: 2,
-    Day.THURSDAY: 3,
-    Day.FRIDAY: 4,
-}
+from ..models.enums import DAY_ORDER, Day, Period
 
 
 def template_week(gen_week: int, start_week: int) -> int:
