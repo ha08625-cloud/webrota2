@@ -99,13 +99,4 @@ describe("StudiesPage", () => {
 
     expect(await screen.findByRole("button", { name: "New study" })).toBeDisabled();
   });
-
-  it("carries the standing no-participant-data line", async () => {
-    server.use(http.get("/api/v1/research/studies", () => HttpResponse.json([])));
-    renderPage();
-
-    expect(
-      await screen.findByText(/Never store participant information here/),
-    ).toBeInTheDocument();
-  });
 });

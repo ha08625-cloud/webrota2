@@ -153,12 +153,4 @@ describe("StudyDocumentSlot", () => {
 
     expect(showToast).toHaveBeenCalledWith("File exceeds 5 MB");
   });
-
-  it("names the accepted types and the blank-template rule in the upload control", () => {
-    renderSlot();
-
-    expect(
-      screen.getByText(/never a document filled in about a real person/),
-    ).toBeInTheDocument();
-  });
 });

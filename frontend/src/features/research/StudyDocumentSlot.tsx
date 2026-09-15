@@ -4,7 +4,7 @@ import type { DragEvent } from "react";
 import type { ApiError } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 
-import { ACCEPTED_UPLOAD_TEXT, ACCEPTED_UPLOAD_TYPES, rejectUploadReason } from "./catalogue";
+import { ACCEPTED_UPLOAD_TYPES, rejectUploadReason } from "./catalogue";
 import { useDeleteStudyDocument, useDownloadStudyDocument, useUploadStudyDocument } from "./api";
 import type { StudyDocument } from "./types";
 
@@ -198,10 +198,6 @@ export function StudyDocumentSlot({
         {holdsOne && documents.length > 0 ? `Replace ${label.toLowerCase()}` : "Upload"}
       </button>
       <span className="ml-2 text-xs text-ink/50">or drop a file here</span>
-      <p className="mt-1 text-xs text-ink/50">
-        {ACCEPTED_UPLOAD_TEXT}, up to 5 MB. Blank study templates only - never a document
-        filled in about a real person.
-      </p>
     </div>
   );
 }
