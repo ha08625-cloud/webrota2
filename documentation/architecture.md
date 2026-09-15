@@ -74,6 +74,22 @@ Permission wiring beyond `AREA_KEYS` (`_FORBIDDEN_DETAIL` and `_READ_ONLY_DETAIL
 
 **Not retrofitting the old sections is deliberate.** Let the shape prove itself on the next two sections first. If it is clearly better to work in by then, retrofitting becomes a small evidence-backed decision instead of a leap of faith.
 
+### What was deliberately not done
+
+The boundary work above was scoped tightly on purpose. These were all considered and rejected; they are recorded so they are not rediscovered later as omissions, and so that anyone proposing one knows what argument they have to beat.
+
+| Not done | Why |
+|---|---|
+| **Domain-first repackaging of clinical** | 6,100 lines of engine and the most complex thing in the repo, heavily tested. The contracts already give the enforcement; moving the files earns only directory shape, which is the cheapest part of a modular monolith, in exchange for a large all-at-once diff across live code. The cost is real and named above — clinical routers must be listed longhand in contract 2 — and it is the cheaper of the two. |
+| **Splitting `api/routers/rota.py` (~970 lines) and `staging.py` (~850)** | The codebase's largest genuine maintainability problem, and unrelated to modularity. Do it opportunistically, the next time a ticket touches them, rather than as standalone churn on live endpoints. |
+| **`ruff`, `eslint`, `mypy`** | Real value, each its own ticket with its own style-churn diff. "Nothing is enforced" was the evidence for adding import contracts, not an argument for adopting three more linters in the same change. |
+| **Per-module Alembic migration streams** | One database, one chain. Branched heads across five modules buy nothing for a single-DB app and cost permanent "multiple heads" pain. |
+| **An `app/shared/` package** | More honest than a list in a config file, but it moves `database.py`, `api/deps.py` and several models — exactly the class of large live-code move this work otherwise avoided. The named list under "Module Boundaries" is the interim. Revisit when the shared kernel next grows. |
+| **Restructuring reception to match the clinical phase pipeline** | Clinical rota generation is a constraint-satisfaction problem; reception phone/desk coverage is not. `reception/front_desk.py` is 365 lines because the problem is that size. Proportionality is correct here, not inconsistent. |
+| **Any change to the permission model** | Already the right shape: string-keyed permissions in a `MutableDict(JSON)` column, so a new section's area key is a one-line change to `AREA_KEYS` with no migration. |
+| **Frontend restructuring into `src/features/*` for existing sections** | Decision deferred, not a claim that the frontend is already isolated — it is not. The four shells isolate routing and nav; `src/routes/`, `src/components/` and `src/api/` are flat and mix every domain, with no enforcement of any kind. New sections go in `src/features/<section>/`; existing ones move only if that shape proves itself. |
+| **Generalising the identity link into a `module_identities` table** | `users.doctor_id` and `users.reception_staff_id` are genuine cross-domain FKs on the identity table, and a reviewer is right to flag them. Two nullable columns are fine, and the shape a third module needs is not knowable until it exists — Research's `Owner` is a plain FK to `users`, a *different* relationship from "who this login is on a rota". Revisit if it reaches five. |
+
 ## Overview
 
 A rota generator for a medical practice: generates a working rota from a master template over a configurable 1–4 week period, applying annual leave, duty assignments, clinic assignments, and room allocations, with interactive editing (drag-and-drop, cell edit menus, WFH, undo) in a web UI. Ported from a Google Apps Script project attached to a Google Spreadsheet, which it replaces; the port removed GAS's 6-minute execution limit. The reception rota is a later, independent addition covering front-desk phone-coverage scheduling — see "Domains" above.
@@ -87,8 +103,11 @@ A rota generator for a medical practice: generates a working rota from a master 
 | Master rota bulk row operations | Python + React | Low | "Remove all of a leaver's sessions", "copy week 1 to weeks 2–4", "populate a new doctor's full week". Single-slot create/delete covers the common case; revisit only if the per-slot workflow proves too slow in practice |
 | Master rota multi-template management | Python + React | Low | Create/activate/rename templates. Currently the single seeded active template (`MasterRotaTemplate.is_active`, resolved deterministically by the GET) |
 | Add doctor type to room rota cells | Python + React | Medium | The room view (`RoomRotaGrid`) is built and shipped; its cells show `doctor_code`, a LEAVE badge, the *session* role (Duty/clinic name) and a Supervising badge, but not the doctor's *type*. `RotaSessionOut` carries `doctor_code` and not `doctor_type`, so this needs the field added to the session payload as well as the cell |
+| `ruff` for the backend | Tooling | Medium | **Correctness rules only** — `F` (unused imports, undefined names) and `E9`. Formatting off: a formatting pass would bury the correctness diff in reflowed lines across every live file. Its own ticket because even that subset will have a first-run backlog. Note on `TID252` specifically (banned parent-relative imports), which looks like the natural complement to the import contracts: it is **not** free here. The whole backend imports parent-relative (`from ....models.enums import DAY_ORDER`), so enabling it means rewriting every import in `app/` to absolute. The contracts already see through both forms, so it buys readability, not enforcement — decide it on that basis, not as a boundary rule |
+| `eslint` for the frontend | Tooling | Medium | Nothing at all enforces anything on the frontend today — no lint, and no import boundaries. Pairs naturally with an import-boundary rule once `src/features/<section>/` has a section in it to enforce against |
+| Split `api/routers/rota.py` and `staging.py` | Python | Low | ~970 and ~850 lines, the largest maintainability problem in the codebase. **Do this opportunistically**, folded into the next ticket that already touches them, not as a standalone PR: these are live endpoints and a pure-move diff there is risk without user-visible benefit |
 
-All three of these are clinical-rota tasks — see `documentation/architecture-clinical.md`.
+The first three are clinical-rota tasks — see `documentation/architecture-clinical.md`. The last three came out of the module-boundary work and are recorded under "What was deliberately not done" above.
 
 ## Shared Frontend Infrastructure
 
