@@ -15,7 +15,7 @@ Per duty row, in order:
      duty overrides working from home.
   3. If the doctor already holds any D room, stop -- nothing to do.
   4. Try their preferred D room: assign if free; if occupied by a
-     protected doctor (Partner/AHP, or anyone already holding a role),
+     protected doctor (Partner/AHP/Nurse, or anyone already holding a role),
      fall through to the sweep; otherwise evict the occupant and relocate
      them (Salaried via the shared preference-then-C/W/SR search,
      Trainee/Locum via a D-room-only search), then take the room.
@@ -48,7 +48,7 @@ the same day:
   - Room occupied by someone already on `DUTY_PRIMARY`/`DUTY_SECONDARY`
     in that slot: protected, leave both doctors where they are. This is
     a narrower protection rule than `_protection` above --
-    Partner/AHP and clinic-role holders are *not* protected here, and may
+    Partner/AHP/Nurse and clinic-role holders are *not* protected here, and may
     be bumped, but only ever into another free D room (never C/W/SR).
   - Otherwise, look for another D room for the occupant via
     `find_d_room_only` (their own preference order, any D room as
@@ -95,6 +95,11 @@ from ._log_phase4 import PHASE
 from ._shared import code as _code
 from ._shared import is_room_free_all_day as _is_room_free_all_day
 from ._shared import room_move_rank as _room_move_sort_key
+
+# Occupants the preferred-room step never evicts. Nurse sits alongside AHP:
+# the two are rule-identical here, and keeping them in one tuple is what
+# stops the pair drifting apart by omission.
+_PROTECTED_TYPES = (DoctorType.PARTNER, DoctorType.AHP, DoctorType.NURSE)
 
 
 def run_phase4(
@@ -354,13 +359,13 @@ def _protection(
     context: GenerationContext, grid: RotaGrid, occupant_id: int,
     gen_week: int, day: Day, period: Period,
 ) -> tuple[bool, str]:
-    """`(protected, why)` -- Partner/AHP, or any doctor already holding a
+    """`(protected, why)` -- Partner/AHP/Nurse, or any doctor already holding a
     role (duty or clinic) in this slot, is protected. The role guard is what
     stops primary duty evicting secondary duty, or vice versa, within the
     same session. `why` is only meaningful when `protected` is True.
     """
     occupant = context.doctor_by_id.get(occupant_id)
-    if occupant is not None and occupant.doctor_type in (DoctorType.PARTNER, DoctorType.AHP):
+    if occupant is not None and occupant.doctor_type in _PROTECTED_TYPES:
         return True, f"protected: {occupant.doctor_type.value}"
     occupant_slot = grid.get(occupant_id, gen_week, day, period)
     if occupant_slot is not None and occupant_slot.role is not None:

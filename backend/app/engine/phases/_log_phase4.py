@@ -244,7 +244,7 @@ class DutyRoomNarrator:
             self._rooms_line,
             self._pref_line,
             f"It is held by {code(self._context, occupant_id)}, who is not "
-            f"protected (not Partner/AHP and holds no role this session).",
+            f"protected (not Partner/AHP/Nurse and holds no role this session).",
             rat.decided(
                 f"{rat.PREFERENCE_ORDER} -- the preferred D room was taken "
                 f"by an evictable occupant, so it was taken from them rather "

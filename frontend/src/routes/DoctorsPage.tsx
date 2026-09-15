@@ -18,7 +18,7 @@ interface DialogState {
 // Sessions/week is shown for the salaried-headcount types - Partner,
 // Salaried and Trainee. sessions_per_week feeds the Phase 5 weighted
 // clinic counter for every doctor type, so this is a display decision
-// rather than a data restriction; Locum/AHP stay hidden because their
+// rather than a data restriction; Locum/AHP/Nurse stay hidden because their
 // sessions are ad hoc rather than a contracted weekly commitment, and
 // their sessions_per_week is consequently not editable from this page.
 const SESSIONS_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee"];

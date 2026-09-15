@@ -35,7 +35,7 @@ export interface GridRow {
 export interface PivotedSessionGrid<T extends PivotableSession> {
   /**
    * Rows in display order: active doctors grouped by type (Partner,
-   * Salaried, Trainee, AHP), alphabetical by code within a type - see
+   * Salaried, Trainee, AHP, Nurse), alphabetical by code within a type - see
    * compareDoctorDisplayOrder - plus any inactive doctor who has
    * sessions in the sessions passed in, flagged rather than silently
    * dropped. Built from the full /doctors list (active_only=false): the

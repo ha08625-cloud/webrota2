@@ -72,7 +72,7 @@ class LeaveEntitlementOut(BaseModel):
     - **The mismatch warning** -- `template_sessions_per_week` and
       `sessions_mismatch`. See `app/leave_entitlement.py`'s module docstring.
 
-    A doctor type with no entitlement (AHP, locum) is not returned by the
+    A doctor type with no entitlement (AHP, nurse, locum) is not returned by the
     list endpoint at all, so the nullable entitlement fields here are for the
     single-doctor read.
     """

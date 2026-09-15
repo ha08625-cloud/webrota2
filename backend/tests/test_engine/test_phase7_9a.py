@@ -503,6 +503,29 @@ class TestPass2SingleSession:
         assert displace_entries[0].period == Period.AM
         assert "pass 2" in displace_entries[0].message
 
+    def test_nurse_single_session_displacement(self, session, config_1wk):
+        """Nurse joins the Pass 2 single-session D-room candidate pool on
+        the same footing as AHP -- the two types are rule-identical here.
+        """
+        t = make_template(session, is_active=True)
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        occupant = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, nurse, period=Period.AM)
+        _pre_assigned(session, t, occupant, d_room, period=Period.AM)
+        make_preferred_room(session, occupant, preference_order=1, room=fallback)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
+        assert counters.system[(occupant.id, SystemCounterType.ROOM_MOVE)] == 1
+        assert not any(i.phase == "phase7_9a" and i.severity == "warning" for i in issues)
+
     def test_locum_single_session_displacement(self, session, config_1wk):
         """Locum joins the Pass 2 single-session D-room candidate pool on
         the same footing as Trainee/AHP.

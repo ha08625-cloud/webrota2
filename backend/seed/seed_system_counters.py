@@ -2,7 +2,7 @@
 
 Invariant (matches the doctors router): every doctor has exactly one
 SystemCounter row per SystemCounterType, regardless of doctor_type or
-active flag. room_move and supervision rows for Trainee/AHP doctors are
+active flag. room_move and supervision rows for Trainee/AHP/Nurse staff are
 never incremented (only Partner/Salaried are displaceable or
 supervision-eligible) and sit unused at zero -- the cost of a handful of
 dead rows buys a single unconditional invariant that survives a later

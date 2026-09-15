@@ -11,11 +11,23 @@ from sqlalchemy import Enum as SAEnum
 
 
 class DoctorType(str, enum.Enum):
+    """The staff types the clinical rota allocates.
+
+    Despite the name, not every member is a doctor: AHP and NURSE are
+    clinical staff who occupy rooms and sessions the same way. NURSE is
+    currently rule-identical to AHP everywhere the engine branches on type
+    (Phase 4 room protection, the Phase 7-9A D-room demand set) and has no
+    leave entitlement, but it is its own member rather than a relabelling
+    of AHP so that rules which do differ can be added without a data
+    migration.
+    """
+
     PARTNER = "Partner"
     SALARIED = "Salaried"
     TRAINEE = "Trainee"
     LOCUM = "Locum"
     AHP = "AHP"
+    NURSE = "Nurse"
 
 
 class PreferenceWeight(str, enum.Enum):

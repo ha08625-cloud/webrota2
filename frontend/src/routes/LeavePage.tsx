@@ -137,7 +137,7 @@ export function LeavePage() {
   // Entitlement is a per-doctor figure only: with no doctor selected there
   // is no single balance to state, and a full-practice table of them would
   // be more visual load than it is worth.
-  // Undefined (still loading) and "no row for this doctor" (an AHP or locum,
+  // Undefined (still loading) and "no row for this doctor" (an AHP, nurse or locum,
   // who have no entitlement) both collapse to null - the summary renders
   // nothing either way, and the loading flag below covers the first case.
   const entitlementRow =

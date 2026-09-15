@@ -129,7 +129,7 @@ const STATE_LETTER: Record<PlanningCellState, string> = {
 };
 
 /** The doctor types the planner shows rows for. Mirrors the filter in
- * LeavePlanningPage.tsx - AHPs are not planned here. Trainees are always
+ * LeavePlanningPage.tsx - AHPs and nurses are not planned here. Trainees are always
  * included in the export regardless of the page's "Show trainees" toggle:
  * the toggle declutters a screen, a file is a record. */
 const PLANNING_DOCTOR_TYPES = new Set<Doctor["doctor_type"]>([
@@ -469,7 +469,7 @@ function buildMonthSheet(sheet: Worksheet, context: SharedContext, month: number
 }
 
 /** A decimal-string entitlement figure as a number, or "-" where the
- * doctor's type has no tracked entitlement (AHP, Locum - see
+ * doctor's type has no tracked entitlement (AHP, Nurse, Locum - see
  * LeaveEntitlement's docstring). Never pre-formatted into a string: a
  * figure written as text is a figure nobody can sum in Excel. */
 function sessionValue(value: string | null | undefined): number | string {

@@ -25,7 +25,7 @@ class MasterRotaSessionOut(BaseModel):
 
     doctor_type is joined the same way (added alongside doctor_code, not
     just code) so the frontend can group grid rows by doctor type
-    (Partner/Salaried/Trainee/AHP) without a separate /doctors fetch."""
+    (Partner/Salaried/Trainee/AHP/Nurse) without a separate /doctors fetch."""
     session_id: int
     doctor_id: int
     doctor_code: str

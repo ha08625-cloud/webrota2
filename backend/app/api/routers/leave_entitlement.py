@@ -168,7 +168,7 @@ def list_entitlements(
 ) -> LeaveEntitlementYearOut:
     """Balances for every doctor the practice tracks leave for.
 
-    Doctor types with no entitlement (AHP, locum) are omitted entirely
+    Doctor types with no entitlement (AHP, nurse, locum) are omitted entirely
     rather than listed with nulls -- an AHP's leave is assigned by a third
     party and is not the practice's to reconcile, so a row for one is noise
     on a screen whose whole job is spotting a doctor who is over or under.
@@ -254,9 +254,10 @@ def upsert_entitlement(
     Omitted fields therefore reset to their defaults -- null override, zero
     carry-over, zero adjustment, no notes.
 
-    422 for a doctor type with no entitlement. An override on an AHP or a
-    locum has no meaning and would sit in the table looking authoritative,
-    so it is refused at the boundary rather than ignored downstream.
+    422 for a doctor type with no entitlement. An override on an AHP, a
+    nurse or a locum has no meaning and would sit in the table looking
+    authoritative, so it is refused at the boundary rather than ignored
+    downstream.
     """
     resolved = _resolve_year(year)
     doctor = db.get(Doctor, doctor_id)

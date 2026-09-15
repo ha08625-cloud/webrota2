@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
@@ -313,12 +315,16 @@ class TestEviction:
         assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == preferred.id
         assert not any(e.action == "displace_room" for e in log.entries)
 
-    def test_preferred_room_occupied_by_ahp_protected_falls_to_sweep(
-        self, session, config_1wk, monday
+    @pytest.mark.parametrize(
+        "protected_type", [DoctorType.AHP, DoctorType.NURSE]
+    )
+    def test_preferred_room_occupied_by_ahp_or_nurse_protected_falls_to_sweep(
+        self, session, config_1wk, monday, protected_type
     ):
+        """Nurse is protected on exactly the same footing as AHP."""
         t = make_template(session, is_active=True)
         duty_doc = make_doctor(session, code="AA")
-        ahp = make_doctor(session, code="HH", doctor_type=DoctorType.AHP)
+        ahp = make_doctor(session, code="HH", doctor_type=protected_type)
         preferred = make_room(session, code="D3", room_type=RoomType.D)
         sweep_room = make_room(session, code="D5", room_type=RoomType.D)
         make_preferred_room(session, duty_doc, preference_order=1, room=preferred)
