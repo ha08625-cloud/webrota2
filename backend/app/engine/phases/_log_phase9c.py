@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from ...models.enums import (
     Day,
-    MasterSessionType,
     Period,
     SystemCounterType,
 )
@@ -46,10 +45,6 @@ from ..preference import PREFERENCE_MULTIPLIERS
 # Owned here rather than in `phase9c.py` so the narration can stamp it
 # without importing its caller; the phase imports it back from here.
 PHASE = "phase9c"
-
-_EXCLUDED_TEMPLATE_TYPES = frozenset({
-    MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME,
-})
 
 
 def supervision_score(
@@ -126,10 +121,12 @@ def _pool_rationale(
             slot.doctor_id, SystemCounterType.SUPERVISION
         )
         multiplier = PREFERENCE_MULTIPLIERS[doctor.supervision_preference]
-        room = context.room_by_id.get(slot.assigned_room_id)
         unweighted = supervision_score(context, counters, slot.doctor_id, False)
+        # No room is named: Phase 9C now runs before the room passes, so a
+        # pool candidate is roomless in all but the PRE_ASSIGNED case, and
+        # the room they end up in is the SR room this phase books for them.
         return (
-            f"{doctor.code} in {room.code if room else 'no room'}: "
+            f"{doctor.code}: "
             f"{rat.score(raw, spw, unweighted, balance)}"
             f", supervision preference {doctor.supervision_preference.value} "
             f"(x{multiplier:g}) -> "
@@ -139,8 +136,8 @@ def _pool_rationale(
     lines: list[str | None] = [
         f"{trainee_count} trainee(s) in this session need supervision.",
         rat.listing(
-            "Eligible pool (Partner/Salaried, role-free, in a D or SR room), by "
-            "weighted supervision counter",
+            "Eligible pool (Partner/Salaried, role-free), by weighted "
+            "supervision counter",
             [_line(slot) for slot in pool],
         ),
     ]
@@ -187,16 +184,17 @@ def _ineligible_lines(
     """`(code, why)` lines for every Partner/Salaried doctor in the session
     who is *not* in the supervision pool.
 
-    Mirrors `is_eligible_supervisor`'s criteria in the same order. It has to
-    restate them rather than call it, since that predicate returns a bare
-    bool -- the pairing is asserted by the tests, so a new criterion there
-    without one here will fail rather than silently produce a doctor listed
-    with the wrong reason.
+    Mirrors `is_selectable_supervisor`'s criteria in the same order -- the
+    pool predicate, which has no room criterion. It has to restate them
+    rather than call it, since that predicate returns a bare bool -- the
+    pairing is asserted by the tests, so a new criterion there without one
+    here will fail rather than silently produce a doctor listed with the
+    wrong reason.
     """
-    # Deferred: `phase9c` imports this module, so the eligibility predicate
+    # Deferred: `phase9c` imports this module, so the selection predicate
     # cannot be pulled in at import time. It is imported rather than
     # restated because "who is in the pool" must be the phase's own answer.
-    from .phase9c import _SUPERVISOR_TYPES, is_eligible_supervisor
+    from .phase9c import _SUPERVISOR_TYPES, is_selectable_supervisor
 
     lines = []
     for slot in sorted(
@@ -207,7 +205,7 @@ def _ineligible_lines(
         doctor = context.doctor_by_id.get(slot.doctor_id)
         if doctor is None or doctor.doctor_type not in _SUPERVISOR_TYPES:
             continue  # never a supervisor candidate; not worth a line each
-        if is_eligible_supervisor(context, grid, slot):
+        if is_selectable_supervisor(context, grid, slot):
             continue
         if slot.role is not None:
             why = f"already on {slot.role.value} this session"
@@ -215,16 +213,8 @@ def _ineligible_lines(
             why = "on leave"
         elif slot.is_wfh:
             why = "working from home"
-        elif slot.template_type in _EXCLUDED_TEMPLATE_TYPES:
-            why = f"template session is {slot.template_type.value}"
-        elif slot.assigned_room_id is None:
-            why = "has no room this session"
         else:
-            room = context.room_by_id.get(slot.assigned_room_id)
-            why = (
-                f"in {room.code} ({room.room_type.value}), not a D or SR room"
-                if room else "in an unknown room"
-            )
+            why = f"template session is {slot.template_type.value}"
         lines.append(f"{doctor.code}: {why}")
     return lines
 
@@ -254,8 +244,8 @@ def no_eligible_supervisor(
             rat.decided(
                 "no field to compare -- a supervisor must be "
                 "Partner/Salaried, free of any role (which excludes "
-                "duty doctors, clinics and duty helpers), not on "
-                "leave or WFH, and sitting in a D or SR room"
+                "duty doctors, clinics and duty helpers), and not on "
+                "leave, WFH, or a no-surgery/admin session"
             ),
         ),
     )
@@ -298,38 +288,56 @@ def supervisor_assigned(
     )
 
 
-def swapped_into_sr(
+def booked_sr_room(
     log: DecisionLog, context: GenerationContext, gen_week: int, day: Day,
-    period: Period, chosen: SessionSlot, chosen_room_id: int | None,
-    sr_room, occupant_id: int,
+    period: Period, chosen: SessionSlot, previous_room_id: int | None, sr_room,
 ) -> None:
+    """The supervisor being seated in SR -- the one room write Phase 9C makes.
+
+    Names the room they came out of, if any, because that is the only way
+    the log shows the template pin this phase deliberately overrode.
+    """
+    code = context.doctor_by_id[chosen.doctor_id].code
+    previous = context.room_by_id[previous_room_id].code if previous_room_id else None
+    overrode_pin = (
+        previous_room_id is not None and chosen.template_room_id == previous_room_id
+    )
     log.add(
-        phase=PHASE, action="swap_supervisor_into_sr",
+        phase=PHASE, action="book_sr_room",
         week=gen_week, day=day, period=period, doctor_id=chosen.doctor_id,
-        room_id=sr_room.id,
+        room_id=sr_room.id, related_room_id=previous_room_id,
         message=(
-            f"Swapped {context.doctor_by_id[chosen.doctor_id].code} into SR "
-            f"room {sr_room.code} with {context.doctor_by_id[occupant_id].code} "
-            f"on {day.value} {period.value} (week {gen_week})."
+            f"Seated {code} in SR room {sr_room.code} to supervise on "
+            f"{day.value} {period.value} (week {gen_week})"
+            + (f", vacating {previous}." if previous else ".")
         ),
         rationale=rat.stages(
-            f"{context.doctor_by_id[chosen.doctor_id].code} was selected as "
-            f"supervisor but was sitting in "
-            f"{context.room_by_id[chosen_room_id].code if chosen_room_id else 'no room'}, "
-            f"not an SR room.",
-            f"SR room {sr_room.code} was held by "
-            f"{context.doctor_by_id[occupant_id].code}.",
+            f"{code} was selected as supervisor and "
+            + (
+                f"was holding {previous}."
+                if previous else
+                "had no room yet -- Phases 7-9A have not run."
+            ),
+            f"SR room {sr_room.code} was free: it is held back from every "
+            f"other room search in a session with trainees, and the room "
+            f"passes run after this phase.",
             rat.decided(
-                "post-selection SR swap -- the supervisor is moved into the SR "
-                "room and the occupant takes their vacated room; this is a pure "
-                "room move and changes neither doctor's supervision counter"
+                "supervision is held in the SR room, so the supervisor is "
+                "seated there"
+                + (
+                    "; this overrides the doctor's PRE_ASSIGNED template "
+                    "room, the one template pin this phase breaks"
+                    if overrode_pin else ""
+                )
+                + " -- a pure room move that changes no counter, ROOM_MOVE "
+                "included"
             ),
         ),
     )
 
 
 __all__ = [
-    "PHASE", "PREFERENCE_MULTIPLIERS", "no_eligible_supervisor",
-    "supervision_score", "supervisor_assigned", "supervisor_selected",
-    "swapped_into_sr",
+    "PHASE", "PREFERENCE_MULTIPLIERS", "booked_sr_room",
+    "no_eligible_supervisor", "supervision_score", "supervisor_assigned",
+    "supervisor_selected",
 ]

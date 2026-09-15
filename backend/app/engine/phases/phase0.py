@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...doctor_window import is_within_window
 from ...models import RotaConfig
-from ...models.enums import MasterSessionType
+from ...models.enums import MasterSessionType, RoomType
 from ..datatypes import GenerationContext, ValidationIssue
 from ..week_map import template_week
 
@@ -27,6 +27,7 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_template_doctors_active(context))
     issues.extend(_check_duty_on_closed_date(context))
     issues.extend(_check_duty_within_doctor_dates(context))
+    issues.extend(_check_pre_assigned_sr_room(context))
 
     return issues
 
@@ -239,6 +240,47 @@ def _check_duty_within_doctor_dates(context: GenerationContext) -> list[Validati
                 f"Duty doctor {doctor.code} ({duty_type.value}) is assigned on "
                 f"{date_.isoformat()} {period.value}, which is outside their "
                 f"employment dates."
+            ),
+        ))
+    return issues
+
+
+def _check_pre_assigned_sr_room(context: GenerationContext) -> list[ValidationIssue]:
+    """Warn if a template row pre-assigns an SR room.
+
+    Phase 2 claims a PRE_ASSIGNED room before any other phase runs, which
+    is earlier than the SR reservation Phase 9C relies on (see
+    `phase9c.reserved_sr_room_ids`). A template row naming SR therefore
+    wins outright, and in a session with trainees it leaves Phase 9C with
+    no free SR room to seat the supervisor in -- the supervisor is roomed
+    like anyone else and Phase 12 flags the result.
+
+    A warning rather than an error: the row is not necessarily wrong (the
+    session may have no trainees at all, and the check has no grid to tell
+    -- it runs before Phase 2 builds one), but it is always worth the
+    admin's attention. One issue per template row, not per generation
+    week: the fix is to edit that one row.
+    """
+    issues: list[ValidationIssue] = []
+    for (doctor_id, week, day, period), (session_type, room_id) in sorted(
+        context.template_sessions.items(),
+        key=lambda kv: (kv[0][1], kv[0][2].value, kv[0][3].value, kv[0][0]),
+    ):
+        if session_type != MasterSessionType.PRE_ASSIGNED or room_id is None:
+            continue
+        room = context.room_by_id.get(room_id)
+        if room is None or room.room_type != RoomType.SR:
+            continue
+        doctor = context.doctor_by_id.get(doctor_id)
+        code = doctor.code if doctor is not None else f"id={doctor_id}"
+        issues.append(ValidationIssue(
+            severity="warning", phase=PHASE, check="pre_assigned_sr_room",
+            day=day, period=period, doctor_id=doctor_id,
+            message=(
+                f"Template week {week} {day.value} {period.value} pre-assigns "
+                f"{code} to SR room {room.code}. SR is reserved for trainee "
+                f"supervision, so any session in that week with trainees will "
+                f"have no SR room for its supervisor."
             ),
         ))
     return issues

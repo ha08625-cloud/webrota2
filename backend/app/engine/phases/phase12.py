@@ -22,10 +22,21 @@ apply-then-warn permits it server-side). It fires independently of role,
 so it can co-fire with `role_on_incompatible_slot` on the same slot -- both
 findings are true and distinct, not a duplicate.
 
-Check 4 (supervision, Phase 9C implementation plan section 3) reuses
-`count_supervisable_trainees` and `is_eligible_supervisor` from phase9c.py
-so the assignment rule and the validation rule cannot drift apart. Two
-prongs:
+Check 4 (supervision) reuses `count_supervisable_trainees` and
+`is_eligible_supervisor` from phase9c.py so the assignment rule and the
+validation rule cannot drift apart.
+
+`is_eligible_supervisor` is deliberately the *room-aware* half of Phase
+9C's split predicate, not the one 9C builds its pool from. 9C now runs
+before Phases 7-9A and picks from `is_selectable_supervisor`, which has no
+room criterion because at that point almost nobody has a room yet; it then
+seats the supervisor in SR. Phase 12 runs last, when rooms are final, so
+it is the right place -- and the only place -- to assert that the
+supervisor actually ended up in a D or SR room. A supervisor who did not
+(the SR room was taken by a PRE_ASSIGNED template row, say) shows up here
+as `supervision_on_incompatible_slot`.
+
+Two prongs:
   - supervision_missing: a session has supervisable trainees but no slot
     both flags is_supervising AND is currently eligible. A flag on an
     ineligible slot does not count -- this is what keeps forced edits

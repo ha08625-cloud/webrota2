@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...models.enums import MasterSessionType, RoomType, SessionRole
+from ...models.enums import Day, MasterSessionType, Period, RoomType, SessionRole
 from ..datatypes import (
     ClinicDoctorEligibility,
     ClinicTypeInfo,
@@ -42,8 +42,14 @@ _EXCLUDED_TEMPLATE_TYPES = frozenset({
 
 
 def run_phase5(
-    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog
+    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog,
+    reserved_sr: dict[tuple[int, Day, Period], int] | None = None,
 ) -> list[ValidationIssue]:
+    """`reserved_sr` is the SR reservation from
+    `phase9c.reserved_sr_room_ids`: an occupant displaced to make room for
+    a clinic is never relocated into the SR room a session is holding for
+    its supervisor. Omitting it means nothing is reserved.
+    """
     issues: list[ValidationIssue] = []
     clinic_priority_by_id = {ct.id: ct.clinic_priority for ct in context.clinic_types}
     num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
@@ -101,7 +107,7 @@ def run_phase5(
                 if clinic.room_required:
                     room_issue = _resolve_room(
                         context, grid, clinic, doctor_id, gen_week, day, period,
-                        clinic_priority_by_id, log,
+                        clinic_priority_by_id, log, reserved_sr,
                     )
                     if room_issue is not None:
                         issues.append(room_issue)
@@ -207,6 +213,7 @@ def _resolve_room(
     period,
     clinic_priority_by_id: dict[int, int],
     log: DecisionLog,
+    reserved_sr: dict[tuple[int, Day, Period], int] | None = None,
 ) -> ValidationIssue | None:
     eligible_room_ids = sorted(clinic.eligible_room_ids)
     narr = narrate.ClinicRoomNarrator(
@@ -240,6 +247,7 @@ def _resolve_room(
         exclude_d = context.room_by_id[room_id].room_type == RoomType.D
         new_room = _best_free_preferred_room(
             context, grid, occupant_id, gen_week, day, period, exclude_d=exclude_d,
+            reserved_sr=reserved_sr,
         )
         if new_room is None:
             # This candidate room's occupant has nowhere to go; try the next.
@@ -270,9 +278,19 @@ def _best_free_preferred_room(
     day,
     period,
     exclude_d: bool,
+    reserved_sr: dict[tuple[int, Day, Period], int] | None = None,
 ) -> int | None:
+    """The displaced occupant's own preference list, first free room wins.
+
+    An SR room reserved for this session's supervisor is skipped -- see
+    `phase9c.reserved_sr_room_ids`. A doctor who prefers SR still gets it
+    in any session the reservation does not cover.
+    """
+    reserved_room_id = reserved_sr.get((gen_week, day, period)) if reserved_sr else None
     for room_id in context.preferred_rooms_by_doctor.get(doctor_id, ()):
         if exclude_d and context.room_by_id[room_id].room_type == RoomType.D:
+            continue
+        if room_id == reserved_room_id:
             continue
         if grid.is_room_free(gen_week, day, period, room_id):
             return room_id

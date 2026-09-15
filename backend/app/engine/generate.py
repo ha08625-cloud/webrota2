@@ -1,12 +1,21 @@
 """Orchestrates the full generation pipeline and persists the result.
 
-generate() runs Phase 0 -> 2 -> 4 -> 5 -> 7-9A -> 9B -> 9C -> 12 in order,
+generate() runs Phase 0 -> 2 -> 4 -> 5 -> 9C -> 7-9A -> 9B -> 12 in order,
 tallies the WFH counter off the finished grid (_tally_wfh), then writes the
 outcome in one transaction via _write_to_db(). The caller is
 expected to run generate() inside its own `session.begin()` (or equivalent);
 any uncaught exception here rolls back everything, including counter
 writes. Warnings never raise -- only a Phase 0 error stops the pipeline
 before anything is written.
+
+Phase 9C runs before the room passes, not after them: it picks each
+session's supervisor and seats them in the SR room, and the room passes
+then work around that booking rather than around a swap made after the
+fact. The SR reservation that makes the booking safe is computed here,
+once, off the Phase 2 grid (`reserved_sr_room_ids`) and threaded into the
+two phases that place doctors before 9C runs -- Phases 4 and 5. Phases
+7-9A and 9B need no reservation: the supervisor already holds the room by
+then.
 
 Deviation from the M2 plan's own generate() sketch, flagged when Phase 2
 was built (step 4): run_phase2() takes a `db` parameter here. The plan's
@@ -38,6 +47,7 @@ from ..models.enums import RotaStatus, SystemCounterType
 from .context import load_context
 from .datatypes import CounterState, DecisionLog, GenerationResult, RotaGrid, ValidationIssue
 from .phases import (
+    reserved_sr_room_ids,
     run_phase0,
     run_phase2,
     run_phase4,
@@ -64,11 +74,12 @@ def generate(db: Session, config_id: int) -> GenerationResult:
 
     grid, counters = run_phase2(context, config, db)
     log = DecisionLog()
-    issues.extend(run_phase4(context, grid, counters, log))
-    issues.extend(run_phase5(context, grid, counters, log))
+    reserved_sr = reserved_sr_room_ids(context, grid)
+    issues.extend(run_phase4(context, grid, counters, log, reserved_sr))
+    issues.extend(run_phase5(context, grid, counters, log, reserved_sr))
+    issues.extend(run_phase9c(context, grid, counters, log))
     issues.extend(run_phase7_to_9a(context, grid, counters, log))
     issues.extend(run_phase9b(context, grid, log))
-    issues.extend(run_phase9c(context, grid, counters, log))
     issues.extend(run_phase12(context, grid))
 
     _tally_wfh(grid, counters)

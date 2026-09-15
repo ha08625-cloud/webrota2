@@ -98,8 +98,14 @@ from ._shared import room_move_rank as _room_move_sort_key
 
 
 def run_phase4(
-    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog
+    context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog,
+    reserved_sr: dict[tuple[int, Day, Period], int] | None = None,
 ) -> list[ValidationIssue]:
+    """`reserved_sr` is the SR reservation from
+    `phase9c.reserved_sr_room_ids`: an evicted doctor is never relocated
+    into the SR room a session is holding for its supervisor. Omitting it
+    means nothing is reserved.
+    """
     issues: list[ValidationIssue] = []
     d_room_ids_desc = sorted(
         (r.id for r in context.rooms_by_type.get(RoomType.D, ())),
@@ -160,7 +166,7 @@ def run_phase4(
 
         issues.extend(_resolve_duty_room(
             context, grid, counters, log, doctor_id, code, slot,
-            gen_week, day, period, date_, d_room_ids_desc,
+            gen_week, day, period, date_, d_room_ids_desc, reserved_sr,
         ))
 
     _consolidate_duty_rooms(context, grid, log)
@@ -176,6 +182,7 @@ def _resolve_duty_room(
     context: GenerationContext, grid: RotaGrid, counters: CounterState, log: DecisionLog,
     doctor_id: int, code: str, slot: SessionSlot,
     gen_week: int, day: Day, period: Period, date_: date, d_room_ids_desc: list[int],
+    reserved_sr: dict[tuple[int, Day, Period], int] | None,
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     narr = narrate.DutyRoomNarrator(
@@ -213,6 +220,7 @@ def _resolve_duty_room(
                 preferred_d_room, gen_week, day, period,
                 "preferred room, occupant displaced",
                 narr.preferred_room_eviction(occupant_id, preferred_d_room),
+                reserved_sr,
             ))
             return issues
         # Protected occupant: fall through to the fallback sweep.
@@ -267,6 +275,7 @@ def _resolve_duty_room(
             "fallback sweep, lowest weighted room-move score, tie broken on "
             "doctor code",
             narr.sweep_eviction(sweep_candidates, evictee_id),
+            reserved_sr,
         ))
         return issues
 
@@ -291,6 +300,7 @@ def _evict_and_place(
     narr: narrate.DutyRoomNarrator, duty_doctor_id: int, evictee_id: int,
     d_room_id: int, gen_week: int, day: Day, period: Period,
     stage_desc: str, reason: str | None = None,
+    reserved_sr: dict[tuple[int, Day, Period], int] | None = None,
 ) -> list[ValidationIssue]:
     """Evict `evictee_id` from `d_room_id`, relocate them, and seat the duty
     doctor. Eviction is unconditional: the duty doctor takes the room
@@ -308,7 +318,9 @@ def _evict_and_place(
     if evictee is not None and evictee.doctor_type in (DoctorType.TRAINEE, DoctorType.LOCUM):
         new_room = find_d_room_only(context, grid, evictee_id, gen_week, day, period)
     else:
-        new_room = find_relocation_room(context, grid, evictee_id, gen_week, day, period)
+        new_room = find_relocation_room(
+            context, grid, evictee_id, gen_week, day, period, reserved_sr,
+        )
 
     counters.increment_system(evictee_id, SystemCounterType.ROOM_MOVE)
 
