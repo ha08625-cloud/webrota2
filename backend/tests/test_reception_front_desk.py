@@ -15,8 +15,8 @@ import pytest
 
 from app.models import ReceptionRota, ReceptionRotaSession
 from app.models.enums import ReceptionRole
-from app.reception_counters import RoleCounters, StaffRoleCounters
-from app.reception_front_desk import (
+from app.reception.counters import RoleCounters, StaffRoleCounters
+from app.reception.front_desk import (
     FRONT_DESK_HOURS,
     MAX_BLOCK_SLOTS,
     MIN_BLOCK_SLOTS,

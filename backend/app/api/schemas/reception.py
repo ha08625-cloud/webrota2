@@ -56,7 +56,7 @@ class ReceptionStaffUsageOut(BaseModel):
 
     `generated_days` is NOT the counters page's `days_present`. It counts
     every generated date the member has any row on, with no leave anti-join
-    and no rolling window; `compute_role_counters` (app/reception_counters.py)
+    and no rolling window; `compute_role_counters` (app/reception/counters.py)
     excludes leave dates and only looks at its window, so the two numbers can
     and often will differ. Neither is wrong.
     """
@@ -262,7 +262,7 @@ class ReceptionLeaveBulkDeleteOut(BaseModel):
 
 class ReceptionCounterRowOut(BaseModel):
     """One staff member's counters over the window. A projection of `StaffRoleCounters` from
-    app/reception_counters.py -- the arithmetic lives there, this only
+    app/reception/counters.py -- the arithmetic lives there, this only
     names the wire shape.
 
     `role_slots` is a dict keyed by the ReceptionRole values rather than

@@ -14,7 +14,7 @@ import datetime
 
 import pytest
 
-from app.api.routers import reception_counters as reception_counters_router
+from app.api.routers.reception import counters as reception_counters_router
 from app.models import ReceptionLeaveEntry, ReceptionRota, ReceptionRotaSession
 from app.models.enums import ReceptionRole
 

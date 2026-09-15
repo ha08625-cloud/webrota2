@@ -14,7 +14,7 @@ from app.models import (
     ReceptionStaff,
 )
 from app.models.enums import ReceptionRole
-from app.reception_counters import (
+from app.reception.counters import (
     assignment_counter_window,
     compute_role_counters,
     default_counter_window,

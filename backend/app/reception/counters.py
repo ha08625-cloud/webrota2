@@ -48,13 +48,13 @@ from dataclasses import dataclass, field
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
-from .models import (
+from ..models import (
     ReceptionLeaveEntry,
     ReceptionRota,
     ReceptionRotaSession,
     ReceptionStaff,
 )
-from .models.enums import ReceptionRole
+from ..models.enums import ReceptionRole
 
 # Roles that do not count toward hours worked. Matches ReceptionCountersPage's
 # existing rule exactly, so the page's two hours figures cannot disagree about
@@ -176,7 +176,7 @@ def compute_role_counters(
     than vanishing. `active` is carried through so the caller can label them.
     A *deleted* person's history does not stay visible, though: deleting a
     staff member purges their `reception_rota_sessions` rows (see
-    `api/routers/reception_staff.py`), and these figures are derived from rows
+    `api/routers/reception/staff.py`), and these figures are derived from rows
     that no longer exist, so past windows lose them entirely.
     """
     staff_rows = db.execute(

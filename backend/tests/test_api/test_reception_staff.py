@@ -6,7 +6,7 @@ TestPermanentDelete below.
 """
 import datetime
 
-from app.api.routers.reception_staff import NULLED_TABLES, PURGED_MODELS
+from app.api.routers.reception.staff import NULLED_TABLES, PURGED_MODELS
 from app.database import Base
 from app.models import (
     ReceptionLeaveEntry,
@@ -312,5 +312,5 @@ def test_purged_models_covers_every_fk_to_reception_staff():
         "a table references reception_staff but is neither purged nor nulled "
         "when a staff member is deleted -- add its model to PURGED_MODELS "
         "(or its table to NULLED_TABLES) in "
-        "app/api/routers/reception_staff.py"
+        "app/api/routers/reception/staff.py"
     )

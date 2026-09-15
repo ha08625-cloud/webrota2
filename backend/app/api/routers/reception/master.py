@@ -8,7 +8,7 @@ staff sharing a (day, hour) slot is the normal case, not a conflict. Do
 not port that logic here.
 
 No coverage validation runs against the template. Coverage warnings are a
-property of a dated day grid (see routers/reception_rota.py), not of the
+property of a dated day grid (see routers/reception/rota.py), not of the
 template -- the template has no date, so a shortfall
 computed against it would not be actionable.
 """
@@ -18,10 +18,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models import ReceptionMasterSession, ReceptionStaff, User
-from ...models.enums import DAY_ORDER
-from ..deps import get_current_user, get_db
-from ..schemas.reception import (
+from ....models import ReceptionMasterSession, ReceptionStaff, User
+from ....models.enums import DAY_ORDER
+from ...deps import get_current_user, get_db
+from ...schemas.reception import (
     ReceptionMasterSessionCreateIn,
     ReceptionMasterSessionOut,
     ReceptionMasterSessionPatchIn,

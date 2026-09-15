@@ -17,7 +17,7 @@ is *not* weekday-filtered, mirroring the clinical bulk-delete's reasoning:
 POST) put on a weekend.
 
 Leave changes nothing about generation or row editing. It is read in
-exactly one place -- compute_coverage_issues in reception_rota.py -- where
+exactly one place -- compute_coverage_issues in rota.py -- where
 it filters the phones headcount.
 """
 from __future__ import annotations
@@ -29,9 +29,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import ReceptionLeaveEntry, ReceptionStaff, User
-from ..deps import get_current_user, get_db
-from ..schemas import (
+from ....models import ReceptionLeaveEntry, ReceptionStaff, User
+from ...deps import get_current_user, get_db
+from ...schemas import (
     ReceptionLeaveBulkDeleteIn,
     ReceptionLeaveBulkDeleteOut,
     ReceptionLeaveBulkIn,

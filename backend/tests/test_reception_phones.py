@@ -16,8 +16,8 @@ import datetime
 from app.models import ReceptionRota, ReceptionRotaSession
 from app.models.enums import ReceptionRole
 from app.models.reception import RECEPTION_HOURS, min_phones_for_hour
-from app.reception_counters import RoleCounters, StaffRoleCounters
-from app.reception_phones import (
+from app.reception.counters import RoleCounters, StaffRoleCounters
+from app.reception.phones import (
     MAX_BRIDGE_SLOTS,
     TOPUP_HOURS,
     select_phones_blocks,
