@@ -10,6 +10,20 @@ import { DAYS, PERIODS } from "@/lib/pivot";
 import { getStagingCell, pivotStaging } from "@/lib/pivotStaging";
 import { rotaDate } from "@/lib/weekDates";
 
+/**
+ * Cell fill, mirroring RotaGrid's language so the pre-generation preview and
+ * the generated rota read the same: white is a working session, grey is one
+ * where nothing is happening. Grey is reserved for exactly that - no surgery,
+ * leave, a closed slot, and the paler grey for a doctor with no template
+ * entry at all - so an admin scanning the grid sees the gaps rather than a
+ * uniform grey wash.
+ */
+function cellBackgroundClass(session: StagingSession | undefined): string {
+  if (session === undefined) return "bg-gray-100";
+  if (session.session_type === "no_surgery" || session.is_on_leave) return "bg-gray-200";
+  return "bg-white";
+}
+
 interface StagingGridProps {
   sessions: StagingSession[];
   stagingId: number;
@@ -34,7 +48,8 @@ interface StagingGridProps {
  *  - day headers show the real calendar date (staging rows have one,
  *    unlike the dateless master template) and grey out on a closed date,
  *    copying RotaGrid's header treatment;
- *  - a session with is_on_leave gets a small amber "Leave" badge -
+ *  - a session with is_on_leave gets a small amber "Leave" badge and the
+ *    same grey fill as a no-surgery cell (see cellBackgroundClass) -
  *    informational only, the popover stays available, since the whole
  *    point of staging is often to arrange cover for that exact leave;
  *  - a session with is_extra_session gets a small sky "Extra planned"
@@ -192,7 +207,7 @@ export function StagingGrid({ sessions, stagingId, startDate, numWeeks, closedSl
                       return (
                         <td
                           key={day}
-                          className={`border border-border px-2 py-1 text-center ${dividerClassName}`}
+                          className={`border border-border px-2 py-1 text-center ${cellBackgroundClass(session)} ${dividerClassName}`}
                           data-testid={`staging-cell-${doctor.id}-${activeWeek}-${day}-${period}`}
                         >
                           {session ? (

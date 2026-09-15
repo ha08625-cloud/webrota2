@@ -104,7 +104,7 @@ describe("StagingGrid", () => {
     setUpServer();
     const session = makeStagingSession({
       session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
-      session_type: "no_surgery", room_id: null, room_code: null,
+      session_type: "requires_room", room_id: null, room_code: null,
     });
     renderWithProviders(
       <StagingGrid
@@ -123,10 +123,64 @@ describe("StagingGrid", () => {
 
     const amCell = await screen.findByTestId("staging-cell-1-1-Monday-AM");
     expect(amCell.className).not.toContain("bg-gray-200");
-    expect(within(amCell).getByText("No surgery")).toBeInTheDocument();
+    expect(amCell.className).toContain("bg-white");
 
     const pmCell = screen.getByTestId("staging-cell-1-1-Monday-PM");
     expect(pmCell.className).toContain("bg-gray-200");
+  });
+
+  it("fills a working session white, and a no-surgery or leave session grey", async () => {
+    setUpServer();
+    const sessions = [
+      makeStagingSession({
+        session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+        session_type: "requires_room", room_id: null, room_code: null,
+      }),
+      makeStagingSession({
+        session_id: 2, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "PM",
+        session_type: "no_surgery", room_id: null, room_code: null,
+      }),
+      makeStagingSession({
+        session_id: 3, doctor_id: 1, doctor_code: "AB", week: 1, day: "Tuesday", period: "AM",
+        session_type: "requires_room", room_id: null, room_code: null, is_on_leave: true,
+      }),
+    ];
+    renderWithProviders(
+      <StagingGrid
+        sessions={sessions}
+        stagingId={1}
+        startDate="2026-08-03"
+        numWeeks={1}
+        closedSlots={[]}
+        onToast={noop}
+      />,
+    );
+
+    const working = await screen.findByTestId("staging-cell-1-1-Monday-AM");
+    expect(working.className).toContain("bg-white");
+    expect(screen.getByTestId("staging-cell-1-1-Monday-PM").className).toContain("bg-gray-200");
+    expect(screen.getByTestId("staging-cell-1-1-Tuesday-AM").className).toContain("bg-gray-200");
+  });
+
+  it("fills a cell with no session at all in the paler absent grey", async () => {
+    setUpServer();
+    const session = makeStagingSession({
+      session_id: 1, doctor_id: 1, doctor_code: "AB", week: 1, day: "Monday", period: "AM",
+      session_type: "requires_room", room_id: null, room_code: null,
+    });
+    renderWithProviders(
+      <StagingGrid
+        sessions={[session]}
+        stagingId={1}
+        startDate="2026-08-03"
+        numWeeks={1}
+        closedSlots={[]}
+        onToast={noop}
+      />,
+    );
+
+    const absent = await screen.findByTestId("staging-cell-1-1-Monday-PM");
+    expect(absent.className).toContain("bg-gray-100");
   });
 
   it("shows a Leave badge on a session flagged is_on_leave, without suppressing the popover", async () => {
