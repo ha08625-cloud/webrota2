@@ -7,6 +7,7 @@ import type { ApiError } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 
+import { RecruitmentOpenStage } from "./RecruitmentOpenStage";
 import { SetupStage } from "./SetupStage";
 import { StudyDocumentSlot } from "./StudyDocumentSlot";
 import { StudyFormDialog } from "./StudyFormDialog";
@@ -169,8 +170,9 @@ function HeaderField({ label, children }: { label: string; children: ReactNode }
 /**
  * The stage bodies. Setup is built; the recruitment, recruitment-finished
  * and close-down bodies are a later plan, written once the setup page has
- * been used in anger. The stubs keep the page shape - header above, one
- * body below - settled before anything fills them.
+ * been used in anger, and until then all three share one stub. The stub
+ * keeps the page shape - header above, one body below - settled before
+ * anything fills it.
  */
 function StageBody({
   study,
@@ -179,24 +181,10 @@ function StageBody({
   study: Study;
   showToast: (message: string) => void;
 }) {
-  const stage = study.stage;
-  if (stage === "setup") {
+  if (study.stage === "setup") {
     return <SetupStage study={study} showToast={showToast} />;
   }
-  if (stage === "recruitment_open") {
-    return (
-      <p className="text-sm text-ink/50">
-        Recruitment is open. What is booked and what is outstanding is not recorded here
-        yet - the header above holds the current documents and who to contact.
-      </p>
-    );
-  }
-  return (
-    <p className="text-sm text-ink/50">
-      This stage has no page of its own yet. The header above holds the current documents
-      and who to contact.
-    </p>
-  );
+  return <RecruitmentOpenStage stage={study.stage} />;
 }
 
 export function StudyPage() {
