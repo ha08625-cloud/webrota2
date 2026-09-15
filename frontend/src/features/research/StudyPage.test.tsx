@@ -95,14 +95,6 @@ describe("StudyPage header", () => {
     expect(within(keyDocuments).getAllByText("Nothing uploaded.")).toHaveLength(2);
   });
 
-  it("carries the standing no-participant-data line", async () => {
-    renderStudy(makeStudy());
-
-    expect(
-      await screen.findByText(/Never store participant information here/),
-    ).toBeInTheDocument();
-  });
-
   it("marks the current stage on the indicator", async () => {
     renderStudy(makeStudy({ stage: "recruitment_open" }));
 

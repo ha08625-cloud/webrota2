@@ -68,14 +68,6 @@ export function StudiesPage() {
         </button>
       </div>
 
-      <p className="mt-3 rounded border border-border bg-surface p-3 text-sm text-ink/80">
-        <strong className="font-semibold">Never store participant information here.</strong>{" "}
-        Blank study templates - the current patient information leaflet and the blank
-        consent form - belong on a study page. Anything filled in about a real person does
-        not: no recruitment or screening logs, no signed consent forms, no participant
-        lists or NHS numbers. Those stay on the intranet.
-      </p>
-
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load studies.</p> : null}
 
