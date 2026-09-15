@@ -1,9 +1,5 @@
 # Plan — Move Phase 9C ahead of Phase 7–9A, and make SR the supervision room
 
-Reviewed plan (workflow step 2). The provisional plan has been corrected and
-expanded following review against the code; the three open points it flagged
-have been decided (see "Review decisions"). Ready to be broken into tasks.
-
 ## Scope
 
 Three related changes to the clinical generation engine:
@@ -59,11 +55,7 @@ Three points the provisional plan flagged for review, now decided:
   supervisor sits in SR for the supervising period and takes an ordinary room
   from Pass 3 for the other period, so a doctor supervising only one session
   of a day now changes room at lunchtime where today they usually would not.
-  This is a genuine regression in mid-day stability and is accepted: SR is
-  the supervision room, and the supervisor sits there while supervising. It
-  must be stated explicitly in `phase_pipeline.md` (Task 4), because 9B is
-  guarded off from repairing it (D4) and a reader will otherwise expect 9B to
-  have caught it.
+  Our doctors don't like supervising for the entire day, so this is the preference
 - **`is_selectable_supervisor` has no room criterion at all.** Not "no room,
   or a D/SR room" — none. Safe because D3 is overturned (see below): every
   selected supervisor is moved into SR regardless of what they were holding.
