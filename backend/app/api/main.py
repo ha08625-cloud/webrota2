@@ -83,6 +83,10 @@ from .routers.reception import (
     rota as reception_rota,
     staff as reception_staff,
 )
+from .routers.research import (
+    documents as research_documents,
+    studies as research_studies,
+)
 
 app = FastAPI(title="Rota Generator API", version="0.1.0")
 
@@ -164,7 +168,7 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, locks, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, audit_router, calendar, eoi)
+_ALL_ROUTERS = (auth, locks, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, research_studies, research_documents, audit_router, calendar, eoi)
 
 # The ONLY four routers that do not get a permission gate. Do not
 # extend this without a reason as specific as these:
@@ -215,6 +219,8 @@ _AREA = {
     reception_rota: "reception",
     reception_leave: "reception",
     reception_counters: "reception",
+    research_studies: "research",
+    research_documents: "research",
     signatures: "signatures",
     eoi: "study_eoi",
     audit_router: "user_admin",

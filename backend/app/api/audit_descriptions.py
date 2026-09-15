@@ -208,6 +208,23 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
         "Removed reception leave across a date range",
     ("DELETE", "/reception/leave/{leave_id}"): "Deleted a reception leave entry",
 
+    # Research
+    ("POST", "/research/studies"): "Added a research study",
+    ("PATCH", "/research/studies/{study_id}"):
+        "Changed the details of research study {study_id}",
+    ("DELETE", "/research/studies/{study_id}"):
+        "Deleted research study {study_id}",
+    ("PATCH", "/research/studies/{study_id}/setup-steps/{step_key}"):
+        "Updated a setup step on research study {study_id}",
+    ("POST", "/research/studies/{study_id}/advance"):
+        "Moved research study {study_id} on to the next stage",
+    ("POST", "/research/studies/{study_id}/revert"):
+        "Moved research study {study_id} back a stage",
+    ("POST", "/research/studies/{study_id}/documents"):
+        "Uploaded a document to research study {study_id}",
+    ("DELETE", "/research/studies/{study_id}/documents/{document_id}"):
+        "Deleted a document from research study {study_id}",
+
     # Signatures and the EOI tool
     ("POST", "/signatures/{doctor_id}"): "Uploaded a doctor's signature",
     ("DELETE", "/signatures/{doctor_id}"): "Deleted a doctor's signature",
