@@ -162,6 +162,7 @@ forbidden_modules = [
     "app.api.schemas.staging",
     # Research.
     "app.research",
+    "app.api.routers.research",
 ]
 
 [[tool.importlinter.contracts]]
@@ -181,7 +182,9 @@ source_modules = [
     "app.doctor_window",
     "app.calendar_feed",
     "app.api.routers._doctor_ids",
-    "app.api.routers._uploads",
+    # NOTE: app.api.routers._uploads is deliberately NOT here. It was
+    # promoted to the shared kernel below when the research documents
+    # router became its third caller -- see the comment there.
     "app.api.routers.calendar",
     "app.api.routers.clinic_types",
     "app.api.routers.closures",
@@ -207,6 +210,7 @@ forbidden_modules = [
     "app.models.reception",
     "app.api.schemas.reception",
     "app.research",
+    "app.api.routers.research",
 ]
 
 [[tool.importlinter.contracts]]
@@ -258,6 +262,18 @@ source_modules = [
     "app.api.auth_utils",
     "app.api.edit_lock",
     "app.api.schemas.common",
+    # Promoted here deliberately (Decision 2), not for convenience, when
+    # the research documents router became `safe_filename_stem`'s third
+    # caller: /signatures/{id}/apply, /eoi/fill and
+    # /research/studies/{id}/documents/{id} all echo a filename into a
+    # Content-Disposition header and none of them may echo a
+    # client-supplied path or quote while doing it. The module imports
+    # nothing from `app` at all -- it is a stdlib-only filename-safety
+    # helper that lives under routers/ only because that is where its
+    # first two callers were, and moving the file would touch live
+    # signatures and EOI routes for no gain. The kernel gains one leaf;
+    # it is still the kind of addition that needs an argument.
+    "app.api.routers._uploads",
 ]
 forbidden_modules = [
     "app.engine",
@@ -289,6 +305,7 @@ allow_indirect_imports = true
 # not skip the entry.
 source_modules = [
     "app.research",
+    "app.api.routers.research",
 ]
 forbidden_modules = [
     # Clinical.

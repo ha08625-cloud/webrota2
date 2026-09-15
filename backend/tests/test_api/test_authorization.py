@@ -108,6 +108,7 @@ _AREA_FOR_PREFIX = {
     f"{API_PREFIX}/schools": "clinical",
     f"{API_PREFIX}/staging": "clinical",
     f"{API_PREFIX}/reception": "reception",
+    f"{API_PREFIX}/research": "research",
     f"{API_PREFIX}/signatures": "signatures",
     f"{API_PREFIX}/eoi": "study_eoi",
     f"{API_PREFIX}/audit": "user_admin",
@@ -241,11 +242,10 @@ _NON_GET_FLOORS = {
     "rota_admin": (65, 7),
     "reception_admin": (13, 58),
     "documents": (4, 68),
-    # The research preset grants exactly `research: write` and the section
-    # has no endpoints yet, so it reaches nothing and is blocked on
-    # everything -- the same row `no_access` gets, and for a different
-    # reason. Raise the first number when the research routers land.
-    "research": (0, 72),
+    # The research preset grants exactly `research: write`, so it writes
+    # everywhere in /research and nowhere else -- which is the whole point
+    # of a preset that exists to be given to a research nurse.
+    "research": (8, 72),
     "read_only": (0, 72),
     "no_access": (0, 72),
 }
@@ -255,9 +255,9 @@ _GET_FLOORS = {
     "rota_admin": (32, 4),
     "reception_admin": (32, 4),
     "documents": (6, 30),
-    # Four: the two _SHARED_READ pickers and the two ungated reads every
-    # login gets. Same as `no_access` until the research routers land.
-    "research": (4, 32),
+    # The three /research reads, plus the two _SHARED_READ pickers and the
+    # two ungated reads every login gets.
+    "research": (7, 32),
     "read_only": (32, 4),
     "no_access": (4, 32),
 }
