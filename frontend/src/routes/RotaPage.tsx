@@ -6,7 +6,7 @@ import { useClinicTypes, usePatchClinicType } from "@/api/clinicTypes";
 import { useClosures } from "@/api/closures";
 import { useDuty } from "@/api/duty";
 import { useRotaList } from "@/api/rota";
-import type { ClinicType, CreateStagingIn } from "@/api/types";
+import type { ClinicType, CreateStagingIn, RotaSummary } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { DutyGrid } from "@/components/DutyGrid";
 import { GenerateErrorMessage } from "@/components/GenerateErrorMessage";
@@ -150,11 +150,42 @@ function ClinicStatusList() {
 }
 
 /**
+ * The committed rota whose date range intersects the selected range, or
+ * null. Mirrors the backend's find_overlapping_committed_rota (engine/
+ * generate.py) exactly - same half-open intersection test, same
+ * first-match-by-start_date result - so what the form offers matches what
+ * POST /staging would accept. Archived rotas are deliberately included:
+ * archived_at is only a history-list filter, the backend overlap check
+ * looks at status alone, so an archived week is still a committed week.
+ */
+function findOverlappingCommittedRota(
+  committed: RotaSummary[],
+  startDate: string,
+  numWeeks: number,
+): RotaSummary | null {
+  const newEnd = addDays(startDate, numWeeks * 7);
+  return (
+    committed
+      .slice()
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+      .find((rota) => {
+        const existingEnd = addDays(rota.start_date, rota.num_weeks * 7);
+        return rota.start_date < newEnd && startDate < existingEnd;
+      }) ?? null
+  );
+}
+
+/**
  * The generate form does not generate directly: submitting creates a
  * staging - a copy of the active template's rows for the chosen range -
  * and navigates to /staging, where the one-off edits
  * happen before the Phase 0-12 pipeline actually runs (StagingPage's
  * "Complete and generate" action).
+ *
+ * When the selected range is already covered by a committed rota the
+ * submit button is replaced by a link to that rota rather than being left
+ * to fail: POST /staging would 409 on exactly this case, and the useful
+ * action for a week that is already done is to go and look at it.
  */
 interface StartStagingFormProps {
   upcomingMondays: string[];
@@ -162,6 +193,7 @@ interface StartStagingFormProps {
   setStartDate: (date: string) => void;
   numWeeks: 1 | 2 | 4;
   setNumWeeks: (weeks: 1 | 2 | 4) => void;
+  committedRotas: RotaSummary[];
 }
 
 function StartStagingForm({
@@ -170,14 +202,27 @@ function StartStagingForm({
   setStartDate,
   numWeeks,
   setNumWeeks,
+  committedRotas,
 }: StartStagingFormProps) {
   const writeGate = useWriteGate();
   const navigate = useNavigate();
   const createStaging = useCreateStaging();
   const [templateStartWeek, setTemplateStartWeek] = useState<1 | 2 | 3 | 4>(1);
 
+  const overlappingRota = useMemo(
+    () => findOverlappingCommittedRota(committedRotas, startDate, numWeeks),
+    [committedRotas, startDate, numWeeks],
+  );
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // The submit button is not rendered while the range is covered by a
+    // committed rota, but a keyboard submit from one of the selects can
+    // still fire this handler - POST /staging would only 409.
+    if (overlappingRota) {
+      return;
+    }
 
     // Staging create applies template_start_week once at copy time, to
     // pick which template weeks get copied, then discards it - the
@@ -250,14 +295,30 @@ function StartStagingForm({
 
       <ClinicStatusList />
 
-      <button
-        type="submit"
-        disabled={createStaging.isPending}
-        className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        {...writeGate}
-      >
-        {createStaging.isPending ? "Starting..." : "Start staging"}
-      </button>
+      {overlappingRota ? (
+        <div className="mt-4">
+          <p className="text-sm text-ink/70" data-testid="generate-already-committed">
+            {formatWeekLabel(overlappingRota.start_date)} - {overlappingRota.num_weeks} week
+            {overlappingRota.num_weeks > 1 ? "s" : ""} has already been committed and covers the weeks selected
+            here.
+          </p>
+          <Link
+            to={`/clinical/rota/${overlappingRota.rota_id}`}
+            className="mt-2 inline-block rounded bg-accent px-4 py-2 text-sm font-medium text-white"
+          >
+            Go to rota
+          </Link>
+        </div>
+      ) : (
+        <button
+          type="submit"
+          disabled={createStaging.isPending}
+          className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          {...writeGate}
+        >
+          {createStaging.isPending ? "Starting..." : "Start staging"}
+        </button>
+      )}
 
       {createStaging.isError ? <GenerateErrorMessage error={createStaging.error} /> : null}
     </form>
@@ -337,6 +398,7 @@ export function RotaPage() {
               setStartDate={setStartDate}
               numWeeks={numWeeks}
               setNumWeeks={setNumWeeks}
+              committedRotas={committed}
             />
           </div>
         )}

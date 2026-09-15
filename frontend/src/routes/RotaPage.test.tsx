@@ -299,6 +299,89 @@ describe("RotaPage", () => {
     expect(await screen.findByText("field required")).toBeInTheDocument();
   });
 
+  describe("already-committed week", () => {
+    it("offers 'Go to rota' instead of 'Start staging' when the selected week is already committed", async () => {
+      const mondays = getUpcomingMondays(12);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 7, status: "committed", start_date: mondays[0], num_weeks: 1 }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      expect(screen.queryByRole("button", { name: "Start staging" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Go to rota" })).toHaveAttribute("href", "/clinical/rota/7");
+      expect(screen.getByTestId("generate-already-committed")).toBeInTheDocument();
+    });
+
+    it("restores 'Start staging' when the selection moves to an uncommitted week", async () => {
+      const mondays = getUpcomingMondays(12);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 7, status: "committed", start_date: mondays[0], num_weeks: 1 }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+      expect(screen.getByRole("link", { name: "Go to rota" })).toBeInTheDocument();
+
+      const user = userEvent.setup();
+      await user.selectOptions(screen.getByLabelText("Week starting"), mondays[3]);
+
+      expect(await screen.findByRole("button", { name: "Start staging" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Go to rota" })).not.toBeInTheDocument();
+    });
+
+    it("treats a partial overlap (a later week of the selection) as committed too", async () => {
+      const mondays = getUpcomingMondays(12);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({ rota_id: 9, status: "committed", start_date: mondays[2], num_weeks: 1 }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+      expect(screen.getByRole("button", { name: "Start staging" })).toBeInTheDocument();
+
+      const user = userEvent.setup();
+      await user.selectOptions(screen.getByLabelText("Number of weeks"), "4");
+
+      expect(await screen.findByRole("link", { name: "Go to rota" })).toHaveAttribute("href", "/clinical/rota/9");
+    });
+
+    it("counts an archived committed rota, matching the backend overlap check", async () => {
+      const mondays = getUpcomingMondays(12);
+      server.use(
+        http.get("/api/v1/rota", () =>
+          HttpResponse.json([
+            makeRotaSummary({
+              rota_id: 11,
+              status: "committed",
+              start_date: mondays[0],
+              num_weeks: 1,
+              archived_at: "2026-06-10T09:00:00Z",
+            }),
+          ]),
+        ),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      expect(screen.getByRole("link", { name: "Go to rota" })).toHaveAttribute("href", "/clinical/rota/11");
+    });
+  });
+
   describe("duty status", () => {
     it("shows one 'not fully staffed' marker for the default single week when no duty exists", async () => {
       server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
