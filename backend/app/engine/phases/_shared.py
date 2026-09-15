@@ -13,18 +13,54 @@ Three kinds of thing live here:
     confidently describe a decision the engine did not make.
   - `INERT_TYPES` / `is_inert` -- the cross-phase "the engine neither
     allocates for nor moves this person" rule, consulted by Phases 4 and 5.
+  - `NON_ALLOCATABLE_ROOM_TYPES` -- the room-side mirror of that rule:
+    room types no phase may ever hand out. Nothing reads it; it exists so
+    the rule has a name and one place to be documented.
 
 Nothing here writes to the grid or the counters.
 """
 from __future__ import annotations
 
-from ...models.enums import Day, DoctorType, Period, SystemCounterType
+from ...models.enums import Day, DoctorType, Period, RoomType, SystemCounterType
 from .. import rationale as rat
 from ..datatypes import CounterState, GenerationContext, RotaGrid
 
 
 # Staff types the generation engine never allocates for and never moves.
 INERT_TYPES = (DoctorType.NURSE,)
+
+
+# Room types no generation phase may ever allocate. TR covers the treatment
+# rooms (TR1-TR3 at SHC) and the Cutteslowe kitchen (CK): rooms a human
+# fills from the master rota or by manual edit, and that the engine must
+# leave alone.
+#
+# Nothing in the engine reads this constant, and that is the point. The
+# guarantee is not a check anywhere -- it is *absence* from the four
+# room-type collections every phase reaches rooms through:
+#
+#   - `phase7_9a._ROOM_MOVE_FALLBACK_TYPES`  (Pass 1's receiving-room pool)
+#   - `phase7_9a._PASS3_FALLBACK_TYPE_ORDER` (Pass 3's forced-room order)
+#   - `room_relocation._ROOM_MOVE_FALLBACK_TYPES` (displaced-occupant pool)
+#   - `phase9c._SUPERVISOR_ROOM_TYPES`       (where a supervisor may sit)
+#
+# Every other room lookup in the engine names a single type explicitly
+# (`rooms_by_type.get(RoomType.D, ())`), so it cannot acquire TR by
+# accident. Absence is not something code can state, exactly as with
+# `INERT_TYPES`: adding a type here alone would give it no guarantee at all
+# while looking like it had. `tests/test_engine/test_non_allocatable_rooms.py`
+# is what pins the two halves together -- it asserts disjointness from each
+# of the four tuples above, and runs a full generation under real room
+# pressure to cover the preference walks and inline single-type lookups no
+# tuple assertion can reach.
+#
+# The one path that can still put a doctor in a TR room is a stored
+# `Doctor.preferred_rooms` entry naming one: three phases walk a doctor's
+# own preference list with no room-type allowlist. That hole is closed at
+# the API rather than in the engine -- the same treatment SR gets -- so
+# `load_context()` keeps expanding whatever is stored and the engine stays
+# honest about the data.
+NON_ALLOCATABLE_ROOM_TYPES = (RoomType.TR,)
 
 
 def is_inert(context: GenerationContext, doctor_id: int) -> bool:
