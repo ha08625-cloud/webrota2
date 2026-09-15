@@ -4,6 +4,7 @@ The "All day or half day branch" and "WFH or not" columns are ignored.
 sessions_per_week defaults to 10.0 for every doctor (M1 placeholder).
 Each preferred-room value resolves to a specific room_id when it matches a room
 code (D1-D8, C1-C3, W1-W2, SR), otherwise to a room_type token (D/C/W/SR).
+"TR" is not an accepted token -- see `_ROOM_TYPE_TOKENS` below.
 """
 import csv
 from decimal import Decimal
@@ -17,7 +18,10 @@ from app.models.enums import DoctorType, RoomType
 
 DEFAULT_CSV = Path(__file__).parent / "data" / "setup.csv"
 
-_ROOM_TYPE_TOKENS = {rt.value for rt in RoomType}  # {"D","C","W","SR"}
+# TR is excluded deliberately: treatment rooms are never engine-allocated, so
+# a TR room-type preference is rejected by the API too (PUT
+# /doctors/{id}/preferred-rooms). The seed parser must agree with it.
+_ROOM_TYPE_TOKENS = {rt.value for rt in RoomType} - {RoomType.TR.value}
 
 # Preferred Room + Alt Room 1..5 occupy columns 2..7.
 _PREF_COLS = range(2, 8)

@@ -46,10 +46,21 @@ class PreferenceWeight(str, enum.Enum):
 
 
 class RoomType(str, enum.Enum):
+    """The room kinds the clinical rota knows about.
+
+    TR is the treatment-room type (TR1-TR3 at SHC, CK at Cutteslowe): rooms
+    a human fills from the master rota or by manual edit, and that no
+    generation phase may ever allocate. The guarantee is structural rather
+    than checked -- every phase reaches rooms through an explicit room-type
+    allowlist, so a type absent from all of them is unallocatable, and
+    `tests/test_engine/` is what pins that.
+    """
+
     D = "D"
     C = "C"
     W = "W"
     SR = "SR"
+    TR = "TR"
 
 
 class Site(str, enum.Enum):
