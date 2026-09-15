@@ -33,13 +33,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from ...engine.week_map import DAY_ORDER
 from ...models import (
     RecurringNote,
     RecurringNoteDoctor,
     RotaConfigNote,
     User,
 )
+from ...models.enums import DAY_ORDER
 from ..deps import get_current_user, get_db
 from ..schemas import RecurringNoteIn, RecurringNoteOut
 from ._doctor_ids import validate_doctor_ids
