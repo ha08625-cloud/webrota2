@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from app.engine.context import load_context
 from app.engine.phases.phase2 import run_phase2
-from app.engine.phases.phase9c import run_phase9c
+from app.engine.phases.phase9c import reserved_sr_room_ids, run_phase9c
 from app.engine.datatypes import DecisionLog
 from app.models.enums import (
     Day,
@@ -11,11 +11,13 @@ from app.models.enums import (
     Period,
     RoomType,
     PreferenceWeight,
+    SessionRole,
     SystemCounterType,
 )
 
 from .factories import (
     make_doctor,
+    make_leave,
     make_master_session,
     make_room,
     make_system_counter,
@@ -43,16 +45,21 @@ def _pre_assigned(session, template, doctor, room, week=1, day=Day.MONDAY, perio
     )
 
 
-class TestSrSwap:
-    """There is no SR-priority fast path any more: selection is always by weighted SUPERVISION score across the whole
-    D/SR pool. These tests cover the post-selection swap-into-SR step that
-    replaced it, including its excluded edge case.
+class TestSrBooking:
+    """Phase 9C seats the chosen supervisor in an SR room.
+
+    Nothing is swapped: the phase runs before the room passes now, so SR is
+    normally still free and the supervisor simply takes it. The booking is a
+    no-op in exactly two cases -- the supervisor already sits in SR, or a
+    PRE_ASSIGNED template row has claimed the only SR room (D7 in the
+    supervision phase-order plan). In neither case is an occupant displaced
+    to make space.
     """
 
-    def test_only_candidate_already_in_sr_no_swap_entry(self, session, config_1wk):
+    def test_only_candidate_already_in_sr_no_booking_entry(self, session, config_1wk):
         # Sole eligible doctor happens to sit in SR -- selected via the
-        # normal pool path (there is only one candidate), and the swap step
-        # is a no-op because they are already where the swap would put them.
+        # normal pool path (there is only one candidate), and the booking
+        # step is a no-op because they are already where it would put them.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
@@ -77,17 +84,17 @@ class TestSrSwap:
         assert assign_entries[0].room_id == sr_room.id
         assert "only eligible doctor" in assign_entries[0].message
 
-        assert not any(e.action == "swap_supervisor_into_sr" for e in log.entries)
+        assert not any(e.action == "book_sr_room" for e in log.entries)
 
-    def test_sr_unoccupied_no_swap(self, session, config_1wk):
-        # An SR room exists in the practice but nobody sits in it this
-        # session -- the D-room winner has nothing to swap with and stays
-        # where they are.
+    def test_sr_unoccupied_is_booked_for_the_supervisor(self, session, config_1wk):
+        # The ordinary case at 9C's position in the pipeline: an SR room
+        # exists and nothing holds it, so the supervisor is seated there and
+        # the D room they came out of is released.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
         d_room = make_room(session, code="D1", room_type=RoomType.D)
-        make_room(session, code="SR1", room_type=RoomType.SR)  # unoccupied this session
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
 
         _requires_room(session, t, trainee)
         _pre_assigned(session, t, supervisor, d_room)
@@ -98,14 +105,102 @@ class TestSrSwap:
 
         slot = grid.get(supervisor.id, 1, Day.MONDAY, Period.AM)
         assert slot.is_supervising is True
-        assert slot.assigned_room_id == d_room.id
-        assert not any(e.action == "swap_supervisor_into_sr" for e in log.entries)
+        assert slot.assigned_room_id == sr_room.id
+        assert grid.is_room_free(1, Day.MONDAY, Period.AM, d_room.id)
 
-    def test_ineligible_sr_occupant_falls_through_and_is_swapped_out(self, session, config_1wk):
-        # SR occupant is a Trainee, not Partner/Salaried -- not an eligible
-        # supervisor, so the pool winner is the D-room doctor. That winner
-        # is then swapped into SR, displacing the trainee into the vacated
-        # D room.
+        book_entries = [e for e in log.entries if e.action == "book_sr_room"]
+        assert len(book_entries) == 1
+        assert book_entries[0].doctor_id == supervisor.id
+        assert book_entries[0].room_id == sr_room.id
+        assert book_entries[0].related_room_id == d_room.id
+
+        # assign_supervisor is written before the booking, so it still names
+        # the room the supervisor was holding at selection time.
+        assign = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert assign.room_id == d_room.id
+
+    def test_roomless_supervisor_is_seated_in_sr(self, session, config_1wk):
+        # The common shape of the pool at 9C's position: the candidate has a
+        # REQUIRES_ROOM template row and no room at all yet, because Pass 3
+        # of Phases 7-9A has not run. The booking is what rooms them.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+
+        _requires_room(session, t, trainee)
+        _requires_room(session, t, supervisor)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        slot = grid.get(supervisor.id, 1, Day.MONDAY, Period.AM)
+        assert slot.assigned_room_id is None  # nothing has roomed them yet
+
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        assert slot.is_supervising is True
+        assert slot.assigned_room_id == sr_room.id
+
+        book = next(e for e in log.entries if e.action == "book_sr_room")
+        assert book.related_room_id is None
+        assert "had no room yet" in book.rationale
+
+    def test_pre_assigned_c_room_supervisor_is_moved_into_sr(self, session, config_1wk):
+        # D3: a PRE_ASSIGNED C or W room is overridden, deliberately -- it is
+        # the one template pin this phase breaks. The old room is freed, the
+        # log says the pin was overridden, and no ROOM_MOVE counter moves:
+        # the doctor is being seated for the job they were just given, not
+        # displaced for someone else's.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+
+        _requires_room(session, t, trainee)
+        _pre_assigned(session, t, supervisor, c_room)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        slot = grid.get(supervisor.id, 1, Day.MONDAY, Period.AM)
+        assert slot.assigned_room_id == sr_room.id
+        assert grid.is_room_free(1, Day.MONDAY, Period.AM, c_room.id)
+        assert counters.system.get((supervisor.id, SystemCounterType.ROOM_MOVE), 0) == 0
+
+        book = next(e for e in log.entries if e.action == "book_sr_room")
+        assert book.related_room_id == c_room.id
+        assert "overrides the doctor's PRE_ASSIGNED template room" in book.rationale
+        assert "changes no counter, ROOM_MOVE included" in book.rationale
+
+    def test_first_sr_room_by_code_is_taken(self, session, config_1wk):
+        # Two SR rooms, created so that id order and code order disagree.
+        # The booking is by code, so it does not depend on insertion order.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        sr_late = make_room(session, code="SR2", room_type=RoomType.SR)
+        sr_first = make_room(session, code="SR1", room_type=RoomType.SR)
+        assert sr_late.id < sr_first.id
+
+        _requires_room(session, t, trainee)
+        _requires_room(session, t, supervisor)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        slot = grid.get(supervisor.id, 1, Day.MONDAY, Period.AM)
+        assert slot.assigned_room_id == sr_first.id
+
+    def test_pre_assigned_trainee_holds_sr_no_booking(self, session, config_1wk):
+        # D7's hole. A PRE_ASSIGNED template row claims the only SR room in
+        # Phase 2, before any reservation can apply, so 9C finds none free:
+        # the supervisor keeps the room they had, the occupant is left alone,
+        # and Phase 12 flags the result. Phase 0 warns on the template row
+        # itself -- see test_phase0.py.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(session, code="TR", doctor_type=DoctorType.TRAINEE)
@@ -125,21 +220,17 @@ class TestSrSwap:
         assert len(assign_entries) == 1
         assert assign_entries[0].doctor_id == pool_doctor.id
         assert "eligible pool" in assign_entries[0].message
-        # Recorded at selection time, before the swap moves the room.
         assert assign_entries[0].room_id == d_room.id
 
-        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
-        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert not any(e.action == "book_sr_room" for e in log.entries)
 
-        swap_entries = [e for e in log.entries if e.action == "swap_supervisor_into_sr"]
-        assert len(swap_entries) == 1
-        assert swap_entries[0].doctor_id == pool_doctor.id
-        assert swap_entries[0].room_id == sr_room.id
-
-    def test_pool_winner_not_in_sr_swaps_with_sr_occupant(self, session, config_1wk):
-        # Plain two-candidate pool win (lower raw SUPERVISION count), then
-        # the winner -- sitting in D -- is swapped into SR with the
-        # occupant, who takes the winner's vacated D room.
+    def test_pool_winner_keeps_their_room_when_sr_is_taken(self, session, config_1wk):
+        # Plain two-candidate pool win (lower raw SUPERVISION count). The SR
+        # room is held by the loser's PRE_ASSIGNED row, so there is nothing
+        # to book -- and, unlike the swap this replaced, the loser is not
+        # turned out of it.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         winner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0")
@@ -159,20 +250,16 @@ class TestSrSwap:
 
         assert grid.get(winner.id, 1, Day.MONDAY, Period.AM).is_supervising is True
         assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).is_supervising is False
-        assert grid.get(winner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
-        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
-
-        swap_entries = [e for e in log.entries if e.action == "swap_supervisor_into_sr"]
-        assert len(swap_entries) == 1
-        assert swap_entries[0].doctor_id == winner.id
-        assert "AA" in swap_entries[0].message and "BB" in swap_entries[0].message
+        assert grid.get(winner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+        assert not any(e.action == "book_sr_room" for e in log.entries)
 
     def test_none_preference_sr_occupant_no_longer_auto_assigned(self, session, config_1wk):
-        # There is no SR-priority fast path any more, so a "none"-preference
-        # doctor sitting in SR gets no special treatment: the preference
-        # multiplier still deprioritises them against a lower-scoring D-room
-        # candidate, and the D-room candidate wins the pool comparison
-        # outright before any swap is considered.
+        # There is no SR-priority fast path, so a "none"-preference doctor
+        # sitting in SR gets no special treatment: the preference multiplier
+        # still deprioritises them against a lower-scoring candidate, who
+        # wins the pool outright. SR is taken by a PRE_ASSIGNED row, so the
+        # winner is not booked into it and the occupant is not displaced.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         sr_occupant = make_doctor(
@@ -197,10 +284,54 @@ class TestSrSwap:
         assert len(assign_entries) == 1
         assert assign_entries[0].doctor_id == pool_doctor.id
 
-        # Winner was in D, not SR, so the swap step then moves them into SR.
-        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
-        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(pool_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
         assert grid.get(sr_occupant.id, 1, Day.MONDAY, Period.AM).is_supervising is False
+
+
+class TestReservedSrRoomIds:
+    """The per-session SR reservation Phases 4 and 5 consult (D6)."""
+
+    def test_only_sessions_with_supervisable_trainees_are_reserved(
+        self, session, config_1wk
+    ):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+
+        # Monday AM has a trainee; Monday PM does not.
+        _requires_room(session, t, trainee, period=Period.AM)
+
+        ctx, grid, _counters = _build(session, config_1wk)
+        reserved = reserved_sr_room_ids(ctx, grid)
+
+        assert reserved[(1, Day.MONDAY, Period.AM)] == sr_room.id
+        assert (1, Day.MONDAY, Period.PM) not in reserved
+        assert (1, Day.TUESDAY, Period.AM) not in reserved
+
+    def test_reserves_the_first_sr_room_by_code(self, session, config_1wk):
+        # The same room `_book_sr_room` takes, chosen the same way, so the
+        # reservation and the booking cannot pick different rooms.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        sr_late = make_room(session, code="SR2", room_type=RoomType.SR)
+        sr_first = make_room(session, code="SR1", room_type=RoomType.SR)
+        assert sr_late.id < sr_first.id
+
+        _requires_room(session, t, trainee)
+
+        ctx, grid, _counters = _build(session, config_1wk)
+        assert reserved_sr_room_ids(ctx, grid)[(1, Day.MONDAY, Period.AM)] == sr_first.id
+
+    def test_no_sr_room_in_the_practice_reserves_nothing(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        make_room(session, code="D1", room_type=RoomType.D)
+
+        _requires_room(session, t, trainee)
+
+        ctx, grid, _counters = _build(session, config_1wk)
+        assert reserved_sr_room_ids(ctx, grid) == {}
 
 
 class TestPoolPath:
@@ -423,11 +554,11 @@ class TestDecisionLogRationale:
 
         entry = next(e for e in log.entries if e.action == "assign_supervisor")
         assert (
-            "AA in D1: raw 2 (+4 opening balance) / 10 sessions per week = 0.600, "
+            "AA: raw 2 (+4 opening balance) / 10 sessions per week = 0.600, "
             "supervision preference normal (x1) -> 0.600" in entry.rationale
         )
         assert (
-            "BB in D2: raw 2 / 10 sessions per week = 0.200, supervision preference "
+            "BB: raw 2 / 10 sessions per week = 0.200, supervision preference "
             "normal (x1) -> 0.200" in entry.rationale
         )
         # The credited doctor is not the one picked, which is the point.
@@ -459,11 +590,11 @@ class TestDecisionLogRationale:
         entry = next(e for e in log.entries if e.action == "assign_supervisor")
         assert "1 trainee(s) in this session need supervision." in entry.rationale
         assert (
-            "AA in D1: raw 4 / 10 sessions per week = 0.400, supervision preference "
+            "AA: raw 4 / 10 sessions per week = 0.400, supervision preference "
             "more (x0.66) -> 0.264" in entry.rationale
         )
         assert (
-            "BB in D2: raw 2 / 10 sessions per week = 0.200, supervision preference "
+            "BB: raw 2 / 10 sessions per week = 0.200, supervision preference "
             "less (x1.5) -> 0.300" in entry.rationale
         )
         # AA wins on the preference-adjusted score despite the higher raw
@@ -500,17 +631,72 @@ class TestDecisionLogRationale:
         assert "alphabetical tie-break" in entry.message
 
     def test_names_partner_salaried_doctors_kept_out_of_the_pool(self, session, config_1wk):
+        # One doctor per exclusion `is_selectable_supervisor` still has --
+        # the room criterion is gone, so a C-room Partner is now *in* the
+        # pool. The line each gets has to name the reason that actually
+        # applied, which is what pairs `_ineligible_lines` to the predicate.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         eligible = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER, spw="10.0")
-        wrong_room = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0")
+        on_duty = make_doctor(session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0")
+        on_leave = make_doctor(session, code="CC", doctor_type=DoctorType.PARTNER, spw="10.0")
+        at_home = make_doctor(session, code="DD", doctor_type=DoctorType.PARTNER, spw="10.0")
+        on_admin = make_doctor(session, code="EE", doctor_type=DoctorType.PARTNER, spw="10.0")
+
         _requires_room(session, t, trainee)
         _pre_assigned(session, t, eligible, make_room(session, code="D1", room_type=RoomType.D))
-        _pre_assigned(session, t, wrong_room, make_room(session, code="C1", room_type=RoomType.C))
+        _requires_room(session, t, on_duty)
+        _requires_room(session, t, on_leave)
+        make_master_session(
+            session, t, at_home, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.WFH,
+        )
+        make_master_session(
+            session, t, on_admin, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.ADMIN_TIME,
+        )
+        make_leave(session, on_leave, config_1wk.start_date, period=Period.AM)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        # Phase 4 is what normally stamps a role; this phase only reads it.
+        grid.get(on_duty.id, 1, Day.MONDAY, Period.AM).role = SessionRole.DUTY_PRIMARY
+
+        log = DecisionLog()
+        run_phase9c(ctx, grid, counters, log)
+
+        entry = next(e for e in log.entries if e.action == "assign_supervisor")
+        assert entry.doctor_id == eligible.id
+        assert (
+            "Not in the pool (4): BB: already on duty_primary this session; "
+            "CC: on leave; DD: working from home; "
+            "EE: template session is admin_time" in entry.rationale
+        )
+
+    def test_a_c_room_partner_is_now_in_the_pool(self, session, config_1wk):
+        # The counterpart to the test above: the room criterion is gone from
+        # `is_selectable_supervisor` (D1), so a Partner pre-assigned a C room
+        # is a candidate -- and, being the only one, is selected and moved
+        # into SR. The old room-based exclusion line no longer exists.
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        c_room_partner = make_doctor(
+            session, code="BB", doctor_type=DoctorType.PARTNER, spw="10.0",
+        )
+        _requires_room(session, t, trainee)
+        _pre_assigned(
+            session, t, c_room_partner, make_room(session, code="C1", room_type=RoomType.C)
+        )
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
 
         ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
         run_phase9c(ctx, grid, counters, log)
 
         entry = next(e for e in log.entries if e.action == "assign_supervisor")
-        assert "Not in the pool (1): BB: in C1 (C), not a D or SR room" in entry.rationale
+        assert entry.doctor_id == c_room_partner.id
+        assert "Not in the pool" not in entry.rationale
+        assert "not a D or SR room" not in entry.rationale
+        assert (
+            grid.get(c_room_partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id
+            == sr_room.id
+        )

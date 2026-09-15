@@ -335,3 +335,44 @@ class TestDecisionLogFields:
         assert entry.room_id == x.id  # A's AM room
         assert entry.related_room_id == y.id  # B's AM room
         assert "PM" in entry.message
+
+
+class TestSupervisionGuard:
+    """D4: Phase 9C fixes the supervisor's room, and Phase 9B only ever
+    rewrites PM assignments -- so the guard is on the PM slot alone.
+    """
+
+    def test_pm_supervising_pair_is_not_resolved(self, session, config_1wk):
+        t, a, b, x, y = _setup_swap(session)
+        # No preferences: row 7, which would DEFAULT both PM rooms back to
+        # the AM ones were the pair considered at all.
+
+        ctx, grid = _build(session, config_1wk)
+        grid.get(a.id, 1, Day.MONDAY, Period.PM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
+
+        # Untouched in both periods, and never even detected as a swap.
+        assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
+        assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
+        assert not any(e.action == "resolve_swap" for e in log.entries)
+
+    def test_am_supervising_pair_is_still_resolved(self, session, config_1wk):
+        # The guard is deliberately NOT extended to AM. DEFAULT sets PM to
+        # the AM room, which for an AM supervisor means keeping them in the
+        # room they are already in -- abandoning the resolution would drop a
+        # harmless swap fix for nothing. This test is what stops the AM
+        # guard being added.
+        t, a, b, x, y = _setup_swap(session)
+
+        ctx, grid = _build(session, config_1wk)
+        grid.get(a.id, 1, Day.MONDAY, Period.AM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase9b(ctx, grid, log)
+
+        assert grid.get(a.id, 1, Day.MONDAY, Period.AM).assigned_room_id == x.id
+        assert grid.get(a.id, 1, Day.MONDAY, Period.PM).assigned_room_id == x.id
+        assert grid.get(b.id, 1, Day.MONDAY, Period.PM).assigned_room_id == y.id
+        assert len([e for e in log.entries if e.action == "resolve_swap"]) == 1

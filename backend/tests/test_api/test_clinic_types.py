@@ -344,3 +344,98 @@ class TestClinicTypePatch:
             [e["id"] for e in after["room_eligibilities"]]
             == [e["id"] for e in before["room_eligibilities"]]
         )
+
+class TestSrRoomsAreNotSelectable:
+    """SR is held for trainee supervision (Phase 9C books it before the
+    room-filling phases run), so it cannot be a clinic room.
+
+    Two halves, two status codes: `room_type: "SR"` fails schema validation
+    (422); a `room_id` pointing at an SR room needs the database to resolve,
+    so the router rejects it with a 400 whose string `detail` the clinic
+    type dialog renders at the top of the form.
+    """
+
+    def test_post_with_sr_room_type_is_422(self, client, seeded):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_eligibilities": [{"room_type": "SR"}],
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_put_with_sr_room_type_is_422(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Dragon",
+            "room_required": True,
+            "schedules": [{"day": "Monday", "period": "AM"}],
+            "doctor_eligibilities": [],
+            "room_eligibilities": [{"room_type": "SR"}],
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_post_with_sr_room_id_is_400_naming_the_room(self, client, seeded):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_eligibilities": [{"room_id": seeded["room_sr"]}],
+        })
+        assert resp.status_code == 400, resp.text
+        assert "SR" in resp.json()["detail"]
+        assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_put_with_sr_room_id_is_400_naming_the_room(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Renamed",
+            "room_required": False,
+            "schedules": [],
+            "doctor_eligibilities": [],
+            "room_eligibilities": [{"room_id": seeded["room_sr"]}],
+        })
+        assert resp.status_code == 400, resp.text
+        assert "SR" in resp.json()["detail"]
+
+    def test_a_payload_mixing_a_valid_room_and_sr_is_rejected_whole(
+        self, client, seeded
+    ):
+        # `_reject_sr_rooms` runs before `_apply`, so nothing is created --
+        # the valid C room does not sneak in alongside the rejected SR one.
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_required": True,
+            "schedules": [{"day": "Monday", "period": "AM"}],
+            "room_eligibilities": [
+                {"room_id": seeded["room_c1"]},
+                {"room_id": seeded["room_sr"]},
+            ],
+        })
+        assert resp.status_code == 400, resp.text
+        assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_a_put_mixing_a_valid_room_and_sr_modifies_nothing(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Renamed",
+            "room_required": False,
+            "schedules": [],
+            "doctor_eligibilities": [],
+            "room_eligibilities": [
+                {"room_id": seeded["room_d1"]},
+                {"room_id": seeded["room_sr"]},
+            ],
+        })
+        assert resp.status_code == 400, resp.text
+
+        # The stored row is exactly as it was created.
+        after = client.get(f"/api/v1/clinic-types/{created['id']}").json()
+        assert after["name"] == "Dragon"
+        assert after["room_required"] is True
+        assert len(after["schedules"]) == 1
+        assert [e["room_id"] for e in after["room_eligibilities"]] == [seeded["room_c1"]]
+
+    def test_a_non_sr_room_id_is_still_accepted(self, client, seeded):
+        # Guard against the check rejecting too much.
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Fine",
+            "room_eligibilities": [{"room_id": seeded["room_d1"]}],
+        })
+        assert resp.status_code == 201, resp.text

@@ -803,3 +803,74 @@ class TestDecisionLogRationale:
         entry = next(e for e in log.entries if e.action == "duty_room_unresolved")
         assert "D1: held by PP" in entry.rationale
         assert "nobody the sweep was allowed to evict" in entry.rationale
+
+
+class TestSrReservation:
+    """Phase 4 runs before Phase 9C, so it is one of the two phases that
+    has to be told which SR room is being held for a supervisor (D6).
+    `reserved_sr` is passed explicitly here rather than through
+    `generate()`, so these tests pin the phase's own handling of it.
+    """
+
+    def _evicting_fixture(self, session, config_1wk, monday):
+        """Duty doctor prefers D3; a Salaried doctor holds it and prefers
+        SR1, so the relocation search reaches SR before its C fallback."""
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        salaried = make_doctor(session, code="SS", doctor_type=DoctorType.SALARIED)
+        preferred = make_room(session, code="D3", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        make_preferred_room(session, duty_doc, preference_order=1, room=preferred)
+        make_preferred_room(session, salaried, preference_order=1, room=sr_room)
+        make_preferred_room(session, salaried, preference_order=2, room=c_room)
+        _pre_assigned(session, t, salaried, preferred)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+        return salaried, sr_room, c_room
+
+    def test_evictee_is_not_relocated_into_a_reserved_sr_room(
+        self, session, config_1wk, monday
+    ):
+        salaried, sr_room, c_room = self._evicting_fixture(session, config_1wk, monday)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(
+            ctx, grid, counters, log,
+            {(1, Day.MONDAY, Period.AM): sr_room.id},
+        )
+
+        # SR is held for the session's supervisor, so the evictee's first
+        # room preference is skipped and they land on the next one.
+        assert grid.get(salaried.id, 1, Day.MONDAY, Period.AM).assigned_room_id == c_room.id
+        assert grid.is_room_free(1, Day.MONDAY, Period.AM, sr_room.id)
+
+    def test_evictee_takes_sr_in_a_session_with_no_reservation(
+        self, session, config_1wk, monday
+    ):
+        # The other half of D6: outside sessions that need a supervisor, SR
+        # stays in the ordinary pool and a doctor who prefers it still gets
+        # it. Room preferences did not change.
+        salaried, sr_room, _c_room = self._evicting_fixture(session, config_1wk, monday)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log, {})
+
+        assert grid.get(salaried.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
+
+    def test_reservation_for_another_session_does_not_apply(
+        self, session, config_1wk, monday
+    ):
+        # The reservation is per `(week, day, period)`, not global.
+        salaried, sr_room, _c_room = self._evicting_fixture(session, config_1wk, monday)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(
+            ctx, grid, counters, log,
+            {(1, Day.MONDAY, Period.PM): sr_room.id},
+        )
+
+        assert grid.get(salaried.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id
