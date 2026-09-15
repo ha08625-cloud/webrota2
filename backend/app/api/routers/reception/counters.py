@@ -25,10 +25,10 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ....models import User
+from ....models.user import User
 from ....reception.counters import compute_role_counters, default_counter_window
 from ...deps import get_current_user, get_db
-from ...schemas import ReceptionCounterRowOut, ReceptionCountersOut
+from ...schemas.reception import ReceptionCounterRowOut, ReceptionCountersOut
 
 router = APIRouter(prefix="/reception/counters", tags=["reception"])
 

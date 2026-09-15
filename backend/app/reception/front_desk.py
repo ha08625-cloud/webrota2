@@ -69,9 +69,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import product
 
-from ..models import ReceptionRota
 from ..models.enums import ReceptionRole
-from ..models.reception import min_phones_for_hour
+from ..models.reception import ReceptionRota, min_phones_for_hour
 from .counters import RoleCounters
 
 # The covered window: 8:00am-6:00pm as twenty half-hour slots. FRONT_DESK_HOURS
