@@ -1,6 +1,6 @@
-This is a project to port a google apps script for a rota generator into a web based app.  Review the architecture.md file at the start of each chat. The system is not yet live so we do not need to preserve any existing data
+This is a web based app for a GP surgery, primarily a rota generator.  Review the architecture.md file at the start of each chat. The system is live on production, and staged on main.  Aim to follow a modular monolith pattern - shared auth and permissions, separated domains
 
-Prioritise realistic expectations over agreement. Be honest if the user is making a mistake
+Prioritise realistic expectations over agreement. Be honest if the user is making a mistake.
 
 Architecture documentation: User maintains their own architecture documentation.  What exists in the project files is for Claude to use to navigate the system.  Architecture documents should be updated regularly following these guidelines:
 1. Include design decisions, high level architecture and data flows
@@ -16,6 +16,9 @@ Very simple tickets may be started and completed in a single chat, but most tick
 1. Discussion: Explore the issue, ask clarifying questions and make design decisions, write a provisional plan
 2. Review provisional plan: The plan is copied and pasted into a new chat, reviewed, corrected and expanded into an implementation plan
 3. The implementation plan is broken down into individual tasks, to be completed in individual chats (for token efficiency)
+4. The tasks will then be used as context for new Sonnet chats for writing the code
+5. Implementation plans should end with a task that updates the architecture documentation with high level and design decisions and then deletes the implementation plan
+
 Implementation plan template:
 #Plan
 #Scope
@@ -28,5 +31,7 @@ C: Instructions on completing the task
 A: Data model changes have already been completed.  These are the changes to make in the engine files: etc.
 #Task X review and documentation
 A. State of the world Tasks 1-4 are complete and the feature is live. This step is for review and documentation
-4. The tasks will then be used as context for new Sonnet chats for writing the code
-5. Implementation plans should end with a task that updates the architecture documentation with high level and design decisions and then deletes the implementation plan
+
+Do not include "log notes" unless they are necessary to explain a a specific design decision.  For example:
+- do not include "in the provisional plan we noticed X which was wrong and that has been changed to Y which is correct for the implementation plan"
+- do include "in the provisional plan we noticed X which appears correct at first glance but when we review the existing code and the design decisions, actually Y is a better design for these reasons: etc"
