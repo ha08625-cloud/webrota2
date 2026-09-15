@@ -31,7 +31,48 @@ The two domains are decoupled in substance already — reception imports nothing
 - **Clinical routers are listed longhand** in contract 2, because they are still flat modules in `app/api/routers/` rather than a package. A new clinical router is not covered until it is added to that list. Reception needs no such maintenance: `app.reception` and `app.api.routers.reception` are packages, and a named module covers its descendants — which is the payoff from moving reception into packages, and the reason to build new sections as packages from day one.
 - They say nothing about the frontend. `src/routes/`, `src/components/` and `src/api/` are flat directories mixing every domain, with no enforcement of any kind. The four route shells give isolation of routing and nav, not of code organisation.
 
-**New sections are built domain-first from day one; existing sections are not retrofitted.** A new backend section gets `app/<section>/` and `app/api/routers/<section>/` as packages plus its own contract pair; its frontend pages go in `src/features/<section>/`. Existing sections stay where they are — repackaging the 6,100-line clinical engine buys nothing the contracts do not already give and risks a lot. Revisit once two more sections exist and the shape has proved itself.
+**New sections are built domain-first from day one; existing sections are not retrofitted.** Repackaging the 6,100-line clinical engine buys nothing the contracts do not already give and risks a lot. The shape a new section must take, and the wiring it has to do, are in "Adding a Module" immediately below — read that before starting one.
+
+## Adding a Module
+
+Follow this when adding a new top-level section (Research, Trainee Induction, whatever comes after). It is the convention the import contracts above assume; a new section built the old flat way will compile and pass tests, and be silently uncovered by any contract.
+
+**Backend shape.** The section is two packages:
+
+```
+backend/app/<section>/           models.py, schemas.py, service.py (and whatever else it needs)
+backend/app/api/routers/<section>/   __init__.py (docstring only), one module per resource
+```
+
+Both must be packages from the first file, even if that file is the only one. A named module in a contract covers its descendants, so `app.<section>` is a one-line contract entry that picks up every file added later; a flat `app/<section>_foo.py` has to be hand-added to its own contract and to every other contract's `forbidden_modules`, and will be forgotten. That is the whole reason reception was moved.
+
+**Its models and schemas live inside the package**, at `app/<section>/models.py` and `app/<section>/schemas.py` — not at `app/models/<section>.py` and `app/api/schemas/<section>.py`. Reception is *not* the model to copy here: it demonstrates the package-and-contract shape, but its models and schemas are still in the shared trees, which is why its contract needs four source entries instead of two. A new section should need two.
+
+**What it may import:** the shared kernel listed under "Module Boundaries" above, and its own internals. Nothing else. Another section's model, schema, service or router is a boundary break, and the contract exists to fail the build when one appears.
+
+**Import model and schema submodules, never the aggregates.** `from ..models.enums import Day`, not `from ..models import Day`. Two separate reasons, both real:
+
+- The contracts are direct-import only, so a reference routed through `app.models` is invisible to them (see above). Submodule imports are what make a cross-domain model reference a visible edge.
+- `app/models/__init__.py` imports your section's models, so your models module is imported *while that package is still initialising*. Going back through the aggregate is a circular import waiting to bite as soon as the name you want happens to be bound after yours.
+
+**Wiring — six places, none of them optional:**
+
+| Where | What |
+|---|---|
+| `app/models/__init__.py` | `from ..<section>.models import ...`, so `create_all` and Alembic autogenerate see the mappers. Domain-first models do **not** mean an unregistered mapper — this is the step that gets forgotten, and the symptom is a table missing from the SQLite test DB. |
+| `app/models/permissions.py` | the section's key in `AREA_KEYS`. No migration: permissions are string-keyed in a `MutableDict(JSON)` column. |
+| `app/api/main.py` | import each router module, add it to `_ALL_ROUTERS` and give it an `_AREA` entry. The assertions there fail at import if you skip one, which is the point. |
+| `app/api/audit_descriptions.py` | one sentence per non-GET route, in the UI's own vocabulary, or `test_audit_descriptions.py` fails with the missing keys. |
+| `tests/test_api/test_authorization.py` | `f"{API_PREFIX}/<section>": "<section>"` in `_AREA_FOR_PREFIX`. Hand-written on purpose, so the sweeps can catch a router filed under the wrong section. Omitting it fails loudly — `_area_for` raises `KeyError` on an unclassified path rather than defaulting — so this is a step you cannot forget, only be puzzled by. |
+| `backend/pyproject.toml` | a `forbidden` contract, **in the same PR as the section's first file** — not later. Also add the new section's modules to the *other* sections' and the shared kernel's `forbidden_modules`, so the ban is mutual. Only name packages that already exist: a `source_modules` entry for a module that is not there yet fails the entire run with "Module '…' does not exist", so the router package joins the contract in the PR that creates it, not before. |
+
+Permission wiring beyond `AREA_KEYS` (`_FORBIDDEN_DETAIL` and `_READ_ONLY_DETAIL` in `api/deps.py`, the permissions schema in `api/schemas/auth.py`) stays where it is: those are shared kernel, and they are meant to grow by one key per section.
+
+**Migrations** go in the single Alembic chain, like everything else. One database, one chain — branched per-module heads buy nothing here and cost permanent "multiple heads" pain. Native Postgres enums stay in `models/enums.py` even for a domain-specific enum: that file is the registry the `_enum()` / `_create_enum_types()` pattern in migration `001` and the `enum_col` helper both read, and `ReceptionRole` already sets the precedent. This is a deliberate, named exception to "domain code lives in the domain package", not an oversight.
+
+**Frontend** goes in `frontend/src/features/<section>/` — pages, components, API hooks and any client-side catalogue mirror together — behind its own shell in `App.tsx`, with a `SECTIONS` tile on `LandingPage.tsx` and the section's key added to `permissionPresets.ts`, `userSchema.ts`, `UserFormDialog.tsx`, `AuthContext.tsx` and `api/types.ts`. Existing sections keep their files in the flat `src/routes/`, `src/components/` and `src/api/` trees; nothing enforces this on the frontend, so it is convention only.
+
+**Not retrofitting the old sections is deliberate.** Let the shape prove itself on the next two sections first. If it is clearly better to work in by then, retrofitting becomes a small evidence-backed decision instead of a leap of faith.
 
 ## Overview
 

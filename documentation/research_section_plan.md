@@ -86,6 +86,10 @@ names what is still outstanding.
   download / delete on the three steps that have a slot.
 - A stub Recruitment-open body showing the persistent header and the key
   documents.
+- The section's domain-first layout and its `import-linter` contract pair
+  (Decision 22). Research is the first section built to the "Adding a Module"
+  convention in `documentation/architecture.md`, so the layout is a deliverable
+  here, not a tidy-up afterwards.
 
 **Out of scope, each by an explicit decision below**
 
@@ -386,6 +390,38 @@ names what is still outstanding.
     and not evidence of anything, so the extension is checked too and the real
     protection remains Decision 14's three response headers.
 
+22. **Research is laid out domain-first, and is the first section in the repo
+    to be.** Everything the section owns lives in two packages,
+    `backend/app/research/` (models, schemas, catalogue) and
+    `backend/app/api/routers/research/` — not spread across `app/models/`,
+    `app/api/schemas/` and a flat `app/api/routers/research.py`. The
+    convention, and the wiring it still requires, are written up under
+    "Adding a Module" in `documentation/architecture.md`; read that section
+    before Task 2 rather than inferring the shape from this plan.
+
+    Two things make it worth the small extra thought. Packages mean the
+    section's import contract is two `source_modules` lines that cover every
+    file added later, where reception — which has the packages but left its
+    models and schemas in the shared trees — needs four and would need a
+    fifth for a new home. And a domain-first model module makes a
+    cross-domain import a *direct* edge, which is the only kind
+    `import-linter` can see here. Reception is therefore not the layout to
+    copy; it is the halfway point.
+
+    Two constraints survive the layout, and both are called out again at the
+    tasks that hit them, because a domain-first layout is exactly what
+    invites people to forget them:
+
+    - **`app/models/__init__.py` must still import the new models.**
+      `create_all` and Alembic autogenerate rely on importing that one
+      package to register every mapper, and the test suite builds SQLite
+      from the models. Models living in `app/research/` does not mean an
+      unregistered mapper; it means one import line pointing somewhere new.
+    - **The permission wiring stays where it is.** `models/permissions.py`,
+      `api/deps.py`, `api/schemas/auth.py` and `api/main.py` are shared
+      kernel, they are meant to grow by one key per section, and Task 1
+      already gets them right. Nothing about this decision moves them.
+
 ---
 
 # Task 1: The `research` permission and an empty section
@@ -431,7 +467,10 @@ this task.
   `SignaturesShell`: own header, redirect to `/` unless
   `canReadArea(permissions, "research")`, one `PermissionAreaProvider
   area="research"` on the shell (not per route — unlike Documents this is one
-  permission), and a placeholder index page.
+  permission), and a placeholder index page. The shell itself stays in
+  `App.tsx` with the other four; the placeholder page is the section's first
+  own file and goes in `frontend/src/features/research/` (Decision 22), so
+  that Task 4 extends a directory rather than creating one and moving into it.
 - Tests: `backend/tests/test_api/test_authorization.py` — add the research
   preset to `_PROFILES`; `backend/tests/test_api/test_users.py` and the
   permission fixtures; `frontend/src/App.test.tsx` for the new shell's guard;
@@ -455,13 +494,20 @@ shell. This task adds the schema only — no endpoints, no UI.
 
 - `backend/app/models/enums.py` — a `StudyStage` enum (`setup`,
   `recruitment_open`, `recruitment_closed`, `closed`), plus the ordered tuple
-  the transitions are derived from (Decision 3).
-- `backend/app/research/catalogue.py` (new package) — the eight setup steps
+  the transitions are derived from (Decision 3). This one file **stays
+  shared** even though the enum is research-only: `models/enums.py` is the
+  registry that migration `001`'s `_enum()` / `_create_enum_types()` pattern
+  and the `enum_col` helper both read, and `ReceptionRole` already sets the
+  precedent. It is the one named exception to Decision 22, not an oversight.
+- `backend/app/research/__init__.py` — creates the package. A docstring and
+  whatever thin re-export surface the section wants; no logic.
+- `backend/app/research/catalogue.py` — the eight setup steps
   (key, label, display order, `has_documents`) and the three key document slots
   (slot, label). A `by_key` lookup, an `is_valid_step`, an `is_valid_slot`, and
   a `slot_holds_one` predicate used by the router and the schemas.
   Dependency-free, like `models/permissions.py`.
-- `backend/app/models/study.py`:
+- `backend/app/research/models.py` (**not** `app/models/study.py` — Decision
+  22):
   - `Study` — `name`, `cpms_code` (unique index, nullable), `study_type`,
     `website_url`, `owner_user_id` (FK `users`), `stage`, the four nullable
     stage-entry dates, `created_at`.
@@ -476,8 +522,21 @@ shell. This task adds the schema only — no endpoints, no UI.
     `relationship(cascade="all, delete-orphan")`, matching every other
     parent/child pair in this schema — not DB-level `ON DELETE CASCADE`, which
     exists in exactly one place here and is not the convention.
-- `backend/app/models/__init__.py` — import the new models so `create_all` sees
-  them (the test suite builds SQLite from the models).
+- `backend/app/models/__init__.py` — `from ..research.models import Study,
+  StudyContact, StudySetupStep, StudyDocument`, so `create_all` sees them (the
+  test suite builds SQLite from the models). Easy to skip now that the models
+  are not in this directory; the symptom is a missing table in the test DB.
+- `backend/pyproject.toml` — the section's `forbidden` contract, **in this PR,
+  alongside the section's first module** rather than at the end of the
+  section's work. One source module for now, `app.research`; Task 3 adds
+  `app.api.routers.research` when that package exists. It cannot be listed
+  ahead of time — verified: import-linter fails the whole run with "Module
+  'app.api.routers.research' does not exist", it does not skip the entry.
+  Forbid the engine, the documents package, the loose clinical helpers, every
+  clinical model and schema module, and reception's four. Then add
+  `app.research` to the *other* sections' and the shared kernel's
+  `forbidden_modules`, so the ban is mutual. Run `uv run lint-imports` from
+  `backend/` (it needs the `dev` extra).
 - `backend/alembic/versions/016_research_studies.py` — four tables and the
   native enum type, following `001`'s `_enum()` / `_create_enum_types()`
   pattern, with the downgrade dropping the enum type explicitly.
@@ -494,21 +553,33 @@ test inserting a `StudyDocument` with `uploaded_by_user_id`, or a `Study` with
 deleted in this app, so `RESTRICT` is the accurate on-delete behaviour for both
 user FKs; say so in the docstring rather than defaulting to `SET NULL`.
 
+`research/models.py` must import `Base` from `..database` and `StudyStage`
+from `..models.enums` — the **submodules**, never the `app.models` aggregate.
+Two reasons, both real: the aggregate route is invisible to the import
+contracts (they are direct-import only), and `app/models/__init__.py` now
+imports this module while it is still initialising, so going back through the
+aggregate is a circular import waiting on whichever name happens to be bound
+after yours.
+
 # Task 3: The REST API
 
-**A.** The permission and the schema exist. This task adds
-`backend/app/api/routers/research.py`, its schemas, and its tests. No frontend
-work.
+**A.** The permission and the schema exist. This task adds the
+`backend/app/api/routers/research/` router package, the section's schemas, and
+their tests. No frontend work.
 
 **B.** Files and deliverables:
 
-- `backend/app/api/schemas/research.py` — `StudyOut` (with its contacts, its
+- `backend/app/research/schemas.py` (**not** `app/api/schemas/research.py` —
+  Decision 22) — `StudyOut` (with its contacts, its
   setup steps and its document metadata, never the bytes), `StudyIn`,
   `StudyPatch` (contacts as a full-replace list), `StudyContactIn/Out`,
   `SetupStepPatch` (`done`, `done_on`, `note`, all optional),
   `StudyDocumentOut`. `website_url` validated to `http`/`https` only
   (Decision 17).
-- `backend/app/api/routers/research.py`:
+- `backend/app/api/routers/research/__init__.py` — docstring only, naming the
+  package's convention (each module exposes a module-level `router:
+  APIRouter`), like `routers/reception/__init__.py`.
+- `backend/app/api/routers/research/studies.py`:
   - `GET /research/studies`, `POST /research/studies`,
     `GET /research/studies/{id}`, `PATCH /research/studies/{id}`,
     `DELETE /research/studies/{id}` (409 outside Setup — Decision 12).
@@ -516,14 +587,18 @@ work.
     `IntegrityError`, 422 on a key outside the catalogue (Decision 6).
   - `POST /research/studies/{id}/advance`, `POST /research/studies/{id}/revert`
     — 409 at either end (Decision 4).
+- `backend/app/api/routers/research/documents.py`:
   - `POST /research/studies/{id}/documents` (multipart; **required** `slot`
     form field, 422 outside the catalogue; replace-in-one-transaction for the
     three key slots, append for step slots; 5 MB cap; content-type **and**
     extension allowlist), `GET /research/studies/{id}/documents/{doc_id}` (the
     hardened download — Decision 14),
     `DELETE /research/studies/{id}/documents/{doc_id}`.
-- `backend/app/api/main.py` — import the router, add it to `_ALL_ROUTERS` and
-  `_AREA` (`research`). Not `_UNGATED`, not `_SHARED_READ`. No
+- `backend/app/api/main.py` — import **both** router modules (following the
+  `from .routers.reception import counters as reception_counters, ...` form),
+  and add each to `_ALL_ROUTERS` and to `_AREA` (`research`). The assertion
+  there fails at import if one is missed, which is the design working. Not
+  `_UNGATED`, not `_SHARED_READ`. No
   `require_edit_lock` — research is not in `LOCKABLE_AREAS` (Decision 19), and
   the registration loop handles that on its own.
 - `backend/app/api/audit_descriptions.py` — one sentence per new non-GET route,
@@ -531,7 +606,11 @@ work.
   `test_audit_descriptions.py` fails with the missing keys.
 - `backend/tests/test_api/test_authorization.py` — **add
   `f"{API_PREFIX}/research": "research"` to `_AREA_FOR_PREFIX`.** The map is
-  hand-written on purpose; without the entry the sweeps do not cover the new
+  hand-written on purpose, so the sweeps can catch a router filed under the
+  wrong section. It is not optional and it is not silent: `_area_for` raises
+  `KeyError` on an unclassified path, and
+  `test_the_area_table_agrees_with_the_app` compares the map against main.py's
+  `_AREA`, so omitting it fails the suite rather than quietly skipping the new
   router.
 - `backend/tests/test_api/test_research.py` — CRUD, contacts full-replace, the
   step upsert, both transition endpoints at both ends, the delete rule,
@@ -539,11 +618,35 @@ work.
   type and slot rejections, the `javascript:` URL rejection, and the three
   response headers.
 
+- `backend/pyproject.toml` — add `app.api.routers.research` to the source
+  modules of the contract added in Task 2 (this is the task that makes that
+  package exist, and so the first task in which it may be named), add it to
+  the other sections' `forbidden_modules` alongside `app.research`, and
+  **promote
+  `app.api.routers._uploads` to the shared kernel**: move it out of the
+  clinical source list in "Clinical must not import reception" and into the
+  source list of "Shared kernel must not import domains". See **C** — this is
+  a deliberate Decision 2 addition, and the comment must say so.
+
 **C.** Reuse `routers/_uploads.py`'s `safe_filename_stem` rather than writing
 new filename validation: it was written for exactly this problem (no
 client-supplied path or quote may reach a `Content-Disposition` header). The
 allowlist and the 5 MB constant are wider/different than the DOCX ones there,
-so they belong in the new router, not in `_uploads.py`. Confirm by test that
+so they belong in the new router, not in `_uploads.py`.
+
+That reuse is the one place this section legitimately reaches outside its own
+package, and the contracts currently classify `_uploads` as **clinical**, so
+importing it from `routers/research/documents.py` would fail
+`lint-imports` — correctly, given today's classification. Do not work around
+it by deleting a line from a `forbidden_modules` list. `_uploads.py` imports
+nothing from `app` at all: it is a stdlib-only filename-safety helper that
+happens to live in `routers/` because that is where its two callers were, and
+its own docstring already calls `safe_filename_stem` "the one genuinely shared
+piece". Promoting it is the honest fix, and it is a decision being taken here
+rather than a convenience: the shared kernel gains one leaf module that three
+sections need, and the file itself does not move (relocating it would touch
+live signatures and EOI routes for no gain). Record it in the kernel list in
+`architecture.md` in Task 7. Confirm by test that
 the upload's bytes never reach the audit log (multipart passes through
 unbuffered) and that the metadata PATCHes do.
 
@@ -554,22 +657,33 @@ and the persistent header, with the stage bodies stubbed.
 
 **B.** Files and deliverables:
 
-- `frontend/src/api/research.ts` — TanStack Query hooks with hierarchical keys,
-  mutations invalidating the resource root per the app convention.
-- `frontend/src/api/types.ts` — the wire mirrors (`Study`, `StudyContact`,
-  `StudySetupStep`, `StudyDocument`, `StudyStage`), enums mirrored by **value**.
-- `frontend/src/lib/researchCatalogue.ts` — the frontend mirror of the setup
-  steps and key slots (labels and order in one place, never inlined in a
+Everything below lives under `frontend/src/features/research/`, not in the
+flat `src/api/`, `src/lib/`, `src/routes/` and `src/components/` trees
+(Decision 22). The existing sections stay where they are; nothing enforces
+this on the frontend, so it is convention only — but it is the convention, and
+this is the section establishing it. The one exception is the *shared*
+`Permissions` key, which Task 1 already added to `src/api/types.ts` and which
+belongs there.
+
+- `frontend/src/features/research/api.ts` — TanStack Query hooks with
+  hierarchical keys, mutations invalidating the resource root per the app
+  convention. It still imports the shared `client.ts` (`getBlob`, `postForm`)
+  — that is shared infrastructure, not another section's code.
+- `frontend/src/features/research/types.ts` — the wire mirrors (`Study`,
+  `StudyContact`, `StudySetupStep`, `StudyDocument`, `StudyStage`), enums
+  mirrored by **value**.
+- `frontend/src/features/research/catalogue.ts` — the frontend mirror of the
+  setup steps and key slots (labels and order in one place, never inlined in a
   component).
-- `frontend/src/routes/research/StudiesPage.tsx` — the index: grouped by stage,
-  Closed collapsed, a "New study" dialog, write controls through
+- `frontend/src/features/research/StudiesPage.tsx` — the index: grouped by
+  stage, Closed collapsed, a "New study" dialog, write controls through
   `useWriteGate()`.
-- `frontend/src/routes/research/StudyPage.tsx` — `/research/studies/:id`: the
+- `frontend/src/features/research/StudyPage.tsx` — `/research/studies/:id`: the
   persistent header panel (the six fields, the contacts table and the three key
   documents — Decision 13), a four-stage indicator, the standing
   data-protection line (Decision 9), the advance/revert controls, and a switch
   on `stage` rendering the body.
-- `frontend/src/components/research/StudyFormDialog.tsx` — create and edit
+- `frontend/src/features/research/StudyFormDialog.tsx` — create and edit
   including the contacts rows, Zod-validated, mirroring the server's rules
   (including the `http`/`https` URL rule).
 - `frontend/src/App.tsx` — the two real routes inside `ResearchShell`.
@@ -590,12 +704,12 @@ builds the Setup body in full.
 
 **B.** Files and deliverables:
 
-- `frontend/src/routes/research/SetupStage.tsx` — the eight steps in catalogue
+- `frontend/src/features/research/SetupStage.tsx` — the eight steps in catalogue
   order, each a tick, a date input and a note field, with a document slot on
   the three steps whose catalogue entry says they have one. `site_pack` renders
   its tick and note with the "the site pack stays on the intranet" copy and no
   upload control (Decision 18).
-- `frontend/src/components/research/DocumentSlot.tsx` — one component serving
+- `frontend/src/features/research/DocumentSlot.tsx` — one component serving
   both shapes, taking a `holdsOne` flag: upload (drag and drop plus a file
   input, following `EoiPage`), the slot's document list with download and
   delete, the client-side 5 MB and type pre-checks, the replace confirmation
@@ -615,7 +729,7 @@ filename, so pass the document row's `filename` to `downloadBlob` explicitly.
 **A.** Setup works end to end. This task adds the minimum second-stage body, so
 that advancing a study lands somewhere coherent.
 
-**B.** `frontend/src/routes/research/RecruitmentOpenStage.tsx`: nothing but an
+**B.** `frontend/src/features/research/RecruitmentOpenStage.tsx`: nothing but an
 explicit "more to come here" placeholder — the persistent information and the
 three key documents are already in the shared header and must not be
 duplicated. Plus the two remaining stages rendering the same minimal body for
@@ -644,7 +758,12 @@ documentation only.
   lockable, and what was deliberately left out.
 - `documentation/architecture.md` — the Domains list, the Document Index, the
   permission table, and the Tech Stack auth row all name the new permission and
-  the new document.
+  the new document. Also: add `app.api.routers._uploads` to the shared-kernel
+  list under "Module Boundaries" with the reason (Task 3, **C**), list the new
+  contract pair among the contracts, and update "Adding a Module" where
+  research proved it wrong or incomplete — that section was written before any
+  section had been built to it, so treat anything that tripped you up in Tasks
+  2–6 as a fix owed to the next section rather than a note for this plan.
 - Delete `documentation/research_section_plan.md`.
 
 **C.** Do not cite this plan or a task number in any code comment or
