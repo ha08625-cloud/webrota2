@@ -116,6 +116,32 @@ class ReceptionRole(str, enum.Enum):
     WOLVERCOTE = "wolvercote"
 
 
+class StudyStage(str, enum.Enum):
+    """The one stage a research study is in (see app/research/).
+
+    Mutually exclusive by construction: one column holding one of these
+    four values, never four booleans, so "recruitment open and closed at
+    once" is a state the schema cannot hold.
+    """
+
+    SETUP = "setup"
+    RECRUITMENT_OPEN = "recruitment_open"
+    RECRUITMENT_CLOSED = "recruitment_closed"
+    CLOSED = "closed"
+
+
+# The stages in order. Transitions are one step along this tuple in either
+# direction and are *derived* from it -- nothing anywhere writes out "the
+# stage after recruitment_open", so adding a fifth stage is an edit here and
+# a migration, not a hunt through call sites.
+STUDY_STAGE_ORDER: tuple[StudyStage, ...] = (
+    StudyStage.SETUP,
+    StudyStage.RECRUITMENT_OPEN,
+    StudyStage.RECRUITMENT_CLOSED,
+    StudyStage.CLOSED,
+)
+
+
 class AccessLevel(str, enum.Enum):
     """Permission tier on User.
 

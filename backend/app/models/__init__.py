@@ -15,6 +15,7 @@ from .enums import (
     RotaStatus,
     SessionRole,
     Site,
+    StudyStage,
     PreferenceWeight,
     SystemCounterType,
 )
@@ -58,12 +59,20 @@ from .reception import (
     ReceptionRota,
     ReceptionRotaSession,
 )
+# Research's models live in app/research/, not here (the domain-first
+# layout under "Adding a Module" in documentation/architecture.md). This
+# import is still required: create_all, Alembic autogenerate and the
+# SQLite test database all register mappers by importing this one package,
+# so a model outside app/models/ that nothing here names is a table that
+# never gets created.
+from ..research.models import Study, StudyContact, StudyDocument, StudySetupStep
 
 __all__ = [
     # enums
     "DoctorType", "PreferenceWeight", "RoomType", "Site", "Day",
     "Period", "DutyType", "RotaStatus", "SystemCounterType",
     "MasterSessionType", "SessionRole", "ReceptionRole", "AccessLevel",
+    "StudyStage",
     # models
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
@@ -83,4 +92,5 @@ __all__ = [
     "AuditLogEntry",
     "ReceptionStaff", "ReceptionLeaveEntry", "ReceptionMasterSession", "ReceptionRota",
     "ReceptionRotaSession",
+    "Study", "StudyContact", "StudySetupStep", "StudyDocument",
 ]

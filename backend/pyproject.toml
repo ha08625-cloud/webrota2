@@ -160,6 +160,8 @@ forbidden_modules = [
     "app.api.schemas.school",
     "app.api.schemas.signature",
     "app.api.schemas.staging",
+    # Research.
+    "app.research",
 ]
 
 [[tool.importlinter.contracts]]
@@ -204,6 +206,7 @@ forbidden_modules = [
     "app.api.routers.reception",
     "app.models.reception",
     "app.api.schemas.reception",
+    "app.research",
 ]
 
 [[tool.importlinter.contracts]]
@@ -217,6 +220,7 @@ source_modules = ["app.documents"]
 forbidden_modules = [
     "app.engine",
     "app.reception",
+    "app.research",
     "app.models",
     "app.api",
     "app.database",
@@ -259,6 +263,7 @@ forbidden_modules = [
     "app.engine",
     "app.documents",
     "app.reception",
+    "app.research",
     "app.master_template",
     "app.leave_charging",
     "app.leave_entitlement",
@@ -269,4 +274,71 @@ forbidden_modules = [
     "app.models.rota",
     "app.models.staging",
     "app.api.routers",
+]
+
+[[tool.importlinter.contracts]]
+name = "Research must not import other domains"
+type = "forbidden"
+allow_indirect_imports = true
+# Research is the first section built domain-first ("Adding a Module" in
+# documentation/architecture.md), so `app.research` is a package and this
+# one entry covers every file the section adds later -- models, schemas,
+# services, all of it. `app.api.routers.research` joins it in the PR that
+# creates that package: import-linter fails the whole run with "Module
+# '...' does not exist" for a source module that is not there yet, it does
+# not skip the entry.
+source_modules = [
+    "app.research",
+]
+forbidden_modules = [
+    # Clinical.
+    "app.engine",
+    "app.documents",
+    "app.master_template",
+    "app.leave_charging",
+    "app.leave_entitlement",
+    "app.doctor_window",
+    "app.calendar_feed",
+    "app.models.doctor",
+    "app.models.rota",
+    "app.models.staging",
+    "app.models.master_rota",
+    "app.models.clinic_type",
+    "app.models.duty",
+    "app.models.duty_opening_balance",
+    "app.models.leave",
+    "app.models.leave_entitlement",
+    "app.models.counter",
+    "app.models.counter_snapshot",
+    "app.models.room",
+    "app.models.blocked",
+    "app.models.extra_session",
+    "app.models.generation_log",
+    "app.models.recurring_note",
+    "app.models.signature",
+    "app.models.bank_holidays",
+    "app.models.closure",
+    "app.models.school",
+    "app.api.schemas.blocked",
+    "app.api.schemas.clinic_type",
+    "app.api.schemas.closure",
+    "app.api.schemas.counter",
+    "app.api.schemas.doctor",
+    "app.api.schemas.duty",
+    "app.api.schemas.extra_session",
+    "app.api.schemas.leave",
+    "app.api.schemas.leave_entitlement",
+    "app.api.schemas.leave_planning",
+    "app.api.schemas.master_rota",
+    "app.api.schemas.recurring_note",
+    "app.api.schemas.room",
+    "app.api.schemas.rota",
+    "app.api.schemas.school",
+    "app.api.schemas.signature",
+    "app.api.schemas.staging",
+    # Reception.
+    "app.reception",
+    "app.api.routers.reception",
+    "app.models.reception",
+    "app.api.schemas.reception",
 ]
