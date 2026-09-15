@@ -15,6 +15,7 @@ import {
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { EditLockBanner, EditLockDialog } from "@/components/EditLockBanner";
+import { ResearchIndexPage } from "@/features/research/ResearchIndexPage";
 import { ThemePicker } from "@/components/ThemePicker";
 import {
   SESSION_MANAGEMENT_PATHS,
@@ -397,6 +398,46 @@ function SignaturesShell() {
   );
 }
 
+/**
+ * The Research section. Modelled on SignaturesShell - own header, no left
+ * nav - rather than on the two rota shells, because a list of study pages
+ * is not a set of sibling tools with a nav bar between them.
+ *
+ * One PermissionAreaProvider on the shell rather than per route: unlike
+ * Documents, whose two pages are two independent permissions, the whole
+ * section is the single `research` permission.
+ *
+ * Not wrapped in an EditLockProvider, deliberately. `research` is levelled,
+ * so it *could* be locked, but it is not in LOCKABLE_AREAS: the lock exists
+ * because two people editing one shared rota grid overwrite each other, and
+ * a per-study page of small independent fields is not that. See
+ * models/permissions.py.
+ */
+function ResearchShell() {
+  const permissions = usePermissions();
+
+  if (!canReadArea(permissions, "research")) {
+    return <Navigate to="/" replace />;
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background text-ink">
+      <ShellHeader title="Rota Generator - Research" />
+      <main className="flex-1 p-6">
+        <PermissionAreaProvider area="research">
+          <Routes>
+            <Route index element={<ResearchIndexPage />} />
+            {/* Anything deeper is a study page that does not exist yet; a
+                stale bookmark lands on the index rather than on a blank
+                screen. */}
+            <Route path="*" element={<Navigate to="/research" replace />} />
+          </Routes>
+        </PermissionAreaProvider>
+      </main>
+    </div>
+  );
+}
+
 function ReceptionShell() {
   const permissions = usePermissions();
 
@@ -528,6 +569,7 @@ export function App() {
           }
         />
         <Route path="/signatures/*" element={<SignaturesShell />} />
+        <Route path="/research/*" element={<ResearchShell />} />
         <Route path="/admin/*" element={<AdminShell />} />
       </Routes>
     </BrowserRouter>

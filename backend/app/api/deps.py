@@ -23,8 +23,9 @@ classified in main.py's `_AREA`), is gated the moment it exists. Router-level
 router, so the discrimination has to happen inside the dependency, off
 request.method.
 
-The two levelled areas (clinical, reception) admit safe methods at `read` or
-`write` and everything else at `write` only. The three boolean areas
+The three levelled areas (clinical, reception, research) admit safe methods
+at `read` or `write` and everything else at `write` only. The three boolean
+areas
 (signatures, study_eoi, user_admin) admit every method when the flag is true
 and nothing when false -- for signatures because reading is the sensitive
 part: a scanned signature image is worth more outside this API than in it.
@@ -124,6 +125,7 @@ _SHARED_READ = frozenset({
 _FORBIDDEN_DETAIL = {
     "clinical": "Your permissions do not include the clinical rota",
     "reception": "Your permissions do not include the reception rota",
+    "research": "Your permissions do not include the research section",
     "signatures": "Your permissions do not include signatures",
     "study_eoi": "Your permissions do not include the study EOI tool",
     "user_admin": "User management requires the user administration permission",
@@ -134,6 +136,7 @@ _FORBIDDEN_DETAIL = {
 _READ_ONLY_DETAIL = {
     "clinical": "Your access to the clinical rota is read-only",
     "reception": "Your access to the reception rota is read-only",
+    "research": "Your access to the research section is read-only",
 }
 
 

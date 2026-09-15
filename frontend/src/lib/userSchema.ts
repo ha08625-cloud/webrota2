@@ -38,7 +38,7 @@ const accessLevelField = z.enum(ACCESS_LEVELS as readonly [AccessLevel, ...Acces
  */
 const staffLinkField = z.union([z.number(), z.literal("")]);
 /**
- * Mirrors PermissionSetIn (schemas/auth.py): all five keys required, so
+ * Mirrors PermissionSetIn (schemas/auth.py): all six keys required, so
  * the form can never send a partial set and have the backend fill the
  * gaps with "denied" behind the user's back. The non-empty rule that
  * schema enforces is applied below, on the whole form object, because a
@@ -48,6 +48,7 @@ const staffLinkField = z.union([z.number(), z.literal("")]);
 const permissionsField = z.object({
   clinical: z.enum(["none", "read", "write"]),
   reception: z.enum(["none", "read", "write"]),
+  research: z.enum(["none", "read", "write"]),
   signatures: z.boolean(),
   study_eoi: z.boolean(),
   user_admin: z.boolean(),

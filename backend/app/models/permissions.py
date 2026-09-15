@@ -1,13 +1,14 @@
 """The per-user permission set: its shape, its default, and the presets.
 
-Five permissions replace the single `access_level` tier as the thing the
-API actually consults. Two of them are levels rather than flags -- "clinical
+Six permissions replace the single `access_level` tier as the thing the
+API actually consults. Three of them are levels rather than flags -- "clinical
 rota, read only" is not a separate permission from "clinical rota", it is
 the same permission at a lower level -- and three are booleans, because there is no meaningful read-only
 view of a document generator or of user administration:
 
     clinical    none / read / write   the whole /clinical section
     reception   none / read / write   the whole /reception section
+    research    none / read / write   the whole /research section
     signatures  bool                  upload, delete, apply, and VIEW
     study_eoi   bool                  the EOI autofill tool
     user_admin  bool                  user management and the audit log
@@ -57,20 +58,26 @@ AREA_LEVELS: tuple[AccessArea, ...] = (NONE, READ, WRITE)
 # Levelled permissions and boolean ones, separately: the two groups are
 # validated, rendered and checked differently, and every consumer needs to
 # tell them apart.
-AREA_KEYS: tuple[str, ...] = ("clinical", "reception")
+AREA_KEYS: tuple[str, ...] = ("clinical", "reception", "research")
 FLAG_KEYS: tuple[str, ...] = ("signatures", "study_eoi", "user_admin")
 PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 
 # The areas a section editing lock can be held on (see models/edit_lock.py).
-# These are the same two strings as AREA_KEYS today, and this is deliberately
-# a separate tuple rather than an alias: the reason they coincide is
-# structural, not incidental. Being locked out of a section means being
-# downgraded to read-only for as long as someone else holds it, and only a
-# levelled permission has a read level to be downgraded to -- a boolean area
-# (signatures, study_eoi, user_admin) has no such state, so it cannot be
-# locked. Aliasing AREA_KEYS would silently make any future levelled
-# permission lockable, and aliasing in the other direction would silently
-# stop expressing that a lockable area must be levelled.
+# This is deliberately a separate tuple rather than an alias of AREA_KEYS:
+# being locked out of a section means being downgraded to read-only for as
+# long as someone else holds it, and only a levelled permission has a read
+# level to be downgraded to -- a boolean area (signatures, study_eoi,
+# user_admin) has no such state, so it cannot be locked. Aliasing AREA_KEYS
+# would silently make any future levelled permission lockable, and aliasing
+# in the other direction would silently stop expressing that a lockable area
+# must be levelled.
+#
+# `research` is the case that proves the point. It is levelled, and it is
+# deliberately NOT lockable: the lock exists because two people editing one
+# shared rota grid overwrite each other, whereas research is a per-study
+# page of small independent fields. Locking the whole section so that one
+# person can tick a setup step would be worse than the collision it
+# prevents.
 LOCKABLE_AREAS: tuple[str, ...] = ("clinical", "reception")
 
 # The structural half of the rule above, checked at import: a lockable area
@@ -82,6 +89,7 @@ PermissionSetDict = dict[str, str | bool]
 DEFAULT_PERMISSIONS: PermissionSetDict = {
     "clinical": NONE,
     "reception": NONE,
+    "research": NONE,
     "signatures": False,
     "study_eoi": False,
     "user_admin": False,
@@ -96,12 +104,14 @@ MANAGER_PRESET = "manager"
 ROTA_ADMIN_PRESET = "rota_admin"
 RECEPTION_ADMIN_PRESET = "reception_admin"
 DOCUMENTS_PRESET = "documents"
+RESEARCH_PRESET = "research"
 READ_ONLY_PRESET = "read_only"
 
 PRESETS: dict[str, PermissionSetDict] = {
     MANAGER_PRESET: {
         "clinical": WRITE,
         "reception": WRITE,
+        "research": WRITE,
         "signatures": True,
         "study_eoi": True,
         "user_admin": True,
@@ -109,6 +119,7 @@ PRESETS: dict[str, PermissionSetDict] = {
     ROTA_ADMIN_PRESET: {
         "clinical": WRITE,
         "reception": WRITE,
+        "research": NONE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
@@ -118,6 +129,7 @@ PRESETS: dict[str, PermissionSetDict] = {
     RECEPTION_ADMIN_PRESET: {
         "clinical": READ,
         "reception": WRITE,
+        "research": NONE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
@@ -125,13 +137,28 @@ PRESETS: dict[str, PermissionSetDict] = {
     DOCUMENTS_PRESET: {
         "clinical": NONE,
         "reception": NONE,
+        "research": NONE,
         "signatures": True,
         "study_eoi": True,
         "user_admin": False,
     },
+    # Exactly the research section and nothing else: the person who runs
+    # studies has no business with a scanned signature, and the point of
+    # the permission model is that they do not have to be given one.
+    RESEARCH_PRESET: {
+        "clinical": NONE,
+        "reception": NONE,
+        "research": WRITE,
+        "signatures": False,
+        "study_eoi": False,
+        "user_admin": False,
+    },
+    # Clinical and reception at read, and research at none. The two rotas
+    # are things everybody benefits from seeing; a study page is not.
     READ_ONLY_PRESET: {
         "clinical": READ,
         "reception": READ,
+        "research": NONE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,

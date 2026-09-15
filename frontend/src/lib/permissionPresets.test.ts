@@ -12,6 +12,7 @@ import {
 const NOTHING: Permissions = {
   clinical: "none",
   reception: "none",
+  research: "none",
   signatures: false,
   study_eoi: false,
   user_admin: false,
@@ -33,6 +34,31 @@ describe("isEmptyPermissions", () => {
     expect(isEmptyPermissions({ ...NOTHING, clinical: "read" })).toBe(false);
     expect(isEmptyPermissions({ ...NOTHING, study_eoi: true })).toBe(false);
   });
+
+  // The regression this check is derived from the key lists to prevent: a
+  // new permission is added, the hand-written check is not updated, and the
+  // Users form refuses to save exactly the narrowly scoped login the new
+  // permission was added to make possible.
+  it("is false for a set holding only the newest permission", () => {
+    expect(isEmptyPermissions(permissionPreset("research"))).toBe(false);
+    expect(isEmptyPermissions({ ...NOTHING, research: "read" })).toBe(false);
+  });
+});
+
+describe("the presets", () => {
+  // Decision 10: research is not in any preset but its own and Manager's.
+  // Read-only grants both rotas at read, and deliberately not this.
+  it("grant research only to Manager and Research", () => {
+    const granted = Object.entries(PERMISSION_PRESETS)
+      .filter(([, set]) => set.research !== "none")
+      .map(([name]) => name);
+
+    expect(granted.sort()).toEqual(["manager", "research"]);
+  });
+
+  it("gives the research preset that permission and nothing else", () => {
+    expect(permissionsSummary(permissionPreset("research"))).toBe("Research: edit");
+  });
 });
 
 describe("permissionsSummary", () => {
@@ -41,7 +67,8 @@ describe("permissionsSummary", () => {
       "Clinical rota: read, Reception rota: edit",
     );
     expect(permissionsSummary(permissionPreset("manager"))).toBe(
-      "Clinical rota: edit, Reception rota: edit, Signatures, Study EOI, User administration",
+      "Clinical rota: edit, Reception rota: edit, Research: edit, Signatures, Study EOI, " +
+        "User administration",
     );
   });
 

@@ -7,6 +7,8 @@ import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import {
   AuthProvider,
   PermissionAreaProvider,
+  canReadArea,
+  canWriteArea,
   useAuth,
   useCanAdminUsers,
   useCanRead,
@@ -187,5 +189,34 @@ describe("AuthContext staff links", () => {
   it("gives null outside a provider, rather than someone else's identity", () => {
     render(<Probe />);
     expect(links()).toEqual({ doctor: "null", reception: "null" });
+  });
+});
+
+/**
+ * The two plain functions, rather than the hooks: the nav predicates, the
+ * route guards and the landing tiles all ask about a section other than the
+ * one they are rendered in, so these are what decide whether a section is
+ * offered at all.
+ */
+describe("canReadArea / canWriteArea", () => {
+  it("deny a permission the set does not carry at all", () => {
+    // Unreachable through the API - PermissionSet defaults every field, so
+    // the wire always carries the full set - but reachable from a
+    // hand-built object, and the wrong default here would OFFER a section
+    // to a login that has not been granted it. `granted !== "none"` is true
+    // for undefined, so this is a real trap rather than a hypothetical one.
+    const stale = { clinical: "write" } as unknown as Permissions;
+
+    expect(canReadArea(stale, "research")).toBe(false);
+    expect(canWriteArea(stale, "research")).toBe(false);
+    expect(canReadArea(stale, "clinical")).toBe(true);
+  });
+
+  it("admit a levelled area at read for reads and at write for both", () => {
+    const set: Permissions = { ...PERMISSION_PRESETS.readOnly, research: "read" };
+
+    expect(canReadArea(set, "research")).toBe(true);
+    expect(canWriteArea(set, "research")).toBe(false);
+    expect(canWriteArea(PERMISSION_PRESETS.research, "research")).toBe(true);
   });
 });

@@ -299,6 +299,7 @@ describe("LandingPage tiles", () => {
     renderAt("/", {
       clinical: "none",
       reception: "none",
+      research: "none",
       signatures: false,
       study_eoi: false,
       user_admin: false,
@@ -512,5 +513,42 @@ describe("documents section", () => {
 
     expect(screen.getByRole("heading", { name: "Rota Generator" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Signatures" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Research ships ahead of its data model, so what there is to test is the
+ * guard: the section is reachable on `research` at read or write, and on
+ * nothing else. The placeholder page's copy is not pinned here beyond the
+ * heading - it is the first thing the study list will replace.
+ */
+describe("ResearchShell", () => {
+  it("renders the research section at /research", async () => {
+    renderAt("/research", PERMISSION_PRESETS.research);
+
+    expect(await screen.findByRole("heading", { name: "Studies" })).toBeInTheDocument();
+  });
+
+  it("is reachable at read, since there is a read-only view here", async () => {
+    renderAt("/research", { ...PERMISSION_PRESETS.research, research: "read" });
+
+    expect(await screen.findByRole("heading", { name: "Studies" })).toBeInTheDocument();
+  });
+
+  it("redirects a login with no research permission back to the landing page", () => {
+    renderAt("/research", PERMISSION_PRESETS.readOnly);
+
+    expect(screen.getByRole("heading", { name: "Rota Generator" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Studies" })).not.toBeInTheDocument();
+  });
+
+  // A research-only login holds no rota permission at all, so the section
+  // has to stand on its own rather than assuming a shell around it.
+  it("does not offer the rota sections to a research-only login", () => {
+    renderAt("/", PERMISSION_PRESETS.research);
+
+    expect(screen.getByRole("link", { name: /Research/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Clinical Rota/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Reception Rota/ })).not.toBeInTheDocument();
   });
 });
