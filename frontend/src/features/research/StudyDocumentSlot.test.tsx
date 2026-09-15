@@ -52,7 +52,7 @@ describe("StudyDocumentSlot", () => {
   });
 
   // A key slot holds one current file, so an upload over an occupied one
-  // is a replace and is confirmed first (Decision 7).
+  // is a replace and is confirmed first.
   it("confirms before replacing the file in a single-file slot", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     let posted = false;

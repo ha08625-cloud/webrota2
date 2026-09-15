@@ -30,7 +30,7 @@ import type { Study, StudyStage } from "./types";
  * The transition confirmation lives here too, for the same reason: it is
  * the header's control, and the outstanding-steps list it shows comes
  * from data this page already holds. The checklist never blocks a
- * transition (Decision 5) - a hard gate on eight ticks teaches people to
+ * transition - a hard gate on eight ticks teaches people to
  * tick things they have not done - so the dialog names what is
  * outstanding and then lets the user through.
  */

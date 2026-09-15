@@ -21,7 +21,7 @@ text fields so "cleared" means one thing throughout.
 **`StudyPatch` distinguishes absent from null**, via `model_fields_set` in
 the router: `{"cpms_code": null}` clears the code, `{}` leaves it alone.
 `contacts` is the exception that proves it -- present means "these are now
-all the contacts" (a full replace, Decision 17), absent means "leave the
+all the contacts" (a full replace), absent means "leave the
 contacts alone". There is deliberately no per-contact endpoint.
 
 `StudyDocumentOut` carries metadata only. The bytes are never serialised:
@@ -178,7 +178,7 @@ class StudyPatch(BaseModel):
     null means "clear" -- the router reads `model_fields_set` to tell them
     apart. `stage` is deliberately NOT a field here: the transition is the
     domain action and has its own two endpoints, so that a body-supplied
-    stage cannot smuggle in a jump (Decision 4)."""
+    stage cannot smuggle in a jump."""
 
     name: str | None = Field(default=None, min_length=1)
     cpms_code: str | None = None

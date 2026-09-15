@@ -27,7 +27,7 @@ describe("studyFormSchema", () => {
   });
 
   // The rule that keeps a javascript: URL out of an href the header
-  // renders - the server enforces the same one (Decision 17).
+  // renders - the server enforces the same one.
   it("rejects a website that is not http or https", () => {
     for (const websiteUrl of ["javascript:alert(1)", "example.test", "ftp://example.test"]) {
       const result = studyFormSchema.safeParse({ ...emptyStudyForm(), name: "S", websiteUrl });

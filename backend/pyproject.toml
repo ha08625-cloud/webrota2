@@ -92,9 +92,9 @@ root_package = "app"
 # An indirect contract can therefore never pass here, however clean the code
 # is. These are direct-import contracts: they catch a domain module naming
 # another domain's module in its own import statements. That is exactly the
-# mistake worth catching, and Decision 8 (domain code imports model and
-# schema *submodules*, never the app.models / app.api.schemas aggregates) is
-# what makes a cross-domain model import a direct edge these contracts see.
+# mistake worth catching, and the convention that domain code imports model
+# and schema *submodules*, never the app.models / app.api.schemas aggregates,
+# is what makes a cross-domain model import a direct edge these contracts see.
 
 [[tool.importlinter.contracts]]
 name = "Reception must not import clinical code"
@@ -120,8 +120,9 @@ forbidden_modules = [
     # Clinical models. bank_holidays, closure and school hold practice-wide
     # calendar data that reception could plausibly want one day; they are
     # listed here because nothing outside clinical uses them today. If
-    # reception needs one, promote it to the shared kernel deliberately
-    # (Decision 2) rather than quietly deleting a line from this list.
+    # reception needs one, promote it to the shared kernel deliberately --
+    # that is a decision with an argument attached, not a line quietly
+    # deleted from this list.
     "app.models.doctor",
     "app.models.rota",
     "app.models.staging",
@@ -239,16 +240,16 @@ forbidden_modules = [
 name = "Shared kernel must not import domains"
 type = "forbidden"
 allow_indirect_imports = true
-# The shared kernel (Decision 2). Adding a module to this list is a
-# decision, not a convenience: an ever-growing shared kernel is how a
+# The shared kernel. Adding a module to this list is a decision, not a
+# convenience: an ever-growing shared kernel is how a
 # modular monolith quietly becomes a layered one.
 #
 # app.models.user is deliberately NOT a source module here. It imports
 # Doctor and ReceptionStaff under `if TYPE_CHECKING:` for its two nullable
 # identity FKs, and import-linter counts TYPE_CHECKING imports as real
-# edges. Decision 7 says those two columns stay, so the exemption is
-# permanent until that decision changes. Everything else in the kernel is
-# covered.
+# edges. Those two columns are a deliberate keep -- the link is a privilege
+# grant gated by user_admin, not a domain relationship -- so the exemption is
+# permanent until that changes. Everything else in the kernel is covered.
 source_modules = [
     "app.database",
     "app.email",
@@ -262,7 +263,7 @@ source_modules = [
     "app.api.auth_utils",
     "app.api.edit_lock",
     "app.api.schemas.common",
-    # Promoted here deliberately (Decision 2), not for convenience, when
+    # Promoted here deliberately, not for convenience, when
     # the research documents router became `safe_filename_stem`'s third
     # caller: /signatures/{id}/apply, /eoi/fill and
     # /research/studies/{id}/documents/{id} all echo a filename into a
