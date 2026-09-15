@@ -387,15 +387,18 @@ def seeded(client, db_session):
     SR exists so the clinic-room-eligibility tests have a supervision room
     to be rejected with. It is last in Pass 3's D>C>W>SR fallback order and
     there are only two doctors here, so it stays empty and no existing
-    generation assertion moves.
+    generation assertion moves. TR1 is here for the same reason on the
+    treatment-room rules, and cannot move any assertion at all: no phase
+    reaches TR rooms (see engine/phases/_shared.NON_ALLOCATABLE_ROOM_TYPES).
     """
     s = db_session
     c1 = Room(code="C1", room_type=RoomType.C, site=Site.CUTTESLOWE)
     d1 = Room(code="D1", room_type=RoomType.D, site=Site.SHC)
     sr = Room(code="SR", room_type=RoomType.SR, site=Site.SHC)
+    tr1 = Room(code="TR1", room_type=RoomType.TR, site=Site.SHC)
     aa = Doctor(code="AA", doctor_type=DoctorType.PARTNER, sessions_per_week=10, active=True)
     bb = Doctor(code="BB", doctor_type=DoctorType.SALARIED, sessions_per_week=10, active=True)
-    s.add_all([c1, d1, sr, aa, bb])
+    s.add_all([c1, d1, sr, tr1, aa, bb])
     s.flush()
     for doc in (aa, bb):
         for ct in SystemCounterType:
@@ -413,6 +416,7 @@ def seeded(client, db_session):
     s.commit()
     return {
         "room_c1": c1.id, "room_d1": d1.id, "room_sr": sr.id,
+        "room_tr1": tr1.id,
         "doctor_aa": aa.id, "doctor_bb": bb.id,
         "template": template.id,
     }

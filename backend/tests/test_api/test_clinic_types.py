@@ -446,6 +446,74 @@ class TestSrRoomsAreNotSelectable:
         assert resp.status_code == 201, resp.text
 
 
+class TestTreatmentRoomsAreNotSelectable:
+    """TR1-TR3 and CK are nurse rooms no generation phase allocates. A
+    clinic type eligible for one would be the way round that: Phase 5
+    resolves a clinic's room straight out of `eligible_room_ids` without
+    consulting the room type.
+
+    Same two halves and two status codes as the SR rule, and the same
+    helper does the room_id half -- but the message names a treatment room
+    rather than a supervision room, because the two reasons differ.
+    """
+
+    def test_post_with_tr_room_type_is_422(self, client, seeded):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_eligibilities": [{"room_type": "TR"}],
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_put_with_tr_room_type_is_422(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Dragon",
+            "room_required": True,
+            "schedules": [{"day": "Monday", "period": "AM"}],
+            "doctor_eligibilities": [],
+            "room_eligibilities": [{"room_type": "TR"}],
+        })
+        assert resp.status_code == 422, resp.text
+
+    def test_post_with_tr_room_id_is_400_naming_the_room(self, client, seeded):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_eligibilities": [{"room_id": seeded["room_tr1"]}],
+        })
+        assert resp.status_code == 400, resp.text
+        detail = resp.json()["detail"]
+        assert "TR1" in detail
+        assert "treatment room" in detail
+        assert "supervision" not in detail
+        assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_put_with_tr_room_id_is_400_naming_the_room(self, client, seeded):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Renamed",
+            "room_required": False,
+            "schedules": [],
+            "doctor_eligibilities": [],
+            "room_eligibilities": [{"room_id": seeded["room_tr1"]}],
+        })
+        assert resp.status_code == 400, resp.text
+        assert "TR1" in resp.json()["detail"]
+
+    def test_a_payload_mixing_sr_and_tr_names_both_reasons(self, client, seeded):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_eligibilities": [
+                {"room_id": seeded["room_sr"]},
+                {"room_id": seeded["room_tr1"]},
+            ],
+        })
+        assert resp.status_code == 400, resp.text
+        detail = resp.json()["detail"]
+        assert "SR" in detail and "TR1" in detail
+        assert "supervision room" in detail and "treatment room" in detail
+        assert client.get("/api/v1/clinic-types").json() == []
+
+
 class TestNursesAreNotSelectable:
     """A nurse is inert to the generation engine, so Phase 5 never considers
     one as a clinic candidate. The write is rejected too, so a

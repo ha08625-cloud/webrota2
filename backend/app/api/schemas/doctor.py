@@ -48,6 +48,25 @@ class PreferredRoomIn(BaseModel):
             raise ValueError("exactly one of room_id / room_type must be set")
         return self
 
+    @model_validator(mode="after")
+    def _no_tr(self) -> "PreferredRoomIn":
+        """Treatment rooms (TR1-TR3, CK) are nurse rooms no generation
+        phase allocates, and a preferred room is the one path by which a
+        phase could still seat a doctor in one -- Pass 3 of phase7_9a
+        walks the preference list with no room-type filter at all. This
+        covers the room_type half only; a room_id pointing at a TR room
+        needs the DB to resolve, so the router rejects that half -- see
+        doctors._reject_tr_rooms.
+
+        Manual edits and the master rota stay unrestricted: a human
+        placing someone in a treatment room is a legitimate override.
+        """
+        if self.room_type == RoomType.TR:
+            raise ValueError(
+                "TR is a treatment room and cannot be a preferred room"
+            )
+        return self
+
 
 class PreferredRoomOut(BaseModel):
     id: int

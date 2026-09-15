@@ -36,12 +36,27 @@ class RoomEligIn(BaseModel):
         """SR is held for trainee supervision (Phase 9C books it) and is
         not a selectable clinic room. This covers the room_type half only;
         a room_id pointing at an SR room needs the DB to resolve, so the
-        router rejects that half -- see clinic_types._reject_sr_rooms.
+        router rejects that half -- see clinic_types._reject_unselectable_rooms.
         """
         if self.room_type == RoomType.SR:
             raise ValueError(
                 "SR is reserved for trainee supervision and cannot be a "
                 "clinic room"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _no_tr(self) -> "RoomEligIn":
+        """Treatment rooms (TR1-TR3, CK) are nurse rooms no generation
+        phase allocates. A clinic type eligible for TR would be the one
+        way round that: Phase 5 resolves a clinic's room straight out of
+        `eligible_room_ids` without consulting the room type. Same two
+        halves as the SR rule -- the router covers room_id (see
+        clinic_types._reject_unselectable_rooms).
+        """
+        if self.room_type == RoomType.TR:
+            raise ValueError(
+                "TR is a treatment room and cannot be a clinic room"
             )
         return self
 
