@@ -244,7 +244,8 @@ class DutyRoomNarrator:
             self._rooms_line,
             self._pref_line,
             f"It is held by {code(self._context, occupant_id)}, who is not "
-            f"protected (not Partner/AHP/Nurse and holds no role this session).",
+            f"protected (not inert, not Partner/AHP/Nurse, and holds no role "
+            f"this session).",
             rat.decided(
                 f"{rat.PREFERENCE_ORDER} -- the preferred D room was taken "
                 f"by an evictable occupant, so it was taken from them rather "
@@ -389,6 +390,28 @@ class ConsolidationNarrator:
                 rat.decided(
                     "same-day consolidation with nobody to bump -- the duty "
                     "doctor's own move, so no room-move counter is touched"
+                ),
+            ),
+        )
+
+    def blocked_by_inert_occupant(self, occupant_id: int, occupant_code: str) -> None:
+        self._add(
+            "consolidate_room_skipped", related_doctor_id=occupant_id,
+            room_id=self._duty_room.id,
+            message=(
+                f"Could not consolidate {self._code} into {self._duty_room.code} for "
+                f"{self._when}: the room is "
+                f"held by {occupant_code}, a nurse, who the engine never "
+                f"moves."
+            ),
+            rationale=rat.stages(
+                self._problem_line,
+                f"{self._duty_room.code} is held in {self._other_period.value} by "
+                f"{occupant_code}, a nurse.",
+                rat.decided(
+                    "consolidation abandoned -- a nurse's room is fixed by the "
+                    "master rota and the engine never moves one, so both "
+                    "doctors stay where the first pass put them"
                 ),
             ),
         )

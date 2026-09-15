@@ -503,9 +503,11 @@ class TestPass2SingleSession:
         assert displace_entries[0].period == Period.AM
         assert "pass 2" in displace_entries[0].message
 
-    def test_nurse_single_session_displacement(self, session, config_1wk):
-        """Nurse joins the Pass 2 single-session D-room candidate pool on
-        the same footing as AHP -- the two types are rule-identical here.
+    def test_nurse_is_never_a_pass2_subject(self, session, config_1wk):
+        """A nurse is inert: they are not in `_D_ROOM_TYPES`, so a nurse
+        with a REQUIRES_ROOM slot never joins the Pass 2 candidate pool and
+        never displaces anybody. The nurse is left roomless (Phase 12
+        reports it) and the Partner keeps the D room.
         """
         t = make_template(session, is_active=True)
         nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
@@ -519,12 +521,12 @@ class TestPass2SingleSession:
 
         ctx, grid, counters = _build(session, config_1wk)
         log = DecisionLog()
-        issues = run_phase7_to_9a(ctx, grid, counters, log)
+        run_phase7_to_9a(ctx, grid, counters, log)
 
-        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
-        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == fallback.id
-        assert counters.system[(occupant.id, SystemCounterType.ROOM_MOVE)] == 1
-        assert not any(i.phase == "phase7_9a" and i.severity == "warning" for i in issues)
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
+        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert counters.system.get((occupant.id, SystemCounterType.ROOM_MOVE), 0) == 0
+        assert not any(e.action == "displace_room" for e in log.entries)
 
     def test_locum_single_session_displacement(self, session, config_1wk):
         """Locum joins the Pass 2 single-session D-room candidate pool on

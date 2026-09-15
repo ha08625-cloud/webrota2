@@ -111,6 +111,95 @@ class TestGenerateEndToEnd:
         ).scalar_one()
         assert clinic_counter.raw_count == 1
 
+    def test_nurses_pre_assigned_room_survives_the_whole_pipeline(
+        self, session, monday
+    ):
+        """The test that actually pins nurse inertness: a full run of a week
+        that has everything which could otherwise move a nurse -- duty
+        (Phase 4's preferred-room step and its consolidation pass), a
+        room_required clinic whose only eligible room is the nurse's
+        (Phase 5), and trainee D-room demand with no free D room left
+        (Phases 7-9A). The nurse keeps D1 in both periods, and their room is
+        opaque to everybody else: the contention falls on the doctors, not
+        on the nurse.
+        """
+        t = make_template(session, is_active=True)
+        partner = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
+        salaried = make_doctor(session, code="BB", doctor_type=DoctorType.SALARIED)
+        trainee = make_doctor(session, code="CC", doctor_type=DoctorType.TRAINEE)
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        make_room(session, code="D2", room_type=RoomType.D)
+        # A free non-D room, so every relocation search that could move the
+        # nurse out of D1 has somewhere to put them: the nurse stays because
+        # they are inert, not because the practice was full.
+        c1 = make_room(session, code="C1", room_type=RoomType.C)
+
+        # Doctor creation seeds these in the app; `_write_counters` requires
+        # them to exist for every doctor whose counters the run touches.
+        for doc in (partner, salaried, trainee, nurse):
+            for counter_type in SystemCounterType:
+                make_system_counter(session, doc, counter_type)
+
+        for doc in (partner, salaried, trainee):
+            for period in (Period.AM, Period.PM):
+                make_master_session(
+                    session, t, doc, week=1, day=Day.MONDAY, period=period,
+                    session_type=MasterSessionType.REQUIRES_ROOM,
+                )
+        for period in (Period.AM, Period.PM):
+            make_master_session(
+                session, t, nurse, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.PRE_ASSIGNED, room=d1,
+            )
+
+        # The nurse has somewhere they would go if anything were allowed to
+        # move them -- Phase 5's relocation walks the occupant's own
+        # preference list and nothing else.
+        make_preferred_room(session, nurse, preference_order=1, room=c1)
+
+        # The duty doctor prefers the nurse's room, in both the
+        # preferred-room step (AM) and the consolidation pass (PM).
+        make_preferred_room(session, partner, preference_order=1, room=d1)
+        make_duty(session, monday, Period.AM, partner, DutyType.PRIMARY)
+
+        # The clinic's only eligible room is the nurse's room.
+        make_clinic_type(
+            session, name="Dragon", clinic_priority=10, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(salaried.id, 1)], room_ids=[d1.id],
+        )
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+        assert result.rota_id is not None
+
+        rota_sessions = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+        nurse_rows = [s for s in rota_sessions if s.doctor_id == nurse.id]
+        assert len(nurse_rows) == 2
+        assert all(row.room_id == d1.id for row in nurse_rows)
+        assert all(row.role is None for row in nurse_rows)
+        assert all(row.clinic_type_id is None for row in nurse_rows)
+
+        # Nothing was ever charged to the nurse, because nothing ever moved
+        # them.
+        nurse_counters = session.execute(
+            select(SystemCounter).where(SystemCounter.doctor_id == nurse.id)
+        ).scalars().all()
+        assert len(nurse_counters) == len(list(SystemCounterType))
+        assert all(c.raw_count == 0 for c in nurse_counters)
+
+        # Property 3: D1 read as occupied to everyone else, so nobody else
+        # ended up in it.
+        assert not any(
+            row.room_id == d1.id for row in rota_sessions if row.doctor_id != nurse.id
+        )
+
     def test_template_type_persisted_per_slot(self, session, monday):
         """M3.6: RotaSession.template_type mirrors the master slot's type,
         for both REQUIRES_ROOM and non-room types. NO_SURGERY/ADMIN_TIME

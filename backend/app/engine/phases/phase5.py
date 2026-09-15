@@ -35,6 +35,7 @@ from ..datatypes import (
 from . import _log_phase5 as narrate
 from ._log_phase5 import PHASE, clinic_name as _clinic_name
 from ._shared import code as _code
+from ._shared import is_inert as _is_inert
 
 _EXCLUDED_TEMPLATE_TYPES = frozenset({
     MasterSessionType.NO_SURGERY, MasterSessionType.ADMIN_TIME,
@@ -175,6 +176,13 @@ def _eligible_doctors(
         doctor = context.doctor_by_id.get(elig.doctor_id)
         if doctor is None or not doctor.active:
             excluded.append((_code(context, elig.doctor_id), "inactive or unknown doctor"))
+            continue
+        if _is_inert(context, elig.doctor_id):
+            # A property of the doctor, not of the slot, so it is filtered
+            # here with the other doctor-level test and before any slot
+            # lookup. The clinic-type write path rejects a nurse outright,
+            # so this only fires on rows configured before that landed.
+            excluded.append((doctor.code, "nurses are never assigned clinics"))
             continue
         code = doctor.code
         slot = grid.get(elig.doctor_id, gen_week, day, period)

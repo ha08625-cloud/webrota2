@@ -1,7 +1,11 @@
 """Phases 7-9A -- resolve remaining REQUIRES_ROOM slots after Phase 5.
 
 Three passes over every doctor whose REQUIRES_ROOM slot still has
-`assigned_room_id is None`:
+`assigned_room_id is None`. "Trainee/AHP" below is shorthand for
+`_D_ROOM_TYPES` -- Trainee, AHP and Locum. A Nurse is *not* in that set:
+nurses are inert (see `_shared.is_inert`), so they generate no D-room
+demand and are never a Pass 1/2 subject. A nurse left with an unresolved
+REQUIRES_ROOM slot is reported by Phase 12, not roomed here.
 
   Pass 1 (full-day Trainee/AHP): a Trainee/AHP needing the same D room for
     both AM and PM of a day. Prefer a room free in both sessions; failing
@@ -92,9 +96,10 @@ _DISPLACEABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 # Doctor types that need a D room (Passes 1 and 2). Locum behaves as
 # Trainee-minus-supervision (same D-room priority, eligible for supervision
 # assignment) -- it is added here alongside Trainee/AHP so the two candidate
-# functions below cannot drift. Nurse carries the same D-room demand as AHP.
+# functions below cannot drift. Nurse is deliberately absent: a nurse is
+# inert (see `_shared.is_inert`), so they generate no D-room demand.
 _D_ROOM_TYPES = (
-    DoctorType.TRAINEE, DoctorType.AHP, DoctorType.NURSE, DoctorType.LOCUM,
+    DoctorType.TRAINEE, DoctorType.AHP, DoctorType.LOCUM,
 )
 _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 

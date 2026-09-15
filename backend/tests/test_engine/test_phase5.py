@@ -5,7 +5,15 @@ from app.engine.phases.phase2 import run_phase2
 from app.engine.phases.phase4 import run_phase4
 from app.engine.phases.phase5 import run_phase5
 from app.engine.datatypes import DecisionLog
-from app.models.enums import Day, DutyType, MasterSessionType, Period, RoomType, SessionRole
+from app.models.enums import (
+    Day,
+    DoctorType,
+    DutyType,
+    MasterSessionType,
+    Period,
+    RoomType,
+    SessionRole,
+)
 
 from .factories import (
     make_clinic_counter,
@@ -239,6 +247,64 @@ class TestRoomResolutionFreeRoom:
         clinic_slot = grid.get(clinic_doctor.id, 1, Day.MONDAY, Period.AM)
         assert clinic_slot.assigned_room_id is None  # left in current (no) room
         assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == eligible_room.id
+        assert any(i.check == "clinic_room_unresolved" for i in issues)
+
+
+class TestInertNurse:
+    """A nurse is inert: never a clinic candidate, never displaced to free a
+    clinic room."""
+
+    def test_nurse_is_never_selected_even_when_configured_as_eligible(
+        self, session, config_1wk
+    ):
+        t = make_template(session, is_active=True)
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        _req_room(session, t, nurse)
+        make_clinic_type(
+            session, name="Dragon", room_required=False,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(nurse.id, 1)],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
+
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).role is None
+        assert any(i.check == "no_eligible_doctor" for i in issues)
+
+        rationales = " ".join(e.rationale or "" for e in log.entries)
+        assert "NN: nurses are never assigned clinics" in rationales
+
+    def test_nurse_is_not_displaced_to_free_a_clinic_room(self, session, config_1wk):
+        """Identical to `test_displaces_unprotected_occupant_to_preferred_room`
+        except that the occupant is a nurse: the clinic doctor goes without
+        the room rather than the nurse being moved out of it."""
+        t = make_template(session, is_active=True)
+        clinic_doctor = make_doctor(session, code="AA")
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        eligible_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        _req_room(session, t, clinic_doctor)
+        make_master_session(
+            session, t, nurse, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=eligible_room,
+        )
+        make_preferred_room(session, nurse, preference_order=1, room=fallback_room)
+
+        make_clinic_type(
+            session, name="Dragon", room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(clinic_doctor.id, 1)], room_ids=[eligible_room.id],
+        )
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        issues = run_phase5(ctx, grid, counters, log)
+
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).assigned_room_id == eligible_room.id
+        assert grid.get(clinic_doctor.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
         assert any(i.check == "clinic_room_unresolved" for i in issues)
 
 
