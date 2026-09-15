@@ -1,5 +1,4 @@
 - add nurses
-- add treatment rooms and CK
 - add nurse edit option
 - add med student
 - different calendar views
@@ -11,7 +10,6 @@
 
 - Displacing someone in the generated room - displace, swap or cancel
 - trainees off site needs validation or local supervisors
-- add cutteslowe kitchen
 
 - WFH allocation phase: choose who works from home when the doctors working a
   session outnumber the rooms available, selecting on the (now live) WFH
