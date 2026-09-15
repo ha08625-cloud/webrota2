@@ -27,21 +27,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ....models import (
+from ....models.enums import DAY_ORDER, Day, ReceptionRole
+from ....models.reception import (
+    RECEPTION_HOURS,
     ReceptionLeaveEntry,
     ReceptionMasterSession,
     ReceptionRota,
     ReceptionRotaSession,
     ReceptionStaff,
-    User,
-)
-from ....models.enums import DAY_ORDER, Day, ReceptionRole
-from ....models.reception import (
-    RECEPTION_HOURS,
     format_hour,
     format_hour_range,
     min_phones_for_hour,
 )
+from ....models.user import User
 from ....reception.counters import assignment_counter_window, compute_role_counters
 from ....reception.front_desk import (
     FRONT_DESK_END_HOUR,
@@ -50,14 +48,14 @@ from ....reception.front_desk import (
 )
 from ....reception.phones import select_phones_blocks
 from ...deps import get_current_user, get_db
-from ...schemas import (
+from ...schemas.common import ValidationIssueOut
+from ...schemas.reception import (
     ReceptionRotaGenerateIn,
     ReceptionRotaOut,
     ReceptionRotaSessionIn,
     ReceptionRotaSessionOut,
     ReceptionRotaSessionPatchIn,
     ReceptionSessionWriteOut,
-    ValidationIssueOut,
 )
 
 router = APIRouter(prefix="/reception/rota", tags=["reception"])

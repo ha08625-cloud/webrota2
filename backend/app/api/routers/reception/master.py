@@ -18,8 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ....models import ReceptionMasterSession, ReceptionStaff, User
 from ....models.enums import DAY_ORDER
+from ....models.reception import ReceptionMasterSession, ReceptionStaff
+from ....models.user import User
 from ...deps import get_current_user, get_db
 from ...schemas.reception import (
     ReceptionMasterSessionCreateIn,

@@ -89,9 +89,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import ReceptionRota
 from ..models.enums import ReceptionRole
-from ..models.reception import RECEPTION_HOURS, min_phones_for_hour
+from ..models.reception import (
+    RECEPTION_HOURS,
+    ReceptionRota,
+    min_phones_for_hour,
+)
 from .counters import RoleCounters
 
 # At most this many consecutive non-deficit slots may be crossed to keep a

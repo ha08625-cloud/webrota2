@@ -48,13 +48,13 @@ from dataclasses import dataclass, field
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
-from ..models import (
+from ..models.enums import ReceptionRole
+from ..models.reception import (
     ReceptionLeaveEntry,
     ReceptionRota,
     ReceptionRotaSession,
     ReceptionStaff,
 )
-from ..models.enums import ReceptionRole
 
 # Roles that do not count toward hours worked. Matches ReceptionCountersPage's
 # existing rule exactly, so the page's two hours figures cannot disagree about
