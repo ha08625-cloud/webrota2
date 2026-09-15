@@ -29,6 +29,8 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_duty_within_doctor_dates(context))
     issues.extend(_check_pre_assigned_sr_room(context))
     issues.extend(_check_clinic_sr_room_eligibility(context))
+    issues.extend(_check_preferred_tr_room(context))
+    issues.extend(_check_clinic_tr_room_eligibility(context))
 
     return issues
 
@@ -326,6 +328,90 @@ def _check_clinic_sr_room_eligibility(
                 f"{', '.join(sr_codes)}. SR is reserved for trainee "
                 f"supervision, so a clinic placed there leaves any session "
                 f"with trainees without an SR room for its supervisor."
+            ),
+        ))
+    return issues
+
+
+def _check_preferred_tr_room(context: GenerationContext) -> list[ValidationIssue]:
+    """Warn if a doctor holds a preference for a treatment room.
+
+    TR rooms (TR1-TR3, CK) are nurse rooms no generation phase allocates:
+    every room lookup in the engine names its room types explicitly and
+    none of them names TR. `Doctor.preferred_rooms` is the one exception --
+    Pass 3 of phase7_9a walks the preference list with no room-type filter
+    at all, and phase5/room_relocation filter out D only -- so a stored TR
+    preference can still put a doctor in a treatment room.
+
+    The doctor API rejects both halves of that rule, so a row can only get
+    here by predating the check or by being written straight against the
+    database. A warning rather than filtering TR out of
+    `preferred_rooms_by_doctor` in `load_context()`, for the same reason as
+    the SR checks above: an engine that silently disagrees with the stored
+    configuration is what the generation log exists to prevent.
+
+    One issue per doctor, naming every TR room in their list.
+    `preferred_rooms_by_doctor` holds room_type entries already expanded to
+    concrete rooms, so a stored `room_type: TR` token surfaces here as all
+    four rooms -- which is what it would actually offer the engine.
+    """
+    issues: list[ValidationIssue] = []
+    for doctor_id, room_ids in sorted(context.preferred_rooms_by_doctor.items()):
+        tr_codes = sorted(
+            room.code
+            for room_id in room_ids
+            if (room := context.room_by_id.get(room_id)) is not None
+            and room.room_type == RoomType.TR
+        )
+        if not tr_codes:
+            continue
+        doctor = context.doctor_by_id.get(doctor_id)
+        code = doctor.code if doctor is not None else f"id={doctor_id}"
+        issues.append(ValidationIssue(
+            severity="warning", phase=PHASE, check="preferred_tr_room",
+            doctor_id=doctor_id,
+            message=(
+                f"{code} has a room preference for treatment "
+                f"room{'' if len(tr_codes) == 1 else 's'} "
+                f"{', '.join(tr_codes)}. Treatment rooms are not allocated "
+                f"by the generator, so a preference for one can seat {code} "
+                f"in a nurse room."
+            ),
+        ))
+    return issues
+
+
+def _check_clinic_tr_room_eligibility(
+    context: GenerationContext,
+) -> list[ValidationIssue]:
+    """Warn if an enabled clinic type is eligible for a treatment room.
+
+    The TR counterpart of `_check_clinic_sr_room_eligibility`, and it exists
+    for the identical reason: Phase 5 resolves a clinic's room out of
+    `eligible_room_ids` without ever consulting the room type, so a stale
+    `ClinicTypeRoomEligibility` row naming TR -- one predating the clinic
+    type API's rejection, or written straight against the database -- hands
+    a treatment room to a clinic despite no phase being allowed to allocate
+    one. `context.clinic_types` holds enabled clinic types only.
+    """
+    issues: list[ValidationIssue] = []
+    for clinic in context.clinic_types:
+        tr_codes = sorted(
+            room.code
+            for room_id in clinic.eligible_room_ids
+            if (room := context.room_by_id.get(room_id)) is not None
+            and room.room_type == RoomType.TR
+        )
+        if not tr_codes:
+            continue
+        issues.append(ValidationIssue(
+            severity="warning", phase=PHASE, check="clinic_tr_room_eligibility",
+            message=(
+                f"Clinic type '{clinic.name}' is eligible for treatment "
+                f"room{'' if len(tr_codes) == 1 else 's'} "
+                f"{', '.join(tr_codes)}. Treatment rooms are not allocated "
+                f"by the generator, so a clinic placed there occupies a "
+                f"nurse room."
             ),
         ))
     return issues

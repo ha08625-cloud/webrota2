@@ -18,6 +18,7 @@ from .factories import (
     make_duty,
     make_leave,
     make_master_session,
+    make_preferred_room,
     make_room,
     make_template,
 )
@@ -397,3 +398,139 @@ class TestClinicSrRoomEligibility:
         issues = run_phase0(ctx, config_1wk)
 
         assert not any(i.check == "clinic_sr_room_eligibility" for i in issues)
+
+
+class TestPreferredTrRoom:
+    """A stored preference is the one path by which a generation phase could
+    seat a doctor in a treatment room: Pass 3 of phase7_9a walks the
+    preference list with no room-type filter. The doctor API rejects new
+    ones, so any that remain predate that check or were written straight to
+    the database -- Phase 0 names them rather than `load_context()`
+    silently dropping them.
+    """
+
+    def test_preferred_tr_room_warns(self, session, config_1wk):
+        make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA")
+        tr = make_room(session, code="TR1", room_type=RoomType.TR)
+        make_preferred_room(session, doctor, 1, room=tr)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        matching = [i for i in _warnings(issues) if i.check == "preferred_tr_room"]
+        assert len(matching) == 1
+        assert "AA" in matching[0].message
+        assert "TR1" in matching[0].message
+        assert matching[0].doctor_id == doctor.id
+        assert not any(i.check == "preferred_tr_room" for i in _errors(issues))
+
+    def test_a_stored_tr_room_type_token_names_every_tr_room(
+        self, session, config_1wk
+    ):
+        # `preferred_rooms_by_doctor` expands room_type entries to concrete
+        # rooms, so a stored token surfaces as the whole set -- which is
+        # what it would actually offer the engine.
+        make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA")
+        make_room(session, code="TR1", room_type=RoomType.TR)
+        make_room(session, code="CK", room_type=RoomType.TR)
+        make_preferred_room(session, doctor, 1, room_type=RoomType.TR)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        matching = [i for i in _warnings(issues) if i.check == "preferred_tr_room"]
+        assert len(matching) == 1
+        assert "TR1" in matching[0].message and "CK" in matching[0].message
+
+    def test_non_tr_preferences_do_not_warn(self, session, config_1wk):
+        # Guard against the check firing on the ordinary case -- SR is a
+        # legitimate preference, unlike a clinic room eligibility.
+        make_template(session, is_active=True)
+        doctor = make_doctor(session, code="AA")
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        make_preferred_room(session, doctor, 1, room=d_room)
+        make_preferred_room(session, doctor, 2, room=sr_room)
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "preferred_tr_room" for i in issues)
+
+    def test_preferred_tr_room_does_not_abort_generation(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        tr = make_room(session, code="TR1", room_type=RoomType.TR)
+        make_room(session, code="D1", room_type=RoomType.D)
+        make_preferred_room(session, d, 1, room=tr)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.REQUIRES_ROOM,
+        )
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        assert result.status != "failed"
+        assert any(i.check == "preferred_tr_room" for i in result.issues)
+
+
+class TestClinicTrRoomEligibility:
+    """The TR counterpart of TestClinicSrRoomEligibility: Phase 5 resolves a
+    clinic's room out of `eligible_room_ids` without consulting the room
+    type, so a stale row naming TR can still hand a treatment room to a
+    clinic even though no phase is allowed to allocate one.
+    """
+
+    def test_enabled_clinic_type_with_tr_eligibility_warns(self, session, config_1wk):
+        make_template(session, is_active=True)
+        tr = make_room(session, code="TR1", room_type=RoomType.TR)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=True, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[tr.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        matching = [
+            i for i in _warnings(issues) if i.check == "clinic_tr_room_eligibility"
+        ]
+        assert len(matching) == 1
+        assert "Dragon" in matching[0].message
+        assert "TR1" in matching[0].message
+
+    def test_clinic_type_without_tr_eligibility_does_not_warn(
+        self, session, config_1wk
+    ):
+        make_template(session, is_active=True)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=True, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[c_room.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "clinic_tr_room_eligibility" for i in issues)
+
+    def test_disabled_clinic_type_with_tr_eligibility_is_silent(
+        self, session, config_1wk
+    ):
+        make_template(session, is_active=True)
+        tr = make_room(session, code="TR1", room_type=RoomType.TR)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=False, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[tr.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "clinic_tr_room_eligibility" for i in issues)

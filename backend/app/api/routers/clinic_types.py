@@ -24,12 +24,14 @@ end, used on create and on a disabled-to-enabled transition), `_close_gap`
 and the dedicated `PUT /clinic-types/reorder` endpoint (the only genuine
 arbitrary permutation, using a two-phase negative-placeholder update).
 
-SR rooms are not selectable as clinic rooms: they are held for trainee
-supervision, which Phase 9C books before the room-filling phases run. The
-`room_type` half of that rule is enforced by `RoomEligIn` in the schema
-module; the `room_id` half needs the database to resolve an id to a room
-type, so it lives here in `_reject_sr_rooms`, called first thing by both
-POST and PUT. PATCH never touches eligibilities and so needs neither.
+SR and TR rooms are not selectable as clinic rooms: SR is held for
+trainee supervision, which Phase 9C books before the room-filling phases
+run, and the TR rooms (TR1-TR3, CK) are nurse rooms no generation phase
+allocates. The `room_type` half of that rule is enforced by `RoomEligIn` in
+the schema module; the `room_id` half needs the database to resolve an id to
+a room type, so it lives here in `_reject_unselectable_rooms`, called first
+thing by both POST and PUT. PATCH never touches eligibilities and so needs
+neither.
 
 Nurses are likewise not selectable as clinic doctors: a nurse is inert to
 the generation engine, so Phase 5 skips one as a candidate anyway, and
@@ -108,10 +110,22 @@ def _close_gap(db: Session, vacated_priority: int) -> None:
         db.flush()
 
 
-def _reject_sr_rooms(db: Session, payload: ClinicTypeIn) -> None:
-    """SR is held for trainee supervision (Phase 9C books it) and is not a
-    selectable clinic room. The room_type half of this rule lives in
-    RoomEligIn; this half needs the DB to resolve room_id -> room_type.
+# Room types that cannot be a clinic room, with the noun each is described
+# by in the rejection message. SR is held for trainee supervision (Phase 9C
+# books it before the room-filling phases run); TR rooms (TR1-TR3, CK) are
+# nurse rooms no generation phase allocates. The two reasons are different,
+# so the message names the right one rather than applying the SR wording to
+# a treatment room.
+_UNSELECTABLE_ROOM_NOUNS: dict[RoomType, tuple[str, str]] = {
+    RoomType.SR: ("supervision room", "supervision rooms"),
+    RoomType.TR: ("treatment room", "treatment rooms"),
+}
+
+
+def _reject_unselectable_rooms(db: Session, payload: ClinicTypeIn) -> None:
+    """Neither SR nor TR is a selectable clinic room. The room_type half of
+    this rule lives in RoomEligIn; this half needs the DB to resolve
+    room_id -> room_type.
 
     400 rather than 422: the clinic type dialog renders a string `detail`
     straight into its top-of-form error, and a 422 here would have to carry
@@ -120,20 +134,28 @@ def _reject_sr_rooms(db: Session, payload: ClinicTypeIn) -> None:
     room_ids = [e.room_id for e in payload.room_eligibilities if e.room_id is not None]
     if not room_ids:
         return
-    codes = db.execute(
-        select(Room.code)
-        .where(Room.id.in_(room_ids), Room.room_type == RoomType.SR)
-        .order_by(Room.code)
-    ).scalars().all()
-    if codes:
-        noun = "Room" if len(codes) == 1 else "Rooms"
-        verb = "is a supervision room" if len(codes) == 1 else "are supervision rooms"
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"{noun} {', '.join(codes)} {verb} and cannot be a clinic room"
-            ),
+    rows = db.execute(
+        select(Room.code, Room.room_type)
+        .where(
+            Room.id.in_(room_ids),
+            Room.room_type.in_(tuple(_UNSELECTABLE_ROOM_NOUNS)),
         )
+        .order_by(Room.code)
+    ).all()
+    if not rows:
+        return
+    parts = []
+    for room_type, (singular, plural) in _UNSELECTABLE_ROOM_NOUNS.items():
+        codes = [code for code, rt in rows if rt == room_type]
+        if not codes:
+            continue
+        noun = "Room" if len(codes) == 1 else "Rooms"
+        verb = f"is a {singular}" if len(codes) == 1 else f"are {plural}"
+        parts.append(f"{noun} {', '.join(codes)} {verb}")
+    raise HTTPException(
+        status_code=400,
+        detail=f"{'; '.join(parts)} and cannot be a clinic room",
+    )
 
 
 def _reject_nurse_doctors(db: Session, payload: ClinicTypeIn) -> None:
@@ -143,8 +165,8 @@ def _reject_nurse_doctors(db: Session, payload: ClinicTypeIn) -> None:
     leaving one silently doing nothing. This needs the DB to resolve
     doctor_id -> doctor_type, so it lives here rather than in DoctorEligIn.
 
-    400 rather than 422, matching `_reject_sr_rooms`: the clinic type dialog
-    renders a string `detail` straight into its top-of-form error.
+    400 rather than 422, matching `_reject_unselectable_rooms`: the clinic
+    type dialog renders a string `detail` straight into its top-of-form error.
     """
     doctor_ids = [e.doctor_id for e in payload.doctor_eligibilities]
     if not doctor_ids:
@@ -247,7 +269,7 @@ def create_clinic_type(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicType:
-    _reject_sr_rooms(db, payload)
+    _reject_unselectable_rooms(db, payload)
     _reject_nurse_doctors(db, payload)
     ct = ClinicType()
     detail = (
@@ -342,7 +364,7 @@ def replace_clinic_type(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicType:
-    _reject_sr_rooms(db, payload)
+    _reject_unselectable_rooms(db, payload)
     _reject_nurse_doctors(db, payload)
     ct = _get_or_404(db, clinic_type_id)
     # Captured before _apply() overwrites is_enabled.

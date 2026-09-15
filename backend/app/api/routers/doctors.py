@@ -76,6 +76,15 @@ one. The token is deliberately absent from DoctorOut/DoctorDetailOut: it
 reaches the frontend only through the dedicated calendar-feed endpoint, so it
 never travels in the rota grid's caches or the audit log's request bodies.
 
+Treatment rooms are not selectable as preferred rooms: TR1-TR3 and CK are
+nurse rooms no generation phase allocates, and a preferred room is the one
+route by which a phase could still seat a doctor in one. The `room_type`
+half of that rule is enforced by `PreferredRoomIn` in the schema module; the
+`room_id` half needs the database to resolve an id to a room type, so it
+lives here in `_reject_tr_rooms`. `PUT /doctors/{id}/preferred-rooms` is the
+only write path -- neither DoctorIn nor DoctorPatch carries preferred-room
+fields.
+
 Token management (read the feed URL, rotate the token) lives here rather
 than on the public calendar router, so it sits behind the ordinary session
 gate. Rotation additionally carries `require_capability("user_admin")` on
@@ -110,10 +119,11 @@ from ...models import (
     RotaSession,
     RotaStagingSession,
     RotaSystemCounterSnapshot,
+    Room,
     SystemCounter,
     User,
 )
-from ...models.enums import RotaStatus, SystemCounterType
+from ...models.enums import RoomType, RotaStatus, SystemCounterType
 from ..auth_utils import new_session_token
 from ..deps import get_current_user, get_db, require_capability
 from ..schemas import (
@@ -279,6 +289,43 @@ def patch_doctor(
     return doctor
 
 
+def _reject_tr_rooms(db: Session, payload: list[PreferredRoomIn]) -> None:
+    """Treatment rooms (TR1-TR3, CK) cannot be a stored preference.
+
+    `Doctor.preferred_rooms` is the one path by which a generation phase
+    could seat a doctor in a room the engine is not supposed to allocate:
+    Pass 3 of phase7_9a walks the preference list with no room-type filter,
+    and phase5/room_relocation filter out D only. Every other room lookup in
+    the engine names a single room type explicitly, so TR is unreachable.
+
+    The room_type half of this rule lives in `PreferredRoomIn`; this half
+    needs the DB to resolve room_id -> room_type. 400 with a string
+    `detail`, matching `clinic_types._reject_unselectable_rooms`.
+
+    Not enforced in the engine: `load_context()` keeps expanding whatever is
+    stored, and Phase 0 warns about a row that predates this check or was
+    written straight against the database.
+    """
+    room_ids = [p.room_id for p in payload if p.room_id is not None]
+    if not room_ids:
+        return
+    codes = db.execute(
+        select(Room.code)
+        .where(Room.id.in_(room_ids), Room.room_type == RoomType.TR)
+        .order_by(Room.code)
+    ).scalars().all()
+    if codes:
+        noun = "Room" if len(codes) == 1 else "Rooms"
+        verb = "is a treatment room" if len(codes) == 1 else "are treatment rooms"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{noun} {', '.join(codes)} {verb} and cannot be a "
+                f"preferred room"
+            ),
+        )
+
+
 @router.put("/{doctor_id}/preferred-rooms", response_model=DoctorDetailOut)
 def replace_preferred_rooms(
     doctor_id: int,
@@ -287,6 +334,7 @@ def replace_preferred_rooms(
     user: User = Depends(get_current_user),
 ) -> Doctor:
     doctor = _get_or_404(db, doctor_id)
+    _reject_tr_rooms(db, payload)
     # Replace-all pattern, but as two explicit statements rather than an
     # ORM collection reassignment. Assigning doctor.preferred_rooms = [...]
     # leaves the flush free to emit the INSERTs for the new rows before the

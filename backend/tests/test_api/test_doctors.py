@@ -438,3 +438,64 @@ class TestCalendarFeed:
         )
         assert resp.status_code == 200
         assert resp.json()["token"] != before
+
+
+class TestTreatmentRoomsAreNotPreferable:
+    """TR1-TR3 and CK are nurse rooms no generation phase allocates, and a
+    stored preference is the one path by which a phase could still seat a
+    doctor in one: Pass 3 of phase7_9a walks the preference list with no
+    room-type filter at all.
+
+    Two halves, two status codes, mirroring the SR rule on clinic types:
+    `room_type: "TR"` fails schema validation (422); a `room_id` pointing
+    at a TR room needs the database to resolve, so the router rejects it
+    with a 400 naming the room.
+
+    Manual edits and the master rota stay unrestricted on purpose -- a
+    human placing someone in a treatment room is a legitimate override, so
+    nothing here touches those routes.
+    """
+
+    def test_tr_room_type_is_422(self, client, seeded):
+        resp = client.put(
+            f"/api/v1/doctors/{seeded['doctor_aa']}/preferred-rooms",
+            json=[{"preference_order": 1, "room_type": "TR"}],
+        )
+        assert resp.status_code == 422, resp.text
+
+    def test_tr_room_id_is_400_naming_the_room(self, client, seeded):
+        resp = client.put(
+            f"/api/v1/doctors/{seeded['doctor_aa']}/preferred-rooms",
+            json=[{"preference_order": 1, "room_id": seeded["room_tr1"]}],
+        )
+        assert resp.status_code == 400, resp.text
+        assert "TR1" in resp.json()["detail"]
+
+    def test_a_payload_mixing_a_valid_room_and_tr_stores_nothing(
+        self, client, seeded
+    ):
+        """`_reject_tr_rooms` runs before the delete/insert, so the valid D
+        room does not sneak in alongside the rejected TR one -- and an
+        existing preference list is left untouched rather than emptied by
+        the delete half of the replace."""
+        url = f"/api/v1/doctors/{seeded['doctor_aa']}/preferred-rooms"
+        client.put(url, json=[{"preference_order": 1, "room_id": seeded["room_c1"]}])
+        resp = client.put(url, json=[
+            {"preference_order": 1, "room_id": seeded["room_d1"]},
+            {"preference_order": 2, "room_id": seeded["room_tr1"]},
+        ])
+        assert resp.status_code == 400, resp.text
+        after = client.get(f"/api/v1/doctors/{seeded['doctor_aa']}").json()
+        assert [p["room_id"] for p in after["preferred_rooms"]] == [seeded["room_c1"]]
+
+    def test_sr_is_still_a_legitimate_preference(self, client, seeded):
+        """Unlike a clinic room eligibility, a doctor may prefer SR: the
+        rule added here is about TR only."""
+        resp = client.put(
+            f"/api/v1/doctors/{seeded['doctor_aa']}/preferred-rooms",
+            json=[
+                {"preference_order": 1, "room_id": seeded["room_sr"]},
+                {"preference_order": 2, "room_type": "SR"},
+            ],
+        )
+        assert resp.status_code == 200, resp.text
