@@ -11,6 +11,22 @@ Since only PM can move, resolution is a binary choice:
 
 Rows 1/2/6/7 of the priority table map to DEFAULT; rows 3/4 map to CONFIRM.
 
+Phase 9C now runs *before* this phase, so the assignments seen here can
+include a doctor seated in an SR room by supervision rather than by a room
+pass. A supervisor's room is fixed once 9C has booked it, so a doctor whose
+**PM** slot is supervising is dropped from the candidate pool in
+`_eligible_doctors_for_day` and never appears in a swap pair.
+
+That guard is PM-only, deliberately. This phase only ever writes PM, so an
+AM supervisor's SR seat cannot be overwritten here. The case that looks
+unsafe -- A supervises in AM, holds SR in AM, and DEFAULT copies A's AM
+room into PM, putting A into SR for PM -- cannot double-book: for A to be
+in a pair at all, the partner B must hold SR in PM. If the PM session needs
+a supervisor, B *is* that supervisor and the PM guard has already removed B
+from the pool, so the pair never forms; if the PM session needs no
+supervisor, SR really is free in PM once B vacates it and A moving in is
+correct. An AM guard would abandon those harmless resolutions for nothing.
+
 Row 5 ("both prefer the same room; one Partner one Salaried -> Partner gets
 it") is not implemented as a distinct case. Under strict top-to-bottom
 "first matching row wins" evaluation of rows 1-4, row 5's own scenario is
@@ -119,7 +135,13 @@ def _eligible_doctors_for_day(
     context: GenerationContext, grid: RotaGrid, gen_week: int, day: Day
 ) -> dict[int, tuple[int, int]]:
     """doctor_id -> (am_room_id, pm_room_id) for Partner/Salaried doctors with
-    fully resolved, non-leave, non-NO_SURGERY sessions both AM and PM."""
+    fully resolved, non-leave, non-NO_SURGERY sessions both AM and PM.
+
+    A doctor supervising in PM is excluded here rather than in the pair
+    loop: one filter covers both sides of every pair, and the pair is then
+    never *detected*, so no `resolve_swap` entry is logged describing a
+    swap that was never up for consideration.
+    """
     result: dict[int, tuple[int, int]] = {}
     for doctor in context.doctors:
         if doctor.doctor_type not in _SWAPPABLE_TYPES:
@@ -136,6 +158,8 @@ def _eligible_doctors_for_day(
             continue
         if am_slot.assigned_room_id is None or pm_slot.assigned_room_id is None:
             continue  # unresolvable session
+        if pm_slot.is_supervising:
+            continue  # Phase 9C fixed this PM room -- see module docstring
         result[doctor.id] = (am_slot.assigned_room_id, pm_slot.assigned_room_id)
     return result
 

@@ -5,7 +5,10 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
 
   Pass 1 (full-day Trainee/AHP): a Trainee/AHP needing the same D room for
     both AM and PM of a day. Prefer a room free in both sessions; failing
-    that, displace a full-day Partner/Salaried D-room occupant. Victims are
+    that, displace a full-day Partner/Salaried D-room occupant. A doctor
+    supervising in either session of the day is never a victim -- Pass 1
+    moves both periods, so one supervising slot protects the whole day.
+    Victims are
     ranked in two priority tiers ahead of any tie-break: Priority 1 is a
     doctor holding a *different* D room in AM and PM (displacing them frees
     two D rooms for one move); Priority 2 is a doctor holding the *same* D
@@ -19,7 +22,9 @@ Three passes over every doctor whose REQUIRES_ROOM slot still has
     that one room for the full day instead of being split.
   Pass 2 (single-session Trainee/AHP): the same, per remaining individual
     session -- covers slots Pass 1 couldn't resolve as a full day, and
-    slots that only ever needed a single session. Victims are ranked by
+    slots that only ever needed a single session. A slot with
+    `is_supervising` set is never a victim, and the test is per-period:
+    a doctor supervising in AM may still be displaced in PM. Victims are ranked by
     priority tier first: Priority 1 is a doctor whose other session has no
     room setup to fragment (absent, on leave, or roomless); Priority 2 is a
     doctor holding a *different* room in the other session; Priority 3 is a
@@ -45,7 +50,12 @@ priority, with D rooms deliberately included. This is a genuine, intended
 difference from the Pass 1/2 displaced-doctor pool (C/W/SR, D excluded) --
 Pass 3 runs last, after all Trainee/AHP D-room demand has already been
 settled by Passes 1 and 2, so any D room still free at this point is
-surplus and safe to hand to a Partner/Salaried doctor.
+surplus and safe to hand to a Partner/Salaried doctor. Phase 9C now runs
+*before* this module and has already seated each supervisor in an SR room
+reserved for the purpose, so in any session that needs supervision the SR
+entry at the tail of Pass 3's fallback sequence is a no-op -- the room is
+occupied. Pass 3 itself is unchanged: in sessions with no supervisable
+trainees SR is an ordinary pool room as before.
 
 Every entry this module logs carries a `rationale` replaying the search
 stage by stage. That prose lives in `_log_phase7_9a.py`, one narrator per
@@ -289,6 +299,19 @@ def _find_full_day_displacement(
 def _is_displaceable_full_day(
     context: GenerationContext, grid: RotaGrid, doctor_id: int, gen_week: int, day: Day
 ) -> bool:
+    """Can this Partner/Salaried doctor be moved out of both D rooms today?
+
+    The supervision test rejects the doctor if *either* period is
+    supervising, because Pass 1 moves both periods together. Phase 9C now
+    runs before this module and seats every supervisor in an SR room, so
+    in the ordinary case this guard cannot fire: `_find_full_day_displacement`
+    already requires a D room in both AM and PM, which excludes a supervisor
+    who got their SR booking. It is the backstop for the one path that
+    leaves a supervisor in a non-SR room -- a PRE_ASSIGNED template row
+    holding the session's only SR room (see D7 in the supervision phase-order
+    plan), after which 9C leaves the supervisor wherever they were. Without
+    this check Pass 1 could then move that supervisor mid-day.
+    """
     doctor = context.doctor_by_id.get(doctor_id)
     if doctor is None or doctor.doctor_type not in _DISPLACEABLE_TYPES:
         return False
@@ -299,6 +322,8 @@ def _is_displaceable_full_day(
     if am_slot.is_on_leave or pm_slot.is_on_leave:
         return False
     if am_slot.role is not None or pm_slot.role is not None:
+        return False
+    if am_slot.is_supervising or pm_slot.is_supervising:
         return False
     return True
 
@@ -458,11 +483,25 @@ def _is_displaceable_single(
     context: GenerationContext, grid: RotaGrid, doctor_id: int,
     gen_week: int, day: Day, period: Period,
 ) -> bool:
+    """Can this Partner/Salaried doctor be moved out of `period`'s room?
+
+    The supervision test is deliberately per-period, because Pass 2 moves
+    one session only. A doctor supervising in AM (so sitting in SR for AM)
+    who holds an ordinary D room in PM is still displaceable in PM: their
+    PM slot is not supervising, and the resulting mid-day room change is
+    an accepted consequence of seating supervisors in SR, not a defect.
+
+    As with `_is_displaceable_full_day`, Phase 9C now runs first and puts
+    supervisors in SR, which Pass 2's D-room victim search already skips,
+    so the reachable case for this guard is a supervisor whose SR booking
+    failed against a PRE_ASSIGNED template row (D7 in the supervision
+    phase-order plan) and who is therefore still in a D room.
+    """
     doctor = context.doctor_by_id.get(doctor_id)
     if doctor is None or doctor.doctor_type not in _DISPLACEABLE_TYPES:
         return False
     slot = grid.get(doctor_id, gen_week, day, period)
-    if slot is None or slot.is_on_leave or slot.role is not None:
+    if slot is None or slot.is_on_leave or slot.role is not None or slot.is_supervising:
         return False
     return True
 
