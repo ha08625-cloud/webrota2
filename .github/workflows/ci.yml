@@ -122,12 +122,26 @@ jobs:
       - name: Check module boundaries
         run: uv run lint-imports
 
+      # -n auto runs the suite across the runner's cores (4 on ubuntu-latest),
+      # taking it from ~2m30s to ~50s. Nothing is skipped or selected -- every
+      # test still runs, just not one at a time.
+      #
+      # -v is dropped deliberately: with xdist the per-test lines arrive
+      # interleaved from four workers, so the verbose log is harder to read
+      # than the default progress output, not easier. Failures print in full
+      # either way, which is the part anyone actually reads.
+      #
+      # Safe for the LibreOffice tests specifically: pdf_convert.py already
+      # gives every soffice invocation a private -env:UserInstallation profile,
+      # because two concurrent runs sharing one profile fail with no
+      # diagnosis. That was fixed for the app's own concurrency and it is what
+      # makes parallel tests work here too.
       - name: Run tests
         # REQUIRE_SOFFICE: fail rather than skip if LibreOffice cannot
         # convert here. See the install step above.
         env:
           REQUIRE_SOFFICE: "1"
-        run: uv run pytest -v
+        run: uv run pytest -n auto
 
   # Validates the 001 baseline (incl. the shared-enum-type fix) against a
   # real Postgres before Railway ever runs it: upgrade, downgrade, and

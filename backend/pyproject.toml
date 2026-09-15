@@ -35,6 +35,9 @@ dev = [
     # Configuration lives in [tool.importlinter] below; CI runs
     # `uv run lint-imports` before the test suite.
     "import-linter>=2.4",
+    # Parallel test execution. CI runs `pytest -n auto`; see the note in
+    # [tool.pytest.ini_options] below for why -n auto is NOT in addopts.
+    "pytest-xdist>=3.6",
 ]
 
 [build-system]
@@ -48,6 +51,15 @@ packages = ["app"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--import-mode=importlib"
+
+# -n auto is deliberately NOT here, though pytest-xdist is a dev dependency
+# and CI passes it explicitly. Under xdist, output from the workers is
+# interleaved and buffered until a test finishes, `pdb` cannot attach, and
+# -x stops at whichever failure a worker reaches first rather than the first
+# in file order. None of that matters to CI, which only reads the summary;
+# all of it matters to the local "run the tests for the files I touched"
+# workflow in CLAUDE.md. Add -n auto by hand when running the whole suite
+# locally is what you actually want.
 
 
 
