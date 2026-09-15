@@ -9,14 +9,14 @@ not this module's business; it reads `min_phones_for_hour` and never argues
 with it.
 
 **The window is `RECEPTION_HOURS` filtered by the coverage rule, and it is
-wider than front desk's.** `reception_front_desk` covers 8:00am-6:00pm
+wider than front desk's.** `reception.front_desk` covers 8:00am-6:00pm
 because the desk is not manned before opening or after close. Phones cover is
 required for every slot `min_phones_for_hour` returns non-zero for, which
 includes the closing 6:00-6:30 slot: twenty-one of the day's twenty-two
 slots, only 7:30-8:00 exempt. `TOPUP_HOURS` is therefore *derived* from
 `RECEPTION_HOURS` and the coverage rule at import, so a future change to
 `PHONES_OPEN_HOUR` moves it automatically. This module never reads
-`FRONT_DESK_HOURS`, and imports nothing from `reception_front_desk`.
+`FRONT_DESK_HOURS`, and imports nothing from `reception.front_desk`.
 
 **Greedy longest-chunk, knowingly suboptimal.** Front desk enumerates all
 fifty legal partitions of a fixed window and returns the true optimum; this
@@ -67,7 +67,7 @@ phones minimum needs.
 **The role filter is the whole availability rule.** Only `online_triage` rows
 are candidates -- not `other`, not `admin`. A consequence worth stating so
 nobody "fixes" it: there is no analogue of
-`reception_front_desk._UNAVAILABLE_ROLES` here and none is needed, because
+`reception.front_desk._UNAVAILABLE_ROLES` here and none is needed, because
 `lunch`, `not_working`, `cutteslowe` and `wolvercote` are excluded by the role
 filter itself, as is anyone the desk has already taken (they are `front_desk`
 by the time this runs).
@@ -89,10 +89,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import ReceptionRota
-from .models.enums import ReceptionRole
-from .models.reception import RECEPTION_HOURS, min_phones_for_hour
-from .reception_counters import RoleCounters
+from ..models import ReceptionRota
+from ..models.enums import ReceptionRole
+from ..models.reception import RECEPTION_HOURS, min_phones_for_hour
+from .counters import RoleCounters
 
 # At most this many consecutive non-deficit slots may be crossed to keep a
 # chunk contiguous -- two slots is one hour.
@@ -178,7 +178,7 @@ def _phones_load(counters: RoleCounters) -> dict[int, float]:
     who always have fewer phones slots than someone in five days a week and
     would win every tie-break on every day they are in. A zero denominator --
     a new starter, or nobody generated in the window -- scores 0.0, i.e.
-    lowest load and picked first, mirroring `reception_front_desk._fairness`
+    lowest load and picked first, mirroring `reception.front_desk._fairness`
     and the counters page's "no data" rule.
 
     Near-identical to `_fairness` in the front-desk module, and copied rather

@@ -5,7 +5,7 @@ two are not the same call. This used to be a soft delete that 409'd against
 committed rotas; a deactivated doctor kept every row they had, which is why
 they went on appearing on the master rota grid flagged "(inactive)" long
 after someone thought they had removed them. Deleting now purges the doctor
-row and every row that references it, matching routers/reception_staff.py --
+row and every row that references it, matching routers/reception/staff.py --
 the two staff deletes are now the same shape deliberately.
 
 The delete purges history; it does not refuse to run. Removing a doctor
@@ -49,7 +49,7 @@ list: its doctor_id is deliberately FK-free (see models/generation_log.py),
 its rows carry self-contained prose, and it is purged with its rota.
 
 `generated_rotas` headers are left standing even where the purge empties
-one, the same call reception_staff.py makes for `reception_rotas`.
+one, the same call reception/staff.py makes for `reception_rotas`.
 
 Counter invariant: every doctor row has exactly one SystemCounter row per
 SystemCounterType (room_move, supervision, wfh), created here at doctor

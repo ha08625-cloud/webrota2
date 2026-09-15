@@ -176,8 +176,8 @@ class ReceptionRotaSession(Base):
 
     There are two assigners, both inside `POST /reception/rota/{id}/assign`
     and both writing this column: the front-desk step
-    (`reception_front_desk`, overwriting with `front_desk`) and the phones
-    top-up that runs immediately after it (`reception_phones`, overwriting
+    (`reception.front_desk`, overwriting with `front_desk`) and the phones
+    top-up that runs immediately after it (`reception.phones`, overwriting
     `online_triage` with `phones`). Assigners record assignments by
     overwriting `role` in place rather than in an overlay table, so this
     column is how a re-run puts back what they took. It is set on every slot
@@ -281,9 +281,9 @@ MIN_PHONES_STAFF_QUIET = 1
 def min_phones_for_hour(hour: float) -> int:
     """Phones headcount required at the half-hour slot starting `hour`.
 
-    Read by compute_coverage_issues in app/api/routers/reception_rota.py
-    (which warns when the rota is below it), by reception_front_desk.py
-    (which penalises pushing an hour below it) and by reception_phones.py
+    Read by compute_coverage_issues in app/api/routers/reception/rota.py
+    (which warns when the rota is below it), by reception/front_desk.py
+    (which penalises pushing an hour below it) and by reception/phones.py
     (which derives its window and its per-hour deficits from it)."""
     if hour < PHONES_OPEN_HOUR:
         return 0

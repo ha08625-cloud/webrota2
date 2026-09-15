@@ -68,11 +68,6 @@ from .routers import (
     leave_planning,
     locks,
     master_rota,
-    reception_counters,
-    reception_leave,
-    reception_master,
-    reception_rota,
-    reception_staff,
     recurring_notes,
     rooms,
     rota,
@@ -80,6 +75,13 @@ from .routers import (
     signatures,
     staging,
     users,
+)
+from .routers.reception import (
+    counters as reception_counters,
+    leave as reception_leave,
+    master as reception_master,
+    rota as reception_rota,
+    staff as reception_staff,
 )
 
 app = FastAPI(title="Rota Generator API", version="0.1.0")

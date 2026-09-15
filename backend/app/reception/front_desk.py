@@ -39,7 +39,7 @@ invents a partial or illegal assignment; the caller emits `front_desk_gap`
 warnings instead.
 
 **A second assignment step runs immediately after this one.**
-`reception_phones` moves `online_triage` staff onto `phones` to repair hours
+`reception.phones` moves `online_triage` staff onto `phones` to repair hours
 that sit below `min_phones_for_hour` -- including shortfalls this module's
 `W_PHONES` penalty tolerated, since that penalty is a score and not a
 prohibition. `W_PHONES` survives that repair unchanged and deliberately: a
@@ -52,7 +52,7 @@ it on the grounds that the top-up will clean up afterwards.
 **This module performs no writes and no queries.** It takes the loaded rota,
 the ids on leave, and the counters aggregate, and returns blocks; the router
 applies them (setting `displaced_role`, per the invariant on
-`ReceptionRotaSession`). That is the same separation as `reception_counters`
+`ReceptionRotaSession`). That is the same separation as `reception.counters`
 -- the rule is unit-testable without HTTP.
 
 Fairness reads `compute_role_counters` and nothing else. Deliberately absent:
@@ -69,10 +69,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import product
 
-from .models import ReceptionRota
-from .models.enums import ReceptionRole
-from .models.reception import min_phones_for_hour
-from .reception_counters import RoleCounters
+from ..models import ReceptionRota
+from ..models.enums import ReceptionRole
+from ..models.reception import min_phones_for_hour
+from .counters import RoleCounters
 
 # The covered window: 8:00am-6:00pm as twenty half-hour slots. FRONT_DESK_HOURS
 # is the start hour of each, so the last slot starts at 17.5 and ends at 18.0.

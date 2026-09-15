@@ -1,14 +1,14 @@
 """Reception role counter router: one read-only endpoint over the shared
 compute module.
 
-A separate module from reception_rota.py purely so the router boundary
+A separate module from rota.py purely so the router boundary
 matches the URL prefix -- that one is prefixed /reception/rota and this is
 /reception/counters, and two APIRouters in one file would be the only
 reason to merge them.
 
 There is deliberately no arithmetic here. The window rule and the
-aggregation both live in app/reception_counters.py, because the
-front-desk assigner (app/reception_front_desk.py, via
+aggregation both live in app/reception/counters.py, because the
+front-desk assigner (app/reception/front_desk.py, via
 `POST /reception/rota/{id}/assign-roles`) calls them directly and must not
 be able to disagree with this endpoint about what a counter means. This router
 resolves the window, calls the function, and maps dataclasses onto
@@ -25,10 +25,10 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ...models import User
-from ...reception_counters import compute_role_counters, default_counter_window
-from ..deps import get_current_user, get_db
-from ..schemas import ReceptionCounterRowOut, ReceptionCountersOut
+from ....models import User
+from ....reception.counters import compute_role_counters, default_counter_window
+from ...deps import get_current_user, get_db
+from ...schemas import ReceptionCounterRowOut, ReceptionCountersOut
 
 router = APIRouter(prefix="/reception/counters", tags=["reception"])
 
