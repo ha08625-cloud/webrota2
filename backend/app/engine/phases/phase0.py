@@ -28,6 +28,7 @@ def run_phase0(context: GenerationContext, config: RotaConfig) -> list[Validatio
     issues.extend(_check_duty_on_closed_date(context))
     issues.extend(_check_duty_within_doctor_dates(context))
     issues.extend(_check_pre_assigned_sr_room(context))
+    issues.extend(_check_clinic_sr_room_eligibility(context))
 
     return issues
 
@@ -281,6 +282,50 @@ def _check_pre_assigned_sr_room(context: GenerationContext) -> list[ValidationIs
                 f"{code} to SR room {room.code}. SR is reserved for trainee "
                 f"supervision, so any session in that week with trainees will "
                 f"have no SR room for its supervisor."
+            ),
+        ))
+    return issues
+
+
+def _check_clinic_sr_room_eligibility(
+    context: GenerationContext,
+) -> list[ValidationIssue]:
+    """Warn if an enabled clinic type is eligible for an SR room.
+
+    SR is no longer selectable as a clinic room (the clinic-type API
+    rejects both halves of the rule), but nothing in the engine ignores a
+    `ClinicTypeRoomEligibility` row naming SR that predates that change or
+    was written directly against the database. Phase 5 resolves a clinic's
+    room out of `eligible_room_ids` and runs before Phase 9C, so such a row
+    can still hand SR to a clinic; Phase 9C then finds no free SR room, the
+    supervisor is roomed like anyone else, and Phase 12's supervision
+    finding is the only trace -- with nothing naming the cause.
+
+    A warning rather than an error, and rather than filtering SR out of
+    `eligible_room_ids` in `load_context()`: the engine silently
+    disagreeing with the stored data is the failure mode the generation log
+    exists to prevent. Same shape as `_check_pre_assigned_sr_room`. Note
+    `context.clinic_types` holds enabled clinic types only, so a disabled
+    one carrying a stale row is correctly silent.
+    """
+    issues: list[ValidationIssue] = []
+    for clinic in context.clinic_types:
+        sr_codes = sorted(
+            room.code
+            for room_id in clinic.eligible_room_ids
+            if (room := context.room_by_id.get(room_id)) is not None
+            and room.room_type == RoomType.SR
+        )
+        if not sr_codes:
+            continue
+        issues.append(ValidationIssue(
+            severity="warning", phase=PHASE, check="clinic_sr_room_eligibility",
+            message=(
+                f"Clinic type '{clinic.name}' is eligible for SR "
+                f"room{'' if len(sr_codes) == 1 else 's'} "
+                f"{', '.join(sr_codes)}. SR is reserved for trainee "
+                f"supervision, so a clinic placed there leaves any session "
+                f"with trainees without an SR room for its supervisor."
             ),
         ))
     return issues

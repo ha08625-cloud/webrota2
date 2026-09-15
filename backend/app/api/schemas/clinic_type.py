@@ -31,6 +31,20 @@ class RoomEligIn(BaseModel):
             raise ValueError("exactly one of room_id / room_type must be set")
         return self
 
+    @model_validator(mode="after")
+    def _no_sr(self) -> "RoomEligIn":
+        """SR is held for trainee supervision (Phase 9C books it) and is
+        not a selectable clinic room. This covers the room_type half only;
+        a room_id pointing at an SR room needs the DB to resolve, so the
+        router rejects that half -- see clinic_types._reject_sr_rooms.
+        """
+        if self.room_type == RoomType.SR:
+            raise ValueError(
+                "SR is reserved for trainee supervision and cannot be a "
+                "clinic room"
+            )
+        return self
+
 
 class ClinicTypeIn(BaseModel):
     name: str = Field(min_length=1)

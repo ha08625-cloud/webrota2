@@ -23,6 +23,13 @@ end, used on create and on a disabled-to-enabled transition), `_close_gap`
 (used on delete of an enabled row and on an enabled-to-disabled transition),
 and the dedicated `PUT /clinic-types/reorder` endpoint (the only genuine
 arbitrary permutation, using a two-phase negative-placeholder update).
+
+SR rooms are not selectable as clinic rooms: they are held for trainee
+supervision, which Phase 9C books before the room-filling phases run. The
+`room_type` half of that rule is enforced by `RoomEligIn` in the schema
+module; the `room_id` half needs the database to resolve an id to a room
+type, so it lives here in `_reject_sr_rooms`, called first thing by both
+POST and PUT. PATCH never touches eligibilities and so needs neither.
 """
 from __future__ import annotations
 
@@ -38,8 +45,10 @@ from ...models import (
     ClinicTypeDoctorEligibility,
     ClinicTypeRoomEligibility,
     ClinicTypeSchedule,
+    Room,
     User,
 )
+from ...models.enums import RoomType
 from ..deps import get_current_user, get_db
 from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypePatch, ClinicTypeReorderIn
 
@@ -92,6 +101,34 @@ def _close_gap(db: Session, vacated_priority: int) -> None:
     for row in rows:
         row.clinic_priority -= 1
         db.flush()
+
+
+def _reject_sr_rooms(db: Session, payload: ClinicTypeIn) -> None:
+    """SR is held for trainee supervision (Phase 9C books it) and is not a
+    selectable clinic room. The room_type half of this rule lives in
+    RoomEligIn; this half needs the DB to resolve room_id -> room_type.
+
+    400 rather than 422: the clinic type dialog renders a string `detail`
+    straight into its top-of-form error, and a 422 here would have to carry
+    a synthetic FastAPI-shaped body for no gain.
+    """
+    room_ids = [e.room_id for e in payload.room_eligibilities if e.room_id is not None]
+    if not room_ids:
+        return
+    codes = db.execute(
+        select(Room.code)
+        .where(Room.id.in_(room_ids), Room.room_type == RoomType.SR)
+        .order_by(Room.code)
+    ).scalars().all()
+    if codes:
+        noun = "Room" if len(codes) == 1 else "Rooms"
+        verb = "is a supervision room" if len(codes) == 1 else "are supervision rooms"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{noun} {', '.join(codes)} {verb} and cannot be a clinic room"
+            ),
+        )
 
 
 def _children_from_payload(payload: ClinicTypeIn) -> tuple[list, list, list]:
@@ -175,6 +212,7 @@ def create_clinic_type(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicType:
+    _reject_sr_rooms(db, payload)
     ct = ClinicType()
     detail = (
         f"ClinicType '{payload.name}' violates a uniqueness constraint "
@@ -268,6 +306,7 @@ def replace_clinic_type(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicType:
+    _reject_sr_rooms(db, payload)
     ct = _get_or_404(db, clinic_type_id)
     # Captured before _apply() overwrites is_enabled.
     was_enabled = ct.is_enabled

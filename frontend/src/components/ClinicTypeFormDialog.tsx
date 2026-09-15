@@ -20,6 +20,11 @@ import { mapValidationErrors } from "@/lib/mapValidationErrors";
 const DAYS: Day[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const PERIODS: Period[] = ["AM", "PM"];
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
+/** SR is held for trainee supervision (Phase 9C books it) and is not a
+ * selectable clinic room -- the API rejects one either way. ROOM_TYPES
+ * itself keeps SR: the identical constant in DoctorFormDialog.tsx needs it,
+ * since a doctor may still prefer an SR room. */
+const CLINIC_ROOM_TYPES: RoomType[] = ROOM_TYPES.filter((rt) => rt !== "SR");
 
 interface ClinicTypeFormDialogProps {
   /** undefined = create mode. Render with a `key` on the clinic type's id
@@ -376,6 +381,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                     Add specific room...
                   </option>
                   {(rooms ?? [])
+                    .filter((r) => r.room_type !== "SR")
                     .filter((r) => !values.roomEligibilities.some((row) => row.kind === "room" && row.roomId === r.id))
                     .map((r) => (
                       <option key={r.id} value={r.id}>
@@ -395,7 +401,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                   <option value="" disabled>
                     Add room type...
                   </option>
-                  {ROOM_TYPES.filter(
+                  {CLINIC_ROOM_TYPES.filter(
                     (rt) => !values.roomEligibilities.some((row) => row.kind === "roomType" && row.roomType === rt),
                   ).map((rt) => (
                     <option key={rt} value={rt}>
