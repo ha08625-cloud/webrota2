@@ -290,6 +290,78 @@ class TestPlacement:
 
 
 # ---------------------------------------------------------------------------
+# Nurse inertness
+# ---------------------------------------------------------------------------
+
+class TestInertNurse:
+    """A nurse's room is decided by a human on the master rota; no phase
+    moves them out of it. Phase 4 has two places that could: the
+    preferred-room step and the same-day consolidation pass."""
+
+    def test_preferred_room_blocked_reason_names_inertness_not_the_type(
+        self, session, config_1wk, monday
+    ):
+        """`_protection` checks inertness before `_PROTECTED_TYPES`, so the
+        log says *why* the nurse cannot be moved rather than naming a
+        seniority list that happens to contain them. This is what keeps the
+        two checks distinguishable if the seniority tuple is ever revisited.
+        """
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        preferred = make_room(session, code="D3", room_type=RoomType.D)
+        sweep_room = make_room(session, code="D5", room_type=RoomType.D)
+        make_preferred_room(session, duty_doc, preference_order=1, room=preferred)
+        _pre_assigned(session, t, nurse, preferred)
+        _requires_room(session, t, duty_doc)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.AM).assigned_room_id == preferred.id
+        assert grid.get(duty_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sweep_room.id
+
+        rationales = " ".join(e.rationale or "" for e in log.entries)
+        assert "the engine never moves a nurse" in rationales
+        assert "protected: Nurse" not in rationales
+
+    def test_consolidation_never_bumps_a_nurse(self, session, config_1wk, monday):
+        """The duty doctor holds D1 for their AM duty and would like it in
+        PM too. D1 is held in PM by a nurse, and D2 is free, so an ordinary
+        occupant would be bumped into it. The nurse is not: consolidation is
+        abandoned and the duty doctor keeps the mid-day room change.
+        """
+        t = make_template(session, is_active=True)
+        duty_doc = make_doctor(session, code="AA")
+        nurse = make_doctor(session, code="NN", doctor_type=DoctorType.NURSE)
+        d1 = make_room(session, code="D1", room_type=RoomType.D)
+        d2 = make_room(session, code="D2", room_type=RoomType.D)
+        make_preferred_room(session, duty_doc, preference_order=1, room=d1)
+        _requires_room(session, t, duty_doc, period=Period.AM)
+        _requires_room(session, t, duty_doc, period=Period.PM)
+        _pre_assigned(session, t, nurse, d1, period=Period.PM)
+        make_duty(session, monday, Period.AM, duty_doc, DutyType.PRIMARY)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase4(ctx, grid, counters, log)
+
+        assert grid.get(duty_doc.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d1.id
+        assert grid.get(nurse.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d1.id
+        # D2 was free and would have taken the bumped occupant; the duty
+        # doctor's PM slot is left for Phases 7-9A to room instead.
+        assert grid.is_room_free(1, Day.MONDAY, Period.PM, d2.id)
+        assert grid.get(duty_doc.id, 1, Day.MONDAY, Period.PM).assigned_room_id is None
+
+        skipped = [e for e in log.entries if e.action == "consolidate_room_skipped"]
+        assert len(skipped) == 1
+        assert skipped[0].related_doctor_id == nurse.id
+        assert "never moves" in skipped[0].message
+
+
+# ---------------------------------------------------------------------------
 # Eviction paths
 # ---------------------------------------------------------------------------
 

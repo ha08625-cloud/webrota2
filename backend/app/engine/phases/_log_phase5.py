@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from ...models.enums import SessionRole
 from .. import rationale as rat
 from ..datatypes import ClinicTypeInfo, DecisionLog, GenerationContext, RotaGrid
-from ._shared import code
+from ._shared import code, is_inert
 
 if TYPE_CHECKING:  # the scored field lives with the sort that consumes it
     from .phase5 import _Candidate
@@ -202,10 +202,13 @@ def displaceability(
     current_clinic_priority: int,
 ) -> tuple[bool, str]:
     """`(displaceable, reason)` -- the reason names the protection that
-    fired, and is only meaningful when `displaceable` is False."""
+    fired, and is only meaningful when `displaceable` is False. An inert
+    occupant is never displaceable, whatever the clinic's priority."""
     slot = grid.get(occupant_id, gen_week, day, period)
     if slot is None:
         return False, "no session slot for that doctor this session"
+    if is_inert(context, occupant_id):
+        return False, "protected: Nurse -- the engine never moves a nurse"
     if slot.is_on_leave:
         return False, "protected: on leave"
     if slot.role in (SessionRole.DUTY_PRIMARY, SessionRole.DUTY_SECONDARY):

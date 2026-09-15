@@ -45,11 +45,14 @@ the same day:
   - No slot, on leave, or already in the same room: nothing to do.
   - Room free in the other period: move the duty doctor in. This is the
     doctor's own move, not an eviction, so it never touches ROOM_MOVE.
+  - Room occupied by an inert doctor (a nurse): leave both doctors where
+    they are. Inert is absolute and is checked first here, as everywhere.
   - Room occupied by someone already on `DUTY_PRIMARY`/`DUTY_SECONDARY`
-    in that slot: protected, leave both doctors where they are. This is
-    a narrower protection rule than `_protection` above --
-    Partner/AHP/Nurse and clinic-role holders are *not* protected here, and may
-    be bumped, but only ever into another free D room (never C/W/SR).
+    in that slot: protected, leave both doctors where they are. Apart
+    from the inert check this is a narrower protection rule than
+    `_protection` above -- Partner/AHP and clinic-role holders are *not*
+    protected here, and may be bumped, but only ever into another free D
+    room (never C/W/SR).
   - Otherwise, look for another D room for the occupant via
     `find_d_room_only` (their own preference order, any D room as
     fallback). Found: bump them and move the duty doctor in, neither
@@ -93,12 +96,15 @@ from ..room_relocation import find_d_room_only, find_relocation_room
 from . import _log_phase4 as narrate
 from ._log_phase4 import PHASE
 from ._shared import code as _code
+from ._shared import is_inert as _is_inert
 from ._shared import is_room_free_all_day as _is_room_free_all_day
 from ._shared import room_move_rank as _room_move_sort_key
 
-# Occupants the preferred-room step never evicts. Nurse sits alongside AHP:
-# the two are rule-identical here, and keeping them in one tuple is what
-# stops the pair drifting apart by omission.
+# Occupants the preferred-room step never evicts, as a matter of seniority.
+# Nurse is listed here for that reason alone. It is *not* what makes a nurse
+# immovable -- `_protection` checks `_is_inert` separately and first, so a
+# later ticket is free to revisit this tuple as the seniority rule it is
+# without silently unpicking nurse inertness.
 _PROTECTED_TYPES = (DoctorType.PARTNER, DoctorType.AHP, DoctorType.NURSE)
 
 
@@ -359,11 +365,19 @@ def _protection(
     context: GenerationContext, grid: RotaGrid, occupant_id: int,
     gen_week: int, day: Day, period: Period,
 ) -> tuple[bool, str]:
-    """`(protected, why)` -- Partner/AHP/Nurse, or any doctor already holding a
-    role (duty or clinic) in this slot, is protected. The role guard is what
-    stops primary duty evicting secondary duty, or vice versa, within the
-    same session. `why` is only meaningful when `protected` is True.
+    """`(protected, why)` -- an inert occupant (a nurse), a
+    Partner/AHP/Nurse, or any doctor already holding a role (duty or
+    clinic) in this slot, is protected. The role guard is what stops
+    primary duty evicting secondary duty, or vice versa, within the same
+    session. `why` is only meaningful when `protected` is True.
+
+    The inert check comes first and is deliberately redundant with
+    `_PROTECTED_TYPES`: the two agree today, but they mean different
+    things (see that constant's comment), and nurse inertness must not
+    depend on a seniority list.
     """
+    if _is_inert(context, occupant_id):
+        return True, "protected: the engine never moves a nurse"
     occupant = context.doctor_by_id.get(occupant_id)
     if occupant is not None and occupant.doctor_type in _PROTECTED_TYPES:
         return True, f"protected: {occupant.doctor_type.value}"
@@ -433,6 +447,10 @@ def _consolidate_duty_rooms(
 
         occupant_code = _code(context, occupant_id)
         occupant_slot = grid.get(occupant_id, gen_week, day, other_period)
+
+        if _is_inert(context, occupant_id):
+            narr.blocked_by_inert_occupant(occupant_id, occupant_code)
+            continue
 
         if occupant_slot is not None and occupant_slot.role in (
             SessionRole.DUTY_PRIMARY, SessionRole.DUTY_SECONDARY,

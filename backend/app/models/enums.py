@@ -14,12 +14,12 @@ class DoctorType(str, enum.Enum):
     """The staff types the clinical rota allocates.
 
     Despite the name, not every member is a doctor: AHP and NURSE are
-    clinical staff who occupy rooms and sessions the same way. NURSE is
-    currently rule-identical to AHP everywhere the engine branches on type
-    (Phase 4 room protection, the Phase 7-9A D-room demand set) and has no
-    leave entitlement, but it is its own member rather than a relabelling
-    of AHP so that rules which do differ can be added without a data
-    migration.
+    clinical staff who occupy rooms and sessions the same way. NURSE has no
+    leave entitlement and is *inert* to the generation engine: a nurse's
+    room is decided by a human on the master rota, Phase 2 copies it into
+    the grid, and no phase then reads a nurse as demand or writes to their
+    slot. Their room is an ordinary occupied room to everybody else. See
+    `engine/phases/_shared.is_inert` for the full rule.
     """
 
     PARTNER = "Partner"
