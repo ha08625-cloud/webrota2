@@ -5,6 +5,11 @@ never appears in a POST/PUT payload here except in
 test_clinic_priority_in_payload_is_ignored, which exists specifically to
 pin the silent-ignore behaviour.
 """
+import pytest
+
+from app.models import Doctor
+from app.models.enums import DoctorType
+
 from .conftest import make_clinic_type_via_api
 
 
@@ -439,3 +444,89 @@ class TestSrRoomsAreNotSelectable:
             "room_eligibilities": [{"room_id": seeded["room_d1"]}],
         })
         assert resp.status_code == 201, resp.text
+
+
+class TestNursesAreNotSelectable:
+    """A nurse is inert to the generation engine, so Phase 5 never considers
+    one as a clinic candidate. The write is rejected too, so a
+    configured-but-dead eligibility row cannot exist in the first place.
+
+    Unlike the SR rule there is no schema half to this: the payload carries
+    only a doctor_id, so resolving it to a doctor_type needs the database
+    and the whole rule lives in `_reject_nurse_doctors` -- a 400 whose
+    string `detail` the clinic type dialog renders at the top of the form.
+    """
+
+    @pytest.fixture
+    def nurse_id(self, db_session, seeded):
+        nurse = Doctor(
+            code="NN", doctor_type=DoctorType.NURSE,
+            sessions_per_week=10, active=True,
+        )
+        db_session.add(nurse)
+        db_session.commit()
+        return nurse.id
+
+    def test_post_with_a_nurse_is_400_naming_the_doctor(
+        self, client, seeded, nurse_id
+    ):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "doctor_eligibilities": [{"doctor_id": nurse_id}],
+        })
+        assert resp.status_code == 400, resp.text
+        assert "NN" in resp.json()["detail"]
+        assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_put_with_a_nurse_is_400_naming_the_doctor(
+        self, client, seeded, nurse_id
+    ):
+        created = make_clinic_type_via_api(client, seeded)
+        resp = client.put(f"/api/v1/clinic-types/{created['id']}", json={
+            "name": "Renamed",
+            "room_required": False,
+            "schedules": [],
+            "doctor_eligibilities": [{"doctor_id": nurse_id}],
+            "room_eligibilities": [],
+        })
+        assert resp.status_code == 400, resp.text
+        assert "NN" in resp.json()["detail"]
+
+        # The stored row is exactly as it was created -- the check runs
+        # before `_apply`, so nothing is half-written.
+        after = client.get(f"/api/v1/clinic-types/{created['id']}").json()
+        assert after["name"] == "Dragon"
+        assert after["room_required"] is True
+        assert [e["doctor_id"] for e in after["doctor_eligibilities"]] == [
+            seeded["doctor_aa"]
+        ]
+
+    def test_a_payload_mixing_a_valid_doctor_and_a_nurse_is_rejected_whole(
+        self, client, seeded, nurse_id
+    ):
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Bad",
+            "room_required": True,
+            "schedules": [{"day": "Monday", "period": "AM"}],
+            "doctor_eligibilities": [
+                {"doctor_id": seeded["doctor_aa"], "doctor_priority": 1},
+                {"doctor_id": nurse_id},
+            ],
+        })
+        assert resp.status_code == 400, resp.text
+        assert client.get("/api/v1/clinic-types").json() == []
+
+    def test_a_payload_without_a_nurse_is_unaffected(
+        self, client, seeded, nurse_id
+    ):
+        # Guard against the check rejecting too much: a nurse existing in
+        # the database is not by itself a reason to reject anything.
+        resp = client.post("/api/v1/clinic-types", json={
+            "name": "Fine",
+            "doctor_eligibilities": [
+                {"doctor_id": seeded["doctor_aa"], "doctor_priority": 1},
+                {"doctor_id": seeded["doctor_bb"], "doctor_priority": 2},
+            ],
+        })
+        assert resp.status_code == 201, resp.text
+        assert len(resp.json()["doctor_eligibilities"]) == 2
