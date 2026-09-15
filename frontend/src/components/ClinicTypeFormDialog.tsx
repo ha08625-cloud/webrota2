@@ -63,7 +63,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
   );
   const notYetAddedGroups = groupDoctorsByType(notYetAddedDoctors);
   // "All doctors" bulk-add is deliberately scoped to Partner/Salaried only -
-  // Trainees and AHPs are excluded and must be added individually or via
+  // Trainees, AHPs and nurses are excluded and must be added individually or via
   // their own "All <type>" group option.
   const notYetAddedCoreDoctors = notYetAddedDoctors.filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",

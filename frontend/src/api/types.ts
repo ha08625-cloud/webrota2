@@ -354,7 +354,7 @@ export interface ClinicTypePatch {
 
 // --- Doctors (schemas/doctor.py) ---
 
-export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP";
+export type DoctorType = "Partner" | "Salaried" | "Trainee" | "Locum" | "AHP" | "Nurse";
 
 /**
  * PreferenceWeight (enums.py) - the shared four-step weighting behind
@@ -569,7 +569,7 @@ export interface LeaveExemptions {
  * is on the wire so a balance can be reconstructed rather than trusted.
  *
  * The nullable fields are null exactly when the doctor's type has no
- * entitlement (AHP, Locum). The list endpoint omits those doctors
+ * entitlement (AHP, Nurse, Locum). The list endpoint omits those doctors
  * entirely; only the single-doctor read can return one.
  */
 export interface LeaveEntitlement {

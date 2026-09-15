@@ -92,8 +92,10 @@ _DISPLACEABLE_TYPES = (DoctorType.PARTNER, DoctorType.SALARIED)
 # Doctor types that need a D room (Passes 1 and 2). Locum behaves as
 # Trainee-minus-supervision (same D-room priority, eligible for supervision
 # assignment) -- it is added here alongside Trainee/AHP so the two candidate
-# functions below cannot drift.
-_D_ROOM_TYPES = (DoctorType.TRAINEE, DoctorType.AHP, DoctorType.LOCUM)
+# functions below cannot drift. Nurse carries the same D-room demand as AHP.
+_D_ROOM_TYPES = (
+    DoctorType.TRAINEE, DoctorType.AHP, DoctorType.NURSE, DoctorType.LOCUM,
+)
 _ROOM_MOVE_FALLBACK_TYPES = (RoomType.C, RoomType.W, RoomType.SR)
 
 # Pass 3's own fallback order -- deliberately its own type sequence, not a

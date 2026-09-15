@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { Doctor, DoctorIn, DoctorType, PreferenceWeight } from "@/api/types";
 
-const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "Locum", "AHP"]);
+const doctorTypeEnum = z.enum(["Partner", "Salaried", "Trainee", "Locum", "AHP", "Nurse"]);
 // One enum for both preference columns - they are the same
 // PreferenceWeight server-side (enums.py).
 const preferenceWeightEnum = z.enum(["none", "less", "normal", "more"]);

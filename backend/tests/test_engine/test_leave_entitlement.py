@@ -38,8 +38,10 @@ def test_salaried_and_trainees_get_six_weeks():
     assert LEAVE_WEEKS_BY_DOCTOR_TYPE[DoctorType.TRAINEE] == D("6")
 
 
-@pytest.mark.parametrize("doctor_type", [DoctorType.AHP, DoctorType.LOCUM])
-def test_ahps_and_locums_have_no_entitlement(doctor_type):
+@pytest.mark.parametrize(
+    "doctor_type", [DoctorType.AHP, DoctorType.NURSE, DoctorType.LOCUM]
+)
+def test_ahps_nurses_and_locums_have_no_entitlement(doctor_type):
     """Absent from the map, not zero -- "not entitled to leave" and
     "entitled to nothing this year" are different facts and the UI shows
     them differently."""

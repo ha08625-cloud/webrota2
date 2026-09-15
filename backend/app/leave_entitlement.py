@@ -10,8 +10,8 @@ under `engine/` imports either.
 The rules, in the practice's own terms:
 
 - A **partner** gets 7 weeks of leave a year; a **salaried** or **trainee**
-  doctor gets 6. **AHPs and locums get none** -- AHP leave is assigned by a
-  third party, and locums are engaged per session.
+  doctor gets 6. **AHPs, nurses and locums get none** -- AHP and nurse
+  leave is assigned by a third party, and locums are engaged per session.
 - Leave is counted in **sessions** (one session = one AM or PM half day),
   never in days, so a week of leave is worth the doctor's own
   `sessions_per_week`. Six weeks for a six-session doctor is 36 sessions.
@@ -46,10 +46,10 @@ from decimal import ROUND_HALF_UP, Decimal
 from .models.enums import Day, DoctorType, MasterSessionType, Period
 
 # Weeks of leave per doctor type. A type absent from this map has no
-# entitlement at all -- AHPs (assigned by a third party) and locums (engaged
-# per session). Absence rather than a zero value so "has an entitlement" is a
-# membership test and a new doctor type has to be considered explicitly
-# rather than defaulting to zero weeks.
+# entitlement at all -- AHPs and nurses (assigned by a third party) and
+# locums (engaged per session). Absence rather than a zero value so "has an
+# entitlement" is a membership test and a new doctor type has to be considered
+# explicitly rather than defaulting to zero weeks.
 LEAVE_WEEKS_BY_DOCTOR_TYPE: dict[DoctorType, Decimal] = {
     DoctorType.PARTNER: Decimal("7"),
     DoctorType.SALARIED: Decimal("6"),

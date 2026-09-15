@@ -28,7 +28,7 @@ const PERIOD_ORDER: Record<Period, number> = { AM: 0, PM: 1 };
 /**
  * Bulk-select shortcuts for the default-doctor picker. These are the only
  * groupings offered: "All doctors" deliberately means the three doctor
- * grades and excludes Locum and AHP. Each box is a pure shortcut over the
+ * grades and excludes Locum, AHP and Nurse. Each box is a pure shortcut over the
  * individual ticks below it - nothing about the group is stored, the note
  * still holds a plain list of doctor ids, so a doctor added later is not
  * retrospectively part of any meeting.

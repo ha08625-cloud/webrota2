@@ -20,7 +20,7 @@ import {
 import { PREFERENCE_OPTIONS } from "@/lib/preferenceWeights";
 import { type PreferredRoomRow, moveRow, toWireRows } from "@/lib/reorderPreferredRooms";
 
-const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "Locum", "AHP"];
+const DOCTOR_TYPES: DoctorType[] = ["Partner", "Salaried", "Trainee", "Locum", "AHP", "Nurse"];
 const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
 
 interface DoctorFormDialogProps {

@@ -35,6 +35,8 @@ def _map_doctor_type(raw: str) -> DoctorType:
         return DoctorType.TRAINEE
     if t == "locum":
         return DoctorType.LOCUM
+    if t == "nurse":
+        return DoctorType.NURSE
     raise ValueError(f"unknown doctor type {raw!r}")
 
 

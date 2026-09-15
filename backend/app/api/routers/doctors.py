@@ -55,7 +55,7 @@ Counter invariant: every doctor row has exactly one SystemCounter row per
 SystemCounterType (room_move, supervision, wfh), created here at doctor
 creation regardless of doctor_type. The seeding loop iterates the enum
 rather than naming the types, so adding a counter type needs no edit here.
-room_move and supervision rows for Trainee/AHP doctors sit unused at zero
+room_move and supervision rows for Trainee/AHP/Nurse staff sit unused at zero
 -- the cost of a handful of dead rows buys a single unconditional
 invariant, closing the PATCH edge case where a doctor's type changes to
 Partner/Salaried after creation. The wfh row is the exception that shows

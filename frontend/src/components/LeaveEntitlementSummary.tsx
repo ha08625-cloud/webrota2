@@ -31,7 +31,7 @@ import type { LeaveEntitlement } from "@/api/types";
 
 export interface LeaveEntitlementSummaryProps {
   year: number;
-  /** The selected doctor's row, or null when there is none (AHP, locum, still loading). */
+  /** The selected doctor's row, or null when there is none (AHP, nurse, locum, still loading). */
   row: LeaveEntitlement | null;
   isLoading?: boolean;
   isError?: boolean;
@@ -87,7 +87,7 @@ export function LeaveEntitlementSummary({
     );
   }
   if (row === null) {
-    // AHPs and locums have no entitlement to report, so there is nothing
+    // AHPs, nurses and locums have no entitlement to report, so there is nothing
     // honest to put here - better an absent line than a row of dashes.
     return null;
   }
