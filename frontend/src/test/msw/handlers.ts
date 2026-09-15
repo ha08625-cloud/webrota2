@@ -53,6 +53,10 @@ export const handlers: HttpHandler[] = [
   http.delete("/api/v1/locks/:area", () => new HttpResponse(null, { status: 204 })),
   http.get("/api/v1/rooms", () => HttpResponse.json([])),
   http.get("/api/v1/clinic-types", () => HttpResponse.json([])),
+  // The Research study list. Empty by default, like the other reference
+  // lists here: App.test.tsx renders the section's index on every
+  // research route test, and a study-specific suite stubs its own rows.
+  http.get("/api/v1/research/studies", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
   // Leave entitlement (leave entitlement and balances). The empty default

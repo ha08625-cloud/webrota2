@@ -15,7 +15,8 @@ import {
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { EditLockBanner, EditLockDialog } from "@/components/EditLockBanner";
-import { ResearchIndexPage } from "@/features/research/ResearchIndexPage";
+import { StudiesPage } from "@/features/research/StudiesPage";
+import { StudyPage } from "@/features/research/StudyPage";
 import { ThemePicker } from "@/components/ThemePicker";
 import {
   SESSION_MANAGEMENT_PATHS,
@@ -426,10 +427,11 @@ function ResearchShell() {
       <main className="flex-1 p-6">
         <PermissionAreaProvider area="research">
           <Routes>
-            <Route index element={<ResearchIndexPage />} />
-            {/* Anything deeper is a study page that does not exist yet; a
-                stale bookmark lands on the index rather than on a blank
-                screen. */}
+            <Route index element={<StudiesPage />} />
+            <Route path="studies/:studyId" element={<StudyPage />} />
+            {/* Anything else is a stale bookmark - it lands on the study
+                list rather than on a blank screen. A study id that no
+                longer exists is StudyPage's own 404, not this. */}
             <Route path="*" element={<Navigate to="/research" replace />} />
           </Routes>
         </PermissionAreaProvider>
