@@ -115,6 +115,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # Before the tests: a broken module boundary should fail in seconds
+      # rather than after the full suite. Contracts live in
+      # backend/pyproject.toml under [tool.importlinter]; see
+      # documentation/architecture.md for what they do and do not catch.
+      - name: Check module boundaries
+        run: uv run lint-imports
+
       - name: Run tests
         # REQUIRE_SOFFICE: fail rather than skip if LibreOffice cannot
         # convert here. See the install step above.
