@@ -1,42 +1,59 @@
 """Phase 9C -- trainee supervision assignment.
 
-Runs after Phase 9B (rooms are final coming in; room type drives initial
-eligibility) and before Phase 12. For every session with at least one
-trainee requiring supervision, assigns a supervisor from the single
-eligible pool (Partner/Salaried, in a D or SR room, unclaimed) by lowest
-weighted SUPERVISION score. If the selected supervisor is not already
-sitting in an SR room, and an SR room is occupied by someone else, the
-supervisor is then swapped into that SR room -- this is the one place in
-the pipeline where Phase 9C itself writes a room assignment, rather than
-only reading the room state Phase 9B left behind. Emits a warning, and
-leaves the session unassigned, when no eligible supervisor exists.
+Runs after Phase 5 and *before* Phases 7-9A, so rooms are deliberately not
+final coming in: nearly every candidate is still roomless at this point.
+For every session with at least one trainee requiring supervision, assigns
+a supervisor from the single selectable pool (Partner/Salaried, unclaimed
+by any role) by lowest weighted SUPERVISION score, then seats that
+supervisor in an SR room. Emits a warning, and leaves the session
+unassigned, when no selectable supervisor exists.
+
+Running before the room passes is what makes the SR booking cheap. The SR
+room is held back from every other room search in a session that needs a
+supervisor (`reserved_sr_room_ids`, consulted by Phases 4 and 5), so an SR
+room is free when the booking happens; and because Phases 7-9A run after
+this, their four room-placing paths exclude the booked SR room for free --
+`grid.is_room_free()` already says no.
 
 Implementation plan decisions this module encodes:
   1. Single supervisor pool -- no duty-helper fallback. A duty helper holds
-     role=CLINIC, so `is_eligible_supervisor`'s `role is None` criterion
-     excludes them for free; no ClinicTypeInfo.category plumbing needed.
+     role=CLINIC, so the `role is None` criterion excludes them for free;
+     no ClinicTypeInfo.category plumbing needed.
   2. No SR-priority fast path. Selection is always by weighted SUPERVISION
-     score across the whole eligible pool -- a doctor already sitting in
-     SR competes on the same footing as a doctor sitting in D, rather than
-     being auto-assigned ahead of the pool comparison.
-  3. Post-selection SR swap. Once the supervisor is chosen, if an SR room
-     is occupied by a different doctor, the chosen supervisor is swapped
-     into it and the displaced doctor takes the supervisor's vacated room.
-     Excluded edge case: if the chosen supervisor is already sitting in an
-     SR room, no swap happens. The swap is a pure room move -- it does not
-     touch `is_supervising` or the SUPERVISION counter of either doctor
-     beyond what selection already set.
-  4. `is_supervising` is the only persisted output. The trainee count is
+     score across the whole selectable pool. Nothing about the pool is
+     room-based any more, so there is nothing for such a fast path to key
+     on in the first place.
+  3. Two predicates, one definition. `is_selectable_supervisor` is what
+     the pool is built from here: it has no room criterion at all, because
+     at this point in the pipeline a role-free Partner/Salaried doctor only
+     holds a room if a PRE_ASSIGNED template row gave them one, and a room
+     test would empty the pool in nearly every session.
+     `is_eligible_supervisor` adds the D-or-SR room test on top and is used
+     by Phase 12, which runs when rooms *are* final. It is defined in terms
+     of the first, so the two cannot drift.
+  4. The supervisor is moved into SR, overriding a template pin if need be.
+     Once chosen, the supervisor is seated in the first free SR room by
+     code -- whatever room they were holding, including a PRE_ASSIGNED one,
+     is freed. This is the one place in the pipeline where Phase 9C
+     overrides a template pin, and the only place it writes a room. Like
+     the post-selection swap it replaces, the booking touches neither
+     `is_supervising` nor any counter -- ROOM_MOVE included.
+  5. `is_supervising` is the only persisted output. The trainee count is
      deliberately NOT persisted -- see `count_supervisable_trainees`.
-  5. Trainee counting rule has no room criterion: an off-site (C/W-roomed)
-     trainee still counts, even though eligible supervisors are by
-     definition on-site (D/SR). This matches GAS and is intended.
-  6. `count_supervisable_trainees` and `is_eligible_supervisor` are the
+  6. Trainee counting rule has no room criterion: an off-site (C/W-roomed)
+     trainee still counts. This matches GAS and is intended.
+  7. `count_supervisable_trainees` and `is_eligible_supervisor` are the
      single shared predicates reused by Phase 12 Check 4, so the assignment
      rule and the validation rule cannot drift apart.
 
-Both predicates are module-level public functions for that reason -- do not
+The predicates are module-level public functions for that reason -- do not
 inline their logic into `phase12.py`.
+
+One hole in "the supervisor always ends up in SR": a PRE_ASSIGNED template
+row naming an SR room claims it in Phase 2, before any reservation can
+apply. Phase 0 warns on such a row; here the booking simply finds no free
+SR room, leaves the supervisor's room to Pass 3, and Phase 12 flags the
+result.
 
 The decision-log prose lives in `_log_phase9c.py`, along with the
 supervision-preference multipliers and `supervision_score`: the sort below
@@ -96,11 +113,18 @@ def count_supervisable_trainees(
     return count
 
 
-def is_eligible_supervisor(context: GenerationContext, grid: RotaGrid, slot: SessionSlot) -> bool:
-    """True iff `slot` may supervise: Partner/Salaried, unclaimed by any
-    role (this excludes duty doctors, clinics, and duty
-    helpers, since a duty helper holds role=CLINIC), not on leave, not
-    WFH, not NO_SURGERY/ADMIN_TIME, and on-site in a D or SR room.
+def is_selectable_supervisor(
+    context: GenerationContext, grid: RotaGrid, slot: SessionSlot
+) -> bool:
+    """True iff `slot` may be *picked* to supervise: Partner/Salaried,
+    unclaimed by any role (this excludes duty doctors, clinics, and duty
+    helpers, since a duty helper holds role=CLINIC), not on leave, not WFH,
+    and not NO_SURGERY/ADMIN_TIME.
+
+    No room criterion, deliberately: this phase runs before Phases 7-9A, so
+    a candidate's room is neither assigned yet nor a useful signal -- the
+    supervisor is seated in SR by `_book_sr_room` once chosen. See decision
+    3 in the module docstring.
     """
     doctor = context.doctor_by_id.get(slot.doctor_id)
     if doctor is None or doctor.doctor_type not in _SUPERVISOR_TYPES:
@@ -111,12 +135,61 @@ def is_eligible_supervisor(context: GenerationContext, grid: RotaGrid, slot: Ses
         return False
     if slot.template_type in _EXCLUDED_TEMPLATE_TYPES:
         return False
+    return True
+
+
+def is_eligible_supervisor(context: GenerationContext, grid: RotaGrid, slot: SessionSlot) -> bool:
+    """True iff `slot` is a valid supervisor *with rooms as they finally
+    stand*: selectable (above) and on-site in a D or SR room.
+
+    Used by Phase 12 Check 4, which runs at the end of the pipeline. It is
+    defined in terms of `is_selectable_supervisor` rather than restating
+    it, so the selection rule and the validation rule cannot drift.
+    """
+    if not is_selectable_supervisor(context, grid, slot):
+        return False
     if slot.assigned_room_id is None:
         return False
     room = context.room_by_id.get(slot.assigned_room_id)
     if room is None or room.room_type not in _SUPERVISOR_ROOM_TYPES:
         return False
     return True
+
+
+def reserved_sr_room_ids(
+    context: GenerationContext, grid: RotaGrid
+) -> dict[tuple[int, Day, Period], int]:
+    """The SR room held back for supervision in each session that needs one.
+
+    `(week, day, period) -> room_id` for every session with at least one
+    supervisable trainee; sessions without one are absent, so SR stays in
+    the ordinary room pools there rather than standing empty. The reserved
+    room is the first SR room by code, which is the same one
+    `_book_sr_room` takes.
+
+    Computed once, off the Phase 2 grid, and consulted by the phases that
+    place doctors before Phase 9C runs (Phase 4's evictee relocation and
+    Phase 5's displaced-occupant relocation). The phases that run *after*
+    9C need no reservation: the supervisor already occupies the room, so
+    `grid.is_room_free()` excludes it.
+
+    One caveat of computing it early: Phase 4 abandons a template WFH slot
+    when it applies a duty role, so a trainee WFH slot that Phase 4 turns
+    into a working one is not counted here and its session gets no
+    reservation. 9C still books an SR room there if one happens to be free.
+    """
+    sr_rooms = sorted(context.rooms_by_type.get(RoomType.SR, ()), key=lambda r: r.code)
+    if not sr_rooms:
+        return {}
+
+    num_weeks = max((gw for gw, _day in context.week_dates.keys()), default=0)
+    reserved: dict[tuple[int, Day, Period], int] = {}
+    for gen_week in range(1, num_weeks + 1):
+        for day in _DAYS:
+            for period in _PERIODS:
+                if count_supervisable_trainees(context, grid, gen_week, day, period) > 0:
+                    reserved[(gen_week, day, period)] = sr_rooms[0].id
+    return reserved
 
 
 def run_phase9c(
@@ -137,7 +210,7 @@ def run_phase9c(
 
                 pool = [
                     slot for slot in grid.sessions_for_slot(gen_week, day, period)
-                    if is_eligible_supervisor(context, grid, slot)
+                    if is_selectable_supervisor(context, grid, slot)
                 ]
                 if not pool:
                     issues.append(ValidationIssue(
@@ -173,12 +246,12 @@ def run_phase9c(
                     log, gen_week, day, period, chosen, message, entry_rationale
                 )
 
-                _swap_into_sr(context, grid, sr_rooms, gen_week, day, period, chosen, log)
+                _book_sr_room(context, grid, sr_rooms, gen_week, day, period, chosen, log)
 
     return issues
 
 
-def _swap_into_sr(
+def _book_sr_room(
     context: GenerationContext,
     grid: RotaGrid,
     sr_rooms,
@@ -188,31 +261,35 @@ def _swap_into_sr(
     chosen: SessionSlot,
     log: DecisionLog,
 ) -> None:
-    """If `chosen` is not already sitting in an SR room, and the (first, by
-    room code) occupied SR room holds a different doctor, swap `chosen`
-    into that SR room and move the displaced doctor into `chosen`'s
-    vacated room.
+    """Seat `chosen` in the first free SR room by code, freeing whatever
+    room they were holding.
 
-    Excluded edge case: `chosen` already occupying an SR room is a no-op --
-    they are already where the swap would otherwise put them.
+    Two no-ops. `chosen` already sitting in an SR room needs no move (they
+    are where this would put them). No free SR room at all means a
+    PRE_ASSIGNED template row has claimed the only one -- Phase 0 warns on
+    that row; here the supervisor is simply left roomless for Pass 3 to
+    place and Phase 12 flags the outcome.
+
+    Otherwise the move is unconditional, even when the room being vacated
+    is a PRE_ASSIGNED one: overriding that pin is deliberate (decision 4 in
+    the module docstring), and is the only template pin Phase 9C overrides.
+    It is a pure room write -- neither `is_supervising` nor any counter
+    moves here, ROOM_MOVE included, since the doctor is being seated for
+    the job they were just given rather than displaced for someone else's.
     """
-    chosen_room_id = chosen.assigned_room_id
-    if chosen_room_id is not None and any(r.id == chosen_room_id for r in sr_rooms):
+    previous_room_id = chosen.assigned_room_id
+    if previous_room_id is not None and any(r.id == previous_room_id for r in sr_rooms):
         return
 
     for room in sr_rooms:
-        occupant_id = grid.get_room_occupant(gen_week, day, period, room.id)
-        if occupant_id is None or occupant_id == chosen.doctor_id:
+        if not grid.is_room_free(gen_week, day, period, room.id):
             continue
 
-        grid.free_room(gen_week, day, period, chosen.doctor_id)
-        grid.free_room(gen_week, day, period, occupant_id)
+        # `assign_room` frees the doctor's previous room first, so a
+        # PRE_ASSIGNED room is released by this one call.
         grid.assign_room(gen_week, day, period, chosen.doctor_id, room.id)
-        if chosen_room_id is not None:
-            grid.assign_room(gen_week, day, period, occupant_id, chosen_room_id)
 
-        narrate.swapped_into_sr(
-            log, context, gen_week, day, period, chosen, chosen_room_id,
-            room, occupant_id,
+        narrate.booked_sr_room(
+            log, context, gen_week, day, period, chosen, previous_room_id, room,
         )
         return
