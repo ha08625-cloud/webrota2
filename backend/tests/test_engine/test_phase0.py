@@ -4,9 +4,23 @@ from app.engine.context import load_context
 from app.engine.generate import generate
 from app.engine.phases.phase0 import run_phase0
 from app.models import RotaConfig
-from app.models.enums import Day, DutyType, Period
+from app.models.enums import (
+    Day,
+    DutyType,
+    MasterSessionType,
+    Period,
+    RoomType,
+)
 
-from .factories import make_doctor, make_duty, make_leave, make_master_session, make_template
+from .factories import (
+    make_clinic_type,
+    make_doctor,
+    make_duty,
+    make_leave,
+    make_master_session,
+    make_room,
+    make_template,
+)
 
 
 def _errors(issues):
@@ -269,3 +283,117 @@ class TestHappyPath:
         issues = run_phase0(ctx, config_1wk)
 
         assert _errors(issues) == []
+
+def _warnings(issues):
+    return [i for i in issues if i.severity == "warning"]
+
+
+class TestPreAssignedSrRoom:
+    """D7: a template row pre-assigning SR wins outright -- Phase 2 claims
+    the room before the reservation Phase 9C relies on can apply. Phase 0
+    warns so the admin sees the conflict, and does not block the run.
+    """
+
+    def test_pre_assigned_sr_room_warns(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=sr_room,
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        matching = [i for i in _warnings(issues) if i.check == "pre_assigned_sr_room"]
+        assert len(matching) == 1
+        assert matching[0].doctor_id == d.id
+        assert "SR1" in matching[0].message
+        # A warning, never an error -- it must not abort the run.
+        assert not any(i.check == "pre_assigned_sr_room" for i in _errors(issues))
+
+    def test_pre_assigned_non_sr_room_does_not_warn(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=d_room,
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "pre_assigned_sr_room" for i in issues)
+
+    def test_pre_assigned_sr_room_does_not_abort_generation(self, session, monday):
+        t = make_template(session, is_active=True)
+        d = make_doctor(session, code="AA")
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        make_master_session(
+            session, t, d, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=sr_room,
+        )
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+
+        result = generate(session, config.id)
+
+        assert result.rota_id is not None
+        assert result.status != "failed"
+        assert any(i.check == "pre_assigned_sr_room" for i in result.issues)
+
+
+class TestClinicSrRoomEligibility:
+    """The engine does not silently ignore a stored `ClinicTypeRoomEligibility`
+    row naming SR -- the clinic-type API rejects new ones, so any that remain
+    predate that or were written straight to the database. Phase 0 names them.
+    """
+
+    def test_enabled_clinic_type_with_sr_eligibility_warns(self, session, config_1wk):
+        make_template(session, is_active=True)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=True, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[sr_room.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        matching = [
+            i for i in _warnings(issues) if i.check == "clinic_sr_room_eligibility"
+        ]
+        assert len(matching) == 1
+        assert "Dragon" in matching[0].message
+        assert "SR1" in matching[0].message
+
+    def test_clinic_type_without_sr_eligibility_does_not_warn(self, session, config_1wk):
+        make_template(session, is_active=True)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=True, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[c_room.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "clinic_sr_room_eligibility" for i in issues)
+
+    def test_disabled_clinic_type_with_sr_eligibility_is_silent(self, session, config_1wk):
+        # `context.clinic_types` holds enabled clinic types only, so a
+        # disabled one carrying a stale row cannot place anyone in SR.
+        make_template(session, is_active=True)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        make_clinic_type(
+            session, name="Dragon", is_enabled=False, room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)], room_ids=[sr_room.id],
+        )
+
+        ctx = load_context(session, config_1wk)
+        issues = run_phase0(ctx, config_1wk)
+
+        assert not any(i.check == "clinic_sr_room_eligibility" for i in issues)

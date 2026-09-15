@@ -383,3 +383,45 @@ class TestRoomOnLeaveSlot:
         issues = run_phase12(ctx, grid)
 
         assert not any(i.check == "room_on_leave_slot" for i in issues)
+
+class TestSupervisionOnIncompatibleSlot:
+    """Check 4b still has a room criterion after the predicate split (D1).
+
+    `is_selectable_supervisor`, which Phase 9C picks from, dropped its room
+    test; `is_eligible_supervisor`, which this check uses, kept it. These
+    tests are what prove the split did not erase it.
+    """
+
+    def _supervising_in(self, session, config_1wk, room_code, room_type):
+        t = make_template(session, is_active=True)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        room = make_room(session, code=room_code, room_type=room_type)
+        make_master_session(
+            session, t, supervisor, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=room,
+        )
+
+        ctx, grid, _counters = _build(session, config_1wk)
+        grid.get(supervisor.id, 1, Day.MONDAY, Period.AM).is_supervising = True
+        return [
+            i for i in run_phase12(ctx, grid)
+            if i.check == "supervision_on_incompatible_slot"
+        ]
+
+    def test_supervisor_in_a_c_room_is_flagged(self, session, config_1wk):
+        issues = self._supervising_in(session, config_1wk, "C1", RoomType.C)
+        assert len(issues) == 1
+        assert "PP flagged as supervisor but not eligible" in issues[0].message
+
+    def test_supervisor_in_a_w_room_is_flagged(self, session, config_1wk):
+        assert len(self._supervising_in(session, config_1wk, "W1", RoomType.W)) == 1
+
+    def test_supervisor_in_sr_is_not_flagged(self, session, config_1wk):
+        # Where Phase 9C puts every supervisor it seats.
+        assert self._supervising_in(session, config_1wk, "SR1", RoomType.SR) == []
+
+    def test_supervisor_in_a_d_room_is_not_flagged(self, session, config_1wk):
+        # D is still an acceptable final room -- the SR booking failing
+        # (D7) leaves a supervisor here, and that is warned about via the
+        # Phase 0 template-row warning, not by this check.
+        assert self._supervising_in(session, config_1wk, "D1", RoomType.D) == []

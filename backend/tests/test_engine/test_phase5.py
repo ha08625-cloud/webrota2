@@ -776,3 +776,60 @@ class TestDecisionLogRationale:
         assert entry.clinic_type_id == ct.id
         assert entry.week == 1 and entry.day == Day.MONDAY and entry.period == Period.AM
         assert "AA: on leave" in entry.rationale
+
+
+class TestSrReservation:
+    """Phase 5 runs before Phase 9C, so its displaced-occupant relocation
+    has to skip the SR room a session is holding for its supervisor (D6).
+    `reserved_sr` is passed explicitly rather than through `generate()`.
+    """
+
+    def _displacing_fixture(self, session):
+        """A clinic needs D1; its occupant prefers SR1 first, then C1."""
+        t = make_template(session, is_active=True)
+        clinic_doctor = make_doctor(session, code="AA")
+        occupant = make_doctor(session, code="BB")
+        eligible_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+        c_room = make_room(session, code="C1", room_type=RoomType.C)
+
+        _req_room(session, t, clinic_doctor)
+        make_master_session(
+            session, t, occupant, week=1, day=Day.MONDAY, period=Period.AM,
+            session_type=MasterSessionType.PRE_ASSIGNED, room=eligible_room,
+        )
+        make_preferred_room(session, occupant, preference_order=1, room=sr_room)
+        make_preferred_room(session, occupant, preference_order=2, room=c_room)
+
+        make_clinic_type(
+            session, name="Dragon", room_required=True,
+            schedules=[(Day.MONDAY, Period.AM)],
+            doctor_eligibilities=[(clinic_doctor.id, 1)], room_ids=[eligible_room.id],
+        )
+        return occupant, sr_room, c_room
+
+    def test_displaced_occupant_is_not_moved_into_a_reserved_sr_room(
+        self, session, config_1wk
+    ):
+        occupant, sr_room, c_room = self._displacing_fixture(session)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log, {(1, Day.MONDAY, Period.AM): sr_room.id})
+
+        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == c_room.id
+        assert grid.is_room_free(1, Day.MONDAY, Period.AM, sr_room.id)
+
+    def test_displaced_occupant_who_prefers_sr_still_gets_it_when_unreserved(
+        self, session, config_1wk
+    ):
+        # D6: "Doctor room preferences need no change." In a session with no
+        # supervisable trainee there is no reservation, and SR is an
+        # ordinary room again.
+        occupant, sr_room, _c_room = self._displacing_fixture(session)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        log = DecisionLog()
+        run_phase5(ctx, grid, counters, log, {})
+
+        assert grid.get(occupant.id, 1, Day.MONDAY, Period.AM).assigned_room_id == sr_room.id

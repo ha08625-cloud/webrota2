@@ -241,8 +241,16 @@ class TestGenerateEndToEnd:
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
         partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        # The trainee needs supervising, and Phase 9C runs before Pass 1 and
+        # pins whoever it picks. Without a second candidate the Partner
+        # below would be that supervisor and would no longer be
+        # displaceable, so this fixture would stop exercising the counter
+        # path it exists for. AA takes the job instead: a lower code and a
+        # far lower SUPERVISION count, so they win both periods.
+        supervisor = make_doctor(session, code="AA", doctor_type=DoctorType.PARTNER)
         d_room = make_room(session, code="D1", room_type=RoomType.D)
         fallback = make_room(session, code="C1", room_type=RoomType.C)
+        make_room(session, code="SR1", room_type=RoomType.SR)
 
         make_master_session(
             session, t, trainee, week=1, day=Day.MONDAY, period=Period.AM,
@@ -260,10 +268,17 @@ class TestGenerateEndToEnd:
             session, t, partner, week=1, day=Day.MONDAY, period=Period.PM,
             session_type=MasterSessionType.PRE_ASSIGNED, room=d_room,
         )
+        for period in (Period.AM, Period.PM):
+            make_master_session(
+                session, t, supervisor, week=1, day=Day.MONDAY, period=period,
+                session_type=MasterSessionType.REQUIRES_ROOM,
+            )
         make_preferred_room(session, partner, preference_order=1, room=fallback)
         # Mirrors M1's seed_system_counters guarantee for an active doctor.
         make_system_counter(session, partner, SystemCounterType.ROOM_MOVE, raw_count=0)
-        make_system_counter(session, partner, SystemCounterType.SUPERVISION, raw_count=0)
+        make_system_counter(session, partner, SystemCounterType.SUPERVISION, raw_count=10)
+        make_system_counter(session, supervisor, SystemCounterType.ROOM_MOVE, raw_count=0)
+        make_system_counter(session, supervisor, SystemCounterType.SUPERVISION, raw_count=0)
 
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
         session.add(config)
@@ -556,6 +571,12 @@ class TestGenerationLogPersistence:
         trainee = make_doctor(session, code="CC", doctor_type=DoctorType.TRAINEE)
         for doc in (partner, salaried, trainee):
             make_system_counter(session, doc, SystemCounterType.ROOM_MOVE, raw_count=0)
+            # `POST /doctors` creates a row for every SystemCounterType, and
+            # `_write_counters` requires the row to exist for every key it
+            # writes. The trainee makes a supervisor selectable now that
+            # Phase 9C's pool has no room criterion, so SUPERVISION is
+            # written where it previously never was.
+            make_system_counter(session, doc, SystemCounterType.SUPERVISION, raw_count=0)
         make_room(session, code="D1", room_type=RoomType.D)
         c_room = make_room(session, code="C1", room_type=RoomType.C)
 
@@ -816,3 +837,69 @@ class TestWfhCounterTally:
 
         scrap_rota(session, result.rota_id)
         assert self._wfh_count(session, home) == 5
+
+
+class TestSupervisionEndToEnd:
+    """The whole point of the phase reorder, pinned end to end: Phase 9C
+    runs before the room passes, and the supervisor it picks holds SR in the
+    rota that is actually written.
+    """
+
+    def _fixture(self, session, monday):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        supervisor = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        sr_room = make_room(session, code="SR1", room_type=RoomType.SR)
+
+        for doc in (trainee, supervisor):
+            for period in (Period.AM, Period.PM):
+                make_master_session(
+                    session, t, doc, week=1, day=Day.MONDAY, period=period,
+                    session_type=MasterSessionType.REQUIRES_ROOM,
+                )
+            make_system_counter(session, doc, SystemCounterType.ROOM_MOVE, raw_count=0)
+            make_system_counter(session, doc, SystemCounterType.SUPERVISION, raw_count=0)
+
+        config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
+        session.add(config)
+        session.flush()
+        return trainee, supervisor, d_room, sr_room, config
+
+    def test_supervisor_holds_sr_in_the_persisted_rota(self, session, monday):
+        trainee, supervisor, d_room, sr_room, config = self._fixture(session, monday)
+
+        result = generate(session, config.id)
+        assert result.status in ("success", "partial")
+
+        rows = session.execute(
+            select(RotaSession).where(RotaSession.rota_id == result.rota_id)
+        ).scalars().all()
+        by_slot = {(r.doctor_id, r.period): r for r in rows}
+
+        for period in (Period.AM, Period.PM):
+            sup = by_slot[(supervisor.id, period)]
+            assert sup.is_supervising is True
+            assert sup.room_id == sr_room.id
+            # The D room goes to the trainee rather than to the supervisor,
+            # which is what the SR reservation is for.
+            assert by_slot[(trainee.id, period)].room_id == d_room.id
+
+    def test_phase9c_log_entries_precede_phase7_9a_entries(self, session, monday):
+        # Nothing else pins the pipeline order, which is what this whole
+        # change is: 0 -> 2 -> 4 -> 5 -> 9C -> 7-9A -> 9B -> 12.
+        _trainee, _supervisor, _d_room, _sr_room, config = self._fixture(session, monday)
+
+        result = generate(session, config.id)
+
+        rows = session.execute(
+            select(RotaGenerationLogEntry)
+            .where(RotaGenerationLogEntry.rota_id == result.rota_id)
+            .order_by(RotaGenerationLogEntry.sequence)
+        ).scalars().all()
+
+        phase9c = [r.sequence for r in rows if r.phase == "phase9c"]
+        phase7_9a = [r.sequence for r in rows if r.phase == "phase7_9a"]
+        assert phase9c, "expected phase9c entries -- the fixture has a trainee"
+        assert phase7_9a, "expected phase7_9a entries -- the trainee needs a room"
+        assert max(phase9c) < min(phase7_9a)

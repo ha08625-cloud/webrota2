@@ -991,3 +991,117 @@ class TestPass2DoubleBump:
         # room no longer matches d1 -- tier 2.
         assert "priority tier 3" in am_entry.message
         assert "priority tier 2" in pm_entry.message
+
+class TestSupervisorsAreNotDisplaced:
+    """D4: once Phase 9C has set `is_supervising`, the slot's room is fixed
+    for the rest of the run.
+
+    Phase 9C seats supervisors in SR, which neither pass's D-room victim
+    search reaches, so in the ordinary case these guards cannot fire. They
+    are the backstop for the one path that leaves a supervisor in a D room
+    -- a PRE_ASSIGNED template row holding the session's only SR room (D7).
+    `is_supervising` is set directly here, which is what 9C would have done.
+    """
+
+    def _full_day_fixture(self, session):
+        """Trainee needs D1 all day; a Partner is pre-assigned it all day
+        and would, but for the supervision guard, be the Pass 1 victim."""
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        _requires_room(session, t, trainee, period=Period.PM)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        _pre_assigned(session, t, partner, d_room, period=Period.PM)
+        make_preferred_room(session, partner, preference_order=1, room=fallback)
+        return partner, d_room
+
+    def test_pass1_will_not_displace_a_doctor_supervising_in_am(
+        self, session, config_1wk
+    ):
+        partner, d_room = self._full_day_fixture(session)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        grid.get(partner.id, 1, Day.MONDAY, Period.AM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        # Pass 1 moves both periods together, so an AM-only supervision
+        # still takes the whole day off the table.
+        assert not any(
+            e.action == "displace_room" and e.period is None for e in log.entries
+        )
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+
+    def test_pass1_will_not_displace_a_doctor_supervising_in_pm(
+        self, session, config_1wk
+    ):
+        partner, d_room = self._full_day_fixture(session)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        grid.get(partner.id, 1, Day.MONDAY, Period.PM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert not any(
+            e.action == "displace_room" and e.period is None for e in log.entries
+        )
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
+
+    def test_pass2_will_not_displace_a_supervising_slot(self, session, config_1wk):
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.AM)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        make_preferred_room(session, partner, preference_order=1, room=fallback)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        grid.get(partner.id, 1, Day.MONDAY, Period.AM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert counters.system.get((partner.id, SystemCounterType.ROOM_MOVE), 0) == 0
+        assert not any(e.action == "displace_room" for e in log.entries)
+        # The trainee goes unroomed rather than the supervisor being moved.
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.AM).assigned_room_id is None
+
+    def test_pass2_displaces_the_pm_slot_of_an_am_supervising_doctor(
+        self, session, config_1wk
+    ):
+        # The deliberate asymmetry in `_is_displaceable_single`: the guard is
+        # per-period because Pass 2 moves one session only. A doctor
+        # supervising in AM is still displaceable in PM, and the resulting
+        # mid-day room change is an accepted consequence of seating
+        # supervisors in SR, not a defect. Assert it, so it is not "fixed".
+        t = make_template(session, is_active=True)
+        trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
+        partner = make_doctor(session, code="PP", doctor_type=DoctorType.PARTNER)
+        d_room = make_room(session, code="D1", room_type=RoomType.D)
+        fallback = make_room(session, code="C1", room_type=RoomType.C)
+
+        _requires_room(session, t, trainee, period=Period.PM)
+        _pre_assigned(session, t, partner, d_room, period=Period.AM)
+        _pre_assigned(session, t, partner, d_room, period=Period.PM)
+        make_preferred_room(session, partner, preference_order=1, room=fallback)
+
+        ctx, grid, counters = _build(session, config_1wk)
+        grid.get(partner.id, 1, Day.MONDAY, Period.AM).is_supervising = True
+
+        log = DecisionLog()
+        run_phase7_to_9a(ctx, grid, counters, log)
+
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.AM).assigned_room_id == d_room.id
+        assert grid.get(partner.id, 1, Day.MONDAY, Period.PM).assigned_room_id == fallback.id
+        assert grid.get(trainee.id, 1, Day.MONDAY, Period.PM).assigned_room_id == d_room.id
+        assert counters.system[(partner.id, SystemCounterType.ROOM_MOVE)] == 1

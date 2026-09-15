@@ -461,3 +461,98 @@ describe("ClinicTypeFormDialog - edit mode", () => {
     });
   });
 });
+describe("ClinicTypeFormDialog - SR rooms are not selectable", () => {
+  // SR is held for trainee supervision (Phase 9C books it before the
+  // room-filling phases run), so it is not a selectable clinic room and the
+  // API rejects one either way. The pickers hide it; existing rows are left
+  // alone, which is why `roomTypeEnum` was deliberately not narrowed.
+  const roomsWithSr = [
+    makeRoom({ id: 1, code: "D1", room_type: "D" }),
+    makeRoom({ id: 2, code: "SR1", room_type: "SR" }),
+  ];
+
+  it("the 'Add specific room' select offers no SR room", async () => {
+    setUpServer({ rooms: roomsWithSr });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomSelect = screen.getByLabelText("Add specific room");
+
+    expect(await within(roomSelect).findByRole("option", { name: "D1" })).toBeInTheDocument();
+    expect(within(roomSelect).queryByRole("option", { name: "SR1" })).not.toBeInTheDocument();
+  });
+
+  it("the 'Add room type' select offers no SR option", async () => {
+    setUpServer({ rooms: roomsWithSr });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomTypeSelect = screen.getByLabelText("Add room type");
+
+    await within(roomTypeSelect).findByRole("option", { name: "C" });
+    expect(within(roomTypeSelect).getByRole("option", { name: "D" })).toBeInTheDocument();
+    expect(within(roomTypeSelect).getByRole("option", { name: "W" })).toBeInTheDocument();
+    expect(within(roomTypeSelect).queryByRole("option", { name: "SR" })).not.toBeInTheDocument();
+  });
+
+  it("an existing SR specific-room row still renders and is submitted unchanged", async () => {
+    // The regression test for leaving `roomTypeEnum` alone: the edit dialog
+    // has to stay usable for exactly the legacy data this change is about.
+    setUpServer({ rooms: roomsWithSr });
+    const clinicType = makeClinicType({
+      id: 5,
+      name: "Old name",
+      room_eligibilities: [{ id: 1, room_id: 2, room_type: null }],
+    });
+    let capturedBody: unknown;
+    server.use(
+      http.put("/api/v1/clinic-types/:id", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(clinicType);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog clinicType={clinicType} open onOpenChange={() => {}} />);
+    // The row renders the room's code, so wait for the rooms query first --
+    // until it resolves the dialog falls back to "Room <id>".
+    await within(screen.getByLabelText("Add specific room")).findByRole("option", {
+      name: "D1",
+    });
+    const roomRows = screen.getByRole("list", { name: "Room eligibility rows" });
+    expect(within(roomRows).getByText("SR1")).toBeInTheDocument();
+
+    const nameField = screen.getByLabelText("Name");
+    await user.clear(nameField);
+    await user.type(nameField, "New name");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({
+      name: "New name",
+      room_eligibilities: [{ room_id: 2, room_type: null }],
+    });
+  });
+
+  it("an existing SR room-type row still renders and is submitted unchanged", async () => {
+    setUpServer({ rooms: roomsWithSr });
+    const clinicType = makeClinicType({
+      id: 5,
+      name: "Old name",
+      room_eligibilities: [{ id: 1, room_id: null, room_type: "SR" }],
+    });
+    let capturedBody: unknown;
+    server.use(
+      http.put("/api/v1/clinic-types/:id", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(clinicType);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog clinicType={clinicType} open onOpenChange={() => {}} />);
+    const roomRows = await screen.findByRole("list", { name: "Room eligibility rows" });
+    expect(within(roomRows).getByText("Room type: SR")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(capturedBody).toMatchObject({
+      room_eligibilities: [{ room_id: null, room_type: "SR" }],
+    });
+  });
+});
