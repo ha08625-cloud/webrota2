@@ -4,21 +4,21 @@ import { useWriteGate } from "@/auth/AuthContext";
 
 /**
  * At most one decimal place and at most four digits, matching the
- * Numeric(5,1) columns behind both balances and the pydantic validators in
+ * Numeric(5,1) columns behind the adjustments and the pydantic validators in
  * schemas/counter.py and schemas/duty.py. Checked here so a typo comes back
  * as a message next to the box rather than as a 422.
  *
  * Negative values are deliberately allowed: the mirror case is real (a
- * doctor returning from a long absence, or a leaver whose count should be
- * treated as already served).
+ * doctor who was over-allocated last quarter, or a leaver whose count
+ * should be treated as already served).
  */
-const BALANCE_PATTERN = /^-?\d{1,4}(\.\d)?$/;
+const ADJUSTMENT_PATTERN = /^-?\d{1,4}(\.\d)?$/;
 
-export const BALANCE_HINT =
+export const ADJUSTMENT_HINT =
   "To level a joiner with the group, use peer score ÷ 10 × sessions per week.";
 
-interface OpeningBalanceInputProps {
-  /** The saved balance, as the API returns it (a Decimal string, e.g. "3.2"). */
+interface CounterAdjustmentInputProps {
+  /** The saved adjustment, as the API returns it (a Decimal string, e.g. "3.2"). */
   value: string;
   /** Distinguishes this box from the others on the page, for screen readers. */
   label: string;
@@ -27,15 +27,15 @@ interface OpeningBalanceInputProps {
 }
 
 /**
- * One admin-editable opening balance: a number box plus a Save button that
- * is live only while the text differs from the saved value.
+ * One admin-editable counter adjustment: a number box plus a Save button
+ * that is live only while the text differs from the saved value.
  *
  * Deliberately carries no draft-rota warning, unlike the reset controls it
- * sits next to. Balances are not snapshotted by generation, so scrapping a
- * draft never rolls one back - there is nothing about an active draft that
- * changes what saving one does.
+ * sits next to. Adjustments are not snapshotted by generation, so scrapping
+ * a draft never rolls one back - there is nothing about an active draft
+ * that changes what saving one does.
  */
-export function OpeningBalanceInput({ value, label, onSave, isPending = false }: OpeningBalanceInputProps) {
+export function CounterAdjustmentInput({ value, label, onSave, isPending = false }: CounterAdjustmentInputProps) {
   const writeGate = useWriteGate();
   const [text, setText] = useState(value);
 
@@ -46,7 +46,7 @@ export function OpeningBalanceInput({ value, label, onSave, isPending = false }:
   }, [value]);
 
   const trimmed = text.trim();
-  const valid = BALANCE_PATTERN.test(trimmed);
+  const valid = ADJUSTMENT_PATTERN.test(trimmed);
   const changed = valid && Number(trimmed) !== Number(value);
 
   return (

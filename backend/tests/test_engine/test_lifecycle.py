@@ -192,10 +192,10 @@ class TestScrap:
         assert len(rows) == 4
         assert all(r.raw_count == 0 for r in rows)
 
-    def test_scrap_keeps_a_balance_set_during_the_draft(self, session, monday):
-        """An admin setting an opening balance mid-draft creates a clinic
+    def test_scrap_keeps_a_adjustment_set_during_the_draft(self, session, monday):
+        """An admin setting an adjustment mid-draft creates a clinic
         counter row that no snapshot covers. Deleting that row on restore
-        would destroy the balance -- which the engine never writes and
+        would destroy the adjustment -- which the engine never writes and
         therefore never snapshots -- so the row is kept with its raw count
         zeroed instead."""
         config, a, b, ct = _build_fixture(session, monday)
@@ -203,7 +203,7 @@ class TestScrap:
 
         session.add(ClinicCounter(
             doctor_id=b.id, clinic_type_id=ct.id, raw_count=2,
-            opening_balance=Decimal("3.5"),
+            adjustment=Decimal("3.5"),
         ))
         session.flush()
 
@@ -212,15 +212,15 @@ class TestScrap:
         row = session.execute(
             select(ClinicCounter).where(ClinicCounter.doctor_id == b.id)
         ).scalar_one()
-        assert row.opening_balance == Decimal("3.5")
+        assert row.adjustment == Decimal("3.5")
         assert row.raw_count == 0  # no pre-generation count existed to restore
 
-    def test_scrap_leaves_balances_on_snapshotted_rows_untouched(self, session, monday):
+    def test_scrap_leaves_adjustments_on_snapshotted_rows_untouched(self, session, monday):
         config, a, b, ct = _build_fixture(session, monday)
         row = session.execute(
             select(ClinicCounter).where(ClinicCounter.doctor_id == a.id)
         ).scalar_one()
-        row.opening_balance = Decimal("2.0")
+        row.adjustment = Decimal("2.0")
         session.flush()
 
         result = generate(session, config.id)
@@ -230,7 +230,7 @@ class TestScrap:
             select(ClinicCounter).where(ClinicCounter.doctor_id == a.id)
         ).scalar_one()
         assert restored.raw_count == 3
-        assert restored.opening_balance == Decimal("2.0")
+        assert restored.adjustment == Decimal("2.0")
 
     def test_scrap_committed_raises(self, session, monday):
         config, *_ = _build_fixture(session, monday)

@@ -65,14 +65,14 @@ from .leave_planning import (
     PlanningBulkOut,
     PlanningSkippedOut,
 )
-from .duty import DutyIn, DutyOut, DutyCountOut, DutyOpeningBalanceIn
+from .duty import DutyIn, DutyOut, DutyCountOut, DutyAdjustmentIn
 from .closure import BankHolidayOut, BankHolidaySetIn, ClosedSlotOut, ClosureIn, ClosureOut
 from .room import RoomOut
 from .counter import (
     ClinicCounterOut,
-    ClinicOpeningBalanceIn,
+    ClinicAdjustmentIn,
     SystemCounterOut,
-    SystemOpeningBalanceIn,
+    SystemAdjustmentIn,
 )
 from .master_rota import (
     MasterRotaSessionOut,
@@ -154,10 +154,10 @@ __all__ = [
     "LeaveChargeableCountOut", "LeaveExemptionsOut",
     "CoverageSlotOut", "PlanningActionIn", "PlanningBulkIn", "PlanningBulkOut",
     "PlanningSkippedOut",
-    "DutyIn", "DutyOut", "DutyCountOut", "DutyOpeningBalanceIn",
+    "DutyIn", "DutyOut", "DutyCountOut", "DutyAdjustmentIn",
     "ClosureIn", "ClosureOut", "ClosedSlotOut", "BankHolidayOut", "BankHolidaySetIn",
     "RoomOut", "ClinicCounterOut", "SystemCounterOut",
-    "ClinicOpeningBalanceIn", "SystemOpeningBalanceIn",
+    "ClinicAdjustmentIn", "SystemAdjustmentIn",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
     "StagingCreateIn", "StagingOut", "StagingSessionOut",

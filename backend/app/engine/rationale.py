@@ -53,20 +53,20 @@ def listing(label: str, items: Iterable[str]) -> str:
     return f"{label} ({len(values)}): " + "; ".join(values)
 
 
-def score(raw: int, spw: float, weighted: float, balance: float = 0.0) -> str:
+def score(raw: int, spw: float, weighted: float, adjustment: float = 0.0) -> str:
     """`"raw 3 / 6.0 sessions per week = 0.500"`.
 
     Shows the whole division rather than just its result: fairness
     complaints are almost always really about the denominator.
 
-    A non-zero opening balance is named in the numerator --
-    `"raw 0 (+3.2 opening balance) / 4 sessions per week = 0.800"` -- because
+    A non-zero counter adjustment is named in the numerator --
+    `"raw 0 (+3.2 adjustment) / 4 sessions per week = 0.800"` -- because
     without it the line's stated division does not produce its stated
     result, and the decision log is the artefact a doctor uses to challenge
-    an allocation. A zero balance is omitted entirely, so every line written
-    before balances existed is unchanged.
+    an allocation. A zero adjustment is omitted entirely, so every line
+    written for an unadjusted doctor is unchanged.
     """
-    credit = f" ({balance:+g} opening balance)" if balance else ""
+    credit = f" ({adjustment:+g} adjustment)" if adjustment else ""
     if math.isinf(weighted):
         return f"raw {raw}{credit}, no sessions/week recorded -> score undefined"
     return f"raw {raw}{credit} / {spw:g} sessions per week = {weighted:.3f}"

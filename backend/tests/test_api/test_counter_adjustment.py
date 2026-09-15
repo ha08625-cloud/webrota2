@@ -1,12 +1,12 @@
-"""Counter opening balance endpoints (counter opening balances plan, Task 3).
+"""Counter adjustment endpoints (counter counter adjustments plan, Task 3).
 
-Covers the API half of the balance: the two GETs now carrying
-`opening_balance`, the clinic GET returning the full counted-doctor x
+Covers the API half of the adjustment: the two GETs now carrying
+`adjustment`, the clinic GET returning the full counted-doctor x
 clinic-type cross-product rather than only the rows that exist, the two
-upserts, and the four reset endpoints clearing the balance alongside the
+upserts, and the four reset endpoints clearing the adjustment alongside the
 count.
 
-`opening_balance` crosses the wire as a JSON *string*, like every other
+`adjustment` crosses the wire as a JSON *string*, like every other
 Decimal on this API (`DoctorOut.sessions_per_week`, the leave entitlement
 figures), so the assertions compare against strings deliberately.
 """
@@ -17,7 +17,7 @@ from app.models.enums import DoctorType, SystemCounterType
 
 from .conftest import make_clinic_type_via_api
 
-CLINIC_BALANCE_URL = "/api/v1/counters/clinic/opening-balance"
+CLINIC_ADJUSTMENT_URL = "/api/v1/counters/clinic/adjustment"
 
 
 def _clinic_row(client, doctor_code, clinic_type_name="Dragon"):
@@ -32,7 +32,7 @@ class TestClinicList:
     def test_returns_cross_product_with_null_ids(self, client, seeded):
         """A doctor who has never been allocated a clinic type still gets a
         row for it -- the whole point, since that doctor is the new joiner the
-        balance exists for."""
+        adjustment exists for."""
         make_clinic_type_via_api(client, seeded)
 
         listed = client.get("/api/v1/counters/clinic").json()
@@ -40,7 +40,7 @@ class TestClinicList:
         for row in listed:
             assert row["id"] is None
             assert row["raw_count"] == 0
-            assert row["opening_balance"] == "0.0"
+            assert row["adjustment"] == "0.0"
 
     def test_existing_row_reports_its_values(self, client, db_session, seeded):
         clinic_type = make_clinic_type_via_api(client, seeded)
@@ -48,14 +48,14 @@ class TestClinicList:
             doctor_id=seeded["doctor_aa"],
             clinic_type_id=clinic_type["id"],
             raw_count=5,
-            opening_balance=Decimal("3.2"),
+            adjustment=Decimal("3.2"),
         ))
         db_session.commit()
 
         row = _clinic_row(client, "AA")
         assert row["id"] is not None
         assert row["raw_count"] == 5
-        assert row["opening_balance"] == "3.2"
+        assert row["adjustment"] == "3.2"
 
     def test_disabled_clinic_type_omitted_unless_it_has_a_row(
         self, client, db_session, seeded
@@ -78,7 +78,7 @@ class TestClinicUpsert:
         clinic_type = make_clinic_type_via_api(client, seeded)
         assert db_session.query(ClinicCounter).count() == 0
 
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
             "sessions": "3.2",
@@ -88,12 +88,12 @@ class TestClinicUpsert:
         assert body["doctor_code"] == "AA"
         assert body["clinic_type_name"] == "Dragon"
         assert body["raw_count"] == 0
-        assert body["opening_balance"] == "3.2"
+        assert body["adjustment"] == "3.2"
         assert body["id"] is not None
 
         row = db_session.query(ClinicCounter).one()
         assert row.raw_count == 0
-        assert row.opening_balance == Decimal("3.2")
+        assert row.adjustment == Decimal("3.2")
 
     def test_updates_without_touching_the_raw_count(self, client, db_session, seeded):
         clinic_type = make_clinic_type_via_api(client, seeded)
@@ -101,45 +101,45 @@ class TestClinicUpsert:
             doctor_id=seeded["doctor_aa"],
             clinic_type_id=clinic_type["id"],
             raw_count=7,
-            opening_balance=Decimal("1.0"),
+            adjustment=Decimal("1.0"),
         ))
         db_session.commit()
 
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
             "sessions": "-2.5",
         })
         assert resp.status_code == 200, resp.text
         assert resp.json()["raw_count"] == 7
-        assert resp.json()["opening_balance"] == "-2.5"
+        assert resp.json()["adjustment"] == "-2.5"
 
         db_session.expire_all()
         row = db_session.query(ClinicCounter).one()
         assert row.raw_count == 7
-        assert row.opening_balance == Decimal("-2.5")
+        assert row.adjustment == Decimal("-2.5")
 
     def test_zero_keeps_the_row(self, client, db_session, seeded):
-        """Unlike the duty balance's own table, this row also carries a raw
+        """Unlike the duty adjustment's own table, this row also carries a raw
         count, so "no deviation" is not "nothing to store"."""
         clinic_type = make_clinic_type_via_api(client, seeded)
-        client.put(CLINIC_BALANCE_URL, json={
+        client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
             "sessions": "4.0",
         })
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
             "sessions": "0",
         })
         assert resp.status_code == 200, resp.text
-        assert resp.json()["opening_balance"] == "0.0"
+        assert resp.json()["adjustment"] == "0.0"
         assert db_session.query(ClinicCounter).count() == 1
 
     def test_unknown_doctor_404(self, client, seeded):
         clinic_type = make_clinic_type_via_api(client, seeded)
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": 999999,
             "clinic_type_id": clinic_type["id"],
             "sessions": "1.0",
@@ -147,7 +147,7 @@ class TestClinicUpsert:
         assert resp.status_code == 404
 
     def test_unknown_clinic_type_404(self, client, seeded):
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": 999999,
             "sessions": "1.0",
@@ -156,7 +156,7 @@ class TestClinicUpsert:
 
     def test_two_decimal_places_422(self, client, seeded):
         clinic_type = make_clinic_type_via_api(client, seeded)
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
             "sessions": "3.25",
@@ -174,7 +174,7 @@ class TestClinicUpsert:
         db_session.add(trainee)
         db_session.commit()
 
-        resp = client.put(CLINIC_BALANCE_URL, json={
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": trainee.id,
             "clinic_type_id": clinic_type["id"],
             "sessions": "2.0",
@@ -183,22 +183,22 @@ class TestClinicUpsert:
         assert resp.json()["doctor_code"] == "TT"
 
 
-class TestSystemBalance:
+class TestSystemAdjustment:
     def _counter_id(self, db_session, doctor_id):
         return db_session.query(SystemCounter).filter_by(
             doctor_id=doctor_id, counter_type=SystemCounterType.ROOM_MOVE
         ).one().id
 
-    def test_list_carries_the_balance(self, client, db_session, seeded):
+    def test_list_carries_the_adjustment(self, client, db_session, seeded):
         counter_id = self._counter_id(db_session, seeded["doctor_bb"])
-        db_session.get(SystemCounter, counter_id).opening_balance = Decimal("1.5")
+        db_session.get(SystemCounter, counter_id).adjustment = Decimal("1.5")
         db_session.commit()
 
         listed = client.get("/api/v1/counters/system").json()
         row = next(c for c in listed if c["id"] == counter_id)
-        assert row["opening_balance"] == "1.5"
+        assert row["adjustment"] == "1.5"
         assert all(
-            c["opening_balance"] == "0.0" for c in listed if c["id"] != counter_id
+            c["adjustment"] == "0.0" for c in listed if c["id"] != counter_id
         )
 
     def test_upsert(self, client, db_session, seeded):
@@ -207,34 +207,34 @@ class TestSystemBalance:
         db_session.commit()
 
         resp = client.put(
-            f"/api/v1/counters/system/{counter_id}/opening-balance",
+            f"/api/v1/counters/system/{counter_id}/adjustment",
             json={"sessions": "2.5"},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["id"] == counter_id
         assert body["raw_count"] == 6
-        assert body["opening_balance"] == "2.5"
+        assert body["adjustment"] == "2.5"
 
         db_session.expire_all()
-        assert db_session.get(SystemCounter, counter_id).opening_balance == Decimal("2.5")
+        assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("2.5")
 
     def test_unknown_id_404(self, client, seeded):
         resp = client.put(
-            "/api/v1/counters/system/999999/opening-balance", json={"sessions": "1.0"}
+            "/api/v1/counters/system/999999/adjustment", json={"sessions": "1.0"}
         )
         assert resp.status_code == 404
 
     def test_two_decimal_places_422(self, client, db_session, seeded):
         counter_id = self._counter_id(db_session, seeded["doctor_aa"])
         resp = client.put(
-            f"/api/v1/counters/system/{counter_id}/opening-balance",
+            f"/api/v1/counters/system/{counter_id}/adjustment",
             json={"sessions": "2.55"},
         )
         assert resp.status_code == 422
 
 
-class TestResetClearsTheBalance:
+class TestResetClearsTheAdjustment:
     """After a reset every doctor is level at zero by definition, so a
     surviving joiner credit would re-introduce the skew it was created to
     remove."""
@@ -245,32 +245,32 @@ class TestResetClearsTheBalance:
             doctor_id=seeded["doctor_aa"],
             clinic_type_id=clinic_type["id"],
             raw_count=4,
-            opening_balance=Decimal("3.0"),
+            adjustment=Decimal("3.0"),
         )
         db_session.add(counter)
         db_session.commit()
 
         resp = client.post(f"/api/v1/counters/clinic/{counter.id}/reset")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["opening_balance"] == "0.0"
+        assert resp.json()["adjustment"] == "0.0"
 
         db_session.expire_all()
-        assert db_session.get(ClinicCounter, counter.id).opening_balance == Decimal("0.0")
+        assert db_session.get(ClinicCounter, counter.id).adjustment == Decimal("0.0")
 
     def test_single_system_reset(self, client, db_session, seeded):
         counter = db_session.query(SystemCounter).filter_by(
             doctor_id=seeded["doctor_bb"], counter_type=SystemCounterType.SUPERVISION
         ).one()
         counter.raw_count = 3
-        counter.opening_balance = Decimal("2.0")
+        counter.adjustment = Decimal("2.0")
         db_session.commit()
 
         resp = client.post(f"/api/v1/counters/system/{counter.id}/reset")
         assert resp.status_code == 200, resp.text
-        assert resp.json()["opening_balance"] == "0.0"
+        assert resp.json()["adjustment"] == "0.0"
 
         db_session.expire_all()
-        assert db_session.get(SystemCounter, counter.id).opening_balance == Decimal("0.0")
+        assert db_session.get(SystemCounter, counter.id).adjustment == Decimal("0.0")
 
     def test_clinic_reset_all_including_invisible_rows(
         self, client, db_session, seeded
@@ -285,11 +285,11 @@ class TestResetClearsTheBalance:
         rows = [
             ClinicCounter(
                 doctor_id=seeded["doctor_aa"], clinic_type_id=clinic_type["id"],
-                raw_count=4, opening_balance=Decimal("3.0"),
+                raw_count=4, adjustment=Decimal("3.0"),
             ),
             ClinicCounter(
                 doctor_id=trainee.id, clinic_type_id=clinic_type["id"],
-                raw_count=7, opening_balance=Decimal("5.0"),
+                raw_count=7, adjustment=Decimal("5.0"),
             ),
         ]
         db_session.add_all(rows)
@@ -302,12 +302,12 @@ class TestResetClearsTheBalance:
         for row_id in ids:
             row = db_session.get(ClinicCounter, row_id)
             assert row.raw_count == 0
-            assert row.opening_balance == Decimal("0.0")
+            assert row.adjustment == Decimal("0.0")
 
     def test_system_reset_all(self, client, db_session, seeded):
         for counter in db_session.query(SystemCounter).all():
             counter.raw_count = 9
-            counter.opening_balance = Decimal("4.0")
+            counter.adjustment = Decimal("4.0")
         db_session.commit()
 
         assert client.post("/api/v1/counters/system/reset-all").status_code == 204
@@ -315,4 +315,4 @@ class TestResetClearsTheBalance:
         db_session.expire_all()
         for counter in db_session.query(SystemCounter).all():
             assert counter.raw_count == 0
-            assert counter.opening_balance == Decimal("0.0")
+            assert counter.adjustment == Decimal("0.0")

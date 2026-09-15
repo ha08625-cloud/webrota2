@@ -243,13 +243,13 @@ describe("CountersPage", () => {
     });
   });
 
-  describe("opening balances", () => {
-    it("adds the balance to the raw count before scoring, without inflating the raw count itself", async () => {
+  describe("adjustments", () => {
+    it("adds the adjustment to the raw count before scoring, without inflating the raw count itself", async () => {
       setUpServer({
         doctors: [makeDoctor({ id: 1, code: "AB", sessions_per_week: "4.0" })],
         clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
         clinicCounters: [
-          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 1, opening_balance: "3.2" }),
+          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 1, adjustment: "3.2" }),
         ],
       });
       renderWithProviders(<CountersPage />);
@@ -262,11 +262,11 @@ describe("CountersPage", () => {
       expect(within(panel).getByText("(+3.2)")).toBeInTheDocument();
     });
 
-    it("marks no credit on a row whose balance is zero", async () => {
+    it("marks no credit on a row whose adjustment is zero", async () => {
       setUpServer({
         clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
         clinicCounters: [
-          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 3, opening_balance: "0.0" }),
+          makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 3, adjustment: "0.0" }),
         ],
       });
       renderWithProviders(<CountersPage />);
@@ -276,7 +276,7 @@ describe("CountersPage", () => {
       expect(within(panel).queryByText(/\(\+0/)).not.toBeInTheDocument();
     });
 
-    it("saves a clinic balance keyed on (doctor, clinic type), not on a counter id", async () => {
+    it("saves a clinic adjustment keyed on (doctor, clinic type), not on a counter id", async () => {
       let body: unknown = null;
       setUpServer({
         clinicTypes: [makeClinicType({ id: 7, name: "Diabetic clinic" })],
@@ -285,10 +285,10 @@ describe("CountersPage", () => {
         ],
       });
       server.use(
-        http.put("/api/v1/counters/clinic/opening-balance", async ({ request }) => {
+        http.put("/api/v1/counters/clinic/adjustment", async ({ request }) => {
           body = await request.json();
           return HttpResponse.json(
-            makeClinicCounter({ id: 1, doctor_id: 4, clinic_type_id: 7, raw_count: 0, opening_balance: "3.2" }),
+            makeClinicCounter({ id: 1, doctor_id: 4, clinic_type_id: 7, raw_count: 0, adjustment: "3.2" }),
           );
         }),
       );
@@ -296,7 +296,7 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      const input = within(panel).getByLabelText("Opening balance for AB");
+      const input = within(panel).getByLabelText("Adjustment for AB");
       await user.clear(input);
       await user.type(input, "3.2");
       await user.click(within(panel).getByRole("button", { name: "Save" }));
@@ -306,18 +306,18 @@ describe("CountersPage", () => {
       );
     });
 
-    it("saves a system balance against the counter id", async () => {
+    it("saves a system adjustment against the counter id", async () => {
       let putId: number | null = null;
       let body: unknown = null;
       setUpServer({
         systemCounters: [makeSystemCounter({ id: 9, doctor_id: 1, doctor_code: "AB", raw_count: 2 })],
       });
       server.use(
-        http.put("/api/v1/counters/system/:id/opening-balance", async ({ params, request }) => {
+        http.put("/api/v1/counters/system/:id/adjustment", async ({ params, request }) => {
           putId = Number(params.id);
           body = await request.json();
           return HttpResponse.json(
-            makeSystemCounter({ id: 9, doctor_id: 1, doctor_code: "AB", raw_count: 2, opening_balance: "-1.5" }),
+            makeSystemCounter({ id: 9, doctor_id: 1, doctor_code: "AB", raw_count: 2, adjustment: "-1.5" }),
           );
         }),
       );
@@ -325,9 +325,9 @@ describe("CountersPage", () => {
 
       const table = await screen.findByRole("table", { name: "System counters" });
       const user = userEvent.setup();
-      const input = within(table).getByLabelText("Opening balance for AB Room moves");
+      const input = within(table).getByLabelText("Adjustment for AB Room moves");
       await user.clear(input);
-      // Negative balances are allowed - a returner, or a leaver whose
+      // Negative adjustments are allowed - a returner, or a leaver whose
       // count should be treated as already served.
       await user.type(input, "-1.5");
       await user.click(within(table).getByRole("button", { name: "Save" }));
@@ -336,7 +336,7 @@ describe("CountersPage", () => {
       expect(body).toEqual({ sessions: "-1.5" });
     });
 
-    it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows a balance", async () => {
+    it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows a adjustment", async () => {
       setUpServer({
         clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
         clinicCounters: [
@@ -347,7 +347,7 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       expect(within(panel).getByRole("button", { name: "Reset" })).toBeDisabled();
-      expect(within(panel).getByLabelText("Opening balance for AB")).toBeEnabled();
+      expect(within(panel).getByLabelText("Adjustment for AB")).toBeEnabled();
     });
 
     it("rejects more than one decimal place before sending it, and keeps Save inert", async () => {
@@ -357,7 +357,7 @@ describe("CountersPage", () => {
         clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1 })],
       });
       server.use(
-        http.put("/api/v1/counters/clinic/opening-balance", () => {
+        http.put("/api/v1/counters/clinic/adjustment", () => {
           putFired = true;
           return HttpResponse.json(makeClinicCounter({ id: 1 }));
         }),
@@ -366,7 +366,7 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      const input = within(panel).getByLabelText("Opening balance for AB");
+      const input = within(panel).getByLabelText("Adjustment for AB");
       await user.clear(input);
       await user.type(input, "3.25");
 
@@ -402,9 +402,9 @@ describe("CountersPage", () => {
       expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining(DRAFT_WARNING_FRAGMENT));
       // Only the raw counts are snapshotted at generation, so only they are
       // restored by a scrap; saying the whole reset is undone would be false
-      // of the opening balances it also clears.
+      // of the adjustments it also clears.
       expect(confirmSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Opening balances are not restored by a scrap"),
+        expect.stringContaining("Adjustments are not restored by a scrap"),
       );
     });
 

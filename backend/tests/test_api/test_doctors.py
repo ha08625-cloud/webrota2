@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 
 from app.api.routers.doctors import NULLED_TABLES, PURGED_MODELS
 from app.database import Base
-from app.models import Doctor, DutyOpeningBalance, GeneratedRota, SystemCounter, User
+from app.models import Doctor, DutyCounterAdjustment, GeneratedRota, SystemCounter, User
 from app.models.enums import DoctorType, SystemCounterType
 
 from .conftest import generate_rota
@@ -211,17 +211,17 @@ class TestDeleteDoctor:
         doctor_id = seeded["doctor_aa"]
         self._deactivate(client, doctor_id)
 
-        # A duty opening balance is one of the tables the purge reaches, and
+        # A duty adjustment is one of the tables the purge reaches, and
         # nothing else in this fixture creates one.
         db_session.add(
-            DutyOpeningBalance(doctor_id=doctor_id, year=2026, sessions=Decimal("3.2"))
+            DutyCounterAdjustment(doctor_id=doctor_id, year=2026, adjustment=Decimal("3.2"))
         )
         db_session.commit()
 
         resp = client.delete(f"/api/v1/doctors/{doctor_id}")
         assert resp.status_code == 200, resp.text
         deleted = resp.json()["deleted"]
-        assert deleted["duty_opening_balances"] == 1
+        assert deleted["duty_counter_adjustments"] == 1
         # Reported per table, and the counts are real rather than zeroes.
         assert deleted["master_rota_sessions"] == 2
         assert deleted["rota_sessions"] > 0
