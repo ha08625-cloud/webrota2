@@ -1,4 +1,8 @@
 - add nurses
+- add treatment rooms and CK
+- add nurse edit option
+- add med student
+- different calendar views
 - In the rota generation page, if the user selects a week that has already been cstaged or committed, then instead of "Start staging" the button should show "go to rota"
 - In the rota generation page, if a user tries to click "Start staging" when the duty rota for that week is not complete, open a dialog box that says "are you sure?"
 - Once a new staff member has been added, open dialog box: go to master rota to fill in clinics?
