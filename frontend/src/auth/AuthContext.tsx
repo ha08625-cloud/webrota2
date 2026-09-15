@@ -56,7 +56,7 @@ export interface AuthState {
   linkedReceptionStaffId: number | null;
 }
 
-/** One of the five permissions (models/permissions.py, schemas/auth.py). */
+/** One of the six permissions (models/permissions.py, schemas/auth.py). */
 export type PermissionArea = keyof Permissions;
 
 /** Tooltip for a control disabled because the current user cannot write. */
@@ -84,6 +84,7 @@ export function editLockTitle(holderName: string | null): string {
 export const DENIED_PERMISSIONS: Permissions = {
   clinical: "none",
   reception: "none",
+  research: "none",
   signatures: false,
   study_eoi: false,
   user_admin: false,
@@ -136,6 +137,15 @@ export function PermissionAreaProvider({
  */
 export function canReadArea(permissions: Permissions, area: PermissionArea): boolean {
   const granted = permissions[area];
+  // `granted !== "none"` on its own would return TRUE for a key that is
+  // absent, which is the wrong direction for a default: a set that has not
+  // caught up with a new permission must deny it, not grant it. The API
+  // can never produce such a set (PermissionSet defaults every field), but
+  // a hand-built object can, and this is the function every route guard
+  // and landing tile asks.
+  if (granted === undefined) {
+    return false;
+  }
   return typeof granted === "boolean" ? granted : granted !== "none";
 }
 

@@ -69,6 +69,7 @@ from app.models.permissions import (
     PRESET_FOR_ACCESS_LEVEL,
     READ_ONLY_PRESET,
     RECEPTION_ADMIN_PRESET,
+    RESEARCH_PRESET,
     ROTA_ADMIN_PRESET,
     default_permissions,
     preset,
@@ -180,6 +181,7 @@ _PROFILES = {
     "rota_admin": preset(ROTA_ADMIN_PRESET),
     "reception_admin": preset(RECEPTION_ADMIN_PRESET),
     "documents": preset(DOCUMENTS_PRESET),
+    "research": preset(RESEARCH_PRESET),
     "read_only": preset(READ_ONLY_PRESET),
     "no_access": default_permissions(),
 }
@@ -219,7 +221,7 @@ def _may_reach(permissions, method, path):
         return True
     if method in _SAFE and path in _SHARED_READ_PATHS:
         allowed = True
-    elif area in ("clinical", "reception"):
+    elif area in ("clinical", "reception", "research"):
         granted = permissions.get(area)
         allowed = granted == "write" or (granted == "read" and method in _SAFE)
     else:
@@ -239,6 +241,11 @@ _NON_GET_FLOORS = {
     "rota_admin": (65, 7),
     "reception_admin": (13, 58),
     "documents": (4, 68),
+    # The research preset grants exactly `research: write` and the section
+    # has no endpoints yet, so it reaches nothing and is blocked on
+    # everything -- the same row `no_access` gets, and for a different
+    # reason. Raise the first number when the research routers land.
+    "research": (0, 72),
     "read_only": (0, 72),
     "no_access": (0, 72),
 }
@@ -248,6 +255,9 @@ _GET_FLOORS = {
     "rota_admin": (32, 4),
     "reception_admin": (32, 4),
     "documents": (6, 30),
+    # Four: the two _SHARED_READ pickers and the two ungated reads every
+    # login gets. Same as `no_access` until the research routers land.
+    "research": (4, 32),
     "read_only": (32, 4),
     "no_access": (4, 32),
 }

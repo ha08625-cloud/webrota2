@@ -14,6 +14,7 @@ export const PERMISSION_PRESETS = {
   manager: {
     clinical: "write",
     reception: "write",
+    research: "write",
     signatures: true,
     study_eoi: true,
     user_admin: true,
@@ -21,6 +22,7 @@ export const PERMISSION_PRESETS = {
   rota_admin: {
     clinical: "write",
     reception: "write",
+    research: "none",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -30,6 +32,7 @@ export const PERMISSION_PRESETS = {
   reception_admin: {
     clinical: "read",
     reception: "write",
+    research: "none",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -37,13 +40,28 @@ export const PERMISSION_PRESETS = {
   documents: {
     clinical: "none",
     reception: "none",
+    research: "none",
     signatures: true,
     study_eoi: true,
     user_admin: false,
   },
+  // Clinical and reception at read, and research at none: the two rotas
+  // are things everybody benefits from seeing, and a study page is not.
   read_only: {
     clinical: "read",
     reception: "read",
+    research: "none",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+  // Exactly the research section and nothing else: the person who runs
+  // studies has no business with a scanned signature, and the point of the
+  // permission model is that they do not have to be given one.
+  research: {
+    clinical: "none",
+    reception: "none",
+    research: "write",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -58,12 +76,20 @@ export function permissionPreset(name: PermissionPresetName): Permissions {
   return { ...PERMISSION_PRESETS[name] };
 }
 
-/** True when the set grants nothing at all, which the API refuses (422). */
+/**
+ * True when the set grants nothing at all, which the API refuses (422).
+ *
+ * Derived from the two key lists rather than naming each key by hand. The
+ * hand-written version was a trap: a new permission is added to the type
+ * and the presets, the check is not updated, and a login holding only the
+ * new permission reads as empty - so the form refuses to save exactly the
+ * narrowly scoped user the permission was added for.
+ */
 export function isEmptyPermissions(permissions: Permissions): boolean {
-  if (permissions.clinical !== "none" || permissions.reception !== "none") {
+  if (PERMISSION_AREAS.some((area) => permissions[area] !== "none")) {
     return false;
   }
-  return !permissions.signatures && !permissions.study_eoi && !permissions.user_admin;
+  return PERMISSION_FLAGS.every((flag) => !permissions[flag]);
 }
 
 /** Display order for the preset buttons, most privileged first. */
@@ -72,6 +98,7 @@ export const PRESET_ORDER: readonly PermissionPresetName[] = [
   "rota_admin",
   "reception_admin",
   "documents",
+  "research",
   "read_only",
 ];
 
@@ -80,6 +107,7 @@ const PRESET_LABELS: Record<PermissionPresetName, string> = {
   rota_admin: "Rota admin",
   reception_admin: "Reception admin",
   documents: "Documents",
+  research: "Research",
   read_only: "Read-only",
 };
 
@@ -87,8 +115,8 @@ export function presetLabel(name: PermissionPresetName): string {
   return PRESET_LABELS[name];
 }
 
-/** The two levelled areas, in the order the editor renders them. */
-export const PERMISSION_AREAS = ["clinical", "reception"] as const;
+/** The three levelled areas, in the order the editor renders them. */
+export const PERMISSION_AREAS = ["clinical", "reception", "research"] as const;
 /** The three flags, in the order the editor renders them. */
 export const PERMISSION_FLAGS = ["signatures", "study_eoi", "user_admin"] as const;
 
@@ -98,6 +126,7 @@ export type PermissionFlagKey = (typeof PERMISSION_FLAGS)[number];
 const AREA_LABELS: Record<PermissionAreaKey, string> = {
   clinical: "Clinical rota",
   reception: "Reception rota",
+  research: "Research",
 };
 
 const FLAG_LABELS: Record<PermissionFlagKey, string> = {
@@ -142,8 +171,8 @@ export function accessAreaLabel(level: AccessArea): string {
 /**
  * A one-line summary for the users table - "Clinical: edit, Reception:
  * read, Signatures". Denied areas and unset flags are left out rather than
- * listed as "none": the row is scanned for what someone *can* do, and five
- * entries per row of which three say "no" is unreadable.
+ * listed as "none": the row is scanned for what someone *can* do, and six
+ * entries per row of which four say "no" is unreadable.
  */
 export function permissionsSummary(permissions: Permissions): string {
   const parts: string[] = [];

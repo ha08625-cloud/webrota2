@@ -867,13 +867,11 @@ class TestPermissions:
     could quietly fail to persist.
     """
 
-    _CLINICAL_ONLY = {
-        "clinical": "write",
-        "reception": "none",
-        "signatures": False,
-        "study_eoi": False,
-        "user_admin": False,
-    }
+    # Spread over DEFAULT_PERMISSIONS rather than written out: the set is
+    # "clinical write, nothing else", and a literal would have to be
+    # revisited every time a permission is added for no gain in what these
+    # tests are actually about.
+    _CLINICAL_ONLY = {**DEFAULT_PERMISSIONS, "clinical": "write"}
 
     def test_create_persists_and_returns_the_set(self, client, db_session):
         created = _create_user(
@@ -889,6 +887,18 @@ class TestPermissions:
         assert all(
             isinstance(value, (str, bool)) for value in row.permissions.values()
         )
+
+    def test_a_single_area_at_write_is_not_an_empty_set(self, client):
+        """`research` is the newest key and the Research preset grants it
+        alone, so a set holding only that one must save. The rule that
+        refuses an empty set is written key by key on the frontend, and
+        this is the backend half of the pair."""
+        created = _create_user(
+            client,
+            email="researchonly@example.com",
+            permissions={**DEFAULT_PERMISSIONS, "research": "write"},
+        )
+        assert created["permissions"]["research"] == "write"
 
     def test_create_without_permissions_422s(self, client):
         resp = client.post(USERS, json={

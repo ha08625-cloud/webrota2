@@ -26,8 +26,11 @@ bytes, so the max-length-72 rule is enforced at the Pydantic schema layer
 is what authorization reads -- the gates in api/deps.py consult it and
 nothing else; `access_level` survives beside it as a label, see below. The
 set is a small JSON object, always read whole and never joined against, so
-it is one column rather than five or an association table; adding a sixth
-permission is then a code change, not a migration.
+it is one column rather than six or an association table; adding a seventh
+permission is then a code change rather than DDL. It still gets a migration
+(016 added `research`), but only to rewrite the rows and the server_default
+so the stored data says what the code means -- the schema itself does not
+move, and the API would keep working without it.
 
 The column type is portable `sqlalchemy.JSON`, not `JSONB`: the test suite
 builds SQLite straight from these models via `create_all`. It is wrapped

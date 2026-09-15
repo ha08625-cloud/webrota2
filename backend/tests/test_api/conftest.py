@@ -23,7 +23,8 @@ table.
 `client_with_permissions` is a factory for the same thing carrying a
 chosen permission set -- which is what the gates read -- plus one
 ready-made fixture per preset (`manager_client`, `rota_admin_client`,
-`reception_admin_client`, `documents_client`, `readonly_client`) and
+`reception_admin_client`, `documents_client`, `research_client`,
+`readonly_client`) and
 `no_access_client` for the deny-everything set. All of these share the
 single-client-per-test rule described under `client_no_auth` below: they
 write to the same `app.dependency_overrides` dict on the same shared `app`,
@@ -84,6 +85,7 @@ from app.models.permissions import (
     MANAGER_PRESET,
     READ_ONLY_PRESET,
     RECEPTION_ADMIN_PRESET,
+    RESEARCH_PRESET,
     ROTA_ADMIN_PRESET,
     default_permissions,
     preset,
@@ -354,6 +356,14 @@ def documents_client(client_with_permissions):
     """The signature and EOI tools, and no rota access at all -- the
     tightly scoped login the permission model exists to make possible."""
     return client_with_permissions(preset(DOCUMENTS_PRESET))
+
+
+@pytest.fixture
+def research_client(client_with_permissions):
+    """`research: write` and nothing else -- the login a research nurse
+    gets, which deliberately reaches neither rota nor the signatures the
+    Documents preset carries."""
+    return client_with_permissions(preset(RESEARCH_PRESET))
 
 
 @pytest.fixture

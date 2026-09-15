@@ -466,6 +466,7 @@ describe("UserFormDialog - permissions", () => {
       permissions: {
         clinical: "none",
         reception: "none",
+        research: "none",
         signatures: false,
         study_eoi: false,
         user_admin: true,

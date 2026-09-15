@@ -4,7 +4,7 @@ import type { Permissions } from "@/api/types";
 import { canReadArea, usePermissions } from "@/auth/AuthContext";
 
 /**
- * The four sections, in the order they are offered. Each names the predicate
+ * The five sections, in the order they are offered. Each names the predicate
  * that makes it enterable, so this list is the one place the landing page
  * and the shells agree on what "enterable" means - each shell redirects back
  * here on the same test.
@@ -37,6 +37,12 @@ const SECTIONS: readonly {
     enterable: (p) => p.signatures || p.study_eoi,
   },
   {
+    to: "/research",
+    title: "Research",
+    description: "Studies the practice recruits for: stage, contacts, and key documents.",
+    enterable: (p) => canReadArea(p, "research"),
+  },
+  {
     to: "/admin/users",
     title: "Administration",
     description: "User accounts, permissions, and the audit log.",
@@ -49,8 +55,9 @@ const SECTIONS: readonly {
  * layout shell) but are otherwise independent sections - see Architecture.md
  * "Shared entry point" for why this split exists rather than a second app.
  * Documents (signatures and Study EOI autofill) is admin staff tooling
- * unrelated to either rota, and Administration is gated on a permission
- * independent of both, so each gets its own tile.
+ * unrelated to either rota, Research is a different job again done by a
+ * different person, and Administration is gated on a permission independent
+ * of all of them, so each gets its own tile.
  *
  * Only tiles the user can enter are rendered: reads are gated, so an
  * unenterable tile would lead to a redirect straight back here.

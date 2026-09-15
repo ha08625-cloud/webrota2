@@ -135,6 +135,7 @@ describe("userFormSchema - permissions", () => {
       permissions: {
         clinical: "none",
         reception: "none",
+        research: "none",
         signatures: false,
         study_eoi: false,
         user_admin: false,
@@ -149,12 +150,16 @@ describe("userFormSchema - permissions", () => {
   it.each([
     ["a single flag", { signatures: true }],
     ["read on one area", { clinical: "read" as const }],
+    // The Research preset is exactly this set, so a form that refused it
+    // would make that preset unsavable.
+    ["write on research alone", { research: "write" as const }],
   ])("accepts a set granting only %s", (_label, granted) => {
     const result = userFormSchema("create").safeParse({
       ...values,
       permissions: {
         clinical: "none" as const,
         reception: "none" as const,
+        research: "none" as const,
         signatures: false,
         study_eoi: false,
         user_admin: false,
@@ -162,6 +167,23 @@ describe("userFormSchema - permissions", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  // Mirrors PermissionSetIn: all six keys are required on the wire, so the
+  // form can never send a partial set and have the backend fill the gaps
+  // behind the user's back.
+  it("rejects a set that omits a permission entirely", () => {
+    const result = userFormSchema("create").safeParse({
+      ...values,
+      permissions: {
+        clinical: "write" as const,
+        reception: "none" as const,
+        signatures: false,
+        study_eoi: false,
+        user_admin: false,
+      },
+    });
+    expect(result.success).toBe(false);
   });
 
   it("formValuesFromUser copies the set rather than sharing the cached user's", () => {
