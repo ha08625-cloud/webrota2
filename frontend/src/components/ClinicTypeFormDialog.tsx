@@ -50,7 +50,16 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
 
   const doctorsById = new Map((doctors ?? []).map((d) => [d.id, d]));
   const roomsById = new Map((rooms ?? []).map((r) => [r.id, r]));
-  const activeDoctors = (doctors ?? []).filter((d) => d.active);
+  /** Nurses are inert to the generation engine and are never clinic
+   * candidates, so they are not offered here -- the API rejects one
+   * either way. This drives `notYetAddedDoctors` only, so the "Nurses"
+   * optgroup and its "All nurses" option simply never appear. An
+   * already-stored nurse row still renders in the added-list below,
+   * which reads `doctorsById` off the unfiltered list: hiding it would
+   * leave a clinic type carrying one impossible to save again. */
+  const activeDoctors = (doctors ?? []).filter(
+    (d) => d.active && d.doctor_type !== "Nurse",
+  );
   const isSaving = createClinicType.isPending || updateClinicType.isPending;
 
   // Filter *before* grouping: groupDoctorsByType omits a type entirely
@@ -63,8 +72,9 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
   );
   const notYetAddedGroups = groupDoctorsByType(notYetAddedDoctors);
   // "All doctors" bulk-add is deliberately scoped to Partner/Salaried only -
-  // Trainees, AHPs and nurses are excluded and must be added individually or via
-  // their own "All <type>" group option.
+  // Trainees and AHPs are excluded and must be added individually or via
+  // their own "All <type>" group option. (Nurses are not in this list at
+  // all - see activeDoctors.)
   const notYetAddedCoreDoctors = notYetAddedDoctors.filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
   );

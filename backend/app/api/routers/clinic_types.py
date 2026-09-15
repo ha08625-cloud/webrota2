@@ -30,6 +30,10 @@ supervision, which Phase 9C books before the room-filling phases run. The
 module; the `room_id` half needs the database to resolve an id to a room
 type, so it lives here in `_reject_sr_rooms`, called first thing by both
 POST and PUT. PATCH never touches eligibilities and so needs neither.
+
+Nurses are likewise not selectable as clinic doctors: a nurse is inert to
+the generation engine, so Phase 5 skips one as a candidate anyway, and
+`_reject_nurse_doctors` stops such a row being stored in the first place.
 """
 from __future__ import annotations
 
@@ -45,10 +49,11 @@ from ...models import (
     ClinicTypeDoctorEligibility,
     ClinicTypeRoomEligibility,
     ClinicTypeSchedule,
+    Doctor,
     Room,
     User,
 )
-from ...models.enums import RoomType
+from ...models.enums import DoctorType, RoomType
 from ..deps import get_current_user, get_db
 from ..schemas import ClinicTypeIn, ClinicTypeOut, ClinicTypePatch, ClinicTypeReorderIn
 
@@ -127,6 +132,36 @@ def _reject_sr_rooms(db: Session, payload: ClinicTypeIn) -> None:
             status_code=400,
             detail=(
                 f"{noun} {', '.join(codes)} {verb} and cannot be a clinic room"
+            ),
+        )
+
+
+def _reject_nurse_doctors(db: Session, payload: ClinicTypeIn) -> None:
+    """A nurse is inert to the generation engine, so Phase 5 never considers
+    one as a clinic candidate. Rejecting the write as well keeps a
+    configured-but-dead eligibility row from existing at all, rather than
+    leaving one silently doing nothing. This needs the DB to resolve
+    doctor_id -> doctor_type, so it lives here rather than in DoctorEligIn.
+
+    400 rather than 422, matching `_reject_sr_rooms`: the clinic type dialog
+    renders a string `detail` straight into its top-of-form error.
+    """
+    doctor_ids = [e.doctor_id for e in payload.doctor_eligibilities]
+    if not doctor_ids:
+        return
+    codes = db.execute(
+        select(Doctor.code)
+        .where(Doctor.id.in_(doctor_ids), Doctor.doctor_type == DoctorType.NURSE)
+        .order_by(Doctor.code)
+    ).scalars().all()
+    if codes:
+        noun = "Doctor" if len(codes) == 1 else "Doctors"
+        verb = "is a nurse" if len(codes) == 1 else "are nurses"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{noun} {', '.join(codes)} {verb} and cannot be eligible "
+                "for a clinic"
             ),
         )
 
@@ -213,6 +248,7 @@ def create_clinic_type(
     user: User = Depends(get_current_user),
 ) -> ClinicType:
     _reject_sr_rooms(db, payload)
+    _reject_nurse_doctors(db, payload)
     ct = ClinicType()
     detail = (
         f"ClinicType '{payload.name}' violates a uniqueness constraint "
@@ -307,6 +343,7 @@ def replace_clinic_type(
     user: User = Depends(get_current_user),
 ) -> ClinicType:
     _reject_sr_rooms(db, payload)
+    _reject_nurse_doctors(db, payload)
     ct = _get_or_404(db, clinic_type_id)
     # Captured before _apply() overwrites is_enabled.
     was_enabled = ct.is_enabled

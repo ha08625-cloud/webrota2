@@ -556,3 +556,50 @@ describe("ClinicTypeFormDialog - SR rooms are not selectable", () => {
     });
   });
 });
+
+describe("ClinicTypeFormDialog - nurses are not selectable", () => {
+  // A nurse is inert to the generation engine and is never a clinic
+  // candidate, so the picker does not offer one and the API rejects one
+  // either way. Existing rows are left alone, exactly as for SR rooms.
+  const doctorsWithNurse = [
+    makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true }),
+    makeDoctor({ id: 2, code: "NN", doctor_type: "Nurse", active: true }),
+  ];
+
+  it("the 'Add doctor' select offers no nurse and no 'All nurses' option", async () => {
+    setUpServer({ doctors: doctorsWithNurse });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const doctorSelect = screen.getByLabelText("Add doctor") as HTMLSelectElement;
+
+    expect(await within(doctorSelect).findByRole("option", { name: "AB" })).toBeInTheDocument();
+    expect(within(doctorSelect).queryByRole("option", { name: "NN" })).not.toBeInTheDocument();
+    expect(within(doctorSelect).queryByRole("option", { name: "All nurses" })).not.toBeInTheDocument();
+    expect(Array.from(doctorSelect.querySelectorAll("optgroup")).map((g) => g.label)).toEqual([
+      "Partners",
+    ]);
+  });
+
+  it("an existing nurse row still renders, and can be removed", async () => {
+    // The nurse row reads `doctorsById`, built from the unfiltered doctor
+    // list: filtering it out of the added-list too would leave a clinic
+    // type carrying a legacy nurse row impossible to see or unpick.
+    setUpServer({ doctors: doctorsWithNurse });
+    const clinicType = makeClinicType({
+      id: 7,
+      name: "Old name",
+      doctor_eligibilities: [{ id: 1, doctor_id: 2, doctor_priority: 1000 }],
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<ClinicTypeFormDialog clinicType={clinicType} open onOpenChange={() => {}} />);
+    // The row renders the doctor's code, so wait for the doctors query
+    // first -- until it resolves the dialog falls back to "Doctor <id>".
+    await within(screen.getByLabelText("Add doctor")).findByRole("option", { name: "AB" });
+    const doctorRows = screen.getByRole("list", { name: "Doctor eligibility rows" });
+    expect(within(doctorRows).getByText("NN")).toBeInTheDocument();
+
+    await user.click(within(doctorRows).getByRole("button", { name: "Remove" }));
+
+    expect(within(doctorRows).queryByText("NN")).not.toBeInTheDocument();
+  });
+});
