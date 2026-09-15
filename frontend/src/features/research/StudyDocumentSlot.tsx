@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import type { DragEvent } from "react";
 
 import type { ApiError } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
@@ -19,6 +20,10 @@ import type { StudyDocument } from "./types";
  * confirmed first - the replace is a single server-side transaction and
  * the superseded copy is gone from here afterwards (it is still on the
  * intranet, which is the record).
+ *
+ * Files arrive by drag and drop or through the file picker, following
+ * `EoiPage`: the two funnel into one handler, so the pre-checks and the
+ * replace confirmation cannot be skipped by using the other route.
  *
  * The blank/completed sentence sits in every upload control, not only at
  * the top of the page. It is the only control there is on what lands in
@@ -61,7 +66,9 @@ export function StudyDocumentSlot({
   showToast,
 }: StudyDocumentSlotProps) {
   const writeGate = useWriteGate();
+  const canWrite = writeGate.disabled !== true;
   const inputRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const upload = useUploadStudyDocument();
   const remove = useDeleteStudyDocument();
   const download = useDownloadStudyDocument();
@@ -101,6 +108,25 @@ export function StudyDocumentSlot({
     );
   }
 
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    if (canWrite && !isPending) {
+      setIsDragOver(true);
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDragOver(false);
+    if (!canWrite || isPending) {
+      return;
+    }
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      handleFileChosen(file);
+    }
+  }
+
   function handleDownload(document: StudyDocument) {
     download.mutate(
       { studyId, document },
@@ -109,7 +135,14 @@ export function StudyDocumentSlot({
   }
 
   return (
-    <div className="rounded border border-border p-3">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={handleDrop}
+      className={`rounded border p-3 ${
+        isDragOver ? "border-accent bg-accent/10" : "border-border"
+      }`}
+    >
       <p className="text-sm font-medium text-ink">{label}</p>
 
       {documents.length === 0 ? (
@@ -164,6 +197,7 @@ export function StudyDocumentSlot({
       >
         {holdsOne && documents.length > 0 ? `Replace ${label.toLowerCase()}` : "Upload"}
       </button>
+      <span className="ml-2 text-xs text-ink/50">or drop a file here</span>
       <p className="mt-1 text-xs text-ink/50">
         {ACCEPTED_UPLOAD_TEXT}, up to 5 MB. Blank study templates only - never a document
         filled in about a real person.

@@ -7,6 +7,7 @@ import type { ApiError } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { ToastDisplay, useToast } from "@/components/Toast";
 
+import { SetupStage } from "./SetupStage";
 import { StudyDocumentSlot } from "./StudyDocumentSlot";
 import { StudyFormDialog } from "./StudyFormDialog";
 import { useAdvanceStudy, useDeleteStudy, useRevertStudy, useStudy } from "./api";
@@ -166,17 +167,21 @@ function HeaderField({ label, children }: { label: string; children: ReactNode }
 }
 
 /**
- * The stage bodies. Setup's checklist and the recruitment pages are a
- * later task; the switch and its stubs are here so that the page shape -
- * header above, one body below - is settled before anything fills them.
+ * The stage bodies. Setup is built; the recruitment, recruitment-finished
+ * and close-down bodies are a later plan, written once the setup page has
+ * been used in anger. The stubs keep the page shape - header above, one
+ * body below - settled before anything fills them.
  */
-function StageBody({ stage }: { stage: StudyStage }) {
+function StageBody({
+  study,
+  showToast,
+}: {
+  study: Study;
+  showToast: (message: string) => void;
+}) {
+  const stage = study.stage;
   if (stage === "setup") {
-    return (
-      <p className="text-sm text-ink/50">
-        The setup checklist is not built yet.
-      </p>
-    );
+    return <SetupStage study={study} showToast={showToast} />;
   }
   if (stage === "recruitment_open") {
     return (
@@ -374,7 +379,7 @@ export function StudyPage() {
       <section className="mt-4 rounded border border-border p-3">
         <h3 className="text-sm font-semibold text-ink/70">{STAGE_LABELS[study.stage]}</h3>
         <div className="mt-2">
-          <StageBody stage={study.stage} />
+          <StageBody study={study} showToast={showToast} />
         </div>
       </section>
 
