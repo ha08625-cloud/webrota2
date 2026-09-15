@@ -51,13 +51,27 @@ def _write_csv(path, rows):
 
 def test_seed_rooms(session):
     rooms = seed_rooms(session)
-    assert len(rooms) == 14
+    assert len(rooms) == 18
     by_code = {r.code: r for r in rooms}
     assert by_code["D1"].room_type == RoomType.D
     assert by_code["D1"].site == Site.SHC
     assert by_code["C1"].site == Site.CUTTESLOWE
     assert by_code["W1"].site == Site.WOLVERCOTE
     assert by_code["SR"].room_type == RoomType.SR
+    # The treatment rooms share one type and differ by site: TR1-3 are at SHC,
+    # CK is the Cutteslowe kitchen.
+    for code in ("TR1", "TR2", "TR3", "CK"):
+        assert by_code[code].room_type == RoomType.TR
+    assert by_code["TR1"].site == Site.SHC
+    assert by_code["CK"].site == Site.CUTTESLOWE
+
+
+def test_seed_rooms_is_rerunnable(session):
+    """Migration 019 inserts the treatment rooms, so seeding must not collide."""
+    first = seed_rooms(session)
+    second = seed_rooms(session)
+    assert [r.id for r in second] == [r.id for r in first]
+    assert session.execute(select(Room)).scalars().all() == first
 
 
 # --- doctors ---
