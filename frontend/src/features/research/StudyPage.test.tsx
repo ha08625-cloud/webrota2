@@ -171,6 +171,49 @@ describe("StudyPage transitions", () => {
   });
 });
 
+describe("StudyPage stage bodies", () => {
+  it("swaps the setup checklist for the stub on advancing, keeping the key documents", async () => {
+    const study = makeStudy({
+      documents: [makeDocument({ id: 10, slot: "consent_form", filename: "consent-v2.pdf" })],
+    });
+    let stage: Study["stage"] = "setup";
+    server.use(
+      http.get("/api/v1/research/studies/1", () => HttpResponse.json({ ...study, stage })),
+      http.post("/api/v1/research/studies/1/advance", () => {
+        stage = "recruitment_open";
+        return HttpResponse.json({ ...study, stage });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<StudyPage />, {
+      area: "research",
+      permissions: PERMISSION_PRESETS.research,
+      route: "/research/studies/1",
+      path: "/research/studies/:studyId",
+      additionalRoutes: [{ path: "/research", element: <p>Studies list</p> }],
+    });
+
+    expect(await screen.findByLabelText("Sign mNCA date")).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: "Open recruitment" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Move on" }));
+
+    // The checklist is Setup's, and it goes with Setup - hidden, not
+    // deleted, so moving back a stage brings it straight back.
+    expect(await screen.findByText("More to come here.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Sign mNCA date")).not.toBeInTheDocument();
+
+    // The header outlives the stage: the three key documents are still
+    // there, which is the whole point of drawing them above the body.
+    const keyDocuments = screen.getByText("Key documents").closest("section") as HTMLElement;
+    expect(
+      within(keyDocuments).getByRole("button", { name: "consent-v2.pdf" }),
+    ).toBeInTheDocument();
+    expect(within(keyDocuments).getByText("Flow chart")).toBeInTheDocument();
+  });
+});
+
 describe("StudyPage delete", () => {
   it("deletes a study still in setup and returns to the list", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
