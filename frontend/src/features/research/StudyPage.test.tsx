@@ -81,11 +81,18 @@ describe("StudyPage header", () => {
       }),
     );
 
-    expect(await screen.findByText("Flow chart")).toBeInTheDocument();
-    expect(screen.getByText("Patient information leaflet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "consent-v2.pdf" })).toBeInTheDocument();
+    // Scoped to the header's section: the Setup body below draws slots of
+    // its own, and this is the assertion that there are three key ones.
+    const keyDocuments = (await screen.findByText("Key documents")).closest(
+      "section",
+    ) as HTMLElement;
+    expect(within(keyDocuments).getByText("Flow chart")).toBeInTheDocument();
+    expect(within(keyDocuments).getByText("Patient information leaflet")).toBeInTheDocument();
+    expect(
+      within(keyDocuments).getByRole("button", { name: "consent-v2.pdf" }),
+    ).toBeInTheDocument();
     // The two empty slots say so rather than disappearing.
-    expect(screen.getAllByText("Nothing uploaded.")).toHaveLength(2);
+    expect(within(keyDocuments).getAllByText("Nothing uploaded.")).toHaveLength(2);
   });
 
   it("carries the standing no-participant-data line", async () => {

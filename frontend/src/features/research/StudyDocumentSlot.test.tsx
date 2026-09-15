@@ -1,5 +1,5 @@
 import { HttpResponse, http } from "msw";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -118,6 +118,40 @@ describe("StudyDocumentSlot", () => {
     await user.click(screen.getByRole("button", { name: "Remove" }));
 
     expect(deleted).toBe(true);
+  });
+
+  // Drag and drop and the file picker funnel into one handler, so the
+  // pre-checks and the replace confirmation cannot be skipped by using
+  // the other route.
+  it("takes a dropped file, through the same checks as the picker", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirm.mockClear();
+    let posted = false;
+    server.use(
+      http.post("/api/v1/research/studies/1/documents", () => {
+        posted = true;
+        return HttpResponse.json(makeDocument(), { status: 201 });
+      }),
+    );
+    renderSlot({ documents: [makeDocument()] });
+
+    const zone = screen.getByLabelText("Upload Consent form").parentElement as HTMLElement;
+    fireEvent.drop(zone, { dataTransfer: { files: [pdf()] } });
+
+    expect(confirm).toHaveBeenCalled();
+    await vi.waitFor(() => expect(posted).toBe(true));
+  });
+
+  it("rejects a dropped file that is too large without uploading it", () => {
+    const showToast = vi.fn();
+    renderSlot({ showToast });
+
+    const zone = screen.getByLabelText("Upload Consent form").parentElement as HTMLElement;
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [pdf("big.pdf", 5 * 1024 * 1024 + 1)] },
+    });
+
+    expect(showToast).toHaveBeenCalledWith("File exceeds 5 MB");
   });
 
   it("names the accepted types and the blank-template rule in the upload control", () => {
