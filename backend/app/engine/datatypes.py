@@ -244,33 +244,34 @@ class CounterState:
 
     clinic: dict[tuple[int, int], int] = field(default_factory=dict)
     system: dict[tuple[int, SystemCounterType], int] = field(default_factory=dict)
-    clinic_balance: dict[tuple[int, int], float] = field(default_factory=dict)
-    system_balance: dict[tuple[int, SystemCounterType], float] = field(default_factory=dict)
+    clinic_adjustment: dict[tuple[int, int], float] = field(default_factory=dict)
+    system_adjustment: dict[tuple[int, SystemCounterType], float] = field(default_factory=dict)
     _new_clinic_keys: set[tuple[int, int]] = field(default_factory=set, repr=False)
 
-    def clinic_opening_balance(self, doctor_id: int, clinic_type_id: int) -> float:
-        """The credited opening balance, 0.0 when none is stored."""
-        return self.clinic_balance.get((doctor_id, clinic_type_id), 0.0)
+    def clinic_adjustment_for(self, doctor_id: int, clinic_type_id: int) -> float:
+        """The stored counter adjustment, 0.0 when none is stored."""
+        return self.clinic_adjustment.get((doctor_id, clinic_type_id), 0.0)
 
-    def system_opening_balance(
+    def system_adjustment_for(
         self, doctor_id: int, counter_type: SystemCounterType
     ) -> float:
-        """The credited opening balance, 0.0 when none is stored."""
-        return self.system_balance.get((doctor_id, counter_type), 0.0)
+        """The stored counter adjustment, 0.0 when none is stored."""
+        return self.system_adjustment.get((doctor_id, counter_type), 0.0)
 
     def weighted_clinic_score(self, doctor_id: int, clinic_type_id: int, spw: float) -> float:
-        """`(raw + opening balance) / sessions_per_week`.
+        """`(raw + adjustment) / sessions_per_week`.
 
-        Missing key treated as raw=0 and balance=0.0. spw=0 -> inf. The
-        balance is a credit in sessions for a mid-year joiner, so they start
-        level with their peers instead of at zero; `increment_clinic` never
-        touches it, which is what keeps the draft snapshot contract (raw
-        counts only) true.
+        Missing key treated as raw=0 and adjustment=0.0. spw=0 -> inf. The
+        adjustment is a signed nudge in sessions for any exceptional reason
+        the raw count misrepresents a fair share -- a mid-year joiner, a
+        compassionate or long-term absence -- so the doctor is not read as
+        maximally under-loaded; `increment_clinic` never touches it, which
+        is what keeps the draft snapshot contract (raw counts only) true.
         """
         if spw == 0:
             return math.inf
         raw = self.clinic.get((doctor_id, clinic_type_id), 0)
-        return (raw + self.clinic_opening_balance(doctor_id, clinic_type_id)) / spw
+        return (raw + self.clinic_adjustment_for(doctor_id, clinic_type_id)) / spw
 
     def weighted_system_score(
         self,
@@ -279,19 +280,19 @@ class CounterState:
         spw: float,
         multiplier: float = 1.0,
     ) -> float:
-        """`(raw + opening balance) / spw`, scaled by `multiplier`.
+        """`(raw + adjustment) / spw`, scaled by `multiplier`.
 
         `spw=0` -> inf regardless of `multiplier` -- an undefined score stays
         undefined. `multiplier` is currently only passed by Phase 9C
         (supervision-preference weighting of the SUPERVISION counter);
         ROOM_MOVE callers pass nothing and get the unscaled score, unchanged
         from before this parameter existed. See `weighted_clinic_score` for
-        what the opening balance is and why it is held apart from `raw`.
+        what the adjustment is and why it is held apart from `raw`.
         """
         if spw == 0:
             return math.inf
         raw = self.system.get((doctor_id, counter_type), 0)
-        return ((raw + self.system_opening_balance(doctor_id, counter_type)) / spw) * multiplier
+        return ((raw + self.system_adjustment_for(doctor_id, counter_type)) / spw) * multiplier
 
     def increment_clinic(self, doctor_id: int, clinic_type_id: int) -> None:
         key = (doctor_id, clinic_type_id)

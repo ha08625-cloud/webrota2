@@ -13,8 +13,8 @@ import {
   useResetAllSystemCounters,
   useResetClinicCounter,
   useResetSystemCounter,
-  useSetClinicOpeningBalance,
-  useSetSystemOpeningBalance,
+  useSetClinicAdjustment,
+  useSetSystemAdjustment,
   useSystemCounters,
 } from "./counters";
 
@@ -145,22 +145,22 @@ describe("useResetAllSystemCounters", () => {
     expect(called).toBe(true);
   });
 });
-describe("useSetClinicOpeningBalance", () => {
-  it("puts the (doctor, clinic type) pair and the sessions to /counters/clinic/opening-balance", async () => {
+describe("useSetClinicAdjustment", () => {
+  it("puts the (doctor, clinic type) pair and the sessions to /counters/clinic/adjustment", async () => {
     let body: unknown = null;
     server.use(
-      http.put("/api/v1/counters/clinic/opening-balance", async ({ request }) => {
+      http.put("/api/v1/counters/clinic/adjustment", async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(makeClinicCounter({ opening_balance: "3.2" }));
+        return HttpResponse.json(makeClinicCounter({ adjustment: "3.2" }));
       }),
     );
 
-    const { result } = renderHook(() => useSetClinicOpeningBalance(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useSetClinicAdjustment(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
-    expect(result.current.data?.opening_balance).toBe("3.2");
+    expect(result.current.data?.adjustment).toBe("3.2");
   });
 
   it("triggers a refetch of the clinic counter list on success", async () => {
@@ -170,8 +170,8 @@ describe("useSetClinicOpeningBalance", () => {
         getCallCount += 1;
         return HttpResponse.json([makeClinicCounter()]);
       }),
-      http.put("/api/v1/counters/clinic/opening-balance", () =>
-        HttpResponse.json(makeClinicCounter({ opening_balance: "3.2" })),
+      http.put("/api/v1/counters/clinic/adjustment", () =>
+        HttpResponse.json(makeClinicCounter({ adjustment: "3.2" })),
       ),
     );
 
@@ -179,7 +179,7 @@ describe("useSetClinicOpeningBalance", () => {
     const { result: listResult } = renderHook(() => useClinicCounters(), { wrapper: makeWrapper(queryClient) });
     await waitFor(() => expect(listResult.current.isSuccess).toBe(true));
 
-    const { result: saveResult } = renderHook(() => useSetClinicOpeningBalance(), {
+    const { result: saveResult } = renderHook(() => useSetClinicAdjustment(), {
       wrapper: makeWrapper(queryClient),
     });
     saveResult.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
@@ -189,19 +189,19 @@ describe("useSetClinicOpeningBalance", () => {
   });
 });
 
-describe("useSetSystemOpeningBalance", () => {
-  it("puts the sessions to /counters/system/:id/opening-balance", async () => {
+describe("useSetSystemAdjustment", () => {
+  it("puts the sessions to /counters/system/:id/adjustment", async () => {
     let calledId = "";
     let body: unknown = null;
     server.use(
-      http.put("/api/v1/counters/system/:id/opening-balance", async ({ params, request }) => {
+      http.put("/api/v1/counters/system/:id/adjustment", async ({ params, request }) => {
         calledId = params.id as string;
         body = await request.json();
-        return HttpResponse.json(makeSystemCounter({ opening_balance: "-1.5" }));
+        return HttpResponse.json(makeSystemCounter({ adjustment: "-1.5" }));
       }),
     );
 
-    const { result } = renderHook(() => useSetSystemOpeningBalance(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useSetSystemAdjustment(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate({ counterId: 9, sessions: "-1.5" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

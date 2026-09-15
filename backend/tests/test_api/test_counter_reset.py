@@ -104,7 +104,7 @@ class TestResetAllClinic:
         db_session.commit()
 
         # The trainee's row is invisible to the GET endpoint (Partner/Salaried
-        # only). The counted doctors both appear -- since the opening-balance
+        # only). The counted doctors both appear -- since the adjustment
         # work the GET returns the full counted-doctor x clinic-type
         # cross-product, so BB is listed with a synthetic zero row even though
         # it has no ClinicCounter of its own.

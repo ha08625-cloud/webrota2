@@ -27,7 +27,7 @@ def _clinic_counters(client):
 def _stored_clinic_counters(client):
     """Only the pairs that actually have a `clinic_counters` row.
 
-    Since the opening-balance work the list endpoint returns the full
+    Since the adjustment work the list endpoint returns the full
     counted-doctor x clinic-type cross-product, with `id: null` for a pair
     with no row -- so a row deleted by scrap/rollback now shows up as a null
     id rather than as an absent entry, and "the row is gone" has to be

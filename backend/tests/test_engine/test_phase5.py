@@ -683,9 +683,9 @@ class TestDecisionLogRationale:
             "Decided on: weighted counter -- ZZ has the lowest weighted count, 0.100."
         )
 
-    def test_opening_balance_decides_and_is_shown_in_the_line(self, session, config_1wk):
+    def test_adjustment_decides_and_is_shown_in_the_line(self, session, config_1wk):
         # Two doctors identical on tier, raw count and sessions per week.
-        # The joiner's opening balance is the only difference, so it decides
+        # The joiner's adjustment is the only difference, so it decides
         # -- and the line has to say so, or its stated division (raw 0 / 10)
         # would not produce its stated score.
         t = make_template(session, is_active=True)
@@ -699,7 +699,7 @@ class TestDecisionLogRationale:
             doctor_eligibilities=[(joiner.id, 1), (peer.id, 1)],
         )
         make_clinic_counter(
-            session, joiner, ct, raw_count=0, opening_balance=Decimal("5.0")
+            session, joiner, ct, raw_count=0, adjustment=Decimal("5.0")
         )
         make_clinic_counter(session, peer, ct, raw_count=0)
 
@@ -709,7 +709,7 @@ class TestDecisionLogRationale:
 
         entry = next(e for e in log.entries if e.action == "assign_clinic")
         assert (
-            "AA (priority tier 1, raw 0 (+5 opening balance) / 10 sessions "
+            "AA (priority tier 1, raw 0 (+5 adjustment) / 10 sessions "
             "per week = 0.500)" in entry.rationale
         )
         assert "BB (priority tier 1, raw 0 / 10 sessions per week = 0.000)" in entry.rationale

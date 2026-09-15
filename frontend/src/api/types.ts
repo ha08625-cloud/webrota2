@@ -747,12 +747,12 @@ export interface DutyCount {
   doctor_code: string;
   raw_count: number;
   /**
-   * Sessions credited to this doctor before the weighted score is
-   * computed - see ClinicCounter.opening_balance. Year-scoped for duty
+   * Sessions added to this doctor's count before the weighted score is
+   * computed - see ClinicCounter.adjustment. Year-scoped for duty
    * (the count it adjusts restarts each 1 January), and resolved from the
    * year of the request's `from_date`; an unranged request returns "0.0".
    */
-  opening_balance: string;
+  adjustment: string;
 }
 
 // --- Practice closures (schemas/closure.py) ---
@@ -856,7 +856,7 @@ export interface RecurringNoteIn {
 
 // --- Counters (schemas/counter.py) ---
 // Raw counts are mutated by generation and swap-roles; the only writes
-// exposed here are reset-to-zero and the opening-balance upserts (see
+// exposed here are reset-to-zero and the adjustment upserts (see
 // routers/counters.py's docstring and api/counters.ts).
 //
 // Neither schema carries a weighted score: counter.py documents
@@ -870,10 +870,10 @@ export interface RecurringNoteIn {
 export interface ClinicCounter {
   /**
    * Null for a (doctor, clinic type) pair with no counter row yet. Rows are
-   * created lazily - on first allocation, or by the opening-balance upsert -
+   * created lazily - on first allocation, or by the adjustment upsert -
    * and the list endpoint returns the full cross-product so that a doctor
    * who has never been allocated this clinic type can still be given an
-   * opening balance. There is nothing to reset on such a row.
+   * adjustment. There is nothing to reset on such a row.
    */
   id: number | null;
   doctor_id: number;
@@ -882,13 +882,14 @@ export interface ClinicCounter {
   clinic_type_name: string;
   raw_count: number;
   /**
-   * Sessions credited to this doctor on top of `raw_count` before the
-   * weighted score is computed, so that a doctor whose count does not cover
-   * the whole period the others' counts do is not read as under-loaded.
+   * A signed nudge in sessions added to `raw_count` before the weighted
+   * score is computed, for any exceptional reason the raw count
+   * misrepresents a fair share - a mid-year joiner, or a compassionate or
+   * long-term absence - so the doctor is not read as under-loaded.
    * A Decimal on the backend and therefore a JSON string here (e.g. "3.2"),
    * like `Doctor.sessions_per_week` - parse it before doing arithmetic.
    */
-  opening_balance: string;
+  adjustment: string;
 }
 
 export interface SystemCounter {
@@ -897,9 +898,9 @@ export interface SystemCounter {
   doctor_code: string;
   counter_type: SystemCounterKind;
   raw_count: number;
-  /** See ClinicCounter.opening_balance. System counter rows are seeded per
+  /** See ClinicCounter.adjustment. System counter rows are seeded per
    * doctor, so unlike clinic counters they always exist. */
-  opening_balance: string;
+  adjustment: string;
 }
 
 /** SystemCounterType (enums.py) - named with a `Kind` suffix here since `SystemCounter` is already taken by the row type above. */

@@ -544,16 +544,16 @@ def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
     system_before = {(s.doctor_id, s.counter_type): s.value_before for s in system_snaps}
 
     # Restore snapshotted rows; delete rows created after the snapshot --
-    # except where such a row carries an opening balance, which is never
+    # except where such a row carries a counter adjustment, which is never
     # snapshotted because the engine never writes it. Deleting that row would
-    # destroy an admin's balance edit made during the draft, so it is kept
+    # destroy an admin's adjustment made during the draft, so it is kept
     # with its raw count zeroed: a row absent from the snapshot had no
     # pre-generation count to restore.
     for row in db.execute(select(ClinicCounter)).scalars().all():
         key = (row.doctor_id, row.clinic_type_id)
         if key in clinic_before:
             row.raw_count = clinic_before.pop(key)
-        elif row.opening_balance:
+        elif row.adjustment:
             row.raw_count = 0
         else:
             db.delete(row)
@@ -561,7 +561,7 @@ def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
         key = (row.doctor_id, row.counter_type)
         if key in system_before:
             row.raw_count = system_before.pop(key)
-        elif row.opening_balance:
+        elif row.adjustment:
             row.raw_count = 0
         else:
             db.delete(row)

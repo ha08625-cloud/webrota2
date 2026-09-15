@@ -337,26 +337,26 @@ class TestCounterStateLoading:
         # must UPDATE these, not INSERT.
         assert counters.is_new_clinic_key(d.id, ct.id) is False
 
-    def test_opening_balances_loaded_as_floats(self, session, monday):
+    def test_adjustments_loaded_as_floats(self, session, monday):
         # Numeric(5,1) arrives as Decimal; the engine does float arithmetic
         # throughout, and Decimal / float raises TypeError -- so the
         # conversion has to happen here, at the load boundary.
         t = make_template(session, is_active=True)
         d = make_doctor(session, code="AA", spw="4.0")
         ct = make_clinic_type(session, name="Dragon")
-        make_clinic_counter(session, d, ct, raw_count=0, opening_balance=Decimal("3.2"))
+        make_clinic_counter(session, d, ct, raw_count=0, adjustment=Decimal("3.2"))
         make_system_counter(
             session, d, SystemCounterType.ROOM_MOVE, raw_count=1,
-            opening_balance=Decimal("-1.5"),
+            adjustment=Decimal("-1.5"),
         )
 
         config = RotaConfig(start_date=monday, num_weeks=1, template_start_week=1)
         ctx = load_context(session, config)
         grid, counters = run_phase2(ctx, config, session)
 
-        assert counters.clinic_balance[(d.id, ct.id)] == pytest.approx(3.2)
-        assert isinstance(counters.clinic_balance[(d.id, ct.id)], float)
-        assert counters.system_balance[
+        assert counters.clinic_adjustment[(d.id, ct.id)] == pytest.approx(3.2)
+        assert isinstance(counters.clinic_adjustment[(d.id, ct.id)], float)
+        assert counters.system_adjustment[
             (d.id, SystemCounterType.ROOM_MOVE)
         ] == pytest.approx(-1.5)
         # And the score they feed is computable without a TypeError.
@@ -370,5 +370,5 @@ class TestCounterStateLoading:
 
         assert counters.clinic == {}
         assert counters.system == {}
-        assert counters.clinic_balance == {}
-        assert counters.system_balance == {}
+        assert counters.clinic_adjustment == {}
+        assert counters.system_adjustment == {}

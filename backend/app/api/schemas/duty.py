@@ -4,7 +4,6 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ...models.duty_opening_balance import NOTES_MAX_LENGTH
 from ...models.enums import DutyType, Period
 
 # A guard on the year field, not a business rule -- the same range
@@ -13,8 +12,8 @@ from ...models.enums import DutyType, Period
 MIN_DUTY_YEAR = 2000
 MAX_DUTY_YEAR = 2100
 
-# Matches DutyOpeningBalance.sessions' Numeric(5,1) column.
-_BALANCE_LIMIT = 9999
+# Matches DutyCounterAdjustment.adjustment's Numeric(5,1) column.
+_ADJUSTMENT_LIMIT = 9999
 
 
 class DutyBase(BaseModel):
@@ -42,10 +41,10 @@ class DutyOut(DutyBase):
     model_config = {"from_attributes": True}
 
 class DutyCountOut(BaseModel):
-    """One doctor's duty count over the requested range, plus the opening
-    balance the weighted score adds to it.
+    """One doctor's duty count over the requested range, plus the
+    adjustment the weighted score adds to it.
 
-    `opening_balance` is a `Decimal` and so serialises as a JSON string, like
+    `adjustment` is a `Decimal` and so serialises as a JSON string, like
     every other session quantity on this API (`DoctorOut.sessions_per_week`,
     the leave entitlement figures).
     """
@@ -53,29 +52,30 @@ class DutyCountOut(BaseModel):
     doctor_id: int
     doctor_code: str
     raw_count: int
-    opening_balance: Decimal
+    adjustment: Decimal
 
 
-class DutyOpeningBalanceIn(BaseModel):
-    """Upsert body for one doctor's duty opening balance in one year.
+class DutyAdjustmentIn(BaseModel):
+    """Upsert body for one doctor's duty counter adjustment in one year.
 
     Year-scoped because the count it adjusts is: the duty grid reads a whole
     calendar year, and by the next 1 January the count restarts and every
     doctor is genuinely level again.
 
     Setting `sessions` to zero deletes the row rather than storing a zero, so
-    the table holds only real deviations (the `LeaveEntitlement` principle) --
-    which means `notes` are deleted with it. Notes describe why a credit
-    exists, so there is nothing for them to describe once it does not.
+    the table holds only real deviations (the `LeaveEntitlement` principle).
+
+    The request field is `sessions` while the column it sets is
+    `adjustment`: the field says what the number is denominated in, the
+    column says what it is for.
     """
 
     doctor_id: int
     year: int = Field(ge=MIN_DUTY_YEAR, le=MAX_DUTY_YEAR)
-    sessions: Decimal = Field(ge=-_BALANCE_LIMIT, le=_BALANCE_LIMIT)
-    notes: str | None = Field(default=None, max_length=NOTES_MAX_LENGTH)
+    sessions: Decimal = Field(ge=-_ADJUSTMENT_LIMIT, le=_ADJUSTMENT_LIMIT)
 
     @model_validator(mode="after")
-    def _one_decimal_place(self) -> "DutyOpeningBalanceIn":
+    def _one_decimal_place(self) -> "DutyAdjustmentIn":
         """Reject more than one decimal place, then normalise to exactly one --
         see the identical validator in schemas/counter.py."""
         quantized = self.sessions.quantize(Decimal("0.1"))

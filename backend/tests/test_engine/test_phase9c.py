@@ -523,11 +523,11 @@ class TestDecisionLogRationale:
     each doctor's raw count, sessions-per-week and preference multiplier,
     and the stage that decided."""
 
-    def test_pool_line_shows_the_opening_balance_before_the_multiplier(
+    def test_pool_line_shows_the_adjustment_before_the_multiplier(
         self, session, config_1wk
     ):
         # The supervision line reports the unweighted score, then applies
-        # the preference multiplier to it. The balance belongs to the first
+        # the preference multiplier to it. The adjustment belongs to the first
         # of those, so the line's own arithmetic stays followable end to end.
         t = make_template(session, is_active=True)
         trainee = make_doctor(session, code="TT", doctor_type=DoctorType.TRAINEE)
@@ -544,7 +544,7 @@ class TestDecisionLogRationale:
         _pre_assigned(session, t, peer, make_room(session, code="D2", room_type=RoomType.D))
         make_system_counter(
             session, joiner, SystemCounterType.SUPERVISION, raw_count=2,
-            opening_balance=Decimal("4.0"),
+            adjustment=Decimal("4.0"),
         )
         make_system_counter(session, peer, SystemCounterType.SUPERVISION, raw_count=2)
 
@@ -554,7 +554,7 @@ class TestDecisionLogRationale:
 
         entry = next(e for e in log.entries if e.action == "assign_supervisor")
         assert (
-            "AA: raw 2 (+4 opening balance) / 10 sessions per week = 0.600, "
+            "AA: raw 2 (+4 adjustment) / 10 sessions per week = 0.600, "
             "supervision preference normal (x1) -> 0.600" in entry.rationale
         )
         assert (

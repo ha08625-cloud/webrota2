@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { makeDutyAssignment } from "@/test/fixtures/reference";
 
-import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts, useSetDutyOpeningBalance } from "./duty";
+import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts, useSetDutyAdjustment } from "./duty";
 
 function makeWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -143,34 +143,34 @@ describe("useDutyCounts", () => {
     expect(second.result.current.data?.[0].raw_count).toBe(2);
   });
 });
-describe("useSetDutyOpeningBalance", () => {
-  it("puts the doctor, year and sessions to /duty/opening-balance", async () => {
+describe("useSetDutyAdjustment", () => {
+  it("puts the doctor, year and sessions to /duty/adjustment", async () => {
     let body: unknown = null;
     server.use(
-      http.put("/api/v1/duty/opening-balance", async ({ request }) => {
+      http.put("/api/v1/duty/adjustment", async ({ request }) => {
         body = await request.json();
         return HttpResponse.json({
-          doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "3.2",
+          doctor_id: 1, doctor_code: "AB", raw_count: 0, adjustment: "3.2",
         });
       }),
     );
 
-    const { result } = renderHook(() => useSetDutyOpeningBalance(), { wrapper: makeWrapper(freshClient()) });
+    const { result } = renderHook(() => useSetDutyAdjustment(), { wrapper: makeWrapper(freshClient()) });
     result.current.mutate({ doctor_id: 1, year: 2026, sessions: "3.2" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(body).toEqual({ doctor_id: 1, year: 2026, sessions: "3.2" });
   });
 
-  it("refetches a ranged counts query on success, since the balance applies to whichever range starts in that year", async () => {
+  it("refetches a ranged counts query on success, since the adjustment applies to whichever range starts in that year", async () => {
     let getCallCount = 0;
     server.use(
       http.get("/api/v1/duty/counts", () => {
         getCallCount += 1;
-        return HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "0.0" }]);
+        return HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 0, adjustment: "0.0" }]);
       }),
-      http.put("/api/v1/duty/opening-balance", () =>
-        HttpResponse.json({ doctor_id: 1, doctor_code: "AB", raw_count: 0, opening_balance: "3.2" }),
+      http.put("/api/v1/duty/adjustment", () =>
+        HttpResponse.json({ doctor_id: 1, doctor_code: "AB", raw_count: 0, adjustment: "3.2" }),
       ),
     );
 
@@ -182,7 +182,7 @@ describe("useSetDutyOpeningBalance", () => {
     await waitFor(() => expect(countsResult.current.isSuccess).toBe(true));
     expect(getCallCount).toBe(1);
 
-    const { result: saveResult } = renderHook(() => useSetDutyOpeningBalance(), {
+    const { result: saveResult } = renderHook(() => useSetDutyAdjustment(), {
       wrapper: makeWrapper(queryClient),
     });
     saveResult.current.mutate({ doctor_id: 1, year: 2026, sessions: "3.2" });

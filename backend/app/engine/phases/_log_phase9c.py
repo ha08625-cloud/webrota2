@@ -117,7 +117,7 @@ def _pool_rationale(
         doctor = context.doctor_by_id[slot.doctor_id]
         spw = context.spw_by_id.get(slot.doctor_id, 0.0)
         raw = counters.system.get((slot.doctor_id, SystemCounterType.SUPERVISION), 0)
-        balance = counters.system_opening_balance(
+        adjustment = counters.system_adjustment_for(
             slot.doctor_id, SystemCounterType.SUPERVISION
         )
         multiplier = PREFERENCE_MULTIPLIERS[doctor.supervision_preference]
@@ -127,7 +127,7 @@ def _pool_rationale(
         # the room they end up in is the SR room this phase books for them.
         return (
             f"{doctor.code}: "
-            f"{rat.score(raw, spw, unweighted, balance)}"
+            f"{rat.score(raw, spw, unweighted, adjustment)}"
             f", supervision preference {doctor.supervision_preference.value} "
             f"(x{multiplier:g}) -> "
             f"{rat.fmt(supervision_score(context, counters, slot.doctor_id))}"

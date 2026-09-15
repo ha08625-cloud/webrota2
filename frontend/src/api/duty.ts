@@ -67,21 +67,21 @@ export function useDutyCounts(range?: DutyCountsRange) {
  * table holds only real deviations.
  *
  * Invalidates every duty key, not just the counts for this year: the counts
- * query key includes the range, and the balance applies to whichever range
+ * query key includes the range, and the adjustment applies to whichever range
  * starts in `year`.
  */
-export interface DutyOpeningBalanceIn {
+export interface DutyAdjustmentIn {
   doctor_id: number;
   year: number;
   sessions: string;
   notes?: string | null;
 }
 
-export function useSetDutyOpeningBalance() {
+export function useSetDutyAdjustment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: DutyOpeningBalanceIn) =>
-      apiClient.put<DutyCount>("/duty/opening-balance", payload),
+    mutationFn: (payload: DutyAdjustmentIn) =>
+      apiClient.put<DutyCount>("/duty/adjustment", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: dutyKeys.all });
     },

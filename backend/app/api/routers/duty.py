@@ -36,15 +36,17 @@ pydantic validation error), consistent with this router's existing 404/409
 responses - not the FastAPI validation-error list shape a model_validator
 would have produced.
 
-The duty opening balance (`app/models/duty_opening_balance.py`) is read by
-GET /counts and written by PUT /opening-balance. It is the duty-side sibling
-of the counter opening balances in routers/counters.py: a credit in duty
-sessions, added to the counted total before it is divided by
-sessions_per_week, so a doctor who joined part-way through the year is not
-read as maximally under-loaded and made the grid's suggested pick for weeks.
-Unlike the counter balances it is year-scoped, because the count it adjusts
-restarts every 1 January - at which point every doctor is genuinely level
-again and no credit should survive.
+The duty counter adjustment (`app/models/duty_counter_adjustment.py`) is
+read by GET /counts and written by PUT /adjustment. It is the duty-side
+sibling of the counter adjustments in routers/counters.py: a signed nudge in
+duty sessions, added to the counted total before it is divided by
+sessions_per_week, for any exceptional reason the raw count misrepresents a
+fair share - a doctor who joined part-way through the year, or one back from
+a compassionate or long-term absence, is otherwise read as maximally
+under-loaded and made the grid's suggested pick for weeks. Unlike the
+counter adjustments it is year-scoped, because the count it adjusts restarts
+every 1 January - at which point every doctor is genuinely level again and
+no adjustment should survive.
 """
 from __future__ import annotations
 
@@ -60,13 +62,13 @@ from ...doctor_window import is_within_window, window_error_detail
 from ...models import (
     Doctor,
     DutyAssignment,
-    DutyOpeningBalance,
+    DutyCounterAdjustment,
     PracticeClosure,
     User,
 )
 from ...models.enums import DutyType, Period
 from ..deps import get_current_user, get_db
-from ..schemas import DutyCountOut, DutyIn, DutyOpeningBalanceIn, DutyOut
+from ..schemas import DutyAdjustmentIn, DutyCountOut, DutyIn, DutyOut
 
 _ZERO = Decimal("0.0")
 
@@ -109,14 +111,14 @@ def duty_counts(
     user: User = Depends(get_current_user),
 ) -> list[DutyCountOut]:
     """Duty counts per active doctor over the requested range, each with the
-    opening balance the weighted score adds to it.
+    adjustment the weighted score adds to it.
 
-    The balance is year-scoped (`DutyOpeningBalance`), and the year is taken
-    from `from_date`; with no `from_date` every balance is zero. The Duty page
-    is the only caller and always asks for a whole calendar year, so the
-    resolution is exact for it -- a range straddling a year boundary gets the
-    balance of the year it starts in rather than a sum across years, which is
-    a case that does not arise.
+    The adjustment is year-scoped (`DutyCounterAdjustment`), and the year is
+    taken from `from_date`; with no `from_date` every adjustment is zero. The
+    Duty page is the only caller and always asks for a whole calendar year,
+    so the resolution is exact for it -- a range straddling a year boundary
+    gets the adjustment of the year it starts in rather than a sum across
+    years, which is a case that does not arise.
 
     Note the pre-existing asymmetry with the counter endpoints, which this
     does not change: duty counts cover every active doctor, while
@@ -140,13 +142,13 @@ def duty_counts(
         .order_by(Doctor.code)
     ).all()
 
-    balances: dict[int, Decimal] = {}
+    adjustments: dict[int, Decimal] = {}
     if from_date is not None:
-        balances = {
-            row.doctor_id: row.sessions
+        adjustments = {
+            row.doctor_id: row.adjustment
             for row in db.execute(
-                select(DutyOpeningBalance).where(
-                    DutyOpeningBalance.year == from_date.year
+                select(DutyCounterAdjustment).where(
+                    DutyCounterAdjustment.year == from_date.year
                 )
             ).scalars()
         }
@@ -156,24 +158,24 @@ def duty_counts(
             doctor_id=i,
             doctor_code=c,
             raw_count=n,
-            opening_balance=balances.get(i, _ZERO),
+            adjustment=adjustments.get(i, _ZERO),
         )
         for i, c, n in rows
     ]
 
 
-@router.put("/opening-balance", response_model=DutyCountOut)
-def set_duty_opening_balance(
-    payload: DutyOpeningBalanceIn,
+@router.put("/adjustment", response_model=DutyCountOut)
+def set_duty_counter_adjustment(
+    payload: DutyAdjustmentIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DutyCountOut:
-    """Upsert one doctor's duty opening balance for one year.
+    """Upsert one doctor's duty counter adjustment for one year.
 
     Zero deletes the row, so the table holds only real deviations. The
     response carries that doctor's count for the year alongside the new
-    balance, so the caller can render the corrected weighted score without a
-    second request.
+    adjustment, so the caller can render the corrected weighted score without
+    a second request.
     """
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -182,9 +184,9 @@ def set_duty_opening_balance(
         )
 
     row = db.execute(
-        select(DutyOpeningBalance)
-        .where(DutyOpeningBalance.doctor_id == payload.doctor_id)
-        .where(DutyOpeningBalance.year == payload.year)
+        select(DutyCounterAdjustment)
+        .where(DutyCounterAdjustment.doctor_id == payload.doctor_id)
+        .where(DutyCounterAdjustment.year == payload.year)
     ).scalars().first()
 
     if payload.sessions == 0:
@@ -192,16 +194,14 @@ def set_duty_opening_balance(
             db.delete(row)
     elif row is None:
         db.add(
-            DutyOpeningBalance(
+            DutyCounterAdjustment(
                 doctor_id=payload.doctor_id,
                 year=payload.year,
-                sessions=payload.sessions,
-                notes=payload.notes,
+                adjustment=payload.sessions,
             )
         )
     else:
-        row.sessions = payload.sessions
-        row.notes = payload.notes
+        row.adjustment = payload.sessions
     db.commit()
 
     jan = datetime.date(payload.year, 1, 1)
@@ -217,7 +217,7 @@ def set_duty_opening_balance(
         doctor_id=doctor.id,
         doctor_code=doctor.code,
         raw_count=raw_count,
-        opening_balance=_ZERO if payload.sessions == 0 else payload.sessions,
+        adjustment=_ZERO if payload.sessions == 0 else payload.sessions,
     )
 
 
