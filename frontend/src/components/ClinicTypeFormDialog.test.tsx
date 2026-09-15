@@ -603,3 +603,33 @@ describe("ClinicTypeFormDialog - nurses are not selectable", () => {
     expect(within(doctorRows).queryByText("NN")).not.toBeInTheDocument();
   });
 });
+
+describe("ClinicTypeFormDialog - TR rooms are not selectable", () => {
+  // TR rooms (the nurse treatment rooms TR1-3 and the Cutteslowe kitchen CK)
+  // are never allocated by any generation phase, so a clinic type eligible
+  // for one could only mislead - the API rejects them by id and by type.
+  const roomsWithTr = [
+    makeRoom({ id: 1, code: "D1", room_type: "D" }),
+    makeRoom({ id: 2, code: "TR1", room_type: "TR", site: "SHC" }),
+    makeRoom({ id: 3, code: "CK", room_type: "TR", site: "Cutteslowe" }),
+  ];
+
+  it("the 'Add specific room' select offers no TR room", async () => {
+    setUpServer({ rooms: roomsWithTr });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomSelect = screen.getByLabelText("Add specific room");
+
+    expect(await within(roomSelect).findByRole("option", { name: "D1" })).toBeInTheDocument();
+    expect(within(roomSelect).queryByRole("option", { name: "TR1" })).not.toBeInTheDocument();
+    expect(within(roomSelect).queryByRole("option", { name: "CK" })).not.toBeInTheDocument();
+  });
+
+  it("the 'Add room type' select offers no TR option", async () => {
+    setUpServer({ rooms: roomsWithTr });
+    renderWithProviders(<ClinicTypeFormDialog open onOpenChange={() => {}} />);
+    const roomTypeSelect = screen.getByLabelText("Add room type");
+
+    await within(roomTypeSelect).findByRole("option", { name: "C" });
+    expect(within(roomTypeSelect).queryByRole("option", { name: "TR" })).not.toBeInTheDocument();
+  });
+});

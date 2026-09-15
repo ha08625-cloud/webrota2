@@ -39,7 +39,31 @@ describe("pivotRoomRota", () => {
   });
 
   it("covers every room type in ROOM_TYPE_ORDER", () => {
-    expect(ROOM_TYPE_ORDER).toEqual(["D", "C", "W", "SR"]);
+    expect(ROOM_TYPE_ORDER).toEqual(["D", "C", "W", "SR", "TR"]);
+  });
+
+  it("sorts the TR rooms last, below SR, rather than above the D rooms", () => {
+    // A room type missing from ROOM_TYPE_ORDER scores indexOf === -1 and
+    // would silently float to the top; TR belongs at the bottom.
+    const rooms = [
+      makeRoom({ id: 1, code: "TR1", room_type: "TR", site: "SHC" }),
+      makeRoom({ id: 2, code: "SR", room_type: "SR" }),
+      makeRoom({ id: 3, code: "D1", room_type: "D" }),
+      makeRoom({ id: 4, code: "C1", room_type: "C" }),
+    ];
+    const grid = pivotRoomRota([], rooms);
+    expect(grid.rows.map((r) => r.code)).toEqual(["D1", "C1", "SR", "TR1"]);
+  });
+
+  it("orders CK before TR1 within the TR group - code order, 'C' before 'T'", () => {
+    const rooms = [
+      makeRoom({ id: 1, code: "TR2", room_type: "TR", site: "SHC" }),
+      makeRoom({ id: 2, code: "TR1", room_type: "TR", site: "SHC" }),
+      makeRoom({ id: 3, code: "CK", room_type: "TR", site: "Cutteslowe" }),
+      makeRoom({ id: 4, code: "TR3", room_type: "TR", site: "SHC" }),
+    ];
+    const grid = pivotRoomRota([], rooms);
+    expect(grid.rows.map((r) => r.code)).toEqual(["CK", "TR1", "TR2", "TR3"]);
   });
 
   it("sorts numerically within a type via compareRoomDisplayOrder directly", () => {

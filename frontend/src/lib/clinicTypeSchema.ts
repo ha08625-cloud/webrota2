@@ -4,7 +4,14 @@ import type { ClinicType, ClinicTypeIn, Day, Period, RoomType } from "@/api/type
 
 const dayEnum = z.enum(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
 const periodEnum = z.enum(["AM", "PM"]);
-const roomTypeEnum = z.enum(["D", "C", "W", "SR"]);
+/**
+ * Every RoomType, deliberately not narrowed to the types the form offers.
+ * The pickers hide SR and TR, but this schema also has to parse whatever
+ * the API returns for an existing clinic type, and a row dropped here
+ * would be silently deleted by PUT's replace-children pattern rather than
+ * merely hidden. Same reasoning as the SR case that came first.
+ */
+const roomTypeEnum = z.enum(["D", "C", "W", "SR", "TR"]);
 
 const scheduleSchema = z.object({
   day: dayEnum,

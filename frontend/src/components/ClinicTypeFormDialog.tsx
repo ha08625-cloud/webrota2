@@ -23,7 +23,8 @@ const ROOM_TYPES: RoomType[] = ["D", "C", "W", "SR"];
 /** SR is held for trainee supervision (Phase 9C books it) and is not a
  * selectable clinic room -- the API rejects one either way. ROOM_TYPES
  * itself keeps SR: the identical constant in DoctorFormDialog.tsx needs it,
- * since a doctor may still prefer an SR room. */
+ * since a doctor may still prefer an SR room. TR is not in ROOM_TYPES at
+ * all, in either dialog: it is never a valid preference or eligibility. */
 const CLINIC_ROOM_TYPES: RoomType[] = ROOM_TYPES.filter((rt) => rt !== "SR");
 
 interface ClinicTypeFormDialogProps {
@@ -391,7 +392,7 @@ export function ClinicTypeFormDialog({ clinicType, open, onOpenChange }: ClinicT
                     Add specific room...
                   </option>
                   {(rooms ?? [])
-                    .filter((r) => r.room_type !== "SR")
+                    .filter((r) => r.room_type !== "SR" && r.room_type !== "TR")
                     .filter((r) => !values.roomEligibilities.some((row) => row.kind === "room" && row.roomId === r.id))
                     .map((r) => (
                       <option key={r.id} value={r.id}>

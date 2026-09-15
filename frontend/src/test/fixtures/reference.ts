@@ -12,8 +12,10 @@ import type {
   LeaveEntry,
   RecurringNote,
   Room,
+  RoomType,
   School,
   SchoolHoliday,
+  Site,
   SystemCounter,
   Permissions,
 } from "@/api/types";
@@ -47,12 +49,32 @@ export function makeDoctorDetail(overrides: Partial<DoctorDetail> = {}): DoctorD
 
 let roomIdCounter = 1;
 
+/**
+ * Default site per room type, so a fixture that names only a type still
+ * matches production data: every D and SR room is at SHC, every C room at
+ * Cutteslowe, every W room at Wolvercote. TR spans two sites (TR1-3 are
+ * SHC, CK is Cutteslowe), so it defaults to SHC and a CK fixture must
+ * pass `site` explicitly.
+ *
+ * This is a convenience for fixtures only - production code derives the
+ * cell font colour from `site` precisely because type is not a reliable
+ * proxy for it (see cellStyle.ts).
+ */
+const DEFAULT_SITE_FOR_ROOM_TYPE: Record<RoomType, Site> = {
+  D: "SHC",
+  SR: "SHC",
+  TR: "SHC",
+  C: "Cutteslowe",
+  W: "Wolvercote",
+};
+
 export function makeRoom(overrides: Partial<Room> = {}): Room {
+  const roomType = overrides.room_type ?? "D";
   return {
     id: roomIdCounter++,
     code: "D1",
-    room_type: "D",
-    site: "SHC",
+    room_type: roomType,
+    site: DEFAULT_SITE_FOR_ROOM_TYPE[roomType],
     ...overrides,
   };
 }

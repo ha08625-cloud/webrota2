@@ -6,8 +6,18 @@ import type { Day, Period, Room, RoomType, RotaSession } from "@/api/types";
  * then C-rooms, then W-rooms, then SR. Mirrors DOCTOR_TYPE_ORDER's role
  * in groupDoctors.ts (a fixed, non-alphabetical convention order that
  * every room-ordering call site must share).
+ *
+ * TR (the nurse treatment rooms TR1-3 and the Cutteslowe kitchen CK) sits
+ * last, so the four rows the engine never allocates sit below the familiar
+ * layout rather than inside it. Within the TR group the comparator falls
+ * through to code order, giving CK, TR1, TR2, TR3 - "C" before "T" is
+ * intended, not a bug.
+ *
+ * Every room type must appear here: compareRoomDisplayOrder sorts on
+ * indexOf, which returns -1 for an unknown type and would silently float
+ * that type above the D-rooms rather than failing.
  */
-export const ROOM_TYPE_ORDER: RoomType[] = ["D", "C", "W", "SR"];
+export const ROOM_TYPE_ORDER: RoomType[] = ["D", "C", "W", "SR", "TR"];
 
 /**
  * Orders two rooms by ROOM_TYPE_ORDER first, then by code within a type

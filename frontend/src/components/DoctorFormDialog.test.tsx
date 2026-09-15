@@ -456,3 +456,35 @@ describe("DoctorFormDialog - edit mode", () => {
     expect(screen.getByText(/Duplicate preference_order/)).toBeInTheDocument();
   });
 });
+describe("DoctorFormDialog - TR rooms are not selectable", () => {
+  // Unlike SR, which a doctor may legitimately prefer, a TR room (the nurse
+  // treatment rooms TR1-3 and the Cutteslowe kitchen CK) is never a valid
+  // preference: no generation phase allocates one, and the API rejects a TR
+  // preference by id and by type.
+  const roomsWithTr = [
+    makeRoom({ id: 1, code: "D1", room_type: "D" }),
+    makeRoom({ id: 2, code: "TR1", room_type: "TR", site: "SHC" }),
+    makeRoom({ id: 3, code: "CK", room_type: "TR", site: "Cutteslowe" }),
+  ];
+
+  it("the 'Add specific room' select offers no TR room", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB" });
+    setUpServer({ doctorDetail: makeDoctorDetail({ ...doctor, preferred_rooms: [] }), rooms: roomsWithTr });
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+    const roomSelect = await screen.findByLabelText("Add specific room");
+
+    expect(await within(roomSelect).findByRole("option", { name: "D1" })).toBeInTheDocument();
+    expect(within(roomSelect).queryByRole("option", { name: "TR1" })).not.toBeInTheDocument();
+    expect(within(roomSelect).queryByRole("option", { name: "CK" })).not.toBeInTheDocument();
+  });
+
+  it("the 'Add room type' select offers no TR option, but keeps SR", async () => {
+    const doctor = makeDoctor({ id: 5, code: "AB" });
+    setUpServer({ doctorDetail: makeDoctorDetail({ ...doctor, preferred_rooms: [] }), rooms: roomsWithTr });
+    renderWithProviders(<DoctorFormDialog doctor={doctor} open onOpenChange={() => {}} />);
+    const roomTypeSelect = await screen.findByLabelText("Add room type");
+
+    expect(within(roomTypeSelect).getByRole("option", { name: "SR" })).toBeInTheDocument();
+    expect(within(roomTypeSelect).queryByRole("option", { name: "TR" })).not.toBeInTheDocument();
+  });
+});
