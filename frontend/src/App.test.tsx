@@ -517,10 +517,10 @@ describe("documents section", () => {
 });
 
 /**
- * Research ships ahead of its data model, so what there is to test is the
- * guard: the section is reachable on `research` at read or write, and on
- * nothing else. The placeholder page's copy is not pinned here beyond the
- * heading - it is the first thing the study list will replace.
+ * What is tested here is the shell: the section is reachable on `research`
+ * at read or write and on nothing else, and its two routes resolve. What
+ * either page renders is its own suite's question
+ * (features/research/*.test.tsx).
  */
 describe("ResearchShell", () => {
   it("renders the research section at /research", async () => {
@@ -540,6 +540,34 @@ describe("ResearchShell", () => {
 
     expect(screen.getByRole("heading", { name: "Rota Generator" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Studies" })).not.toBeInTheDocument();
+  });
+
+  it("resolves a study page at /research/studies/:studyId", async () => {
+    server.use(
+      http.get("/api/v1/research/studies/4", () =>
+        HttpResponse.json({
+          id: 4,
+          name: "ACME-4",
+          cpms_code: null,
+          study_type: null,
+          website_url: null,
+          owner_user_id: null,
+          owner_name: null,
+          stage: "setup",
+          setup_entered_on: "2026-01-05",
+          recruitment_opened_on: null,
+          recruitment_closed_on: null,
+          closed_on: null,
+          created_at: "2026-01-05T09:00:00Z",
+          contacts: [],
+          setup_steps: [],
+          documents: [],
+        }),
+      ),
+    );
+    renderAt("/research/studies/4", PERMISSION_PRESETS.research);
+
+    expect(await screen.findByRole("heading", { name: "ACME-4" })).toBeInTheDocument();
   });
 
   // A research-only login holds no rota permission at all, so the section
