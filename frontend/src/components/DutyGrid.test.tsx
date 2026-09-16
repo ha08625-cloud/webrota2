@@ -299,8 +299,8 @@ describe("DutyGrid", () => {
     expect(await screen.findByTestId("duty-annual-adjustment-1")).toHaveTextContent("");
   });
 
-  describe("editing duty adjustments", () => {
-    it("saves a adjustment for the year the grid is showing", async () => {
+  describe("editing duty counts", () => {
+    it("saves a counter adjustment for the year the grid is showing", async () => {
       let body: unknown = null;
       setUpServer({
         doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "4.0" })],
@@ -320,15 +320,15 @@ describe("DutyGrid", () => {
       renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
 
       const user = userEvent.setup();
-      await user.click(await screen.findByText(/Adjustments/));
-      const input = await screen.findByLabelText("Duty adjustment for AB");
+      await user.click(await screen.findByText(/Counter adjustments/));
+      const input = await screen.findByLabelText("Duty count for AB");
       await user.clear(input);
       await user.type(input, "3.2");
       await user.click(screen.getByRole("button", { name: "Save" }));
 
       // MONDAY is in 2026, the year getYearRange derives the counts range from.
-      // The wire carries a target effective total: the annual raw count of 0
-      // plus the typed 3.2.
+      // The box holds the effective total against a whole-year raw count of 0,
+      // and that total is what goes on the wire.
       await waitFor(() =>
         expect(body).toEqual({ doctor_id: 1, year: 2026, target_count: "3.2" }),
       );
@@ -339,7 +339,25 @@ describe("DutyGrid", () => {
       renderWithProviders(<DutyGrid startWeekDate={MONDAY} showCounts={false} />);
 
       await screen.findByTestId("duty-doctor-chip-1");
-      expect(screen.queryByText(/Adjustments/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Counter adjustments/)).not.toBeInTheDocument();
+    });
+
+    it("opens the panel with the effective total, not the adjustment, in the box", async () => {
+      setUpServer({
+        doctors: [makeDoctor({ id: 1, code: "AB", doctor_type: "Partner", active: true, sessions_per_week: "4.0" })],
+      });
+      server.use(
+        http.get("/api/v1/duty/counts", () =>
+          HttpResponse.json([{ doctor_id: 1, doctor_code: "AB", raw_count: 6, adjustment: "3.2" }]),
+        ),
+      );
+
+      renderWithProviders(<DutyGrid startWeekDate={MONDAY} />);
+
+      const user = userEvent.setup();
+      await user.click(await screen.findByText(/Counter adjustments/));
+      expect(await screen.findByLabelText("Duty count for AB")).toHaveValue("9.2");
+      expect(screen.getByText("6 done, +3.2 adjusted")).toBeInTheDocument();
     });
   });
 
