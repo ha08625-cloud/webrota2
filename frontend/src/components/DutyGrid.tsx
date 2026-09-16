@@ -270,10 +270,12 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
               </div>
             ))}
           </div>
-          {/* Collapsed by default: editing an adjustment is a rare admin act,
-              while the grid beside it is used every week. Inputs live here
-              rather than in the columns above so they cannot be mistaken
-              for part of the drag-and-drop palette. */}
+          {/* Collapsed by default. Editing is a somewhat less rare act now
+              that it covers any exceptional absence rather than only a
+              joiner, but it is still occasional next to a grid used every
+              week, so the default stands; revisit if admins say otherwise.
+              Inputs live here rather than in the columns above so they
+              cannot be mistaken for part of the drag-and-drop palette. */}
           {showCounts ? (
             <details
               open={adjustmentsOpen}
@@ -281,13 +283,15 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
               className="mt-4 rounded border border-border p-2"
             >
               <summary className="cursor-pointer text-xs font-medium text-ink/70">
-                Adjustments ({adjustmentYear})
+                Counter adjustments ({adjustmentYear})
               </summary>
               {adjustmentsOpen ? (
                 <>
                   <p className="mt-1 text-xs text-ink/50">
-                    Duty sessions credited to a doctor who was not here for the whole year, added to their count
-                    before the weighted score is computed. {ADJUSTMENT_HINT}
+                    Set a doctor's duty count for the year when it does not reflect a fair share through no choice of
+                    theirs - a mid-year joiner, or a compassionate or long-term absence. Ordinary annual leave is not
+                    a case for this. What is stored is the difference from the duty actually done, and that is what
+                    the weighted score uses. {ADJUSTMENT_HINT}
                   </p>
                   {setDutyAdjustment.isError ? (
                     <p className="mt-1 text-xs text-red-700">Could not save adjustment.</p>
@@ -296,24 +300,19 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                     {dutyEligibleDoctors.map((d) => (
                       <div key={d.id} className="flex items-center gap-2">
                         <span className="w-10 text-xs text-ink/70">{d.code}</span>
+                        {/* The raw count fed in here is the whole-year one,
+                            which is what the endpoint derives the stored
+                            delta against - see useSetDutyAdjustment. */}
                         <CounterAdjustmentInput
-                          value={annualAdjustmentsById.get(d.id) ?? "0.0"}
-                          label={`Duty adjustment for ${d.code}`}
+                          rawCount={annualCountsById.get(d.id) ?? 0}
+                          adjustment={annualAdjustmentsById.get(d.id) ?? "0.0"}
+                          label={`Duty count for ${d.code}`}
                           isPending={setDutyAdjustment.isPending}
-                          onSave={(sessions) =>
+                          onSave={(targetCount) =>
                             setDutyAdjustment.mutate({
                               doctor_id: d.id,
                               year: adjustmentYear,
-                              // Task 2 shim, deleted by Task 3. The wire now
-                              // carries a target effective total, but this
-                              // input still edits the adjustment, so the typed
-                              // delta is converted back into the total it
-                              // implies. `annualCountsById` is a whole-year
-                              // count, which is what the endpoint derives
-                              // against - see useSetDutyAdjustment.
-                              target_count: (
-                                (annualCountsById.get(d.id) ?? 0) + Number(sessions)
-                              ).toFixed(1),
+                              target_count: targetCount,
                             })
                           }
                         />

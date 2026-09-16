@@ -76,15 +76,15 @@ describe("CountersPage", () => {
     renderWithProviders(<CountersPage />);
 
     let panel = await screen.findByRole("tabpanel");
-    expect(within(panel).getByText("3")).toBeInTheDocument();
-    expect(within(panel).queryByText("7")).not.toBeInTheDocument();
+    expect(within(panel).getByText("3 done")).toBeInTheDocument();
+    expect(within(panel).queryByText("7 done")).not.toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Diabetic clinic" }));
 
     panel = await screen.findByRole("tabpanel");
-    expect(within(panel).getByText("7")).toBeInTheDocument();
-    expect(within(panel).queryByText("3")).not.toBeInTheDocument();
+    expect(within(panel).getByText("7 done")).toBeInTheDocument();
+    expect(within(panel).queryByText("3 done")).not.toBeInTheDocument();
   });
 
   it("computes the weighted score as (raw_count / sessions_per_week) * 10, to two decimal places", async () => {
@@ -255,11 +255,11 @@ describe("CountersPage", () => {
       renderWithProviders(<CountersPage />);
 
       const panel = await screen.findByRole("tabpanel");
-      // (1 + 3.2) / 4 * 10 = 10.50, with the credit shown beside the
-      // count rather than folded into it.
+      // (1 + 3.2) / 4 * 10 = 10.50. The editable box holds the effective
+      // total, and the two halves behind it stay spelled out beside it.
       expect(await within(panel).findByText("10.50")).toBeInTheDocument();
-      expect(within(panel).getByText("1")).toBeInTheDocument();
-      expect(within(panel).getByText("(+3.2)")).toBeInTheDocument();
+      expect(within(panel).getByLabelText("Count for AB")).toHaveValue("4.2");
+      expect(within(panel).getByText("1 done, +3.2 adjusted")).toBeInTheDocument();
     });
 
     it("marks no credit on a row whose adjustment is zero", async () => {
@@ -272,8 +272,9 @@ describe("CountersPage", () => {
       renderWithProviders(<CountersPage />);
 
       const panel = await screen.findByRole("tabpanel");
-      expect(await within(panel).findByText("3")).toBeInTheDocument();
-      expect(within(panel).queryByText(/\(\+0/)).not.toBeInTheDocument();
+      // No adjustment clause at all on an unadjusted row.
+      expect(await within(panel).findByText("3 done")).toBeInTheDocument();
+      expect(within(panel).queryByText(/adjusted/)).not.toBeInTheDocument();
     });
 
     it("saves a clinic adjustment keyed on (doctor, clinic type), not on a counter id", async () => {
@@ -296,12 +297,12 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      const input = within(panel).getByLabelText("Adjustment for AB");
+      const input = within(panel).getByLabelText("Count for AB");
       await user.clear(input);
       await user.type(input, "3.2");
       await user.click(within(panel).getByRole("button", { name: "Save" }));
 
-      // The wire carries a target effective total: raw 0 plus the typed 3.2.
+      // The box holds the effective total, and that total is what is sent.
       await waitFor(() =>
         expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, target_count: "3.2" }),
       );
@@ -326,20 +327,20 @@ describe("CountersPage", () => {
 
       const table = await screen.findByRole("table", { name: "System counters" });
       const user = userEvent.setup();
-      const input = within(table).getByLabelText("Adjustment for AB Room moves");
+      const input = within(table).getByLabelText("Count for AB Room moves");
       await user.clear(input);
-      // Negative adjustments are allowed - a returner, or a leaver whose
-      // count should be treated as already served.
-      await user.type(input, "-1.5");
+      // A total below the raw count is allowed: the server stores the
+      // negative delta it implies (a returner, or a leaver whose count should
+      // be treated as already served).
+      await user.type(input, "0.5");
       await user.click(within(table).getByRole("button", { name: "Save" }));
 
       await waitFor(() => expect(putId).toBe(9));
-      // A typed -1.5 against a raw count of 2 is a target total of 0.5; the
-      // server derives -1.5 back out of it.
+      // Typed against a raw count of 2, the server derives -1.5 out of it.
       expect(body).toEqual({ target_count: "0.5" });
     });
 
-    it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows a adjustment", async () => {
+    it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows setting a count", async () => {
       setUpServer({
         clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
         clinicCounters: [
@@ -350,7 +351,7 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       expect(within(panel).getByRole("button", { name: "Reset" })).toBeDisabled();
-      expect(within(panel).getByLabelText("Adjustment for AB")).toBeEnabled();
+      expect(within(panel).getByLabelText("Count for AB")).toBeEnabled();
     });
 
     it("rejects more than one decimal place before sending it, and keeps Save inert", async () => {
@@ -369,13 +370,90 @@ describe("CountersPage", () => {
 
       const panel = await screen.findByRole("tabpanel");
       const user = userEvent.setup();
-      const input = within(panel).getByLabelText("Adjustment for AB");
+      const input = within(panel).getByLabelText("Count for AB");
       await user.clear(input);
       await user.type(input, "3.25");
 
       expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
       expect(within(panel).getByText("One decimal place max")).toBeInTheDocument();
       expect(putFired).toBe(false);
+    });
+
+    it("steps the effective count by one with the - and + buttons, and sends the stepped total", async () => {
+      let body: unknown = null;
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1, raw_count: 12, adjustment: "0.0" }),
+        ],
+      });
+      server.use(
+        http.put("/api/v1/counters/clinic/adjustment", async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json(
+            makeClinicCounter({ id: 1, doctor_id: 1, clinic_type_id: 1, raw_count: 12, adjustment: "2.0" }),
+          );
+        }),
+      );
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      const user = userEvent.setup();
+      const input = within(panel).getByLabelText("Count for AB");
+      expect(input).toHaveValue("12.0");
+
+      await user.click(within(panel).getByRole("button", { name: "Increase Count for AB" }));
+      await user.click(within(panel).getByRole("button", { name: "Increase Count for AB" }));
+      expect(input).toHaveValue("14.0");
+      await user.click(within(panel).getByRole("button", { name: "Decrease Count for AB" }));
+      expect(input).toHaveValue("13.0");
+
+      await user.click(within(panel).getByRole("button", { name: "Save" }));
+      // The typed total goes on the wire; the server derives +1 from it.
+      await waitFor(() =>
+        expect(body).toEqual({ doctor_id: 1, clinic_type_id: 1, target_count: "13.0" }),
+      );
+    });
+
+    it("keeps Save inert while the box still reads the saved effective count", async () => {
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [
+          makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1, raw_count: 12, adjustment: "2.0" }),
+        ],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      expect(within(panel).getByLabelText("Count for AB")).toHaveValue("14.0");
+      expect(within(panel).getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+
+    it("drops the separate adjustment column now that the count box carries both jobs", async () => {
+      setUpServer({
+        clinicTypes: [makeClinicType({ id: 1, name: "Diabetic clinic" })],
+        clinicCounters: [makeClinicCounter({ id: 1, doctor_id: 1, doctor_code: "AB", clinic_type_id: 1 })],
+      });
+      renderWithProviders(<CountersPage />);
+
+      const panel = await screen.findByRole("tabpanel");
+      expect(within(panel).getByRole("columnheader", { name: "Count" })).toBeInTheDocument();
+      expect(within(panel).queryByRole("columnheader", { name: "Adjustment" })).not.toBeInTheDocument();
+      expect(within(panel).queryByRole("columnheader", { name: "Raw count" })).not.toBeInTheDocument();
+    });
+
+    it("says that re-typing an old total reduces the adjustment rather than reapplying it", async () => {
+      setUpServer();
+      renderWithProviders(<CountersPage />);
+
+      expect(await screen.findByText(/re-typing a number you set weeks ago/)).toBeInTheDocument();
+    });
+
+    it("says ordinary annual leave is not a case for an adjustment", async () => {
+      setUpServer();
+      renderWithProviders(<CountersPage />);
+
+      expect(await screen.findByText(/Ordinary annual leave is not a case for this/)).toBeInTheDocument();
     });
 
     it("shows the levelling hint next to the tables", async () => {
@@ -408,6 +486,11 @@ describe("CountersPage", () => {
       // of the adjustments it also clears.
       expect(confirmSpy).toHaveBeenCalledWith(
         expect.stringContaining("Adjustments are not restored by a scrap"),
+      );
+      // The counts on the page include the draft's increments, so a total
+      // set now reads lower once the draft is scrapped.
+      expect(confirmSpy).toHaveBeenCalledWith(
+        expect.stringContaining("a count you set while the draft is open"),
       );
     });
 
