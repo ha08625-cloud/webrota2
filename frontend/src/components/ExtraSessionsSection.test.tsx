@@ -10,7 +10,7 @@ import { server } from "@/test/msw/server";
 
 import { SessionYearProvider } from "@/components/SessionManagementTabs";
 
-import { ExtraSessionsSection } from "./ExtraSessionsSection";
+import { ExtraSessionsSection, extraSessionSlotKey } from "./ExtraSessionsSection";
 
 /** Outside a SessionYearProvider the section falls back to the current year,
  * which is what most cases here render in. */
@@ -120,7 +120,7 @@ describe("ExtraSessionsSection", () => {
       http.post("/api/v1/extra-sessions", async ({ request }) => {
         capturedBody = await request.json();
         return HttpResponse.json(
-          { id: 1, doctor_id: 1, date: "2026-08-03", period: "AM" },
+          { id: 1, doctor_id: 1, date: "2026-08-03", period: "AM", compensation: "Payment" },
           { status: 201 },
         );
       }),
@@ -135,7 +135,12 @@ describe("ExtraSessionsSection", () => {
     await user.click(screen.getByRole("button", { name: "Add extra session" }));
 
     await waitFor(() =>
-      expect(capturedBody).toEqual({ doctor_id: 1, date: "2026-08-03", period: "AM" }),
+      expect(capturedBody).toEqual({
+        doctor_id: 1,
+        date: "2026-08-03",
+        period: "AM",
+        compensation: "Payment",
+      }),
     );
     expect(await screen.findByText("Extra session added.")).toBeInTheDocument();
   });
@@ -291,5 +296,185 @@ describe("ExtraSessionsSection", () => {
     expect(
       await screen.findByText(`No extra sessions planned in ${CURRENT_YEAR}.`),
     ).toBeInTheDocument();
+  });
+  it("defaults the add form to Payment and sends TOIL when chosen", async () => {
+    setUpServer();
+    let capturedBody: unknown = null;
+    server.use(
+      http.post("/api/v1/extra-sessions", async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(
+          { id: 1, doctor_id: 1, date: "2026-08-03", period: "AM", compensation: "TOIL" },
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
+    const select = screen.getByLabelText("Compensation", {
+      selector: "#extra-session-compensation",
+    });
+    expect(select).toHaveValue("Payment");
+
+    await user.type(
+      screen.getByLabelText("Date", { selector: "#extra-session-date" }),
+      "2026-08-03",
+    );
+    await user.selectOptions(select, "TOIL");
+    await user.click(screen.getByRole("button", { name: "Add extra session" }));
+
+    await waitFor(() =>
+      expect(capturedBody).toEqual({
+        doctor_id: 1,
+        date: "2026-08-03",
+        period: "AM",
+        compensation: "TOIL",
+      }),
+    );
+  });
+
+  it("disables TOIL for a doctor type with no leave entitlement, and says why", async () => {
+    setUpServer({ doctors: [makeDoctor({ id: 1, code: "LC", doctor_type: "Locum" })] });
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
+
+    expect(
+      await screen.findByText(/Locum doctors have no leave entitlement/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("option", { name: "TOIL" })[0]).toBeDisabled();
+  });
+
+  it("PATCHes a row's compensation from the table", async () => {
+    setUpServer({
+      entries: [makeExtraSessionEntry({ id: 7, doctor_id: 1, date: "2026-08-03", period: "AM" })],
+    });
+    let patchedBody: unknown = null;
+    server.use(
+      http.patch("/api/v1/extra-sessions/7", async ({ request }) => {
+        patchedBody = await request.json();
+        return HttpResponse.json({
+          id: 7,
+          doctor_id: 1,
+          date: "2026-08-03",
+          period: "AM",
+          compensation: "TOIL",
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
+    const rowSelect = await screen.findByLabelText("Compensation for 2026-08-03 AM");
+    expect(rowSelect).toHaveValue("Payment");
+
+    await user.selectOptions(rowSelect, "TOIL");
+
+    await waitFor(() => expect(patchedBody).toEqual({ compensation: "TOIL" }));
+  });
+
+  it("surfaces the server's rejection of a row-level TOIL change", async () => {
+    setUpServer({
+      doctors: [makeDoctor({ id: 1, code: "NP", doctor_type: "Salaried" })],
+      entries: [makeExtraSessionEntry({ id: 7, doctor_id: 1, date: "2026-08-03", period: "AM" })],
+    });
+    server.use(
+      http.patch("/api/v1/extra-sessions/7", () =>
+        HttpResponse.json({ detail: "Nurse doctors have no leave entitlement" }, { status: 422 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<ExtraSessionsSection doctorId={1} canAdd />);
+    await user.selectOptions(
+      await screen.findByLabelText("Compensation for 2026-08-03 AM"),
+      "TOIL",
+    );
+
+    expect(
+      await screen.findByText("Nurse doctors have no leave entitlement"),
+    ).toBeInTheDocument();
+  });
+
+  it("flags a row superseded by leave, and one blocked, as not credited", async () => {
+    setUpServer({
+      entries: [
+        makeExtraSessionEntry({
+          id: 1,
+          doctor_id: 1,
+          date: "2026-08-03",
+          period: "AM",
+          compensation: "TOIL",
+        }),
+        makeExtraSessionEntry({
+          id: 2,
+          doctor_id: 1,
+          date: "2026-08-04",
+          period: "PM",
+          compensation: "TOIL",
+        }),
+        makeExtraSessionEntry({
+          id: 3,
+          doctor_id: 1,
+          date: "2026-08-05",
+          period: "AM",
+          compensation: "TOIL",
+        }),
+      ],
+    });
+    renderWithProviders(
+      <ExtraSessionsSection
+        doctorId={1}
+        canAdd
+        leaveSlots={new Set([extraSessionSlotKey(1, "2026-08-03", "AM")])}
+        blockedSlots={new Set([extraSessionSlotKey(1, "2026-08-04", "PM")])}
+      />,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("superseded by leave - not credited")).toBeInTheDocument();
+    expect(within(table).getByText("blocked - not credited")).toBeInTheDocument();
+    // The third row is unaffected: two flags, not three.
+    expect(within(table).queryAllByText(/not credited/)).toHaveLength(2);
+  });
+
+  it("flags a superseded Payment row too, without the credit wording", async () => {
+    setUpServer({
+      entries: [
+        makeExtraSessionEntry({ id: 1, doctor_id: 1, date: "2026-08-03", period: "AM" }),
+      ],
+    });
+    renderWithProviders(
+      <ExtraSessionsSection
+        doctorId={1}
+        canAdd
+        leaveSlots={new Set([extraSessionSlotKey(1, "2026-08-03", "AM")])}
+      />,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("superseded by leave")).toBeInTheDocument();
+    expect(within(table).queryByText(/not credited/)).not.toBeInTheDocument();
+  });
+
+  it("does not flag one doctor's session from another doctor's leave", async () => {
+    setUpServer({
+      doctors: [
+        makeDoctor({ id: 1, code: "AB" }),
+        makeDoctor({ id: 2, code: "CD" }),
+      ],
+      entries: [
+        makeExtraSessionEntry({ id: 1, doctor_id: 2, date: "2026-08-03", period: "AM" }),
+      ],
+    });
+    renderWithProviders(
+      <ExtraSessionsSection
+        doctorId={null}
+        canAdd={false}
+        leaveSlots={new Set([extraSessionSlotKey(1, "2026-08-03", "AM")])}
+      />,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(within(table).queryByText(/superseded/)).not.toBeInTheDocument();
   });
 });

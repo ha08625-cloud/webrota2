@@ -3,7 +3,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeDoctor, makeLeaveEntitlement, makeLeaveEntry } from "@/test/fixtures/reference";
+import {
+  makeBlockedEntry,
+  makeDoctor,
+  makeExtraSessionEntry,
+  makeLeaveEntitlement,
+  makeLeaveEntry,
+} from "@/test/fixtures/reference";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
 
@@ -781,6 +787,89 @@ describe("LeavePage", () => {
 
       expect(await screen.findByTestId("leave-year-calendar")).toBeInTheDocument();
       expect(screen.queryByTestId("leave-entitlement")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("superseded extra sessions", () => {
+    /**
+     * The page owns both reads behind the flag: the leave rows it already
+     * has, and the blocked list, which the section deliberately does not
+     * fetch for itself.
+     */
+    it("flags an extra session the doctor has leave or a blocked row on", async () => {
+      const user = userEvent.setup();
+      setUpServer({
+        leave: [makeLeaveEntry({ doctor_id: 1, date: `${CURRENT_YEAR}-08-03`, period: "AM" })],
+      });
+      server.use(
+        http.get("/api/v1/leave-planning/blocked", () =>
+          HttpResponse.json([
+            makeBlockedEntry({ doctor_id: 1, date: `${CURRENT_YEAR}-08-04`, period: "PM" }),
+          ]),
+        ),
+        http.get("/api/v1/extra-sessions", () =>
+          HttpResponse.json([
+            makeExtraSessionEntry({
+              id: 1,
+              doctor_id: 1,
+              date: `${CURRENT_YEAR}-08-03`,
+              period: "AM",
+              compensation: "TOIL",
+            }),
+            makeExtraSessionEntry({
+              id: 2,
+              doctor_id: 1,
+              date: `${CURRENT_YEAR}-08-04`,
+              period: "PM",
+              compensation: "TOIL",
+            }),
+            makeExtraSessionEntry({
+              id: 3,
+              doctor_id: 1,
+              date: `${CURRENT_YEAR}-08-05`,
+              period: "AM",
+              compensation: "TOIL",
+            }),
+          ]),
+        ),
+      );
+      renderOnYear(CURRENT_YEAR);
+      await selectDoctor(user, "AB");
+
+      const section = await screen.findByTestId("extra-sessions-section");
+      expect(
+        await within(section).findByText("superseded by leave - not credited"),
+      ).toBeInTheDocument();
+      expect(within(section).getByText("blocked - not credited")).toBeInTheDocument();
+      expect(within(section).queryAllByText(/not credited/)).toHaveLength(2);
+    });
+
+    it("ignores a blocked row from another year", async () => {
+      const user = userEvent.setup();
+      setUpServer();
+      server.use(
+        http.get("/api/v1/leave-planning/blocked", () =>
+          HttpResponse.json([
+            makeBlockedEntry({ doctor_id: 1, date: `${CURRENT_YEAR - 1}-08-03`, period: "AM" }),
+          ]),
+        ),
+        http.get("/api/v1/extra-sessions", () =>
+          HttpResponse.json([
+            makeExtraSessionEntry({
+              id: 1,
+              doctor_id: 1,
+              date: `${CURRENT_YEAR}-08-03`,
+              period: "AM",
+            }),
+          ]),
+        ),
+      );
+      renderOnYear(CURRENT_YEAR);
+      await selectDoctor(user, "AB");
+
+      const section = await screen.findByTestId("extra-sessions-section");
+      await within(section).findByRole("table");
+      expect(within(section).queryByText(/blocked/)).not.toBeInTheDocument();
     });
   });
 

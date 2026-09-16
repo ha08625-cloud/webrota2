@@ -74,10 +74,22 @@ export const handlers: HttpHandler[] = [
   http.get("/api/v1/extra-sessions", () => HttpResponse.json([])),
   http.post("/api/v1/extra-sessions", () =>
     HttpResponse.json(
-      { id: 999, doctor_id: 1, date: "2026-08-03", period: "AM" },
+      { id: 999, doctor_id: 1, date: "2026-08-03", period: "AM", compensation: "Payment" },
       { status: 201 },
     ),
   ),
+  // Echoes the requested compensation back, so a test asserting the select
+  // settled on what it sent does not have to stub its own handler.
+  http.patch("/api/v1/extra-sessions/:id", async ({ params, request }) => {
+    const body = (await request.json()) as { compensation: string };
+    return HttpResponse.json({
+      id: Number(params.id),
+      doctor_id: 1,
+      date: "2026-08-03",
+      period: "AM",
+      compensation: body.compensation,
+    });
+  }),
   http.delete("/api/v1/extra-sessions/:id", () => new HttpResponse(null, { status: 204 })),
   // Leave planning (annual leave planning, Task 4). Empty coverage means
   // every total renders "-"; tests that assert on the cover row stub this
@@ -85,6 +97,9 @@ export const handlers: HttpHandler[] = [
   // test only interested in *what was posted* can override with a
   // body-capturing handler without also having to invent a payload.
   http.get("/api/v1/leave-planning/coverage", () => HttpResponse.json([])),
+  // No blocked rows by default, so nothing on the Individual Leave tab is
+  // flagged as superseded unless a test stubs one.
+  http.get("/api/v1/leave-planning/blocked", () => HttpResponse.json([])),
   http.post("/api/v1/leave-planning/bulk", () =>
     HttpResponse.json({ applied: 0, skipped: [], superseded_extra_sessions: [] }),
   ),
