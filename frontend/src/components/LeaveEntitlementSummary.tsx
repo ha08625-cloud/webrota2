@@ -1,4 +1,4 @@
-import type { LeaveEntitlement } from "@/api/types";
+import type { LeaveEntitlement, ToilSkips } from "@/api/types";
 
 /**
  * One doctor's leave entitlement and usage for one leave year (1 Jan - 31
@@ -16,6 +16,22 @@ import type { LeaveEntitlement } from "@/api/types";
  * with any stored override, carry-over or adjustment; there is no editing
  * surface for those yet, so a doctor who carries one says so rather than
  * leaving an unexplained figure.
+ *
+ * TOIL joins that list of things that move a balance, and is the one that
+ * is *not* stored anywhere an admin can see: it is counted at read time
+ * from the doctor's TOIL extra sessions. So it has to be named here. An
+ * entitlement that silently grew by one is worse than no feature, and the
+ * "not credited" line below it is the other half - a session planned as
+ * TOIL that the doctor will not work (leave or a blocked row booked over
+ * it, a practice closure, an employment window that no longer covers the
+ * date) credits nothing, and "I planned four and got two" needs an answer
+ * on this screen.
+ *
+ * A December TOIL session taken as leave in January is a *carry-over*, not
+ * a bug in either year's figure: the credit lands in the year it was
+ * worked and the leave charges the year it was taken. Closing the leave
+ * year through `carry_over_sessions` is how that is squared, and the
+ * carry-over note above is where it shows up.
  *
  * "Used" is the *chargeable* count, not the number of booked slots: a slot
  * the doctor was never due to work (no surgery that session, a practice
@@ -48,6 +64,26 @@ function formatSessions(value: string | null): string {
   return Number.isNaN(asNumber) ? value : String(asNumber);
 }
 
+/**
+ * The reasons a TOIL credit is withheld, in `app/toil_credit.py`'s own
+ * precedence order and in the admin's vocabulary rather than the wire's.
+ */
+const TOIL_SKIP_LABELS: Array<[keyof ToilSkips, string]> = [
+  ["on_leave", "covered by leave"],
+  ["blocked", "blocked"],
+  ["closed", "practice closure"],
+  ["outside_window", "outside employment dates"],
+];
+
+function totalToilSkipped(skips: ToilSkips): number {
+  return TOIL_SKIP_LABELS.reduce((total, [key]) => total + skips[key], 0);
+}
+
+/** Only the reasons that actually occurred - a list of four zeroes explains nothing. */
+function skipReasons(skips: ToilSkips): string[] {
+  return TOIL_SKIP_LABELS.filter(([key]) => skips[key] > 0).map(([, label]) => label);
+}
+
 /** Why this doctor's entitlement is not simply the rule figure. Empty when it is. */
 function adjustmentNotes(row: LeaveEntitlement): string[] {
   const notes: string[] = [];
@@ -59,6 +95,17 @@ function adjustmentNotes(row: LeaveEntitlement): string[] {
   }
   if (Number(row.adjustment_sessions) !== 0) {
     notes.push(`Adjustment: ${formatSessions(row.adjustment_sessions)}`);
+  }
+  if (Number(row.toil_sessions) !== 0) {
+    notes.push(`TOIL credited: +${formatSessions(row.toil_sessions)}`);
+  }
+  const skipped = totalToilSkipped(row.toil_skipped);
+  if (skipped > 0) {
+    notes.push(
+      `${skipped} TOIL session${skipped === 1 ? "" : "s"} not credited - ${skipReasons(
+        row.toil_skipped,
+      ).join(", ")}`,
+    );
   }
   if (Number(row.pro_rata_fraction) < 1) {
     notes.push(`Pro-rata: ${Math.round(Number(row.pro_rata_fraction) * 100)}% of the year`);

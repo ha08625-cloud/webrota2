@@ -123,6 +123,48 @@ describe("LeaveEntitlementSummary", () => {
       expect(screen.getByText(/Adjustment: -2/)).toBeInTheDocument();
     });
 
+    it("names the TOIL credit, since nothing else on screen accounts for it", () => {
+      render({
+        row: makeLeaveEntitlement({
+          toil_sessions: "2.0",
+          entitlement_sessions: "38.0",
+          remaining_sessions: "38.0",
+        }),
+      });
+
+      expect(screen.getByText(/TOIL credited: \+2/)).toBeInTheDocument();
+    });
+
+    it("says how many TOIL sessions earned nothing, and names only the reasons present", () => {
+      render({
+        row: makeLeaveEntitlement({
+          toil_sessions: "1.0",
+          toil_skipped: { on_leave: 1, blocked: 0, closed: 1, outside_window: 0 },
+        }),
+      });
+
+      expect(
+        screen.getByText(/2 TOIL sessions not credited - covered by leave, practice closure/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/outside employment dates/)).not.toBeInTheDocument();
+    });
+
+    it("singularises a single withheld credit", () => {
+      render({
+        row: makeLeaveEntitlement({
+          toil_skipped: { on_leave: 0, blocked: 1, closed: 0, outside_window: 0 },
+        }),
+      });
+
+      expect(screen.getByText(/1 TOIL session not credited - blocked/)).toBeInTheDocument();
+    });
+
+    it("says nothing about TOIL for a doctor with none", () => {
+      render({ row: makeLeaveEntitlement() });
+
+      expect(screen.queryByText(/TOIL/)).not.toBeInTheDocument();
+    });
+
     it("shows the pro-rata percentage for a part-year doctor", () => {
       render({
         row: makeLeaveEntitlement({

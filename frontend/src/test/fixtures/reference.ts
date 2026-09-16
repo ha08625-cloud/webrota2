@@ -132,6 +132,8 @@ export function makeLeaveEntitlement(
     override_sessions: null,
     carry_over_sessions: "0.0",
     adjustment_sessions: "0.0",
+    toil_sessions: "0.0",
+    toil_skipped: { on_leave: 0, blocked: 0, closed: 0, outside_window: 0 },
     entitlement_sessions: "36.0",
     used_sessions: 0,
     booked_sessions: 0,
@@ -152,6 +154,9 @@ export function makeExtraSessionEntry(overrides: Partial<ExtraSessionEntry> = {}
     doctor_id: 1,
     date: "2026-08-03",
     period: "AM",
+    // Payment is what every row predating the column reads as, and the
+    // commoner case; a TOIL case says so explicitly.
+    compensation: "Payment",
     ...overrides,
   };
 }

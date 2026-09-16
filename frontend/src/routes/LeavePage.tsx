@@ -9,9 +9,10 @@ import {
   useLeaveEntitlements,
 } from "@/api/leave";
 import { useExtraSessions } from "@/api/extraSessions";
+import { useBlockedEntries } from "@/api/leavePlanning";
 import type { ApiError, PeriodOrBoth } from "@/api/types";
 import { useLinkedDoctorId, useWriteGate } from "@/auth/AuthContext";
-import { ExtraSessionsSection } from "@/components/ExtraSessionsSection";
+import { ExtraSessionsSection, extraSessionSlotKey } from "@/components/ExtraSessionsSection";
 import { LeaveEntitlementSummary } from "@/components/LeaveEntitlementSummary";
 import { LeaveRangePreview } from "@/components/LeaveRangePreview";
 import { LeaveYearCalendar } from "@/components/LeaveYearCalendar";
@@ -113,6 +114,14 @@ export function LeavePage() {
   // below runs the same query, so this is one cache entry read twice, not
   // a second request - the calendar needs the rows too, to mark them.
   const { data: extraSessions } = useExtraSessions(doctorId, year);
+  // Blocked rows are read here rather than in ExtraSessionsSection, which
+  // deliberately fetches nothing: they feed that section's "this planned
+  // session is not going to be worked" flag. Unfiltered and uncached by
+  // doctor or year - there is no filtered blocked endpoint, and the
+  // Annual Planner already reads the same whole list, so this shares its
+  // cache entry rather than adding a request of its own when both have
+  // been visited.
+  const { data: blockedEntries } = useBlockedEntries();
   const bulkCreateLeave = useBulkCreateLeave();
   const bulkDeleteLeave = useBulkDeleteLeave();
 
@@ -144,6 +153,21 @@ export function LeavePage() {
     doctorId === null
       ? null
       : ((entitlement?.doctors ?? []).find((row) => row.doctor_id === doctorId) ?? null);
+
+  // The slots behind the extra sessions section's superseded flag. Keyed by
+  // doctor as well as date and period, because the tab's "All doctors"
+  // option lists every doctor's sessions at once and one doctor's leave
+  // must not grey out another's. Blocked rows arrive unfiltered, so the
+  // year filter here is what keeps the set to the size of what is on
+  // screen; `entries` is already narrowed by the tab's own query.
+  const leaveSlots = new Set(
+    (entries ?? []).map((e) => extraSessionSlotKey(e.doctor_id, e.date, e.period)),
+  );
+  const blockedSlots = new Set(
+    (blockedEntries ?? [])
+      .filter((b) => b.date.slice(0, 4) === String(year))
+      .map((b) => extraSessionSlotKey(b.doctor_id, b.date, b.period)),
+  );
 
   const doctorsById = new Map((allDoctors ?? []).map((d) => [d.id, d]));
   const doctorGroups = groupDoctorsByType(allDoctors ?? []);
@@ -612,7 +636,12 @@ export function LeavePage() {
         </table>
       ) : null}
 
-      <ExtraSessionsSection doctorId={doctorId} canAdd={canAddFor} />
+      <ExtraSessionsSection
+        doctorId={doctorId}
+        canAdd={canAddFor}
+        leaveSlots={leaveSlots}
+        blockedSlots={blockedSlots}
+      />
       </div>
 
       {doctorId !== null ? (

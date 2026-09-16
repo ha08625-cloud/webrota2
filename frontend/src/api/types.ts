@@ -564,14 +564,35 @@ export interface LeaveExemptions {
  *
  * The entitlement chain, in order: `weeks` x `sessions_per_week` =
  * `full_year_sessions`; x `pro_rata_fraction` = `rule_sessions`;
- * `override_sessions` replaces that when set; then carry-over and
- * adjustment are added, giving `entitlement_sessions`. Every intermediate
- * is on the wire so a balance can be reconstructed rather than trusted.
+ * `override_sessions` replaces that when set; then carry-over, adjustment
+ * and `toil_sessions` are added, giving `entitlement_sessions`. Every
+ * intermediate is on the wire so a balance can be reconstructed rather
+ * than trusted.
  *
  * The nullable fields are null exactly when the doctor's type has no
  * entitlement (AHP, Nurse, Locum). The list endpoint omits those doctors
  * entirely; only the single-doctor read can return one.
  */
+/**
+ * Planned TOIL extra sessions that earned no credit, by reason, in
+ * `app/toil_credit.py`'s own precedence order. An extra session records
+ * *intent*, so a planned one can be overtaken by events - leave or a
+ * blocked row booked over the slot, a practice closure added, or the
+ * employment window shortened past the date. Each of those means the
+ * doctor does not work the session, so crediting it would hand out leave
+ * that was never earned.
+ *
+ * Deliberately per-reason rather than a single "skipped" figure, for the
+ * reason `LeaveExemptions` is: an admin who expected +4 and got +2 needs
+ * to know which of the four happened.
+ */
+export interface ToilSkips {
+  on_leave: number;
+  blocked: number;
+  closed: number;
+  outside_window: number;
+}
+
 export interface LeaveEntitlement {
   doctor_id: number;
   doctor_code: string;
@@ -586,6 +607,16 @@ export interface LeaveEntitlement {
   override_sessions: string | null;
   carry_over_sessions: string;
   adjustment_sessions: string;
+  /**
+   * +1 a session for each of this doctor's TOIL extra sessions in the year
+   * that was not excluded. Counted at read time from
+   * `extra_session_entries`, never stored: delete the extra session and the
+   * credit goes with it. Always a whole number of sessions - one weekday
+   * extra session is worth exactly 1.0.
+   */
+  toil_sessions: string;
+  /** Which planned TOIL sessions earned nothing, and why. */
+  toil_skipped: ToilSkips;
   entitlement_sessions: string | null;
 
   /** Chargeable sessions - not the raw row count, which is `booked_sessions`. */
@@ -621,11 +652,25 @@ export interface LeaveEntitlementYear {
 // endpoints - a single date plus period covers the real workflow, unlike
 // leave's date-range semantics.
 
+/**
+ * How the practice compensates an extra session (enums.py
+ * `ExtraSessionCompensation`), mirrored by *value* rather than by name.
+ *
+ * "TOIL" credits +1 session to the doctor's leave entitlement for the
+ * calendar year the session falls in; "Payment" changes nothing about
+ * leave. No money enters the app - there is no amount, rate or payroll
+ * export behind "Payment", and nothing downstream reads it. It is a label
+ * on a decision that previously lived in someone's email.
+ */
+export type ExtraSessionCompensation = "TOIL" | "Payment";
+
 export interface ExtraSessionEntry {
   id: number;
   doctor_id: number;
   date: string;
   period: Period;
+  /** Required: the column is NOT NULL, so the server always sends it. Every row predating it reads "Payment". */
+  compensation: ExtraSessionCompensation;
   /** Annual Planner free-text note (12-char cap); null/absent outside that grid. */
   notes?: string | null;
 }
@@ -634,6 +679,8 @@ export interface ExtraSessionIn {
   doctor_id: number;
   date: string;
   period: Period;
+  /** Omitted means "Payment" - the status quo and the commoner case. */
+  compensation?: ExtraSessionCompensation;
 }
 
 // --- Blocked (schemas/blocked.py, clinical rota "Blocked" planner option) ---
