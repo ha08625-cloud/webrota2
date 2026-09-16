@@ -740,7 +740,8 @@ export type PlanningSkipReason =
   | "outside_doctor_dates"
   | "leave_exists"
   | "blocked_exists"
-  | "nothing_to_clear";
+  | "nothing_to_clear"
+  | "toil_not_entitled";
 
 export interface PlanningActionIn {
   doctor_id: number;
@@ -749,6 +750,20 @@ export interface PlanningActionIn {
   action: PlanningAction;
   /** Free-text cell note (12-char cap). Ignored for "clear". */
   notes?: string | null;
+  /**
+   * How an extra session is compensated. Only meaningful for
+   * "extra_session", and null with a very specific meaning: **Payment on
+   * insert, unchanged on update**.
+   *
+   * Unlike `ExtraSessionIn.compensation`, an omitted value here must not
+   * mean Payment. This is a state-setting grid that emits an
+   * `extra_session` action for *any* change to a cell, a notes-only edit
+   * included, so a client that had not been updated would otherwise
+   * silently downgrade a TOIL row to Payment and quietly delete a leave
+   * credit. `notes` has the same shape of hazard and accepts it; a note is
+   * not worth a session of leave.
+   */
+  compensation?: ExtraSessionCompensation | null;
 }
 
 export interface PlanningBulkIn {

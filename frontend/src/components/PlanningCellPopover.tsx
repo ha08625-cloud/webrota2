@@ -1,6 +1,7 @@
 import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useState } from "react";
 
+import type { ExtraSessionCompensation } from "@/api/types";
 import { NOTES_MAX_LENGTH } from "@/lib/planningMonth";
 import type { PlanningCellState } from "@/lib/planningMonth";
 
@@ -22,6 +23,19 @@ interface PlanningCellPopoverProps {
   state: PlanningCellState;
   /** The selection's prefill notes ("" for none). */
   notes: string;
+  /** The selection's prefill compensation, or null when it is not showing
+   * an extra session - the field is only rendered for one. */
+  compensation: ExtraSessionCompensation | null;
+  /**
+   * Whether the selected doctor's type has a leave entitlement for a TOIL
+   * credit to land in. The grid's selection is single-doctor by
+   * construction, so this is never ambiguous. False disables TOIL with the
+   * reason stated, so the bulk endpoint's `toil_not_entitled` skip is not
+   * the first line of defence.
+   */
+  toilAllowed: boolean;
+  /** The selected doctor's type, purely to name it in that reason. */
+  doctorTypeLabel: string;
   /** How many cells Apply will write. Shown when more than one, so a
    * ten-cell Apply is never mistaken for a one-cell one. */
   cellCount: number;
@@ -30,8 +44,13 @@ interface PlanningCellPopoverProps {
   onCloseAutoFocus?: (event: Event) => void;
   /** Fires once, on Apply - `notes` is trimmed and capped to
    * NOTES_MAX_LENGTH, empty string for "normal" regardless of what was
-   * typed (there is no row left to hold it once cleared). */
-  onApply: (state: PlanningCellState, notes: string) => void;
+   * typed (there is no row left to hold it once cleared), and
+   * `compensation` is null for every state but "extra_session". */
+  onApply: (
+    state: PlanningCellState,
+    notes: string,
+    compensation: ExtraSessionCompensation | null,
+  ) => void;
 }
 
 /**
@@ -45,6 +64,10 @@ interface PlanningCellPopoverProps {
  * to hang off (see `LeavePlanningGrid`'s module docstring). This is the
  * popover *body* only, and must be rendered inside the grid's Root.
  *
+ * **Compensation** is rendered only while the draft state is
+ * "extra_session" - it is the one state it means anything for, and a
+ * permanently visible select would read as a fourth thing a cell can be.
+ *
  * A sibling of MasterCellEditPopover/CellEditPopover, not a
  * generalisation - this one has no room submenu, no steal detection, and
  * a four-way mutually exclusive state instead of a five-value session
@@ -55,12 +78,21 @@ export function PlanningCellPopover({
   onOpenChange,
   state,
   notes,
+  compensation,
+  toilAllowed,
+  doctorTypeLabel,
   cellCount,
   onCloseAutoFocus,
   onApply,
 }: PlanningCellPopoverProps) {
   const [draftState, setDraftState] = useState<PlanningCellState>(state);
   const [draftNotes, setDraftNotes] = useState(notes);
+  // Payment for a cell that is not currently an extra session: it is the
+  // status quo and the commoner case, and it is what the server writes for
+  // a new row either way.
+  const [draftCompensation, setDraftCompensation] = useState<ExtraSessionCompensation>(
+    compensation ?? "Payment",
+  );
 
   // Reset to the selection's current value whenever the popover opens, or
   // whenever the selection is extended while it is open (shift+click).
@@ -72,7 +104,8 @@ export function PlanningCellPopover({
     if (!open) return;
     setDraftState(state);
     setDraftNotes(notes);
-  }, [open, state, notes]);
+    setDraftCompensation(compensation ?? "Payment");
+  }, [open, state, notes, compensation]);
 
   function handleStateChange(next: PlanningCellState) {
     setDraftState(next);
@@ -82,8 +115,18 @@ export function PlanningCellPopover({
   }
 
   function handleApply() {
-    onApply(draftState, draftState === "normal" ? "" : draftNotes.trim());
+    onApply(
+      draftState,
+      draftState === "normal" ? "" : draftNotes.trim(),
+      draftState === "extra_session" ? draftCompensation : null,
+    );
   }
+
+  // A selection on a doctor with no entitlement can still hold a TOIL row
+  // (the type was changed under it), so the option is disabled rather than
+  // removed - otherwise the select would silently show Payment for a row
+  // that says TOIL. Apply is blocked instead, with the reason on screen.
+  const toilBlocked = draftState === "extra_session" && draftCompensation === "TOIL" && !toilAllowed;
 
   return (
     <Popover.Portal>
@@ -121,6 +164,27 @@ export function PlanningCellPopover({
             ))}
           </select>
         </label>
+        {draftState === "extra_session" ? (
+          <label className="mt-2 block text-xs font-medium text-ink/70">
+            Compensation
+            <select
+              data-testid="planning-cell-compensation-select"
+              value={draftCompensation}
+              onChange={(e) => setDraftCompensation(e.target.value as ExtraSessionCompensation)}
+              className="mt-1 block w-full rounded border border-border px-2 py-1 text-sm"
+            >
+              <option value="Payment">Payment</option>
+              <option value="TOIL" disabled={!toilAllowed}>
+                TOIL
+              </option>
+            </select>
+          </label>
+        ) : null}
+        {draftState === "extra_session" && !toilAllowed ? (
+          <p className="mt-1 text-[11px] text-ink/50">
+            {`${doctorTypeLabel} doctors have no leave entitlement, so a session cannot be taken in lieu - Payment only.`}
+          </p>
+        ) : null}
         <label className="mt-2 block text-xs font-medium text-ink/70">
           Notes
           <input
@@ -146,7 +210,8 @@ export function PlanningCellPopover({
             type="button"
             data-testid="planning-cell-apply"
             onClick={handleApply}
-            className="rounded bg-accent px-3 py-1 text-sm font-medium text-white"
+            disabled={toilBlocked}
+            className="rounded bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
           >
             Apply
           </button>

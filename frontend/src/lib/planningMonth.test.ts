@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CoverageSlot, MasterSessionType, PlanningAction } from "@/api/types";
+import type { CoverageSlot, ExtraSessionCompensation, MasterSessionType, PlanningAction } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import {
   makeBlockedEntry,
@@ -70,9 +70,15 @@ const BASE_COVERAGE = [
   slot(TUESDAY, "PM", 0),
 ];
 
-/** Shorthand for a pending edit with no note - most tests don't care. */
-function edit(action: PlanningAction, notes = ""): PendingEdit {
-  return { action, notes };
+/** Shorthand for a pending edit with no note - most tests don't care.
+ * Compensation follows the popover: Payment for an extra session, null for
+ * every other state. */
+function edit(
+  action: PlanningAction,
+  notes = "",
+  compensation: ExtraSessionCompensation | null = action === "extra_session" ? "Payment" : null,
+): PendingEdit {
+  return { action, notes, compensation };
 }
 
 function pendingMap(entries: [string, PlanningAction | PendingEdit][]): Map<string, PendingEdit> {
@@ -505,7 +511,13 @@ describe("buildPlanningActions", () => {
 
   function actionsFor(
     pendingEdit: PendingEdit,
-    { leave = false, extra = false, blocked = false, serverNote = "" } = {},
+    {
+      leave = false,
+      extra = false,
+      blocked = false,
+      serverNote = "",
+      serverCompensation = "Payment" as ExtraSessionCompensation,
+    } = {},
   ) {
     const notesMap = serverNote ? new Map([[key, serverNote]]) : new Map<string, string>();
     return buildPlanningActions({
@@ -516,6 +528,9 @@ describe("buildPlanningActions", () => {
       leaveNotes: leave ? notesMap : new Map(),
       extraNotes: extra ? notesMap : new Map(),
       blockedNotes: blocked ? notesMap : new Map(),
+      extraCompensation: extra
+        ? new Map([[key, serverCompensation]])
+        : new Map<string, ExtraSessionCompensation>(),
     });
   }
 
@@ -525,9 +540,61 @@ describe("buildPlanningActions", () => {
     ]);
   });
 
-  it("emits a single extra_session action on an empty cell", () => {
+  it("emits a single extra_session action on an empty cell, carrying the compensation", () => {
     expect(actionsFor(edit("extra_session"))).toEqual([
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+      {
+        doctor_id: 1,
+        date: MONDAY,
+        period: "AM",
+        action: "extra_session",
+        notes: null,
+        compensation: "Payment",
+      },
+    ]);
+  });
+
+  it("carries the chosen compensation into a state change to extra_session", () => {
+    expect(actionsFor(edit("extra_session", "", "TOIL"))).toEqual([
+      {
+        doctor_id: 1,
+        date: MONDAY,
+        period: "AM",
+        action: "extra_session",
+        notes: null,
+        compensation: "TOIL",
+      },
+    ]);
+  });
+
+  it("emits one extra_session action for a compensation-only change, and no clear", () => {
+    // The state and the note are both unchanged - without compensation in
+    // the no-op test this edit would be silently dropped, and it is the one
+    // edit that moves a leave balance.
+    expect(actionsFor(edit("extra_session", "", "TOIL"), { extra: true })).toEqual([
+      {
+        doctor_id: 1,
+        date: MONDAY,
+        period: "AM",
+        action: "extra_session",
+        notes: null,
+        compensation: "TOIL",
+      },
+    ]);
+  });
+
+  it("emits nothing when the compensation picked is the one already stored", () => {
+    expect(actionsFor(edit("extra_session", "", "TOIL"), { extra: true, serverCompensation: "TOIL" })).toEqual(
+      [],
+    );
+  });
+
+  it("carries no compensation on a change away from extra_session", () => {
+    // The clear removes the row; the leave action that replaces it has no
+    // compensation to carry, and a null one there would be
+    // indistinguishable from the endpoint's "don't touch".
+    expect(actionsFor(edit("leave"), { extra: true, serverCompensation: "TOIL" })).toEqual([
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
     ]);
   });
 
@@ -548,7 +615,14 @@ describe("buildPlanningActions", () => {
     // "leave_exists" and the saved state would not match the grid.
     expect(actionsFor(edit("extra_session"), { leave: true })).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+      {
+        doctor_id: 1,
+        date: MONDAY,
+        period: "AM",
+        action: "extra_session",
+        notes: null,
+        compensation: "Payment",
+      },
     ]);
   });
 
@@ -589,6 +663,7 @@ describe("buildPlanningActions", () => {
         leaveNotes: new Map(),
         extraNotes: new Map(),
         blockedNotes: new Map(),
+        extraCompensation: new Map(),
       }),
     ).toEqual([]);
   });

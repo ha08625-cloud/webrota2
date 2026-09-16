@@ -2,7 +2,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, MutableRefObject } from "react";
 
-import type { Doctor, MasterSessionType, Period } from "@/api/types";
+import type { Doctor, ExtraSessionCompensation, MasterSessionType, Period } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
 import { PlanningCellPopover } from "@/components/PlanningCellPopover";
 import { closedSlotKey, isDayFullyClosed, isSlotClosed } from "@/lib/closedSlots";
@@ -19,9 +19,11 @@ import {
   isSurgerySession,
   isWithinWindow,
   mergeCellState,
+  mergeCompensation,
   mergeNotes,
   planningCellKey,
   selectionCells,
+  serverCompensation,
   serverNotes,
   serverRows,
   templateKey,
@@ -92,21 +94,32 @@ interface PlanningCellSources {
   leaveNotes: Map<string, string>;
   extraNotes: Map<string, string>;
   blockedNotes: Map<string, string>;
+  extraCompensation: Map<string, ExtraSessionCompensation>;
 }
 
-/** The state and note one cell shows right now: the pending edit if there
- * is one, the server rows underneath it otherwise. */
+/** The state, note and compensation one cell shows right now: the pending
+ * edit if there is one, the server rows underneath it otherwise. */
 function mergedCell(
   sources: PlanningCellSources,
   key: string,
-): { pendingEdit: PendingEdit | undefined; state: PlanningCellState; notes: string } {
+): {
+  pendingEdit: PendingEdit | undefined;
+  state: PlanningCellState;
+  notes: string;
+  compensation: ExtraSessionCompensation | null;
+} {
   const pendingEdit = sources.pending.get(key);
   const rows = serverRows(sources.leaveKeys, sources.extraKeys, sources.blockedKeys, key);
+  const state = mergeCellState(toCellState(rows), pendingEdit);
   return {
     pendingEdit,
-    state: mergeCellState(toCellState(rows), pendingEdit),
+    state,
     notes: mergeNotes(
       serverNotes(sources.leaveNotes, sources.extraNotes, sources.blockedNotes, key),
+      pendingEdit,
+    ),
+    compensation: mergeCompensation(
+      serverCompensation(toCellState(rows), sources.extraCompensation, key),
       pendingEdit,
     ),
   };
@@ -128,6 +141,23 @@ const CELL_CLASSES: Record<PlanningCellState, string> = {
 };
 
 const NO_SURGERY_NORMAL_CLASS = "bg-gray-300 text-ink/40 hover:bg-accent/10";
+
+/**
+ * Doctor types with an annual leave entitlement for a TOIL credit to land
+ * in - the three keys of LEAVE_WEEKS_BY_DOCTOR_TYPE in
+ * `app/leave_entitlement.py`, the same predicate ExtraSessionsSection
+ * applies on the Individual Leave tab. Deliberately duplicated rather than
+ * shared: the two surfaces answer it for different doctors, and the list
+ * is three literals against an enum the compiler already checks.
+ *
+ * Undefined is "no selection yet", not "no entitlement": the popover only
+ * renders with one, and defaulting the other way would disable TOIL on a
+ * doctor who has it.
+ */
+function canTakeToil(doctorType: Doctor["doctor_type"] | undefined): boolean {
+  if (doctorType === undefined) return true;
+  return doctorType === "Partner" || doctorType === "Salaried" || doctorType === "Trainee";
+}
 
 /** A working session on the selected doctor's row. The only cell class the
  * row highlight overrides: plain white cells are what break the band up,
@@ -216,6 +246,9 @@ export interface LeavePlanningGridProps {
   leaveNotes: Map<string, string>;
   extraNotes: Map<string, string>;
   blockedNotes: Map<string, string>;
+  /** (doctor, date, period) -> compensation over the loaded extra
+   * sessions, from `toCompensationMap`. */
+  extraCompensation: Map<string, ExtraSessionCompensation>;
   /** Closed (date, period) slots, keyed by `closedSlotKey`. */
   closedSlots: Set<string>;
   /** Total row: `closedSlotKey` -> headcount, null when closed. */
@@ -236,8 +269,14 @@ export interface LeavePlanningGridProps {
    * picked state and note - the popover and the selection are this
    * component's business, the page only records the result. Closed and
    * out-of-window cells are filtered out here rather than posted and
-   * skipped server-side. */
-  onApply: (cells: PlanningCell[], state: PlanningCellState, notes: string) => void;
+   * skipped server-side. `compensation` is null for every state but
+   * "extra_session". */
+  onApply: (
+    cells: PlanningCell[],
+    state: PlanningCellState,
+    notes: string,
+    compensation: ExtraSessionCompensation | null,
+  ) => void;
 }
 
 export function LeavePlanningGrid({
@@ -254,6 +293,7 @@ export function LeavePlanningGrid({
   leaveNotes,
   extraNotes,
   blockedNotes,
+  extraCompensation,
   closedSlots,
   totals,
   templateTypes,
@@ -299,6 +339,7 @@ export function LeavePlanningGrid({
     leaveNotes,
     extraNotes,
     blockedNotes,
+    extraCompensation,
   };
 
   const selectedCells = selection
@@ -337,10 +378,17 @@ export function LeavePlanningGrid({
   const uniform =
     firstValue !== undefined &&
     editableValues.every(
-      (value) => value.state === firstValue.state && value.notes === firstValue.notes,
+      (value) =>
+        value.state === firstValue.state &&
+        value.notes === firstValue.notes &&
+        // A selection whose cells differ only in compensation is not
+        // uniform: prefilling with one of the two would misreport the
+        // others, and Apply writes the prefill to all of them.
+        value.compensation === firstValue.compensation,
     );
   const prefillState: PlanningCellState = uniform ? firstValue.state : "leave";
   const prefillNotes = uniform ? firstValue.notes : "";
+  const prefillCompensation = uniform ? firstValue.compensation : null;
 
   function handleCellMouseDown(
     doctorId: number,
@@ -392,12 +440,16 @@ export function LeavePlanningGrid({
     if (!next) setSelection(null);
   }
 
-  function handleApply(state: PlanningCellState, notes: string) {
+  function handleApply(
+    state: PlanningCellState,
+    notes: string,
+    compensation: ExtraSessionCompensation | null,
+  ) {
     // Defensive: a drag always starts on an editable cell, so the only
     // way to get here empty is the world changing under a live selection
     // (a refetch closing the day, a month change dropping the doctor).
     // Reporting no cells at all beats reporting a cell we won't write.
-    if (editableCells.length > 0) onApply(editableCells, state, notes);
+    if (editableCells.length > 0) onApply(editableCells, state, notes, compensation);
     setPopoverOpen(false);
     setSelection(null);
   }
@@ -582,6 +634,9 @@ export function LeavePlanningGrid({
           onOpenChange={handlePopoverOpenChange}
           state={prefillState}
           notes={prefillNotes}
+          compensation={prefillCompensation}
+          toilAllowed={canTakeToil(selectedDoctor?.doctor_type)}
+          doctorTypeLabel={selectedDoctor?.doctor_type ?? "These"}
           cellCount={editableCells.length}
           onCloseAutoFocus={(event) => {
             // No trigger means Radix has nothing to return focus to, and
@@ -731,7 +786,12 @@ function PlanningCellHalf({
   }
 
   const key = planningCellKey(doctor.id, date, period);
-  const { pendingEdit, state, notes } = mergedCell(sources, key);
+  const { pendingEdit, state, notes, compensation } = mergedCell(sources, key);
+  // The cell code stays "E" for both kinds - the grid's one-letter codes
+  // are a coverage-reading aid, and a fourth letter would crowd a dense
+  // month. Compensation goes in the title instead, where the grid's other
+  // secondary facts already live.
+  const compensationSuffix = compensation === null ? "" : ` (${compensation})`;
 
   const day = weekdayName(date);
   const templateType = day === null ? undefined : templateTypes.get(templateKey(doctor.id, day, period));
@@ -751,8 +811,8 @@ function PlanningCellHalf({
       data-notes={notes}
       data-pending={pendingEdit !== undefined ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
-      title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}${notes ? `: ${notes}` : ""}`}
-      aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}${notes ? `, note ${notes}` : ""}`}
+      title={`${doctor.code} ${date} ${period} - ${CELL_TITLES[state]}${compensationSuffix}${notes ? `: ${notes}` : ""}`}
+      aria-label={`${doctor.code} ${date} ${period}: ${CELL_TITLES[state]}${compensationSuffix}${notes ? `, note ${notes}` : ""}`}
       onMouseDown={(event) => onCellMouseDown(doctor.id, date, period, event)}
       onMouseEnter={() => onCellMouseEnter(doctor.id, date, period)}
       onKeyDown={(event) => onCellKeyDown(doctor.id, date, period, event)}
