@@ -269,3 +269,51 @@ def test_pro_rata_and_carry_over_compose():
     result = _build(start_date=datetime.date(2026, 7, 1), carry_over_sessions=D("4.0"))
     assert result.rule_sessions == D("18.1")
     assert result.total_sessions == D("22.1")
+
+
+# --- The TOIL credit (TOIL or payment for extra sessions plan) --------------
+
+def test_toil_is_added_to_the_total():
+    result = _build(toil_sessions=D("3.0"))
+    assert result.rule_sessions == D("36.0")
+    assert result.toil_sessions == D("3.0")
+    assert result.total_sessions == D("39.0")
+
+
+def test_toil_defaults_to_zero():
+    assert _build().toil_sessions == D("0.0")
+
+
+def test_toil_is_added_on_top_of_an_override():
+    """The override replaces the *rule* figure; TOIL is earned on top of
+    whatever base applies, exactly as carry-over and adjustment are."""
+    result = _build(override_sessions=D("40.0"), toil_sessions=D("2.0"))
+    assert result.total_sessions == D("42.0")
+
+
+def test_toil_composes_with_carry_over_and_adjustment():
+    result = _build(
+        carry_over_sessions=D("4.0"),
+        adjustment_sessions=D("-2.0"),
+        toil_sessions=D("1.0"),
+    )
+    assert result.total_sessions == D("39.0")
+
+
+def test_toil_is_quantised_with_the_other_addends():
+    """A mid-year start leaves the rule figure with a fraction, and the total
+    must still land on one decimal place."""
+    result = _build(start_date=datetime.date(2026, 7, 1), toil_sessions=D("2.0"))
+    assert result.rule_sessions == D("18.1")
+    assert result.total_sessions == D("20.1")
+    assert result.total_sessions == result.total_sessions.quantize(D("0.1"))
+
+
+def test_unentitled_type_reports_zero_toil_and_no_total():
+    """A legacy hand-inserted TOIL row on an AHP must still report `None`
+    entitlement rather than leaking a figure -- the same treatment carry-over
+    and adjustment get on this branch."""
+    result = _build(doctor_type=DoctorType.AHP, toil_sessions=D("3.0"))
+    assert result.toil_sessions == D("0.0")
+    assert result.total_sessions is None
+    assert result.rule_sessions is None

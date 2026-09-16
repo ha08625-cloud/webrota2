@@ -13,8 +13,15 @@ is `no_template_row` and every non-Monday leave slot is exempt. MONDAY is
 import datetime
 from decimal import Decimal
 
-from app.models import Doctor, LeaveEntitlement, LeaveEntry, PracticeClosure
-from app.models.enums import DoctorType, Period
+from app.models import (
+    BlockedEntry,
+    Doctor,
+    ExtraSessionEntry,
+    LeaveEntitlement,
+    LeaveEntry,
+    PracticeClosure,
+)
+from app.models.enums import DoctorType, ExtraSessionCompensation, Period
 
 from .conftest import MONDAY
 
@@ -366,3 +373,204 @@ def test_delete_without_a_stored_row_is_404(client, seeded):
     """404 rather than a silent success -- this deletes a record, and
     reporting success would hide a wrong year in the request."""
     assert client.delete(f"{URL}/{seeded['doctor_aa']}?year={YEAR}").status_code == 404
+
+
+# --- The TOIL credit (TOIL or payment for extra sessions plan) --------------
+#
+# TUESDAY is deliberately not MONDAY: the fixture's only template rows are on
+# Monday, so an extra session here cannot disturb the leave-charging figures
+# these tests read alongside the credit. AA is a Partner on 10 sessions/week,
+# so their rule entitlement is 70.0 throughout.
+
+TUESDAY = MONDAY + datetime.timedelta(days=1)
+WEDNESDAY = MONDAY + datetime.timedelta(days=2)
+
+
+def _add_extra(
+    db_session,
+    doctor_id,
+    day,
+    period=Period.AM,
+    compensation=ExtraSessionCompensation.TOIL,
+):
+    db_session.add(ExtraSessionEntry(
+        doctor_id=doctor_id, date=day, period=period, compensation=compensation,
+    ))
+    db_session.commit()
+
+
+def _aa(client, year=YEAR):
+    return _by_code(_list(client, year).json())["AA"]
+
+
+def test_a_toil_session_credits_one_session(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "1.0"
+    assert row["entitlement_sessions"] == "71.0"
+    assert row["remaining_sessions"] == "71.0"
+
+
+def test_a_payment_session_credits_nothing(client, db_session, seeded):
+    _add_extra(
+        db_session, seeded["doctor_aa"], TUESDAY,
+        compensation=ExtraSessionCompensation.PAYMENT,
+    )
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "0.0"
+    assert row["entitlement_sessions"] == "70.0"
+
+
+def test_toil_raises_remaining_alongside_used_leave(client, db_session, seeded):
+    """The credit lands inside `entitlement_sessions`, so `remaining` needs no
+    separate arithmetic: one chargeable Monday AM leave slot and one TOIL
+    session net out to the rule figure."""
+    _add_leave(db_session, seeded["doctor_aa"], MONDAY, period=Period.AM)
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+
+    row = _aa(client)
+    assert row["used_sessions"] == 1
+    assert row["entitlement_sessions"] == "71.0"
+    assert row["remaining_sessions"] == "70.0"
+
+
+def test_toil_only_credits_its_own_doctor(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+
+    rows = _by_code(_list(client).json())
+    assert rows["AA"]["toil_sessions"] == "1.0"
+    assert rows["BB"]["toil_sessions"] == "0.0"
+
+
+def test_december_toil_credits_that_year_and_not_the_next(client, db_session, seeded):
+    """The straddle the architecture doc records: a December credit belongs to
+    December's year, and January is corrected through carry-over, not by the
+    credit spilling forward."""
+    _add_extra(db_session, seeded["doctor_aa"], datetime.date(YEAR, 12, 7))
+
+    assert _aa(client, YEAR)["toil_sessions"] == "1.0"
+    assert _aa(client, YEAR + 1)["toil_sessions"] == "0.0"
+
+
+def test_leave_on_the_slot_skips_the_credit(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    _add_leave(db_session, seeded["doctor_aa"], TUESDAY, period=Period.AM)
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "0.0"
+    assert row["toil_skipped"]["on_leave"] == 1
+    assert row["entitlement_sessions"] == "70.0"
+
+
+def test_a_blocked_row_on_the_slot_skips_the_credit(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    db_session.add(BlockedEntry(
+        doctor_id=seeded["doctor_aa"], date=TUESDAY, period=Period.AM,
+    ))
+    db_session.commit()
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "0.0"
+    assert row["toil_skipped"]["blocked"] == 1
+
+
+def test_a_closure_on_the_slot_skips_the_credit(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    db_session.add(PracticeClosure(date=TUESDAY, period=Period.AM))
+    db_session.commit()
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "0.0"
+    assert row["toil_skipped"]["closed"] == 1
+
+
+def test_an_out_of_window_date_skips_the_credit(client, db_session, seeded):
+    """Both create paths refuse an out-of-window date up front, but the
+    employment window is editable afterwards."""
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    db_session.get(Doctor, seeded["doctor_aa"]).start_date = WEDNESDAY
+    db_session.commit()
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "0.0"
+    assert row["toil_skipped"]["outside_window"] == 1
+
+
+def test_skipped_and_credited_sessions_are_reported_together(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY, period=Period.PM)
+    db_session.add(PracticeClosure(date=TUESDAY, period=Period.PM))
+    db_session.commit()
+
+    row = _aa(client)
+    assert row["toil_sessions"] == "1.0"
+    assert row["toil_skipped"] == {
+        "on_leave": 0, "blocked": 0, "closed": 1, "outside_window": 0,
+    }
+
+
+def test_deleting_the_extra_session_removes_the_credit(client, db_session, seeded):
+    """The credit is derived, never stored, so it goes with the row."""
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    assert _aa(client)["entitlement_sessions"] == "71.0"
+
+    db_session.query(ExtraSessionEntry).delete()
+    db_session.commit()
+
+    assert _aa(client)["entitlement_sessions"] == "70.0"
+
+
+def test_toil_is_added_on_top_of_carry_over_and_adjustment(client, db_session, seeded):
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+    client.put(
+        f"{URL}/{seeded['doctor_aa']}?year={YEAR}",
+        json={"carry_over_sessions": "4.0", "adjustment_sessions": "-2.0"},
+    )
+
+    assert _aa(client)["entitlement_sessions"] == "73.0"
+
+
+def test_the_put_response_carries_the_credit(client, db_session, seeded):
+    """The upsert returns a freshly built balance, not a stale one."""
+    _add_extra(db_session, seeded["doctor_aa"], TUESDAY)
+
+    body = client.put(f"{URL}/{seeded['doctor_aa']}?year={YEAR}", json={}).json()
+    assert body["toil_sessions"] == "1.0"
+    assert body["entitlement_sessions"] == "71.0"
+
+
+def test_a_locum_with_a_toil_row_still_reports_no_entitlement(
+    client, db_session, seeded
+):
+    """A TOIL row on a doctor type with no entitlement is refused at the
+    create boundary, but a legacy or hand-inserted one must report `None`
+    rather than crashing or leaking a figure."""
+    locum = Doctor(
+        code="LO", doctor_type=DoctorType.LOCUM, sessions_per_week=8, active=True,
+    )
+    db_session.add(locum)
+    db_session.commit()
+    _add_extra(db_session, locum.id, TUESDAY)
+
+    body = client.get(f"{URL}/{locum.id}?year={YEAR}").json()
+    assert body["entitlement_sessions"] is None
+    assert body["toil_sessions"] == "0.0"
+    assert body["remaining_sessions"] is None
+
+
+def test_inactive_doctor_with_only_an_extra_session_is_listed(
+    client, db_session, seeded
+):
+    """A leaver whose last act was a TOIL session must not vanish from the
+    year they earned it in, or the year's totals stop adding up."""
+    db_session.get(Doctor, seeded["doctor_bb"]).active = False
+    db_session.commit()
+    assert set(_by_code(_list(client).json())) == {"AA"}
+
+    _add_extra(db_session, seeded["doctor_bb"], TUESDAY)
+
+    rows = _by_code(_list(client).json())
+    assert set(rows) == {"AA", "BB"}
+    assert rows["BB"]["toil_sessions"] == "1.0"

@@ -54,6 +54,20 @@ class LeaveEntitlementIn(BaseModel):
         return self
 
 
+class ToilSkipsOut(BaseModel):
+    """TOIL extra sessions that earned no credit, by reason.
+
+    The same courtesy `LeaveExemptionsOut` pays on the leave side: a doctor
+    who planned four TOIL sessions and was credited three can be told why.
+    Fields are in `app/toil_credit.py`'s precedence order.
+    """
+
+    on_leave: int = 0
+    blocked: int = 0
+    closed: int = 0
+    outside_window: int = 0
+
+
 class LeaveEntitlementOut(BaseModel):
     """One doctor's entitlement, usage and balance for one leave year.
 
@@ -61,10 +75,13 @@ class LeaveEntitlementOut(BaseModel):
 
     - **Entitlement** -- `weeks` x `sessions_per_week` gives
       `full_year_sessions`; times `pro_rata_fraction` gives `rule_sessions`;
-      then `override_sessions` (if set) replaces it and carry-over and
-      adjustment are added, giving `entitlement_sessions`. Every intermediate
-      is returned because a balance nobody can reconstruct is a balance
-      nobody trusts.
+      then `override_sessions` (if set) replaces it and carry-over,
+      adjustment and `toil_sessions` are added, giving
+      `entitlement_sessions`. Every intermediate is returned because a
+      balance nobody can reconstruct is a balance nobody trusts.
+      `toil_sessions` is counted at read time from the doctor's TOIL extra
+      sessions (`app/toil_credit.py`), and `toil_skipped` says which planned
+      TOIL sessions earned nothing and why.
     - **Usage** -- `used_sessions` is the *chargeable* count from
       `app/leave_charging.py`, not the number of `LeaveEntry` rows.
       `booked_sessions` is that raw row count, and `exempt_by_reason` says
@@ -90,6 +107,8 @@ class LeaveEntitlementOut(BaseModel):
     override_sessions: Decimal | None
     carry_over_sessions: Decimal
     adjustment_sessions: Decimal
+    toil_sessions: Decimal
+    toil_skipped: ToilSkipsOut
     entitlement_sessions: Decimal | None
 
     used_sessions: int
