@@ -181,7 +181,11 @@ export function ClosuresPage() {
     for (const id of row.ids) deleteClosure.mutate(id);
   }
 
-  const rows = closures ? buildRows(closures) : [];
+  // Bank-holiday closures are created and edited in the section above, so
+  // listing them again here would be duplication: the list below is the
+  // ad-hoc closures only.
+  const otherClosures = closures?.filter((c) => !c.bank_holiday_key) ?? [];
+  const rows = closures ? buildRows(otherClosures) : [];
 
   return (
     <div>
@@ -189,9 +193,11 @@ export function ClosuresPage() {
         <BankHolidaysSection year={year} />
       </div>
 
+      <h2 className="mt-6 text-sm font-medium text-ink">Other closures {year}</h2>
+
       <form
         onSubmit={handleAdd}
-        className="mt-4 flex flex-wrap items-end gap-2 rounded border border-border p-3"
+        className="mt-2 flex flex-wrap items-end gap-2 rounded border border-border p-3"
       >
         <div>
           <label className="block text-xs font-medium text-ink/70" htmlFor="closure-add-date">
@@ -248,10 +254,12 @@ export function ClosuresPage() {
       {isLoading ? <p className="mt-4 text-sm text-ink/70">Loading...</p> : null}
       {isError ? <p className="mt-4 text-sm text-red-700">Could not load closures.</p> : null}
 
-      {closures && rows.length === 0 ? <p className="mt-4 text-sm text-ink/50">No closures in {year}.</p> : null}
+      {closures && rows.length === 0 ? (
+        <p className="mt-4 text-sm text-ink/50">No other closures in {year}.</p>
+      ) : null}
 
       {closures && rows.length > 0 ? (
-        <table aria-label="Closures" className="mt-4 min-w-full text-sm">
+        <table aria-label="Other closures" className="mt-4 min-w-full text-sm">
           <thead>
             <tr className="text-left text-ink/70">
               <th className="py-1 pr-4 font-medium">Date</th>

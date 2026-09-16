@@ -35,7 +35,7 @@ describe("ClosuresPage", () => {
     setUpServer();
     renderWithProviders(<ClosuresPage />);
 
-    expect(await screen.findByText(`No closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`No other closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
   });
 
   it("requests only the selected year's closures", async () => {
@@ -49,17 +49,44 @@ describe("ClosuresPage", () => {
 
     renderOnYear(CURRENT_YEAR + 1);
 
-    expect(await screen.findByText(`No closures in ${CURRENT_YEAR + 1}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`No other closures in ${CURRENT_YEAR + 1}.`)).toBeInTheDocument();
     const params = new URL(requestedUrl).searchParams;
     expect(params.get("from_date")).toBe(`${CURRENT_YEAR + 1}-01-01`);
     expect(params.get("to_date")).toBe(`${CURRENT_YEAR + 1}-12-31`);
+  });
+
+  it("leaves bank-holiday closures out of the list below", async () => {
+    setUpServer({
+      closures: [
+        ...makeFullDayClosure({ date: "2026-12-25", name: "Christmas Day bank holiday" }).map(
+          (c) => ({ ...c, bank_holiday_key: "christmas_day" }),
+        ),
+        makeClosure({ date: "2026-07-16", period: "PM", name: "Training" }),
+      ],
+    });
+    renderWithProviders(<ClosuresPage />);
+
+    const table = await screen.findByRole("table", { name: "Other closures" });
+    expect(within(table).getByText("Training")).toBeInTheDocument();
+    expect(within(table).queryByText("2026-12-25")).not.toBeInTheDocument();
+  });
+
+  it("shows the empty state when the only closures are bank holidays", async () => {
+    setUpServer({
+      closures: makeFullDayClosure({ date: "2026-12-25", name: "Christmas Day bank holiday" }).map(
+        (c) => ({ ...c, bank_holiday_key: "christmas_day" }),
+      ),
+    });
+    renderWithProviders(<ClosuresPage />);
+
+    expect(await screen.findByText(`No other closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
   });
 
   it("collapses a full-day closure (matching AM+PM rows) into one row", async () => {
     setUpServer({ closures: makeFullDayClosure({ date: "2026-04-06", name: "Easter Monday" }) });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table", { name: "Closures" });
+    const table = await screen.findByRole("table", { name: "Other closures" });
     const row = within(table).getByText("Full day").closest("tr")!;
     expect(within(row).getByText("2026-04-06")).toBeInTheDocument();
     expect(within(row).getByText("Easter Monday")).toBeInTheDocument();
@@ -75,7 +102,7 @@ describe("ClosuresPage", () => {
     });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table", { name: "Closures" });
+    const table = await screen.findByRole("table", { name: "Other closures" });
     expect(within(table).getByText("Training")).toBeInTheDocument();
     expect(within(table).getByText("Different event")).toBeInTheDocument();
     expect(within(table).queryByText("Full day")).not.toBeInTheDocument();
@@ -85,7 +112,7 @@ describe("ClosuresPage", () => {
     setUpServer({ closures: [makeClosure({ id: 1, date: "2026-07-16", period: "PM", name: "Training" })] });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table", { name: "Closures" });
+    const table = await screen.findByRole("table", { name: "Other closures" });
     const row = within(table).getByText("2026-07-16").closest("tr")!;
     expect(within(row).getByText("PM")).toBeInTheDocument();
     expect(within(row).getByText("Training")).toBeInTheDocument();
@@ -95,7 +122,7 @@ describe("ClosuresPage", () => {
     setUpServer({ closures: makeFullDayClosure({ date: "2026-04-06", name: null }) });
     renderWithProviders(<ClosuresPage />);
 
-    const table = await screen.findByRole("table", { name: "Closures" });
+    const table = await screen.findByRole("table", { name: "Other closures" });
     expect(within(table).getByText("2026-04-06")).toBeInTheDocument();
   });
 
@@ -306,13 +333,13 @@ describe("ClosuresPage", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<ClosuresPage />);
-    const table = await screen.findByRole("table", { name: "Closures" });
+    const table = await screen.findByRole("table", { name: "Other closures" });
     within(table).getByText("2026-04-06");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(deletedIds.sort()).toEqual(expectedIds);
-    expect(await screen.findByText(`No closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
+    expect(await screen.findByText(`No other closures in ${CURRENT_YEAR}.`)).toBeInTheDocument();
   });
 
   it("hints where a closure went when its date is outside the selected year", async () => {

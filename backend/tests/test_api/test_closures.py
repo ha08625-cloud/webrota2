@@ -22,6 +22,7 @@ class TestClosures:
         assert len(listed) == 1
         assert listed[0]["date"] == "2026-01-05"
         assert listed[0]["period"] == "AM"
+        assert listed[0]["bank_holiday_key"] is None  # ad-hoc closure, untagged
 
     def test_name_is_optional(self, client, seeded):
         resp = client.post("/api/v1/closures", json={"date": "2026-01-05", "period": "AM"})
@@ -123,6 +124,9 @@ class TestClosures:
         assert {c["period"] for c in listed} == {"AM", "PM"}
         assert all(c["date"] == "2026-12-25" for c in listed)
         assert all(c["name"] == "Christmas Day bank holiday" for c in listed)
+        # The tag is exposed on the list so the UI can leave these rows out
+        # of the ad-hoc closures table.
+        assert all(c["bank_holiday_key"] == "christmas_day" for c in listed)
 
         holidays = client.get("/api/v1/closures/bank-holidays?year=2026").json()
         christmas = next(h for h in holidays if h["key"] == "christmas_day")
