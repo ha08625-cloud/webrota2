@@ -12,6 +12,7 @@ from app.models import (
     Doctor,
     DoctorPreferredRoom,
     DutyCounterAdjustment,
+    ExtraSessionEntry,
     GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -37,6 +38,7 @@ from app.models.enums import (
     AccessLevel,
     Day,
     DoctorType,
+    ExtraSessionCompensation,
     MasterSessionType,
     Period,
     ReceptionRole,
@@ -978,3 +980,37 @@ def test_audit_log_entry_allows_no_actor(session):
     assert fetched.path_params is None
     assert fetched.request_body is None
     assert fetched.outcome_detail == "Invalid credentials"
+
+# --- ExtraSessionEntry.compensation (TOIL or payment) ---
+
+def test_extra_session_compensation_defaults_to_payment(session):
+    """An ORM insert that omits compensation gets Payment.
+
+    This is the pre-021 behaviour preserved: every extra session that
+    existed before the column did reads as Payment, so no historical leave
+    balance moves when TOIL starts crediting entitlement.
+    """
+    doctor = _doctor(session, code="EX")
+    row = ExtraSessionEntry(
+        doctor_id=doctor.id, date=datetime.date(2026, 9, 16), period=Period.AM,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.compensation is ExtraSessionCompensation.PAYMENT
+
+
+def test_extra_session_compensation_round_trips_toil(session):
+    doctor = _doctor(session, code="EY")
+    row = ExtraSessionEntry(
+        doctor_id=doctor.id,
+        date=datetime.date(2026, 9, 16),
+        period=Period.PM,
+        compensation=ExtraSessionCompensation.TOIL,
+    )
+    session.add(row)
+    session.flush()
+    session.expire(row)
+
+    assert row.compensation is ExtraSessionCompensation.TOIL

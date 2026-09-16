@@ -165,6 +165,19 @@ STUDY_STAGE_ORDER: tuple[StudyStage, ...] = (
 )
 
 
+class ExtraSessionCompensation(str, enum.Enum):
+    """How the practice compensates a doctor for an extra session.
+
+    TOIL credits +1 session to that doctor's leave entitlement for the
+    calendar year the session falls in; PAYMENT changes nothing about leave
+    and is a record of the decision only -- no amount, rate or payroll feed
+    hangs off it.
+    """
+
+    TOIL = "TOIL"
+    PAYMENT = "Payment"
+
+
 class AccessLevel(str, enum.Enum):
     """Permission tier on User.
 

@@ -11,7 +11,7 @@ import datetime
 
 from ..database import Base
 from .blocked import NOTES_MAX_LENGTH
-from .enums import Period, enum_col
+from .enums import ExtraSessionCompensation, Period, enum_col
 
 
 class ExtraSessionEntry(Base):
@@ -28,3 +28,16 @@ class ExtraSessionEntry(Base):
     # POST /leave-planning/bulk. Displayed in place of the AM/PM label on
     # the planning grid cell when present.
     notes: Mapped[str | None] = mapped_column(String(NOTES_MAX_LENGTH), nullable=True)
+    # How the practice compensates this session: time off in lieu, or payment.
+    # Non-nullable with a "Payment" default on both sides -- the Python default
+    # serves ORM inserts, the server default serves migration 021's backfill and
+    # any row inserted outside the app. Every row that existed before 021 reads
+    # as Payment, which is what leaves historical leave balances untouched:
+    # nothing was ever credited as TOIL, so nothing retrospectively accrues.
+    # A row that should have been TOIL is corrected by editing it.
+    compensation: Mapped[ExtraSessionCompensation] = mapped_column(
+        enum_col(ExtraSessionCompensation),
+        nullable=False,
+        default=ExtraSessionCompensation.PAYMENT,
+        server_default=ExtraSessionCompensation.PAYMENT.value,
+    )
