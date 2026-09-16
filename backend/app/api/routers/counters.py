@@ -20,6 +20,10 @@ they behave differently in two ways worth stating here:
   After a reset everyone is level by definition, so a surviving adjustment
   would re-introduce the skew it was created to remove.
 
+Both upserts take a *target effective total* rather than a credit: the admin
+edits the number they can see, and the endpoint stores the delta behind it.
+See `_AdjustmentBase` in schemas/counter.py for why.
+
 The two upserts are also keyed differently, and deliberately: the clinic one
 takes (doctor, clinic type) in its body because the counter row may not exist
 yet -- clinic rows are created lazily -- while the system one takes a counter
@@ -226,14 +230,20 @@ def set_clinic_adjustment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicCounterOut:
-    """Set one (doctor, clinic type) adjustment, creating the counter row at
-    `raw_count=0` if it does not exist yet.
+    """Set one (doctor, clinic type) counter to a target effective total,
+    creating the counter row at `raw_count=0` if it does not exist yet.
+
+    The body carries the total the admin typed, and the stored adjustment is
+    `target_count - raw_count` as raw stands right now -- so a pair with no
+    row yet gets `adjustment = target_count`. See `_AdjustmentBase` for why
+    the delta is derived here rather than sent.
 
     Keyed on the pair rather than on a counter id because the row is exactly
-    what may be missing -- see the module docstring. Setting the adjustment to
-    zero leaves the row in place rather than deleting it: unlike the duty
-    adjustment's own table, this row also carries a raw count that may be
-    non-zero, so "no deviation" is not the same as "nothing to store".
+    what may be missing -- see the module docstring. A target equal to the raw
+    count derives a zero adjustment and leaves the row in place rather than
+    deleting it: unlike the duty adjustment's own table, this row also carries
+    a raw count that may be non-zero, so "no deviation" is not the same as
+    "nothing to store".
     """
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -259,7 +269,7 @@ def set_clinic_adjustment(
             raw_count=0,
         )
         db.add(counter)
-    counter.adjustment = payload.sessions
+    counter.adjustment = payload.target_count - counter.raw_count
     db.commit()
     db.refresh(counter)
 
@@ -277,14 +287,15 @@ def set_system_adjustment(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SystemCounterOut:
-    """Set one system counter's adjustment. 404 for an unknown id; the
+    """Set one system counter to a target effective total, storing
+    `target_count - raw_count` as the adjustment. 404 for an unknown id; the
     rows are seeded per doctor, so there is nothing to create here."""
     counter = db.get(SystemCounter, counter_id)
     if counter is None:
         raise HTTPException(
             status_code=404, detail=f"System counter {counter_id} not found"
         )
-    counter.adjustment = payload.sessions
+    counter.adjustment = payload.target_count - counter.raw_count
     db.commit()
 
     code = db.execute(

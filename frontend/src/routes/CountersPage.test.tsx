@@ -301,8 +301,9 @@ describe("CountersPage", () => {
       await user.type(input, "3.2");
       await user.click(within(panel).getByRole("button", { name: "Save" }));
 
+      // The wire carries a target effective total: raw 0 plus the typed 3.2.
       await waitFor(() =>
-        expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" }),
+        expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, target_count: "3.2" }),
       );
     });
 
@@ -333,7 +334,9 @@ describe("CountersPage", () => {
       await user.click(within(table).getByRole("button", { name: "Save" }));
 
       await waitFor(() => expect(putId).toBe(9));
-      expect(body).toEqual({ sessions: "-1.5" });
+      // A typed -1.5 against a raw count of 2 is a target total of 0.5; the
+      // server derives -1.5 back out of it.
+      expect(body).toEqual({ target_count: "0.5" });
     });
 
     it("disables reset on a (doctor, clinic type) pair with no counter row, but still allows a adjustment", async () => {

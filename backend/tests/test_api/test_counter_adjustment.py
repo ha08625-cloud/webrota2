@@ -1,10 +1,15 @@
-"""Counter adjustment endpoints (counter counter adjustments plan, Task 3).
+"""Counter adjustment endpoints (counter adjustments plan, Task 2).
 
-Covers the API half of the adjustment: the two GETs now carrying
-`adjustment`, the clinic GET returning the full counted-doctor x
-clinic-type cross-product rather than only the rows that exist, the two
-upserts, and the four reset endpoints clearing the adjustment alongside the
-count.
+Covers the API half of the adjustment: the two GETs carrying `adjustment`,
+the clinic GET returning the full counted-doctor x clinic-type cross-product
+rather than only the rows that exist, the two upserts, and the four reset
+endpoints clearing the adjustment alongside the count.
+
+The upserts take a **target effective total** (`target_count`), not a credit:
+the admin types the number the counter should read and the server stores
+`target_count - raw_count`. The assertions below are written around that
+distinction -- every upsert case checks the *stored delta* against the target
+that was sent.
 
 `adjustment` crosses the wire as a JSON *string*, like every other
 Decimal on this API (`DoctorOut.sessions_per_week`, the leave entitlement
@@ -75,13 +80,15 @@ class TestClinicList:
 
 class TestClinicUpsert:
     def test_creates_the_counter_row(self, client, db_session, seeded):
+        """A pair with no row yet has a raw count of zero, so the whole target
+        becomes the adjustment."""
         clinic_type = make_clinic_type_via_api(client, seeded)
         assert db_session.query(ClinicCounter).count() == 0
 
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
-            "sessions": "3.2",
+            "target_count": "3.2",
         })
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -95,7 +102,9 @@ class TestClinicUpsert:
         assert row.raw_count == 0
         assert row.adjustment == Decimal("3.2")
 
-    def test_updates_without_touching_the_raw_count(self, client, db_session, seeded):
+    def test_target_above_raw_stores_a_positive_delta(
+        self, client, db_session, seeded
+    ):
         clinic_type = make_clinic_type_via_api(client, seeded)
         db_session.add(ClinicCounter(
             doctor_id=seeded["doctor_aa"],
@@ -108,41 +117,101 @@ class TestClinicUpsert:
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
-            "sessions": "-2.5",
+            "target_count": "9.5",
         })
         assert resp.status_code == 200, resp.text
+        # Raw is untouched; 9.5 - 7 is stored.
         assert resp.json()["raw_count"] == 7
-        assert resp.json()["adjustment"] == "-2.5"
+        assert resp.json()["adjustment"] == "2.5"
 
         db_session.expire_all()
         row = db_session.query(ClinicCounter).one()
         assert row.raw_count == 7
-        assert row.adjustment == Decimal("-2.5")
+        assert row.adjustment == Decimal("2.5")
 
-    def test_zero_keeps_the_row(self, client, db_session, seeded):
-        """Unlike the duty adjustment's own table, this row also carries a raw
-        count, so "no deviation" is not "nothing to store"."""
+    def test_target_below_raw_stores_a_negative_delta(
+        self, client, db_session, seeded
+    ):
+        """The mirror case -- "this doctor was over-allocated last quarter" --
+        is legal and deliberately unconstrained."""
         clinic_type = make_clinic_type_via_api(client, seeded)
-        client.put(CLINIC_ADJUSTMENT_URL, json={
-            "doctor_id": seeded["doctor_aa"],
-            "clinic_type_id": clinic_type["id"],
-            "sessions": "4.0",
-        })
+        db_session.add(ClinicCounter(
+            doctor_id=seeded["doctor_aa"],
+            clinic_type_id=clinic_type["id"],
+            raw_count=7,
+        ))
+        db_session.commit()
+
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
-            "sessions": "0",
+            "target_count": "4.5",
+        })
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["adjustment"] == "-2.5"
+
+        db_session.expire_all()
+        assert db_session.query(ClinicCounter).one().adjustment == Decimal("-2.5")
+
+    def test_target_equal_to_raw_zeroes_the_delta_and_keeps_the_row(
+        self, client, db_session, seeded
+    ):
+        """Unlike the duty adjustment's own table, this row also carries a raw
+        count, so "no deviation" is not "nothing to store"."""
+        clinic_type = make_clinic_type_via_api(client, seeded)
+        db_session.add(ClinicCounter(
+            doctor_id=seeded["doctor_aa"],
+            clinic_type_id=clinic_type["id"],
+            raw_count=4,
+            adjustment=Decimal("3.0"),
+        ))
+        db_session.commit()
+
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
+            "doctor_id": seeded["doctor_aa"],
+            "clinic_type_id": clinic_type["id"],
+            "target_count": "4",
         })
         assert resp.status_code == 200, resp.text
         assert resp.json()["adjustment"] == "0.0"
         assert db_session.query(ClinicCounter).count() == 1
+
+    def test_delta_is_rederived_against_a_changed_raw_count(
+        self, client, db_session, seeded
+    ):
+        """The whole justification for deriving server-side: a generation
+        landing between page load and save must not change what the admin gets.
+        The same target against a larger raw count means a smaller credit."""
+        clinic_type = make_clinic_type_via_api(client, seeded)
+        client.put(CLINIC_ADJUSTMENT_URL, json={
+            "doctor_id": seeded["doctor_aa"],
+            "clinic_type_id": clinic_type["id"],
+            "target_count": "10.0",
+        })
+        db_session.expire_all()
+        row = db_session.query(ClinicCounter).one()
+        assert row.adjustment == Decimal("10.0")
+
+        row.raw_count = 6
+        db_session.commit()
+
+        resp = client.put(CLINIC_ADJUSTMENT_URL, json={
+            "doctor_id": seeded["doctor_aa"],
+            "clinic_type_id": clinic_type["id"],
+            "target_count": "10.0",
+        })
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["adjustment"] == "4.0"
+
+        db_session.expire_all()
+        assert db_session.query(ClinicCounter).one().adjustment == Decimal("4.0")
 
     def test_unknown_doctor_404(self, client, seeded):
         clinic_type = make_clinic_type_via_api(client, seeded)
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": 999999,
             "clinic_type_id": clinic_type["id"],
-            "sessions": "1.0",
+            "target_count": "1.0",
         })
         assert resp.status_code == 404
 
@@ -150,7 +219,7 @@ class TestClinicUpsert:
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": 999999,
-            "sessions": "1.0",
+            "target_count": "1.0",
         })
         assert resp.status_code == 404
 
@@ -159,7 +228,7 @@ class TestClinicUpsert:
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": seeded["doctor_aa"],
             "clinic_type_id": clinic_type["id"],
-            "sessions": "3.25",
+            "target_count": "3.25",
         })
         assert resp.status_code == 422
 
@@ -177,7 +246,7 @@ class TestClinicUpsert:
         resp = client.put(CLINIC_ADJUSTMENT_URL, json={
             "doctor_id": trainee.id,
             "clinic_type_id": clinic_type["id"],
-            "sessions": "2.0",
+            "target_count": "2.0",
         })
         assert resp.status_code == 200, resp.text
         assert resp.json()["doctor_code"] == "TT"
@@ -201,14 +270,16 @@ class TestSystemAdjustment:
             c["adjustment"] == "0.0" for c in listed if c["id"] != counter_id
         )
 
-    def test_upsert(self, client, db_session, seeded):
+    def test_target_above_raw_stores_a_positive_delta(
+        self, client, db_session, seeded
+    ):
         counter_id = self._counter_id(db_session, seeded["doctor_aa"])
         db_session.get(SystemCounter, counter_id).raw_count = 6
         db_session.commit()
 
         resp = client.put(
             f"/api/v1/counters/system/{counter_id}/adjustment",
-            json={"sessions": "2.5"},
+            json={"target_count": "8.5"},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -219,9 +290,65 @@ class TestSystemAdjustment:
         db_session.expire_all()
         assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("2.5")
 
+    def test_target_below_raw_stores_a_negative_delta(
+        self, client, db_session, seeded
+    ):
+        counter_id = self._counter_id(db_session, seeded["doctor_aa"])
+        db_session.get(SystemCounter, counter_id).raw_count = 6
+        db_session.commit()
+
+        resp = client.put(
+            f"/api/v1/counters/system/{counter_id}/adjustment",
+            json={"target_count": "3.0"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["adjustment"] == "-3.0"
+
+        db_session.expire_all()
+        assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("-3.0")
+
+    def test_target_equal_to_raw_zeroes_the_delta(self, client, db_session, seeded):
+        counter_id = self._counter_id(db_session, seeded["doctor_aa"])
+        counter = db_session.get(SystemCounter, counter_id)
+        counter.raw_count = 6
+        counter.adjustment = Decimal("2.0")
+        db_session.commit()
+
+        resp = client.put(
+            f"/api/v1/counters/system/{counter_id}/adjustment",
+            json={"target_count": "6"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["adjustment"] == "0.0"
+
+        db_session.expire_all()
+        assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("0.0")
+
+    def test_delta_is_rederived_against_a_changed_raw_count(
+        self, client, db_session, seeded
+    ):
+        """Same target, larger raw count, smaller stored credit -- decision 2's
+        justification, on the system endpoint."""
+        counter_id = self._counter_id(db_session, seeded["doctor_aa"])
+        url = f"/api/v1/counters/system/{counter_id}/adjustment"
+
+        client.put(url, json={"target_count": "10.0"})
+        db_session.expire_all()
+        assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("10.0")
+
+        db_session.get(SystemCounter, counter_id).raw_count = 6
+        db_session.commit()
+
+        resp = client.put(url, json={"target_count": "10.0"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["adjustment"] == "4.0"
+
+        db_session.expire_all()
+        assert db_session.get(SystemCounter, counter_id).adjustment == Decimal("4.0")
+
     def test_unknown_id_404(self, client, seeded):
         resp = client.put(
-            "/api/v1/counters/system/999999/adjustment", json={"sessions": "1.0"}
+            "/api/v1/counters/system/999999/adjustment", json={"target_count": "1.0"}
         )
         assert resp.status_code == 404
 
@@ -229,14 +356,14 @@ class TestSystemAdjustment:
         counter_id = self._counter_id(db_session, seeded["doctor_aa"])
         resp = client.put(
             f"/api/v1/counters/system/{counter_id}/adjustment",
-            json={"sessions": "2.55"},
+            json={"target_count": "2.55"},
         )
         assert resp.status_code == 422
 
 
 class TestResetClearsTheAdjustment:
     """After a reset every doctor is level at zero by definition, so a
-    surviving joiner credit would re-introduce the skew it was created to
+    surviving adjustment would re-introduce the skew it was created to
     remove."""
 
     def test_single_clinic_reset(self, client, db_session, seeded):

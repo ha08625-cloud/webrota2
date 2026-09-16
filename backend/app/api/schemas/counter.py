@@ -48,21 +48,39 @@ class SystemCounterOut(BaseModel):
 
 
 class _AdjustmentBase(BaseModel):
-    sessions: Decimal = Field(ge=-_ADJUSTMENT_LIMIT, le=_ADJUSTMENT_LIMIT)
+    """The wire carries a *target effective total*, not a credit.
+
+    `target_count` is the number the admin typed into the counter box -- "make
+    this counter read 14" -- and the endpoint stores
+    `adjustment = target_count - raw_count` as raw stands at save time. The
+    admin edits the number they can see; the delta behind it is derived, never
+    typed. Deriving it server-side rather than client-side also settles the
+    staleness case: if a generation lands between page load and save, the
+    admin gets the total they asked for against the work that has actually
+    happened, which is what "make it read 14" means.
+
+    The field is `target_count` rather than `count` because the response
+    carries both `raw_count` and `adjustment`, and the whole point of this
+    shape is that the number typed and the number stored are different -- the
+    field name has to say which one it is.
+    """
+
+    target_count: Decimal = Field(ge=-_ADJUSTMENT_LIMIT, le=_ADJUSTMENT_LIMIT)
 
     @model_validator(mode="after")
     def _one_decimal_place(self) -> "_AdjustmentBase":
         """Reject more than one decimal place, then normalise to exactly one.
 
         The normalisation matters for the response, not the storage: the
-        column quantises anyway, so without it `{"sessions": "3"}` would echo
-        back "3" while the same value re-read from the DB is "3.0", and a
-        client comparing the two would see a change that did not happen.
+        column quantises anyway, so without it `{"target_count": "3"}` would
+        produce a stored adjustment of "3" while the same value re-read from
+        the DB is "3.0", and a client comparing the two would see a change
+        that did not happen.
         """
-        quantized = self.sessions.quantize(Decimal("0.1"))
-        if self.sessions != quantized:
-            raise ValueError("sessions must have at most one decimal place")
-        self.sessions = quantized
+        quantized = self.target_count.quantize(Decimal("0.1"))
+        if self.target_count != quantized:
+            raise ValueError("target_count must have at most one decimal place")
+        self.target_count = quantized
         return self
 
 

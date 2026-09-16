@@ -63,8 +63,15 @@ export function useDutyCounts(range?: DutyCountsRange) {
 /**
  * Year-scoped, because the duty count it adjusts is: the grid reads a whole
  * calendar year, and by the next 1 January the count restarts and every
- * doctor is level again. Sending zero deletes the row server-side, so the
- * table holds only real deviations.
+ * doctor is level again.
+ *
+ * `target_count` is the *effective total* the counter should read for that
+ * year, not the adjustment: the server stores `target_count - raw_count`
+ * derived against the 1 Jan-31 Dec count. The total sent must therefore be a
+ * whole-year total - `GET /duty/counts` will happily count a narrower range,
+ * and a total typed against one of those would store a delta the caller did
+ * not mean. Sending a total equal to the raw count deletes the row
+ * server-side, so the table holds only real deviations.
  *
  * Invalidates every duty key, not just the counts for this year: the counts
  * query key includes the range, and the adjustment applies to whichever range
@@ -73,8 +80,7 @@ export function useDutyCounts(range?: DutyCountsRange) {
 export interface DutyAdjustmentIn {
   doctor_id: number;
   year: number;
-  sessions: string;
-  notes?: string | null;
+  target_count: string;
 }
 
 export function useSetDutyAdjustment() {

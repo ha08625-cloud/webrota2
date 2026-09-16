@@ -172,10 +172,22 @@ def set_duty_counter_adjustment(
 ) -> DutyCountOut:
     """Upsert one doctor's duty counter adjustment for one year.
 
-    Zero deletes the row, so the table holds only real deviations. The
-    response carries that doctor's count for the year alongside the new
-    adjustment, so the caller can render the corrected weighted score without
-    a second request.
+    The body carries a *target effective total* for the year -- "make this
+    counter read 14" -- and the stored adjustment is `target_count -
+    raw_count`, derived here against the count for 1 January to 31 December of
+    `payload.year`. A target equal to that count derives a zero delta and
+    deletes the row, so the table holds only real deviations. The response
+    carries the year's count alongside the new adjustment, so the caller can
+    render the corrected weighted score without a second request.
+
+    **Requirement on the caller:** the total sent must be a total for the whole
+    calendar year, because that is the range the delta is derived against.
+    `GET /counts` counts over the caller's own `from_date`/`to_date` range, so
+    a caller that displayed a partial-range count and sent a total against it
+    would have a different delta stored than the one it meant. This was
+    invisible while the wire carried a credit; under a target total it is not.
+    `DutyGrid`'s adjustment panel satisfies it by reading `annualCountsData`
+    over `annualRange`, which is always a whole year.
     """
     doctor = db.get(Doctor, payload.doctor_id)
     if doctor is None:
@@ -189,21 +201,6 @@ def set_duty_counter_adjustment(
         .where(DutyCounterAdjustment.year == payload.year)
     ).scalars().first()
 
-    if payload.sessions == 0:
-        if row is not None:
-            db.delete(row)
-    elif row is None:
-        db.add(
-            DutyCounterAdjustment(
-                doctor_id=payload.doctor_id,
-                year=payload.year,
-                adjustment=payload.sessions,
-            )
-        )
-    else:
-        row.adjustment = payload.sessions
-    db.commit()
-
     jan = datetime.date(payload.year, 1, 1)
     dec = datetime.date(payload.year, 12, 31)
     raw_count = db.execute(
@@ -212,12 +209,28 @@ def set_duty_counter_adjustment(
         .where(DutyAssignment.date >= jan)
         .where(DutyAssignment.date <= dec)
     ).scalar_one()
+    adjustment = payload.target_count - raw_count
+
+    if adjustment == 0:
+        if row is not None:
+            db.delete(row)
+    elif row is None:
+        db.add(
+            DutyCounterAdjustment(
+                doctor_id=payload.doctor_id,
+                year=payload.year,
+                adjustment=adjustment,
+            )
+        )
+    else:
+        row.adjustment = adjustment
+    db.commit()
 
     return DutyCountOut(
         doctor_id=doctor.id,
         doctor_code=doctor.code,
         raw_count=raw_count,
-        adjustment=_ZERO if payload.sessions == 0 else payload.sessions,
+        adjustment=_ZERO if adjustment == 0 else adjustment,
     )
 
 

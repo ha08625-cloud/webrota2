@@ -301,7 +301,20 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                           label={`Duty adjustment for ${d.code}`}
                           isPending={setDutyAdjustment.isPending}
                           onSave={(sessions) =>
-                            setDutyAdjustment.mutate({ doctor_id: d.id, year: adjustmentYear, sessions })
+                            setDutyAdjustment.mutate({
+                              doctor_id: d.id,
+                              year: adjustmentYear,
+                              // Task 2 shim, deleted by Task 3. The wire now
+                              // carries a target effective total, but this
+                              // input still edits the adjustment, so the typed
+                              // delta is converted back into the total it
+                              // implies. `annualCountsById` is a whole-year
+                              // count, which is what the endpoint derives
+                              // against - see useSetDutyAdjustment.
+                              target_count: (
+                                (annualCountsById.get(d.id) ?? 0) + Number(sessions)
+                              ).toFixed(1),
+                            })
                           }
                         />
                       </div>

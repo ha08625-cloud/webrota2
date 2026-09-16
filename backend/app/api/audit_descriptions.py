@@ -113,7 +113,7 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
         "Deleted a school holiday",
     ("POST", "/duty"): "Assigned a duty slot",
     ("DELETE", "/duty/{duty_id}"): "Removed a duty slot",
-    ("PUT", "/duty/adjustment"): "Set a duty counter adjustment",
+    ("PUT", "/duty/adjustment"): "Set a duty counter's total",
     ("POST", "/extra-sessions"): "Added an extra session",
     ("DELETE", "/extra-sessions/{entry_id}"): "Removed an extra session",
     ("POST", "/recurring-notes"): "Added a recurring note",
@@ -175,9 +175,9 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
         "Reset one system counter",
     ("POST", "/counters/system/reset-all"): "Reset every system counter",
     ("PUT", "/counters/clinic/adjustment"):
-        "Set a clinic counter adjustment",
+        "Set a clinic counter's total",
     ("PUT", "/counters/system/{counter_id}/adjustment"):
-        "Set a system counter adjustment",
+        "Set a system counter's total",
 
     # Reception
     ("POST", "/reception/staff"): "Added a reception staff member",

@@ -42,6 +42,16 @@ const SYSTEM_COUNTER_LABELS: Record<SystemCounterKind, string> = {
   wfh: "WFH",
 };
 
+// Task 2 shim, deleted by Task 3. The wire now carries a target effective
+// total, but CounterAdjustmentInput still edits the adjustment, so the typed
+// delta is converted back into the total it implies before it is sent. The
+// server then stores `target - raw`, which is the typed adjustment exactly,
+// so behaviour is unchanged. toFixed(1) matches the API's one-decimal-place
+// validator.
+function targetFor(rawCount: number, adjustment: string): string {
+  return (rawCount + Number(adjustment)).toFixed(1);
+}
+
 function systemCounterLabel(kind: SystemCounterKind): string {
   return SYSTEM_COUNTER_LABELS[kind] ?? kind;
 }
@@ -268,7 +278,7 @@ export function CountersPage() {
                               setClinicAdjustment.mutate({
                                 doctor_id: c.doctor_id,
                                 clinic_type_id: c.clinic_type_id,
-                                sessions,
+                                target_count: targetFor(c.raw_count, sessions),
                               })
                             }
                           />
@@ -354,7 +364,12 @@ export function CountersPage() {
                     value={c.adjustment}
                     label={`Adjustment for ${c.doctor_code} ${systemCounterLabel(c.counter_type)}`}
                     isPending={setSystemAdjustment.isPending}
-                    onSave={(sessions) => setSystemAdjustment.mutate({ counterId: c.id, sessions })}
+                    onSave={(sessions) =>
+                      setSystemAdjustment.mutate({
+                        counterId: c.id,
+                        target_count: targetFor(c.raw_count, sessions),
+                      })
+                    }
                   />
                 </td>
                 <td className="py-1 pr-4">
