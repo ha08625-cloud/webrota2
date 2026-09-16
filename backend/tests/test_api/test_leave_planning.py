@@ -22,6 +22,7 @@ from app.models import (
 from app.models.enums import (
     Day,
     DoctorType,
+    ExtraSessionCompensation,
     MasterSessionType,
     Period,
     SystemCounterType,
@@ -719,3 +720,135 @@ class TestBulkReleasesDraftRooms:
 
         db_session.expire_all()
         assert self._draft_session(db_session, seeded).room_id is None
+
+
+class TestExtraSessionCompensation:
+    """TOIL or Payment through the planning grid (TOIL plan, Task 2)."""
+
+    def _extra_action(self, seeded, **overrides):
+        action = {
+            "doctor_id": seeded["doctor_aa"], "date": MONDAY.isoformat(),
+            "period": "AM", "action": "extra_session",
+        }
+        action.update(overrides)
+        return action
+
+    def test_insert_writes_toil(self, client, db_session, seeded):
+        resp = client.post(BULK, json={"actions": [
+            self._extra_action(seeded, compensation="TOIL"),
+        ]})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["applied"] == 1
+        assert db_session.query(ExtraSessionEntry).one().compensation is (
+            ExtraSessionCompensation.TOIL
+        )
+
+    def test_insert_without_compensation_defaults_to_payment(
+        self, client, db_session, seeded
+    ):
+        resp = client.post(BULK, json={"actions": [self._extra_action(seeded)]})
+        assert resp.status_code == 200, resp.text
+        assert db_session.query(ExtraSessionEntry).one().compensation is (
+            ExtraSessionCompensation.PAYMENT
+        )
+
+    def test_repeating_the_same_toil_action_is_a_duplicate(
+        self, client, db_session, seeded
+    ):
+        action = self._extra_action(seeded, compensation="TOIL")
+        assert client.post(BULK, json={"actions": [action]}).json()["applied"] == 1
+
+        resp = client.post(BULK, json={"actions": [action]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 0
+        assert [s["reason"] for s in body["skipped"]] == ["duplicate"]
+
+    def test_compensation_only_change_counts_as_applied(
+        self, client, db_session, seeded
+    ):
+        client.post(BULK, json={"actions": [self._extra_action(seeded)]})
+
+        resp = client.post(BULK, json={"actions": [
+            self._extra_action(seeded, compensation="TOIL"),
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 1
+        assert body["skipped"] == []
+        db_session.expire_all()
+        assert db_session.query(ExtraSessionEntry).one().compensation is (
+            ExtraSessionCompensation.TOIL
+        )
+
+    def test_omitted_compensation_leaves_an_existing_toil_row_alone(
+        self, client, db_session, seeded
+    ):
+        """The regression the null-means-unchanged rule exists for: the grid
+        re-emits an extra_session action for a notes-only edit, and a client
+        that has never heard of the field must not silently delete a leave
+        credit."""
+        db_session.add(ExtraSessionEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+            compensation=ExtraSessionCompensation.TOIL,
+        ))
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [
+            self._extra_action(seeded, notes="conf"),
+        ]})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["applied"] == 1
+        db_session.expire_all()
+        row = db_session.query(ExtraSessionEntry).one()
+        assert row.notes == "conf"
+        assert row.compensation is ExtraSessionCompensation.TOIL
+
+    def test_omitted_compensation_on_an_unchanged_toil_row_is_a_duplicate(
+        self, client, db_session, seeded
+    ):
+        db_session.add(ExtraSessionEntry(
+            doctor_id=seeded["doctor_aa"], date=MONDAY, period=Period.AM,
+            compensation=ExtraSessionCompensation.TOIL,
+        ))
+        db_session.commit()
+
+        resp = client.post(BULK, json={"actions": [self._extra_action(seeded)]})
+        assert resp.status_code == 200, resp.text
+        assert [s["reason"] for s in resp.json()["skipped"]] == ["duplicate"]
+        db_session.expire_all()
+        assert db_session.query(ExtraSessionEntry).one().compensation is (
+            ExtraSessionCompensation.TOIL
+        )
+
+    def test_toil_for_a_locum_is_skipped_and_the_batch_still_applies(
+        self, client, db_session, seeded
+    ):
+        """A skip, not a 422: a stale grid can legitimately produce this, so
+        it must not fail the other cells in the save."""
+        locum_id = _add_doctor(db_session, "LL", DoctorType.LOCUM)
+
+        resp = client.post(BULK, json={"actions": [
+            self._extra_action(seeded, doctor_id=locum_id, compensation="TOIL"),
+            self._extra_action(seeded, period="PM", compensation="TOIL"),
+        ]})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["applied"] == 1
+        assert [s["reason"] for s in body["skipped"]] == ["toil_not_entitled"]
+        assert body["skipped"][0]["doctor_id"] == locum_id
+
+        rows = db_session.query(ExtraSessionEntry).all()
+        assert len(rows) == 1
+        assert rows[0].doctor_id == seeded["doctor_aa"]
+        assert rows[0].period is Period.PM
+
+    def test_payment_for_a_locum_is_applied(self, client, db_session, seeded):
+        locum_id = _add_doctor(db_session, "LL", DoctorType.LOCUM)
+        resp = client.post(BULK, json={"actions": [
+            self._extra_action(
+                seeded, doctor_id=locum_id, compensation="Payment"
+            ),
+        ]})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["applied"] == 1

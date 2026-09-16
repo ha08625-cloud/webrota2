@@ -48,6 +48,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window
+from ...leave_entitlement import LEAVE_WEEKS_BY_DOCTOR_TYPE
 from ...master_template import DAY_BY_WEEKDAY, WEEKDAY_MAX, load_week_one_template
 from ...models import (
     BlockedEntry,
@@ -57,7 +58,12 @@ from ...models import (
     PracticeClosure,
     User,
 )
-from ...models.enums import DoctorType, MasterSessionType, Period
+from ...models.enums import (
+    DoctorType,
+    ExtraSessionCompensation,
+    MasterSessionType,
+    Period,
+)
 from ..deps import get_current_user, get_db
 from ..schemas import (
     BlockedOut,
@@ -249,7 +255,10 @@ def apply_planning_bulk(
     state it wants, so setting leave where leave already exists is a
     "duplicate" skip, not a failure -- unless the requested notes differ
     from what's stored, in which case the row's notes are updated in place
-    and the action counts as applied. A pre-existing `ExtraSessionEntry`
+    and the action counts as applied. An `extra_session` action's
+    `compensation` is treated the same way, with one difference: null there
+    means "leave it as it is" rather than "Payment", so a notes-only edit
+    cannot silently strip a row's TOIL (see `PlanningActionIn`). A pre-existing `ExtraSessionEntry`
     the batch's leave covers is *reported* in `superseded_extra_sessions`
     -- never deleted, never blocked -- exactly as `create_leave_bulk` does.
 
@@ -452,12 +461,34 @@ def apply_planning_bulk(
         if key in blocked_rows:
             _skip(action, "blocked_exists")
             continue
+        if (
+            action.compensation is ExtraSessionCompensation.TOIL
+            and doctors[action.doctor_id].doctor_type
+            not in LEAVE_WEEKS_BY_DOCTOR_TYPE
+        ):
+            # A skip, not the 422 `POST /extra-sessions` raises. Only a
+            # client bug -- a weekend, an unknown doctor id -- fails the
+            # whole batch here; a stale grid can legitimately produce this
+            # (the doctor's type was edited under it), so it joins
+            # `outside_doctor_dates` in the skip list instead of failing
+            # the other 199 cells.
+            _skip(action, "toil_not_entitled")
+            continue
         existing = extra_rows.get(key)
         if existing is not None:
-            if existing.notes == action.notes:
+            # Null compensation means "leave it as it is" (see
+            # PlanningActionIn), so the duplicate test compares against what
+            # the action actually asks for, not against a defaulted Payment.
+            wanted = (
+                action.compensation
+                if action.compensation is not None
+                else existing.compensation
+            )
+            if existing.notes == action.notes and existing.compensation == wanted:
                 _skip(action, "duplicate")
                 continue
             existing.notes = action.notes
+            existing.compensation = wanted
             applied += 1
             continue
         entry = ExtraSessionEntry(
@@ -465,6 +496,7 @@ def apply_planning_bulk(
             date=action.date,
             period=action.period,
             notes=action.notes,
+            compensation=action.compensation or ExtraSessionCompensation.PAYMENT,
         )
         db.add(entry)
         extra_rows[key] = entry

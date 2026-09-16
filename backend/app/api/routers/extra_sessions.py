@@ -21,13 +21,40 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...doctor_window import is_within_window, window_error_detail
+from ...leave_entitlement import LEAVE_WEEKS_BY_DOCTOR_TYPE
 from ...models import Doctor, ExtraSessionEntry, LeaveEntry, User
+from ...models.enums import ExtraSessionCompensation
 from ..deps import get_current_user, get_db
-from ..schemas import ExtraSessionIn, ExtraSessionOut
+from ..schemas import ExtraSessionIn, ExtraSessionOut, ExtraSessionUpdateIn
 
 router = APIRouter(prefix="/extra-sessions", tags=["extra-sessions"])
 
 _WEEKDAY_MAX = 4  # Mon=0 ... Fri=4 (Python date.weekday())
+
+
+def _check_toil_entitlement(
+    doctor: Doctor, compensation: ExtraSessionCompensation
+) -> None:
+    """422 a TOIL session for a doctor type with no leave entitlement.
+
+    TOIL credits a session to the doctor's annual leave, and AHPs, nurses and
+    locums have no annual leave for it to land in (see
+    `LEAVE_WEEKS_BY_DOCTOR_TYPE`). Recording it anyway and silently ignoring
+    it in the balance is the quiet disagreement that module was written to
+    avoid, so it is refused at the boundary -- the same treatment an
+    entitlement override on an AHP already gets.
+    """
+    if (
+        compensation is ExtraSessionCompensation.TOIL
+        and doctor.doctor_type not in LEAVE_WEEKS_BY_DOCTOR_TYPE
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{doctor.doctor_type.value} doctors have no leave "
+                "entitlement, so a session cannot be taken in lieu"
+            ),
+        )
 
 
 @router.get("", response_model=list[ExtraSessionOut])
@@ -96,8 +123,15 @@ def create_extra_session(
             ),
         )
 
+    # Last of the create checks, so a request failing more than one still
+    # reports the most specific fact first.
+    _check_toil_entitlement(doctor, payload.compensation)
+
     entry = ExtraSessionEntry(
-        doctor_id=payload.doctor_id, date=payload.date, period=payload.period
+        doctor_id=payload.doctor_id,
+        date=payload.date,
+        period=payload.period,
+        compensation=payload.compensation,
     )
     db.add(entry)
     try:
@@ -108,6 +142,36 @@ def create_extra_session(
             status_code=409,
             detail="An extra session entry already exists for this doctor/date/period",
         ) from exc
+    db.refresh(entry)
+    return entry
+
+
+@router.patch("/{entry_id}", response_model=ExtraSessionOut)
+def update_extra_session(
+    entry_id: int,
+    payload: ExtraSessionUpdateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ExtraSessionEntry:
+    """Correct an existing extra session's compensation.
+
+    Exists because every row predating the column reads as Payment and some
+    of them were TOIL, and because "this one's going to be TOIL after all" is
+    an ordinary edit -- delete-and-recreate is not an acceptable substitute
+    once the planner has been printed. Nothing else on the row is editable
+    here; the doctor is read from the row rather than the body, so the same
+    entitlement rule as the POST applies to the doctor who actually holds it.
+    """
+    entry = db.get(ExtraSessionEntry, entry_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=404, detail=f"Extra session {entry_id} not found"
+        )
+    doctor = db.get(Doctor, entry.doctor_id)
+    _check_toil_entitlement(doctor, payload.compensation)
+
+    entry.compensation = payload.compensation
+    db.commit()
     db.refresh(entry)
     return entry
 

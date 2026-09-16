@@ -15,7 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ...models.blocked import NOTES_MAX_LENGTH
-from ...models.enums import Period
+from ...models.enums import ExtraSessionCompensation, Period
 from .extra_session import ExtraSessionOut
 
 # The grid asks for one calendar month. The cap exists so this cannot be
@@ -36,6 +36,7 @@ PlanningSkipReason = Literal[
     "leave_exists",
     "blocked_exists",
     "nothing_to_clear",
+    "toil_not_entitled",
 ]
 
 
@@ -63,6 +64,20 @@ class PlanningActionIn(BaseModel):
     # limit). Only meaningful for "leave" / "extra_session" / "blocked" --
     # ignored for "clear", which has no row left to hold it.
     notes: str | None = Field(default=None, max_length=NOTES_MAX_LENGTH)
+    # How the extra session is compensated. Only meaningful for
+    # "extra_session" (the way `notes` is meaningless for "clear"), and
+    # nullable with a very specific meaning: **Payment on insert, unchanged
+    # on update**.
+    #
+    # Unlike ExtraSessionIn's defaulted field, an omitted value here must not
+    # mean Payment. This endpoint is a state-setting grid that emits an
+    # `extra_session` action for *any* change to the cell, a notes-only edit
+    # included, so a client that has not been updated -- or any later code
+    # path emitting an action without the field -- would silently downgrade a
+    # TOIL row to Payment and quietly delete a leave credit. A null that means
+    # "don't touch" cannot do that. `notes` has the same shape of hazard and
+    # accepts it; a note is not worth a session of leave.
+    compensation: ExtraSessionCompensation | None = None
 
 
 class PlanningBulkIn(BaseModel):
