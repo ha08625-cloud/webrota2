@@ -20,7 +20,12 @@ class ClosureIn(BaseModel):
 
 
 class ClosureOut(ClosureIn):
+    """`bank_holiday_key` is set only on the rows the Bank Holidays UI owns
+    (models/closure.py), so a client can tell those apart from ad-hoc
+    closures without matching on the editable free-text `name`."""
+
     id: int
+    bank_holiday_key: str | None = None
     model_config = {"from_attributes": True}
 
 

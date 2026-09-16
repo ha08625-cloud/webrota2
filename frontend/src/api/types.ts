@@ -768,6 +768,9 @@ export interface Closure {
   date: string;
   period: Period;
   name: string | null;
+  // Set only on the rows the Bank Holidays list owns (one of the fixed keys
+  // in backend bank_holidays.py); null for ad-hoc closures.
+  bank_holiday_key?: string | null;
 }
 
 export interface ClosureIn {
