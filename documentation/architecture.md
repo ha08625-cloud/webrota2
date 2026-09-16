@@ -18,7 +18,7 @@ The two domains are decoupled in substance already — reception imports nothing
 
 **The five contracts.**
 
-1. *Reception must not import clinical code* — sources are `app.reception`, `app.api.routers.reception`, `app.models.reception` and `app.api.schemas.reception`; forbidden are the engine, the documents package, the loose clinical helpers (`master_template`, `leave_charging`, `leave_entitlement`, `doctor_window`, `calendar_feed`) and every clinical model and schema module.
+1. *Reception must not import clinical code* — sources are `app.reception`, `app.api.routers.reception`, `app.models.reception` and `app.api.schemas.reception`; forbidden are the engine, the documents package, the loose clinical helpers (`master_template`, `leave_charging`, `leave_entitlement`, `toil_credit`, `doctor_window`, `calendar_feed`) and every clinical model and schema module.
 2. *Clinical must not import reception* — the mirror.
 3. *Documents must not import domain code* — `app.documents` imports nothing from `app` at all today. It renders and converts files; it should take plain data from its callers, not reach for ORM models.
 4. *Shared kernel must not import domains* — see below.
