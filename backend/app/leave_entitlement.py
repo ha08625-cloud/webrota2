@@ -18,6 +18,14 @@ The rules, in the practice's own terms:
 - The leave year is **1 January to 31 December**.
 - A doctor employed for only part of the year is **pro-rated by days
   employed** against `Doctor.start_date` / `Doctor.end_date`.
+- An extra session compensated as **TOIL** credits +1 session to the year the
+  session falls in. That credit is counted at read time by
+  `app/toil_credit.py` and arrives here as `build_entitlement`'s
+  `toil_sessions` argument. A TOIL session worked in December and taken in
+  January credits the December year and is charged to the January one; that
+  straddle is corrected through `carry_over_sessions`, which already means
+  "how much came from last year", and there is deliberately no separate
+  mechanism for it -- a TOIL leave session is an ordinary `LeaveEntry`.
 
 ## The unit mismatch this module deliberately exposes
 
@@ -168,8 +176,16 @@ class EntitlementBreakdown:
     """One doctor's entitlement for one year, before any leave is counted.
 
     `total` is what a balance is measured against: the override if there is
-    one, otherwise the rule figure, plus carry-over and adjustment either
-    way. `None` throughout for a doctor type with no entitlement.
+    one, otherwise the rule figure, plus carry-over, adjustment and TOIL
+    either way. `None` throughout for a doctor type with no entitlement.
+
+    `toil_sessions` is credited from the doctor's TOIL extra sessions and is
+    counted at read time by `app/toil_credit.py`, never stored -- the same
+    treatment used leave gets from `app/leave_charging.py`, and for the same
+    reason: delete the extra session and the credit goes with it, with no
+    second write to get wrong. It is deliberately *not* folded into
+    `adjustment_sessions`, which means "what an admin granted or docked this
+    year" and is hand-edited.
     """
 
     weeks: Decimal | None
@@ -179,6 +195,7 @@ class EntitlementBreakdown:
     override_sessions: Decimal | None
     carry_over_sessions: Decimal
     adjustment_sessions: Decimal
+    toil_sessions: Decimal
     total_sessions: Decimal | None
 
 
@@ -191,6 +208,7 @@ def build_entitlement(
     override_sessions: Decimal | None = None,
     carry_over_sessions: Decimal = Decimal("0.0"),
     adjustment_sessions: Decimal = Decimal("0.0"),
+    toil_sessions: Decimal = Decimal("0.0"),
 ) -> EntitlementBreakdown:
     """Combine the rules with a stored `LeaveEntitlement` row's deviations.
 
@@ -214,6 +232,7 @@ def build_entitlement(
             override_sessions=None,
             carry_over_sessions=Decimal("0.0"),
             adjustment_sessions=Decimal("0.0"),
+            toil_sessions=Decimal("0.0"),
             total_sessions=None,
         )
 
@@ -221,7 +240,10 @@ def build_entitlement(
     rule = quantise_sessions(Decimal(full_year) * fraction)
     base = rule if override_sessions is None else Decimal(override_sessions)
     total = quantise_sessions(
-        base + Decimal(carry_over_sessions) + Decimal(adjustment_sessions)
+        base
+        + Decimal(carry_over_sessions)
+        + Decimal(adjustment_sessions)
+        + Decimal(toil_sessions)
     )
     return EntitlementBreakdown(
         weeks=weeks,
@@ -233,5 +255,6 @@ def build_entitlement(
         ),
         carry_over_sessions=Decimal(carry_over_sessions),
         adjustment_sessions=Decimal(adjustment_sessions),
+        toil_sessions=Decimal(toil_sessions),
         total_sessions=total,
     )

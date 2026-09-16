@@ -17,8 +17,10 @@ for `/leave/entitlement` to be shadowed by (only a `DELETE`), so there is no
 route-ordering hazard in either direction.
 
 Balances are computed at read time from the live master template and closure
-tables -- see `app/leave_charging.py` for the cost of that. Nothing here
-writes a usage figure anywhere.
+tables -- see `app/leave_charging.py` for the cost of that. The TOIL credit
+from extra sessions is counted the same way, from the live
+`extra_session_entries`, leave, blocked and closure tables -- see
+`app/toil_credit.py`. Nothing here writes a usage figure anywhere.
 """
 from __future__ import annotations
 
@@ -40,12 +42,22 @@ from ...leave_entitlement import (
     year_bounds,
 )
 from ...master_template import load_week_one_template
-from ...models import Doctor, LeaveEntitlement, LeaveEntry, PracticeClosure, User
+from ...models import (
+    BlockedEntry,
+    Doctor,
+    ExtraSessionEntry,
+    LeaveEntitlement,
+    LeaveEntry,
+    PracticeClosure,
+    User,
+)
+from ...toil_credit import summarise_toil_credit
 from ..deps import get_current_user, get_db
 from ..schemas import (
     LeaveEntitlementIn,
     LeaveEntitlementOut,
     LeaveEntitlementYearOut,
+    ToilSkipsOut,
 )
 from ..schemas.leave import LeaveExemptionsOut
 from ..schemas.leave_entitlement import MAX_LEAVE_YEAR, MIN_LEAVE_YEAR
@@ -77,7 +89,15 @@ def _build_out(
     entries: list[LeaveEntry],
     template,
     closed,
+    extra_sessions: list[ExtraSessionEntry],
+    leave_slots,
+    blocked_slots,
 ) -> LeaveEntitlementOut:
+    # TOIL first: its credit is an addend of the entitlement, so it has to be
+    # summarised before the breakdown is built rather than bolted on after.
+    toil = summarise_toil_credit(
+        extra_sessions, leave_slots, blocked_slots, closed, {doctor.id: doctor}
+    )
     breakdown = build_entitlement(
         doctor_type=doctor.doctor_type,
         sessions_per_week=doctor.sessions_per_week,
@@ -87,6 +107,7 @@ def _build_out(
         override_sessions=stored.entitlement_sessions if stored else None,
         carry_over_sessions=stored.carry_over_sessions if stored else Decimal("0.0"),
         adjustment_sessions=stored.adjustment_sessions if stored else Decimal("0.0"),
+        toil_sessions=toil.credited_sessions,
     )
     summary = summarise_leave_charging(entries, template, closed)
     template_sessions = template_sessions_per_week(doctor.id, template)
@@ -103,6 +124,13 @@ def _build_out(
         override_sessions=breakdown.override_sessions,
         carry_over_sessions=breakdown.carry_over_sessions,
         adjustment_sessions=breakdown.adjustment_sessions,
+        toil_sessions=breakdown.toil_sessions,
+        toil_skipped=ToilSkipsOut(
+            on_leave=toil.skipped_by_reason["on_leave"],
+            blocked=toil.skipped_by_reason["blocked"],
+            closed=toil.skipped_by_reason["closed"],
+            outside_window=toil.skipped_by_reason["outside_window"],
+        ),
         entitlement_sessions=breakdown.total_sessions,
         used_sessions=summary.chargeable_sessions,
         booked_sessions=summary.total_entries,
@@ -129,7 +157,16 @@ def _build_out(
 
 
 def _load_year_inputs(db: Session, year: int):
-    """The three reads every balance needs, once for the whole practice."""
+    """The reads every balance needs, once for the whole practice.
+
+    Returns `(entries_by_doctor, template, closed, extra_by_doctor,
+    leave_slots, blocked_slots)`. The last three are what the TOIL credit
+    needs: the doctor's extra sessions, and the practice-wide
+    `(doctor_id, date, period)` key sets the credit rule tests membership
+    against. The leave key set is built from the `LeaveEntry` rows already
+    loaded rather than by a second query, so this adds two queries, not
+    three.
+    """
     jan, dec = year_bounds(year)
     entries = db.execute(
         select(LeaveEntry)
@@ -149,7 +186,32 @@ def _load_year_inputs(db: Session, year: int):
             .where(PracticeClosure.date <= dec)
         ).scalars()
     }
-    return entries_by_doctor, template, closed
+
+    extra_by_doctor: dict[int, list[ExtraSessionEntry]] = defaultdict(list)
+    for extra in db.execute(
+        select(ExtraSessionEntry)
+        .where(ExtraSessionEntry.date >= jan)
+        .where(ExtraSessionEntry.date <= dec)
+    ).scalars():
+        extra_by_doctor[extra.doctor_id].append(extra)
+
+    leave_slots = {(e.doctor_id, e.date, e.period) for e in entries}
+    blocked_slots = {
+        (b.doctor_id, b.date, b.period)
+        for b in db.execute(
+            select(BlockedEntry)
+            .where(BlockedEntry.date >= jan)
+            .where(BlockedEntry.date <= dec)
+        ).scalars()
+    }
+    return (
+        entries_by_doctor,
+        template,
+        closed,
+        extra_by_doctor,
+        leave_slots,
+        blocked_slots,
+    )
 
 
 def _get_stored(db: Session, doctor_id: int, year: int) -> LeaveEntitlement | None:
@@ -173,15 +235,22 @@ def list_entitlements(
     party and is not the practice's to reconcile, so a row for one is noise
     on a screen whose whole job is spotting a doctor who is over or under.
 
-    Inactive doctors are included only when they booked leave in the year in
-    question. A doctor who left is still owed an accurate figure for the year
-    they left in, and hiding it would make a year's totals stop adding up as
-    soon as someone was deactivated; a doctor who left years ago has no leave
-    in this year and drops out on their own.
+    Inactive doctors are included only when they booked leave or worked an
+    extra session in the year in question. A doctor who left is still owed an
+    accurate figure for the year they left in, and hiding it would make a
+    year's totals stop adding up as soon as someone was deactivated; a doctor
+    who left years ago has neither in this year and drops out on their own.
     """
     resolved = _resolve_year(year)
     jan, dec = year_bounds(resolved)
-    entries_by_doctor, template, closed = _load_year_inputs(db, resolved)
+    (
+        entries_by_doctor,
+        template,
+        closed,
+        extra_by_doctor,
+        leave_slots,
+        blocked_slots,
+    ) = _load_year_inputs(db, resolved)
 
     doctors = db.execute(select(Doctor).order_by(Doctor.id)).scalars().all()
     stored_rows = {
@@ -196,11 +265,25 @@ def list_entitlements(
         if doctor.doctor_type not in LEAVE_WEEKS_BY_DOCTOR_TYPE:
             continue
         entries = entries_by_doctor.get(doctor.id, [])
-        if not doctor.active and not entries:
+        extra_sessions = extra_by_doctor.get(doctor.id, [])
+        # An inactive doctor is kept when they have *either* leave or extra
+        # sessions in the year: a leaver whose last act was a TOIL session
+        # would otherwise vanish from the year they earned it in, and the
+        # year's totals would stop adding up -- the exact failure this filter
+        # exists to prevent.
+        if not doctor.active and not entries and not extra_sessions:
             continue
         out.append(
             _build_out(
-                doctor, resolved, stored_rows.get(doctor.id), entries, template, closed
+                doctor,
+                resolved,
+                stored_rows.get(doctor.id),
+                entries,
+                template,
+                closed,
+                extra_sessions,
+                leave_slots,
+                blocked_slots,
             )
         )
 
@@ -227,7 +310,14 @@ def get_entitlement(
     if doctor is None:
         raise HTTPException(status_code=404, detail=f"Doctor {doctor_id} not found")
 
-    entries_by_doctor, template, closed = _load_year_inputs(db, resolved)
+    (
+        entries_by_doctor,
+        template,
+        closed,
+        extra_by_doctor,
+        leave_slots,
+        blocked_slots,
+    ) = _load_year_inputs(db, resolved)
     return _build_out(
         doctor,
         resolved,
@@ -235,6 +325,9 @@ def get_entitlement(
         entries_by_doctor.get(doctor_id, []),
         template,
         closed,
+        extra_by_doctor.get(doctor_id, []),
+        leave_slots,
+        blocked_slots,
     )
 
 
@@ -291,7 +384,14 @@ def upsert_entitlement(
         ) from exc
     db.refresh(stored)
 
-    entries_by_doctor, template, closed = _load_year_inputs(db, resolved)
+    (
+        entries_by_doctor,
+        template,
+        closed,
+        extra_by_doctor,
+        leave_slots,
+        blocked_slots,
+    ) = _load_year_inputs(db, resolved)
     return _build_out(
         doctor,
         resolved,
@@ -299,6 +399,9 @@ def upsert_entitlement(
         entries_by_doctor.get(doctor_id, []),
         template,
         closed,
+        extra_by_doctor.get(doctor_id, []),
+        leave_slots,
+        blocked_slots,
     )
 
 
