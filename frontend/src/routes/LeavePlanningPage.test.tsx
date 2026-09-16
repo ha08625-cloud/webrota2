@@ -184,10 +184,17 @@ async function pickCellState(
   user: ReturnType<typeof userEvent.setup>,
   target: HTMLElement,
   state: "normal" | "leave" | "extra_session" | "blocked",
+  compensation?: "TOIL" | "Payment",
 ) {
   await user.click(target);
   const popover = screen.getByTestId("planning-cell-popover");
   await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), state);
+  if (compensation !== undefined) {
+    await user.selectOptions(
+      within(popover).getByTestId("planning-cell-compensation-select"),
+      compensation,
+    );
+  }
   await user.click(within(popover).getByTestId("planning-cell-apply"));
 }
 
@@ -467,7 +474,7 @@ describe("LeavePlanningPage", () => {
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0].actions).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "leave", notes: null },
-      { doctor_id: 2, date: TUESDAY, period: "PM", action: "extra_session", notes: null },
+      { doctor_id: 2, date: TUESDAY, period: "PM", action: "extra_session", notes: null, compensation: "Payment" },
     ]);
     await waitFor(() =>
       expect(screen.queryByTestId("planning-unsaved-count")).not.toBeInTheDocument(),
@@ -488,8 +495,84 @@ describe("LeavePlanningPage", () => {
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0].actions).toEqual([
       { doctor_id: 1, date: MONDAY, period: "AM", action: "clear" },
-      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null },
+      { doctor_id: 1, date: MONDAY, period: "AM", action: "extra_session", notes: null, compensation: "Payment" },
     ]);
+  });
+
+  it("posts a compensation-only change as one extra_session action", async () => {
+    // Neither the state nor the note moves, so this is the edit the batch
+    // would silently drop without compensation in the no-op test - and the
+    // only one that moves a leave balance.
+    const user = userEvent.setup();
+    setUpServer({
+      extraSessions: [
+        makeExtraSessionEntry({ doctor_id: 1, date: MONDAY, period: "AM", compensation: "Payment" }),
+      ],
+    });
+    const bodies = captureBulkBodies();
+    renderPage();
+
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "extra_session", "TOIL");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].actions).toEqual([
+      {
+        doctor_id: 1,
+        date: MONDAY,
+        period: "AM",
+        action: "extra_session",
+        notes: null,
+        compensation: "TOIL",
+      },
+    ]);
+  });
+
+  it("posts nothing when the compensation picked is the one already stored", async () => {
+    const user = userEvent.setup();
+    setUpServer({
+      extraSessions: [
+        makeExtraSessionEntry({ doctor_id: 1, date: MONDAY, period: "AM", compensation: "TOIL" }),
+      ],
+    });
+    const bodies = captureBulkBodies();
+    renderPage();
+
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "extra_session", "TOIL");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("reports a toil_not_entitled skip rather than letting it read as applied", async () => {
+    // Only reachable from a grid loaded before the doctor's type changed
+    // under it - the popover disables TOIL for a type with no entitlement.
+    const user = userEvent.setup();
+    setUpServer();
+    captureBulkBodies({
+      applied: 0,
+      skipped: [
+        {
+          doctor_id: 1,
+          date: MONDAY,
+          period: "AM",
+          action: "extra_session",
+          compensation: "TOIL",
+          reason: "toil_not_entitled",
+        },
+      ],
+      superseded_extra_sessions: [],
+    });
+    renderPage();
+
+    await pickCellState(user, await findCell(1, MONDAY, "AM"), "extra_session", "TOIL");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    const summary = await screen.findByText(/0 changes saved/);
+    expect(summary).toHaveTextContent(
+      "1 TOIL session skipped (this doctor type has no leave entitlement)",
+    );
+    expect(summary.className).not.toContain("text-red-700");
   });
 
   it("reports skips and superseded extra sessions as information, not error", async () => {

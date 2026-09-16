@@ -77,6 +77,60 @@ describe("LeaveYearCalendar", () => {
     );
   });
 
+  it("names the compensation in an extra session day's title", () => {
+    render(
+      <LeaveYearCalendar
+        year={2026}
+        entries={[]}
+        extraSessions={[
+          makeExtraSessionEntry({ date: "2026-08-03", period: "AM", compensation: "TOIL" }),
+          makeExtraSessionEntry({ date: "2026-08-04", period: "AM", compensation: "Payment" }),
+          makeExtraSessionEntry({ date: "2026-08-04", period: "PM", compensation: "Payment" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute(
+      "title",
+      "2026-08-03 - Extra session (half day) (TOIL)",
+    );
+    expect(screen.getByTestId("year-cal-2026-08-04")).toHaveAttribute(
+      "title",
+      "2026-08-04 - Extra session (AM and PM) (Payment)",
+    );
+  });
+
+  it("says a day's extra session is superseded when leave covers it too", () => {
+    // The durable form of the transient superseded-extra-sessions warning
+    // the bulk endpoints report once - and why a TOIL session there earns
+    // nothing.
+    render(
+      <LeaveYearCalendar
+        year={2026}
+        entries={[
+          makeLeaveEntry({ date: "2026-08-03", period: "AM" }),
+          makeLeaveEntry({ date: "2026-08-04", period: "AM" }),
+          makeLeaveEntry({ date: "2026-08-04", period: "PM" }),
+        ]}
+        extraSessions={[
+          makeExtraSessionEntry({ date: "2026-08-03", period: "PM", compensation: "TOIL" }),
+          makeExtraSessionEntry({ date: "2026-08-04", period: "AM", compensation: "TOIL" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("year-cal-2026-08-03")).toHaveAttribute(
+      "title",
+      "2026-08-03 - Half-day leave and an extra session (TOIL) - the extra session is superseded by the leave",
+    );
+    // Full-day leave hides the extra session from the colour scale, but the
+    // title still accounts for it rather than reading as plain leave.
+    expect(screen.getByTestId("year-cal-2026-08-04")).toHaveAttribute(
+      "title",
+      "2026-08-04 - Leave (full day) (TOIL) - the extra session is superseded by the leave",
+    );
+  });
+
   it("captions the year without offering its own year control", () => {
     // The year is chosen once, by the shared Session Management control.
     render(<LeaveYearCalendar year={2026} entries={[]} />);

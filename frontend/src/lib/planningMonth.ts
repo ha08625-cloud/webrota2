@@ -3,6 +3,7 @@ import type {
   CoverageSlot,
   Day,
   Doctor,
+  ExtraSessionCompensation,
   ExtraSessionEntry,
   LeaveEntry,
   MasterRotaSession,
@@ -77,6 +78,13 @@ export type PlanningCellState = "normal" | "leave" | "extra_session" | "blocked"
 export interface PendingEdit {
   action: PlanningAction;
   notes: string;
+  /**
+   * How the extra session is compensated, or null for any state other
+   * than `extra_session` - the way `notes` is emptied for "normal". Kept
+   * in the same record for the same reason: a pending edit and its
+   * compensation can never point at different cells.
+   */
+  compensation: ExtraSessionCompensation | null;
 }
 
 /** Which server rows exist for one (doctor, date, period). More than one
@@ -299,6 +307,18 @@ export function toNotesMap(
   return map;
 }
 
+/** (doctor, date, period) -> compensation over the loaded extra sessions,
+ * the sibling of `toNotesMap`. The column is NOT NULL, so every extra
+ * session row is in the map and a miss means "no extra session here"
+ * rather than "compensation unknown". */
+export function toCompensationMap(entries: ExtraSessionEntry[]): Map<string, ExtraSessionCompensation> {
+  const map = new Map<string, ExtraSessionCompensation>();
+  for (const entry of entries) {
+    map.set(planningCellKey(entry.doctor_id, entry.date, entry.period), entry.compensation);
+  }
+  return map;
+}
+
 /** The note belonging to whichever server row is currently active for this
  * cell, empty string if none - same leave > blocked > extra_session
  * precedence as `toCellState`, so the note shown always matches the state
@@ -310,6 +330,36 @@ export function serverNotes(
   key: string,
 ): string {
   return leaveNotes.get(key) ?? blockedNotes.get(key) ?? extraNotes.get(key) ?? "";
+}
+
+/**
+ * The compensation the cell currently shows, or null when it is not
+ * showing an extra session at all.
+ *
+ * Gated on the *displayed* state rather than on the presence of an extra
+ * session row, mirroring `serverNotes`' precedence: a cell whose extra
+ * session is buried under leave or a blocked row reads as leave/blocked,
+ * and a compensation it is not showing must not be part of what an edit
+ * compares against.
+ */
+export function serverCompensation(
+  state: PlanningCellState,
+  extraCompensation: Map<string, ExtraSessionCompensation>,
+  key: string,
+): ExtraSessionCompensation | null {
+  return state === "extra_session" ? (extraCompensation.get(key) ?? "Payment") : null;
+}
+
+/** What the cell's compensation shows right now: the pending edit's if
+ * there is one, the server's otherwise - the same merge `mergeNotes` does
+ * for notes. Any pending state other than `extra_session` has no
+ * compensation to show. */
+export function mergeCompensation(
+  server: ExtraSessionCompensation | null,
+  pending: PendingEdit | undefined,
+): ExtraSessionCompensation | null {
+  if (pending === undefined) return server;
+  return pending.action === "extra_session" ? pending.compensation : null;
 }
 
 /** What the cell's notes show right now: the pending edit's notes if
@@ -563,6 +613,7 @@ export interface PlanningActionsInput {
   leaveNotes: Map<string, string>;
   extraNotes: Map<string, string>;
   blockedNotes: Map<string, string>;
+  extraCompensation: Map<string, ExtraSessionCompensation>;
 }
 
 /**
@@ -583,9 +634,12 @@ export interface PlanningActionsInput {
  * do. A cell that keeps its state but changes only its notes needs no
  * clear - the existing row is updated in place.
  *
- * A cell whose pending state *and* notes equal the server's emits
- * nothing; the page also drops such keys from the pending map as they
- * happen, so this is a belt-and-braces filter rather than the only guard.
+ * A cell whose pending state, notes *and* compensation all equal the
+ * server's emits nothing; the page also drops such keys from the pending
+ * map as they happen, so this is a belt-and-braces filter rather than the
+ * only guard. Compensation is in that test because switching a cell from
+ * Payment to TOIL changes neither of the other two, and without it the
+ * only edit that moves a leave balance would be the one silently dropped.
  */
 export function buildPlanningActions({
   pending,
@@ -595,6 +649,7 @@ export function buildPlanningActions({
   leaveNotes,
   extraNotes,
   blockedNotes,
+  extraCompensation,
 }: PlanningActionsInput): PlanningActionIn[] {
   const actions: PlanningActionIn[] = [];
 
@@ -608,7 +663,9 @@ export function buildPlanningActions({
 
     const notesBefore = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
     const notesAfter = mergeNotes(notesBefore, edit);
-    if (before === after && notesBefore === notesAfter) continue;
+    const compBefore = serverCompensation(before, extraCompensation, key);
+    const compAfter = mergeCompensation(compBefore, edit);
+    if (before === after && notesBefore === notesAfter && compBefore === compAfter) continue;
 
     const base = { doctor_id: cell.doctorId, date: cell.date, period: cell.period };
     const needsClear =
@@ -619,7 +676,16 @@ export function buildPlanningActions({
 
     if (needsClear) actions.push({ ...base, action: "clear" });
     if (after !== "normal") {
-      actions.push({ ...base, action: stateToAction(after), notes: notesAfter || null });
+      const next: PlanningActionIn = {
+        ...base,
+        action: stateToAction(after),
+        notes: notesAfter || null,
+      };
+      // Only on the action it means anything for - a null compensation on a
+      // leave or blocked action would be indistinguishable from the "don't
+      // touch" null the endpoint reads on an extra session.
+      if (after === "extra_session") next.compensation = compAfter;
+      actions.push(next);
     }
   }
 

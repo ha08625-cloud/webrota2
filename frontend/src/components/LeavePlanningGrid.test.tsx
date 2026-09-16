@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Permissions, SchoolHoliday } from "@/api/types";
+import type { ExtraSessionCompensation, Permissions, SchoolHoliday } from "@/api/types";
 import { closedSlotKey } from "@/lib/closedSlots";
 import { formatHolidayRange } from "@/lib/date";
 import { type PendingEdit, planningCellKey } from "@/lib/planningMonth";
@@ -38,6 +38,7 @@ function renderGrid(
       blockedKeys={new Set()}
       leaveNotes={new Map()}
       extraNotes={new Map()}
+      extraCompensation={new Map()}
       blockedNotes={new Map()}
       closedSlots={new Set()}
       totals={new Map()}
@@ -70,10 +71,17 @@ async function pickCellState(
   target: HTMLElement,
   state: "normal" | "leave" | "extra_session" | "blocked",
   notes?: string,
+  compensation?: ExtraSessionCompensation,
 ) {
   await user.click(target);
   const popover = screen.getByTestId("planning-cell-popover");
   await user.selectOptions(within(popover).getByTestId("planning-cell-state-select"), state);
+  if (compensation !== undefined) {
+    await user.selectOptions(
+      within(popover).getByTestId("planning-cell-compensation-select"),
+      compensation,
+    );
+  }
   if (notes !== undefined) {
     const notesInput = within(popover).getByTestId("planning-cell-notes-input");
     await user.clear(notesInput);
@@ -104,19 +112,21 @@ function EditHarness(overrides: Partial<Parameters<typeof LeavePlanningGrid>[0]>
       blockedKeys={new Set()}
       leaveNotes={new Map()}
       extraNotes={new Map()}
+      extraCompensation={new Map()}
       blockedNotes={new Map()}
       closedSlots={new Set()}
       totals={new Map()}
       templateTypes={new Map()}
       selectedDoctorId={null}
       onSelectDoctor={() => {}}
-      onApply={(cells, state, notes) =>
+      onApply={(cells, state, notes, compensation) =>
         setPending((prev) => {
           const updated = new Map(prev);
           for (const cell of cells) {
             updated.set(planningCellKey(cell.doctorId, cell.date, cell.period), {
               action: state === "normal" ? "clear" : state,
               notes,
+              compensation,
             });
           }
           return updated;
@@ -198,6 +208,91 @@ describe("LeavePlanningGrid", () => {
       [{ doctorId: 1, date: MONDAY, period: "AM" }],
       "blocked",
       "Training",
+      // Blocked has no compensation to carry.
+      null,
+    );
+  });
+
+  it("reports the picked compensation when the state is an extra session", async () => {
+    const user = userEvent.setup();
+    const { onApply } = renderGrid();
+
+    await pickCellState(user, cell(1, MONDAY, "AM"), "extra_session", undefined, "TOIL");
+
+    expect(onApply).toHaveBeenCalledWith(
+      [{ doctorId: 1, date: MONDAY, period: "AM" }],
+      "extra_session",
+      "",
+      "TOIL",
+    );
+  });
+
+  it("defaults an extra session to Payment and hides the field for every other state", async () => {
+    const user = userEvent.setup();
+    const { onApply } = renderGrid();
+
+    await user.click(cell(1, MONDAY, "AM"));
+    const popover = screen.getByTestId("planning-cell-popover");
+    // "leave" is the prefill for an empty cell - no compensation to set.
+    expect(
+      within(popover).queryByTestId("planning-cell-compensation-select"),
+    ).not.toBeInTheDocument();
+
+    await user.selectOptions(
+      within(popover).getByTestId("planning-cell-state-select"),
+      "extra_session",
+    );
+    expect(within(popover).getByTestId("planning-cell-compensation-select")).toHaveValue("Payment");
+
+    await user.click(within(popover).getByTestId("planning-cell-apply"));
+    expect(onApply).toHaveBeenCalledWith(
+      [{ doctorId: 1, date: MONDAY, period: "AM" }],
+      "extra_session",
+      "",
+      "Payment",
+    );
+  });
+
+  it("prefills the cell's stored compensation and offers TOIL to an entitled doctor", async () => {
+    const user = userEvent.setup();
+    const key = planningCellKey(1, MONDAY, "AM");
+    renderGrid({
+      extraKeys: new Set([key]),
+      extraCompensation: new Map([[key, "TOIL" as ExtraSessionCompensation]]),
+    });
+
+    await user.click(cell(1, MONDAY, "AM"));
+    const popover = screen.getByTestId("planning-cell-popover");
+    expect(within(popover).getByTestId("planning-cell-compensation-select")).toHaveValue("TOIL");
+    expect(within(popover).getByRole("option", { name: "TOIL" })).not.toBeDisabled();
+  });
+
+  it("disables TOIL for a doctor type with no leave entitlement, and says why", async () => {
+    const user = userEvent.setup();
+    const locum = makeDoctor({ id: 3, code: "LO", doctor_type: "Locum" });
+    renderGrid({ doctors: [locum] });
+
+    await user.click(cell(3, MONDAY, "AM"));
+    const popover = screen.getByTestId("planning-cell-popover");
+    await user.selectOptions(
+      within(popover).getByTestId("planning-cell-state-select"),
+      "extra_session",
+    );
+
+    expect(within(popover).getByRole("option", { name: "TOIL" })).toBeDisabled();
+    expect(within(popover).getByText(/Locum doctors have no leave entitlement/)).toBeInTheDocument();
+  });
+
+  it("names the compensation in an extra session cell's title, keeping the code at E", () => {
+    const key = planningCellKey(1, MONDAY, "AM");
+    renderGrid({
+      extraKeys: new Set([key]),
+      extraCompensation: new Map([[key, "TOIL" as ExtraSessionCompensation]]),
+    });
+
+    expect(cell(1, MONDAY, "AM")).toHaveAttribute(
+      "title",
+      `AA ${MONDAY} AM - Extra session planned (TOIL)`,
     );
   });
 
@@ -480,6 +575,7 @@ describe("LeavePlanningGrid", () => {
         ],
         "leave",
         "",
+        null,
       );
     });
 
@@ -511,6 +607,7 @@ describe("LeavePlanningGrid", () => {
         ],
         "leave",
         "",
+        null,
       );
     });
 
@@ -542,6 +639,7 @@ describe("LeavePlanningGrid", () => {
         ],
         "leave",
         "",
+        null,
       );
     });
 
@@ -558,6 +656,7 @@ describe("LeavePlanningGrid", () => {
         [{ doctorId: 3, date: MONDAY, period: "PM" }],
         "leave",
         "",
+        null,
       );
     });
 
@@ -589,6 +688,7 @@ describe("LeavePlanningGrid", () => {
         ],
         "leave",
         "",
+        null,
       );
     });
 
@@ -605,6 +705,7 @@ describe("LeavePlanningGrid", () => {
         [{ doctorId: 1, date: TUESDAY, period: "PM" }],
         "blocked",
         "",
+        null,
       );
     });
 
@@ -620,6 +721,41 @@ describe("LeavePlanningGrid", () => {
       const popover = screen.getByTestId("planning-cell-popover");
       expect(within(popover).getByTestId("planning-cell-state-select")).toHaveValue("blocked");
       expect(within(popover).getByTestId("planning-cell-notes-input")).toHaveValue("Training");
+    });
+
+    it("treats a selection differing only in compensation as mixed", () => {
+      // Not uniform: prefilling with one of the two would misreport the
+      // other, and Apply writes the prefill to both.
+      const am = planningCellKey(1, MONDAY, "AM");
+      const pm = planningCellKey(1, MONDAY, "PM");
+      renderGrid({
+        extraKeys: new Set([am, pm]),
+        extraCompensation: new Map<string, ExtraSessionCompensation>([
+          [am, "TOIL"],
+          [pm, "Payment"],
+        ]),
+      });
+
+      drag(cell(1, MONDAY, "AM"), cell(1, MONDAY, "PM"));
+
+      const popover = screen.getByTestId("planning-cell-popover");
+      expect(within(popover).getByTestId("planning-cell-state-select")).toHaveValue("leave");
+    });
+
+    it("prefills a uniform extra-session selection with its shared compensation", () => {
+      const keys = [planningCellKey(1, MONDAY, "AM"), planningCellKey(1, MONDAY, "PM")];
+      renderGrid({
+        extraKeys: new Set(keys),
+        extraCompensation: new Map(
+          keys.map((key) => [key, "TOIL" as ExtraSessionCompensation]),
+        ),
+      });
+
+      drag(cell(1, MONDAY, "AM"), cell(1, MONDAY, "PM"));
+
+      const popover = screen.getByTestId("planning-cell-popover");
+      expect(within(popover).getByTestId("planning-cell-state-select")).toHaveValue("extra_session");
+      expect(within(popover).getByTestId("planning-cell-compensation-select")).toHaveValue("TOIL");
     });
 
     it("prefills a mixed selection with leave and an empty note", () => {

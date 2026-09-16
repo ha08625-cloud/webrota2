@@ -1,4 +1,4 @@
-import type { ExtraSessionEntry, LeaveEntry } from "@/api/types";
+import type { ExtraSessionCompensation, ExtraSessionEntry, LeaveEntry } from "@/api/types";
 import { isInYearMonth, monthName, monthWeeks } from "@/lib/yearCalendar";
 
 /**
@@ -16,6 +16,12 @@ import { isInYearMonth, monthName, monthWeeks } from "@/lib/yearCalendar";
  * day is "full" only when both halves are taken by the same kind, so a
  * mixed AM-leave/PM-extra day reads as a half of each, which the legend
  * explains and the title attribute spells out.
+ *
+ * How an extra session is compensated goes in the title only, not into the
+ * colour scale or the legend: compensation is a pay/leave fact, and every
+ * mark on this calendar is a coverage one. A day carrying both leave and an
+ * extra session says so there too - the extra session is superseded, so a
+ * TOIL one earns nothing.
  */
 
 const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -68,6 +74,24 @@ const COVERAGE_CLASSES: Record<DayCoverage, string> = {
   none: "",
 };
 
+/**
+ * date -> the compensation(s) of the extra sessions on it, as a readable
+ * fragment ("TOIL", "Payment", or "TOIL and Payment" for a day whose two
+ * halves disagree). Sorted so the two halves of such a day always read the
+ * same way round.
+ */
+function compensationByDate(extraSessions: ExtraSessionEntry[]): Map<string, string> {
+  const byDate = new Map<string, Set<ExtraSessionCompensation>>();
+  for (const entry of extraSessions) {
+    const kinds = byDate.get(entry.date) ?? new Set<ExtraSessionCompensation>();
+    kinds.add(entry.compensation);
+    byDate.set(entry.date, kinds);
+  }
+  return new Map(
+    [...byDate].map(([date, kinds]) => [date, [...kinds].sort().join(" and ")]),
+  );
+}
+
 const COVERAGE_TITLES: Record<DayCoverage, string> = {
   full: "Leave (full day)",
   half: "Leave (half day)",
@@ -91,10 +115,29 @@ export function LeaveYearCalendar({
   extraSessions = [],
 }: LeaveYearCalendarProps) {
   const inYear = `${year}-`;
-  const coverage = coverageByDate(
-    entries.filter((e) => e.date.startsWith(inYear)),
-    extraSessions.filter((e) => e.date.startsWith(inYear)),
-  );
+  const inYearExtras = extraSessions.filter((e) => e.date.startsWith(inYear));
+  const coverage = coverageByDate(entries.filter((e) => e.date.startsWith(inYear)), inYearExtras);
+  const compensation = compensationByDate(inYearExtras);
+
+  /**
+   * The day's hover text. A day carrying an extra session names how it is
+   * compensated; where leave covers that day too - `leave-and-extra`, and
+   * the leave-only states that hide an extra session behind a full or half
+   * day of leave - it also says the session is superseded. That is the
+   * durable form of the transient `superseded_extra_sessions` warning the
+   * bulk endpoints report once, and the reason a TOIL session there earns
+   * nothing.
+   */
+  function dayTitle(date: string, state: DayCoverage): string {
+    if (state === "none") return date;
+    const kinds = compensation.get(date);
+    if (kinds === undefined) return `${date} - ${COVERAGE_TITLES[state]}`;
+    const superseded =
+      state === "extra-half" || state === "extra-full"
+        ? ""
+        : " - the extra session is superseded by the leave";
+    return `${date} - ${COVERAGE_TITLES[state]} (${kinds})${superseded}`;
+  }
 
   return (
     <div data-testid="leave-year-calendar">
@@ -138,7 +181,7 @@ export function LeaveYearCalendar({
                           key={date}
                           data-testid={`year-cal-${date}`}
                           data-state={state}
-                          title={state === "none" ? date : `${date} - ${COVERAGE_TITLES[state]}`}
+                          title={dayTitle(date, state)}
                           className={`text-center text-[9px] leading-tight ${
                             inMonth ? COVERAGE_CLASSES[state] : "text-ink/20"
                           } ${inMonth && state === "none" ? "text-ink/70" : ""}`}

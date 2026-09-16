@@ -20,6 +20,7 @@ import { useSchools } from "@/api/schools";
 import type {
   ApiError,
   BlockedEntry,
+  ExtraSessionCompensation,
   ExtraSessionEntry,
   LeaveEntry,
   PlanningBulkOut,
@@ -42,10 +43,12 @@ import {
   overlapsRange,
   planningCellKey,
   schoolHolidayDatesInRange,
+  serverCompensation,
   serverNotes,
   serverRows,
   toCellKeySet,
   toCellState,
+  toCompensationMap,
   toNotesMap,
   weekdaysInMonth,
 } from "@/lib/planningMonth";
@@ -103,11 +106,19 @@ function summariseSave(result: PlanningBulkOut): string {
   ).length;
   const leaveWins = result.skipped.filter((s) => s.reason === "leave_exists").length;
   const blockedWins = result.skipped.filter((s) => s.reason === "blocked_exists").length;
+  const notEntitled = result.skipped.filter((s) => s.reason === "toil_not_entitled").length;
 
   if (alreadySet > 0) parts.push(`${alreadySet} already matched`);
   if (outOfWindow > 0) parts.push(`${outOfWindow} skipped (doctor not employed on that date)`);
   if (leaveWins > 0) parts.push(`${leaveWins} entr${leaveWins === 1 ? "y" : "ies"} skipped (leave takes precedence)`);
   if (blockedWins > 0) parts.push(`${blockedWins} extra session${blockedWins === 1 ? "" : "s"} skipped (blocked takes precedence)`);
+  // Reachable from a grid loaded before the doctor's type was changed under
+  // it - the popover disables TOIL for a type with no entitlement, so this
+  // is not a state the current screen can produce.
+  if (notEntitled > 0)
+    parts.push(
+      `${notEntitled} TOIL session${notEntitled === 1 ? "" : "s"} skipped (this doctor type has no leave entitlement)`,
+    );
 
   let summary = `${parts.join(", ")}.`;
 
@@ -254,6 +265,7 @@ export function LeavePlanningPage() {
   const blockedKeys = useMemo(() => toCellKeySet(blocked ?? []), [blocked]);
   const leaveNotes = useMemo(() => toNotesMap(leave ?? []), [leave]);
   const extraNotes = useMemo(() => toNotesMap(extraSessions ?? []), [extraSessions]);
+  const extraCompensation = useMemo(() => toCompensationMap(extraSessions ?? []), [extraSessions]);
   const blockedNotes = useMemo(() => toNotesMap(blocked ?? []), [blocked]);
   const closedSlots = useMemo(() => toClosedSlotSet(closures ?? []), [closures]);
 
@@ -272,10 +284,15 @@ export function LeavePlanningPage() {
   );
 
   /** One popover Apply, over every cell the grid selected - a plain click
-   * is simply a range of one. The state and note are written verbatim to
-   * all of them; the grid has already dropped the closed and
+   * is simply a range of one. The state, note and compensation are written
+   * verbatim to all of them; the grid has already dropped the closed and
    * out-of-window cells a drag may have spanned. */
-  function handleApply(cells: PlanningCell[], state: PlanningCellState, notes: string) {
+  function handleApply(
+    cells: PlanningCell[],
+    state: PlanningCellState,
+    notes: string,
+    compensation: ExtraSessionCompensation | null,
+  ) {
     setPending((prev) => {
       const updated = new Map(prev);
       for (const cell of cells) {
@@ -283,14 +300,26 @@ export function LeavePlanningPage() {
         const rows = serverRows(leaveKeys, extraKeys, blockedKeys, key);
         const serverState = toCellState(rows);
         const serverNotesValue = serverNotes(leaveNotes, extraNotes, blockedNotes, key);
+        const serverCompensationValue = serverCompensation(serverState, extraCompensation, key);
         // Picking a cell back to exactly what the server already says is
         // not an edit - dropping the key keeps the unsaved count honest and
         // keeps a no-op out of the batch. Applied per cell, so the cells in
         // a range that already matched don't inflate the count either.
-        if (state === serverState && notes === serverNotesValue) {
+        // Compensation is part of "exactly" for the same reason it is part
+        // of `buildPlanningActions`' own no-op test: Payment -> TOIL changes
+        // nothing else about the cell.
+        if (
+          state === serverState &&
+          notes === serverNotesValue &&
+          compensation === serverCompensationValue
+        ) {
           updated.delete(key);
         } else {
-          updated.set(key, { action: state === "normal" ? "clear" : state, notes });
+          updated.set(key, {
+            action: state === "normal" ? "clear" : state,
+            notes,
+            compensation,
+          });
         }
       }
       return updated;
@@ -337,6 +366,7 @@ export function LeavePlanningPage() {
       leaveNotes,
       extraNotes,
       blockedNotes,
+      extraCompensation,
     });
     if (actions.length === 0) {
       setPending(new Map());
@@ -682,6 +712,7 @@ export function LeavePlanningPage() {
         blockedKeys={blockedKeys}
         leaveNotes={leaveNotes}
         extraNotes={extraNotes}
+        extraCompensation={extraCompensation}
         blockedNotes={blockedNotes}
         closedSlots={closedSlots}
         totals={totals}
