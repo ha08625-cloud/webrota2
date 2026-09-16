@@ -128,7 +128,7 @@ class _Candidate:
     raw: int
     spw: float
     weighted: float
-    balance: float = 0.0
+    adjustment: float = 0.0
 
 
 def _score_candidates(
@@ -147,7 +147,7 @@ def _score_candidates(
             weighted=counters.weighted_clinic_score(
                 elig.doctor_id, clinic.id, context.spw_by_id.get(elig.doctor_id, 0.0)
             ),
-            balance=counters.clinic_opening_balance(elig.doctor_id, clinic.id),
+            adjustment=counters.clinic_adjustment_for(elig.doctor_id, clinic.id),
         )
         for elig in eligible
     ]

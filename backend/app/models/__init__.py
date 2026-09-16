@@ -34,7 +34,7 @@ from .leave_entitlement import LeaveEntitlement
 from .extra_session import ExtraSessionEntry
 from .blocked import BlockedEntry
 from .duty import DutyAssignment
-from .duty_opening_balance import DutyOpeningBalance
+from .duty_counter_adjustment import DutyCounterAdjustment
 from .master_rota import MasterRotaTemplate, MasterRotaSession
 from .staging import RotaStaging, RotaStagingSession
 from .rota import RotaConfig, GeneratedRota, RotaSession
@@ -77,7 +77,7 @@ __all__ = [
     "Room", "Doctor", "DoctorPreferredRoom", "ClinicType", "ClinicTypeSchedule",
     "ClinicTypeDoctorEligibility", "ClinicTypeRoomEligibility", "ClinicCounter",
     "SystemCounter", "LeaveEntry", "LeaveEntitlement", "ExtraSessionEntry",
-    "BlockedEntry", "DutyAssignment", "DutyOpeningBalance",
+    "BlockedEntry", "DutyAssignment", "DutyCounterAdjustment",
     "MasterRotaTemplate",
     "MasterRotaSession", "RotaStaging", "RotaStagingSession", "RotaConfig",
     "GeneratedRota", "RotaSession",

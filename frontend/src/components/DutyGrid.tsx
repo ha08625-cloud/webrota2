@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { Fragment, useMemo, useState } from "react";
 
-import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts, useSetDutyOpeningBalance } from "@/api/duty";
+import { useCreateDuty, useDeleteDuty, useDuty, useDutyCounts, useSetDutyAdjustment } from "@/api/duty";
 import { useClosures } from "@/api/closures";
 import { useDoctors } from "@/api/doctors";
 import type { Closure, Doctor, DutyAssignment, DutyType, Period } from "@/api/types";
@@ -22,8 +22,8 @@ import { buildColumns } from "@/lib/dutyWeekSlots";
 import { isSlotClosed, toClosedSlotSet } from "@/lib/closedSlots";
 import { groupDoctorsByType } from "@/lib/groupDoctors";
 import { type DraggableDoctor, type DutySlot, resolveDutyDrop } from "@/lib/resolveDutyDrop";
-import { BALANCE_HINT, OpeningBalanceInput } from "@/components/OpeningBalanceInput";
-import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from "@/lib/weightedScore";
+import { ADJUSTMENT_HINT, CounterAdjustmentInput } from "@/components/CounterAdjustmentInput";
+import { computeWeightedScore, formatAdjustment, formatWeightedScore } from "@/lib/weightedScore";
 
 const PERIODS: Period[] = ["AM", "PM"];
 
@@ -80,7 +80,7 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   // its children into the DOM, and a second copy of every doctor code
   // sitting invisibly beside the palette is a trap for anything that looks
   // a doctor up by its code.
-  const [balancesOpen, setBalancesOpen] = useState(false);
+  const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
 
   const weekStartDates = useMemo(
     () => Array.from({ length: weeks }, (_, i) => addDays(startWeekDate, i * 7)),
@@ -109,16 +109,16 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
   // Sessions credited to a doctor whose count does not cover the whole
   // year the others' counts do - a mid-year joiner otherwise reads as
   // maximally under-loaded and is bolded as "next in line" for weeks. The
-  // balance is year-scoped, and the endpoint resolves it from the year of
+  // adjustment is year-scoped, and the endpoint resolves it from the year of
   // the range's from_date, which is this grid's annual range.
-  const annualBalancesById = useMemo(() => {
+  const annualAdjustmentsById = useMemo(() => {
     const map = new Map<number, string>();
-    for (const c of annualCountsData ?? []) map.set(c.doctor_id, c.opening_balance);
+    for (const c of annualCountsData ?? []) map.set(c.doctor_id, c.adjustment);
     return map;
   }, [annualCountsData]);
 
-  const balanceYear = Number(annualRange.from.slice(0, 4));
-  const setDutyBalance = useSetDutyOpeningBalance();
+  const adjustmentYear = Number(annualRange.from.slice(0, 4));
+  const setDutyAdjustment = useSetDutyAdjustment();
 
   const dutyEligibleDoctors = (allDoctors ?? []).filter(
     (d) => d.doctor_type === "Partner" || d.doctor_type === "Salaried",
@@ -139,7 +139,7 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
         const score = computeWeightedScore(
           annualCountsById.get(d.id) ?? 0,
           doctorsById.get(d.id),
-          annualBalancesById.get(d.id) ?? "0",
+          annualAdjustmentsById.get(d.id) ?? "0",
         );
         if (score.kind !== "value") return min;
         const shown = Number(score.value.toFixed(WTD_DECIMALS));
@@ -220,10 +220,10 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                   {group.doctors.map((d) => {
                     const doctor = doctorsById.get(d.id);
                     const annualRaw = annualCountsLoading ? null : (annualCountsById.get(d.id) ?? 0);
-                    const annualBalance = annualBalancesById.get(d.id) ?? "0";
-                    const annualCredit = formatOpeningBalance(annualBalance);
+                    const annualAdjustment = annualAdjustmentsById.get(d.id) ?? "0";
+                    const annualAdjustmentText = formatAdjustment(annualAdjustment);
                     const annualScore =
-                      annualRaw === null ? null : computeWeightedScore(annualRaw, doctor, annualBalance);
+                      annualRaw === null ? null : computeWeightedScore(annualRaw, doctor, annualAdjustment);
                     const annualWtd = annualScore === null ? null : formatWeightedScore(annualScore, WTD_DECIMALS);
                     const isLowest =
                       annualScore !== null &&
@@ -248,10 +248,10 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
                                 folded into it: the raw count stays "duty
                                 actually done this year". */}
                             <span
-                              data-testid={`duty-annual-balance-${d.id}`}
+                              data-testid={`duty-annual-adjustment-${d.id}`}
                               className="w-10 text-right text-xs tabular-nums text-ink/50"
                             >
-                              {annualCredit ?? ""}
+                              {annualAdjustmentText ?? ""}
                             </span>
                             <span
                               data-testid={`duty-annual-wtd-${d.id}`}
@@ -270,38 +270,38 @@ export function DutyGrid({ startWeekDate, weeks = DUTY_PERIOD_WEEKS, showCounts 
               </div>
             ))}
           </div>
-          {/* Collapsed by default: editing a balance is a rare admin act,
+          {/* Collapsed by default: editing an adjustment is a rare admin act,
               while the grid beside it is used every week. Inputs live here
               rather than in the columns above so they cannot be mistaken
               for part of the drag-and-drop palette. */}
           {showCounts ? (
             <details
-              open={balancesOpen}
-              onToggle={(e) => setBalancesOpen(e.currentTarget.open)}
+              open={adjustmentsOpen}
+              onToggle={(e) => setAdjustmentsOpen(e.currentTarget.open)}
               className="mt-4 rounded border border-border p-2"
             >
               <summary className="cursor-pointer text-xs font-medium text-ink/70">
-                Opening balances ({balanceYear})
+                Adjustments ({adjustmentYear})
               </summary>
-              {balancesOpen ? (
+              {adjustmentsOpen ? (
                 <>
                   <p className="mt-1 text-xs text-ink/50">
                     Duty sessions credited to a doctor who was not here for the whole year, added to their count
-                    before the weighted score is computed. {BALANCE_HINT}
+                    before the weighted score is computed. {ADJUSTMENT_HINT}
                   </p>
-                  {setDutyBalance.isError ? (
-                    <p className="mt-1 text-xs text-red-700">Could not save opening balance.</p>
+                  {setDutyAdjustment.isError ? (
+                    <p className="mt-1 text-xs text-red-700">Could not save adjustment.</p>
                   ) : null}
                   <div className="mt-2 space-y-1">
                     {dutyEligibleDoctors.map((d) => (
                       <div key={d.id} className="flex items-center gap-2">
                         <span className="w-10 text-xs text-ink/70">{d.code}</span>
-                        <OpeningBalanceInput
-                          value={annualBalancesById.get(d.id) ?? "0.0"}
-                          label={`Duty opening balance for ${d.code}`}
-                          isPending={setDutyBalance.isPending}
+                        <CounterAdjustmentInput
+                          value={annualAdjustmentsById.get(d.id) ?? "0.0"}
+                          label={`Duty adjustment for ${d.code}`}
+                          isPending={setDutyAdjustment.isPending}
                           onSave={(sessions) =>
-                            setDutyBalance.mutate({ doctor_id: d.id, year: balanceYear, sessions })
+                            setDutyAdjustment.mutate({ doctor_id: d.id, year: adjustmentYear, sessions })
                           }
                         />
                       </div>

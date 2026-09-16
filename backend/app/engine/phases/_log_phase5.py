@@ -85,7 +85,7 @@ def _selection_rationale(
         rat.listing(
             "Eligible",
             [
-                f"{c.code} (priority tier {c.tier}, {rat.score(c.raw, c.spw, c.weighted, c.balance)})"
+                f"{c.code} (priority tier {c.tier}, {rat.score(c.raw, c.spw, c.weighted, c.adjustment)})"
                 for c in candidates
             ],
         ),
@@ -108,7 +108,7 @@ def _selection_rationale(
 
     lines.append(rat.listing(
         "Weighted clinic counters within that tier",
-        [f"{c.code} {rat.score(c.raw, c.spw, c.weighted, c.balance)}" for c in top_tier],
+        [f"{c.code} {rat.score(c.raw, c.spw, c.weighted, c.adjustment)}" for c in top_tier],
     ))
     tied = [c for c in top_tier if c.weighted == chosen.weighted]
     if len(tied) == 1:

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Doctor } from "@/api/types";
 
-import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from "./weightedScore";
+import { computeWeightedScore, formatAdjustment, formatWeightedScore } from "./weightedScore";
 
 function makeDoctor(overrides: Partial<Doctor> = {}): Doctor {
   return {
@@ -28,7 +28,7 @@ describe("computeWeightedScore", () => {
     expect(result).toEqual({ kind: "infinite" });
   });
 
-  it("adds the opening balance to the raw count before dividing", () => {
+  it("adds the adjustment to the raw count before dividing", () => {
     // The property the whole feature rests on: a joiner credited with the
     // group's score x their sessions (0.8 * 4 = 3.2) lands exactly on the
     // group's score rather than at zero.
@@ -36,18 +36,18 @@ describe("computeWeightedScore", () => {
     expect(result).toEqual({ kind: "value", value: 8 });
   });
 
-  it("parses the balance rather than concatenating it onto the raw count", () => {
+  it("parses the adjustment rather than concatenating it onto the raw count", () => {
     // "1" + "3.2" would be 13.2 sessions, i.e. a score of 33 rather than 10.5.
     const result = computeWeightedScore(1, makeDoctor({ sessions_per_week: "4.0" }), "3.2");
     expect(result).toEqual({ kind: "value", value: 10.5 });
   });
 
-  it("accepts a negative balance (a returner, or a leaver treated as already served)", () => {
+  it("accepts a negative adjustment (a returner, or a leaver treated as already served)", () => {
     const result = computeWeightedScore(6, makeDoctor({ sessions_per_week: "4.0" }), "-2.0");
     expect(result).toEqual({ kind: "value", value: 10 });
   });
 
-  it("treats an unparseable balance as no credit rather than rendering NaN", () => {
+  it("treats an unparseable adjustment as no credit rather than rendering NaN", () => {
     const result = computeWeightedScore(4, makeDoctor({ sessions_per_week: "8.0" }), "");
     expect(result).toEqual({ kind: "value", value: 5 });
   });
@@ -76,18 +76,18 @@ describe("formatWeightedScore", () => {
     expect(formatWeightedScore({ kind: "unknown" })).toBe("-");
   });
 });
-describe("formatOpeningBalance", () => {
-  it("returns null for a zero balance, so rows with no credit are unmarked", () => {
-    expect(formatOpeningBalance("0.0")).toBeNull();
-    expect(formatOpeningBalance("0")).toBeNull();
+describe("formatAdjustment", () => {
+  it("returns null for a zero adjustment, so rows with no credit are unmarked", () => {
+    expect(formatAdjustment("0.0")).toBeNull();
+    expect(formatAdjustment("0")).toBeNull();
   });
 
   it("signs the credit explicitly, to one decimal place", () => {
-    expect(formatOpeningBalance("3.2")).toBe("+3.2");
-    expect(formatOpeningBalance("4")).toBe("+4.0");
+    expect(formatAdjustment("3.2")).toBe("+3.2");
+    expect(formatAdjustment("4")).toBe("+4.0");
   });
 
-  it("formats a negative balance with a minus sign", () => {
-    expect(formatOpeningBalance("-2.5")).toBe("-2.5");
+  it("formats a negative adjustment with a minus sign", () => {
+    expect(formatAdjustment("-2.5")).toBe("-2.5");
   });
 });

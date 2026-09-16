@@ -11,7 +11,7 @@ from app.models import (
     ClinicType,
     Doctor,
     DoctorPreferredRoom,
-    DutyOpeningBalance,
+    DutyCounterAdjustment,
     GeneratedRota,
     MasterRotaSession,
     MasterRotaTemplate,
@@ -175,8 +175,8 @@ def test_clinic_counter_unique(session):
         session.flush()
 
 
-def test_clinic_counter_opening_balance_defaults_to_zero(session):
-    """A counter created without a balance behaves exactly as it did before
+def test_clinic_counter_adjustment_defaults_to_zero(session):
+    """A counter created without a adjustment behaves exactly as it did before
     the column existed."""
     d = _doctor(session)
     c = _clinic(session)
@@ -184,10 +184,10 @@ def test_clinic_counter_opening_balance_defaults_to_zero(session):
     session.add(cc)
     session.flush()
     session.refresh(cc)
-    assert cc.opening_balance == Decimal("0.0")
+    assert cc.adjustment == Decimal("0.0")
 
 
-def test_system_counter_opening_balance_round_trips_one_decimal(session):
+def test_system_counter_adjustment_round_trips_one_decimal(session):
     """The credit is derived from a peer average and so is fractional --
     Numeric(5, 1) is the storage that survives it."""
     d = _doctor(session)
@@ -195,15 +195,15 @@ def test_system_counter_opening_balance_round_trips_one_decimal(session):
         doctor_id=d.id,
         counter_type=SystemCounterType.ROOM_MOVE,
         raw_count=0,
-        opening_balance=Decimal("3.2"),
+        adjustment=Decimal("3.2"),
     )
     session.add(sc)
     session.flush()
     session.refresh(sc)
-    assert sc.opening_balance == Decimal("3.2")
+    assert sc.adjustment == Decimal("3.2")
 
 
-def test_counter_opening_balance_may_be_negative(session):
+def test_counter_adjustment_may_be_negative(session):
     """Deliberately unconstrained: the mirror case (a doctor back from a
     long absence, a leaver already served) is real."""
     d = _doctor(session)
@@ -211,42 +211,41 @@ def test_counter_opening_balance_may_be_negative(session):
         doctor_id=d.id,
         counter_type=SystemCounterType.SUPERVISION,
         raw_count=5,
-        opening_balance=Decimal("-2.0"),
+        adjustment=Decimal("-2.0"),
     )
     session.add(sc)
     session.flush()
     session.refresh(sc)
-    assert sc.opening_balance == Decimal("-2.0")
+    assert sc.adjustment == Decimal("-2.0")
 
 
-# --- DutyOpeningBalance: one optional row per (doctor, year) ---
+# --- DutyCounterAdjustment: one optional row per (doctor, year) ---
 
-def test_duty_opening_balance_unique_per_doctor_and_year(session):
+def test_duty_counter_adjustment_unique_per_doctor_and_year(session):
     d = _doctor(session)
-    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
+    session.add(DutyCounterAdjustment(doctor_id=d.id, year=2026, adjustment=Decimal("3.2")))
     session.flush()
-    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("1.0")))
+    session.add(DutyCounterAdjustment(doctor_id=d.id, year=2026, adjustment=Decimal("1.0")))
     with pytest.raises(IntegrityError):
         session.flush()
 
 
-def test_duty_opening_balance_same_doctor_other_year_allowed(session):
+def test_duty_counter_adjustment_same_doctor_other_year_allowed(session):
     """Year-scoped by design: the duty count restarts every 1 January, so
-    each year's credit is its own row."""
+    each year's adjustment is its own row."""
     d = _doctor(session)
-    session.add(DutyOpeningBalance(doctor_id=d.id, year=2026, sessions=Decimal("3.2")))
-    session.add(DutyOpeningBalance(doctor_id=d.id, year=2027, sessions=Decimal("0.5")))
+    session.add(DutyCounterAdjustment(doctor_id=d.id, year=2026, adjustment=Decimal("3.2")))
+    session.add(DutyCounterAdjustment(doctor_id=d.id, year=2027, adjustment=Decimal("0.5")))
     session.flush()
 
 
-def test_duty_opening_balance_defaults_and_optional_notes(session):
+def test_duty_counter_adjustment_defaults_to_zero(session):
     d = _doctor(session)
-    b = DutyOpeningBalance(doctor_id=d.id, year=2026)
+    b = DutyCounterAdjustment(doctor_id=d.id, year=2026)
     session.add(b)
     session.flush()
     session.refresh(b)
-    assert b.sessions == Decimal("0.0")
-    assert b.notes is None
+    assert b.adjustment == Decimal("0.0")
 
 
 # --- RotaConfig / MasterRotaSession check constraints ---
@@ -292,8 +291,8 @@ def test_weighted_clinic_score(session):
     assert weighted == 0.5
 
 
-def test_weighted_clinic_score_with_opening_balance(session):
-    """The balance is what puts a mid-year joiner level with the group: a
+def test_weighted_clinic_score_with_adjustment(session):
+    """The adjustment is what puts a mid-year joiner level with the group: a
     credit of peer_score x spw lands them exactly on the peer score."""
     d = _doctor(session, spw="4.0")
     c = _clinic(session)
@@ -301,11 +300,11 @@ def test_weighted_clinic_score_with_opening_balance(session):
         doctor_id=d.id,
         clinic_type_id=c.id,
         raw_count=0,
-        opening_balance=Decimal("3.2"),
+        adjustment=Decimal("3.2"),
     )
     session.add(cc)
     session.flush()
-    weighted = (cc.raw_count + float(cc.opening_balance)) / float(d.sessions_per_week)
+    weighted = (cc.raw_count + float(cc.adjustment)) / float(d.sessions_per_week)
     assert weighted == 0.8
 
 

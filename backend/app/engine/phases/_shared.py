@@ -143,5 +143,5 @@ def room_move_score_text(
         raw,
         spw,
         counters.weighted_system_score(doctor_id, SystemCounterType.ROOM_MOVE, spw),
-        counters.system_opening_balance(doctor_id, SystemCounterType.ROOM_MOVE),
+        counters.system_adjustment_for(doctor_id, SystemCounterType.ROOM_MOVE),
     )

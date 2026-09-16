@@ -6,8 +6,8 @@ import {
   useResetAllSystemCounters,
   useResetClinicCounter,
   useResetSystemCounter,
-  useSetClinicOpeningBalance,
-  useSetSystemOpeningBalance,
+  useSetClinicAdjustment,
+  useSetSystemAdjustment,
   useSystemCounters,
 } from "@/api/counters";
 import { useClinicTypes } from "@/api/clinicTypes";
@@ -15,8 +15,8 @@ import { useDoctors } from "@/api/doctors";
 import { useRotaList } from "@/api/rota";
 import type { ClinicCounter, ClinicType, Doctor, SystemCounterKind } from "@/api/types";
 import { useWriteGate } from "@/auth/AuthContext";
-import { BALANCE_HINT, OpeningBalanceInput } from "@/components/OpeningBalanceInput";
-import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from "@/lib/weightedScore";
+import { ADJUSTMENT_HINT, CounterAdjustmentInput } from "@/components/CounterAdjustmentInput";
+import { computeWeightedScore, formatAdjustment, formatWeightedScore } from "@/lib/weightedScore";
 
 // Appended to a base confirm message whenever a draft rota is active.
 // Must say scrapping *undoes* the reset of the raw counts (restores
@@ -25,10 +25,10 @@ import { computeWeightedScore, formatOpeningBalance, formatWeightedScore } from 
 //
 // The two halves of a reset are undone differently and the wording has to
 // say so: raw counts are snapshotted at generation and restored by a scrap,
-// while opening balances are not snapshotted at all, so the reset clears
-// them permanently whatever happens to the draft.
+// while adjustments are not snapshotted at all, so the reset clears them
+// permanently whatever happens to the draft.
 const DRAFT_WARNING =
-  " Note: a draft rota is currently active. If that draft is scrapped, raw counts will be restored to their pre-generation values and that part of this reset will be undone. Opening balances are not restored by a scrap: clearing them is permanent either way. To make the whole reset permanent, commit or scrap the draft first.";
+  " Note: a draft rota is currently active. If that draft is scrapped, raw counts will be restored to their pre-generation values and that part of this reset will be undone. Adjustments are not restored by a scrap: clearing them is permanent either way. To make the whole reset permanent, commit or scrap the draft first.";
 
 /**
  * Display names for the system counter types, which arrive as their raw
@@ -51,8 +51,8 @@ function systemCounterLabel(kind: SystemCounterKind): string {
  * it: "how many of these has this doctor actually done" must stay
  * answerable from this column, so a credit is never added to the number.
  */
-function RawCount({ rawCount, openingBalance }: { rawCount: number; openingBalance: string }) {
-  const credit = formatOpeningBalance(openingBalance);
+function RawCount({ rawCount, adjustment }: { rawCount: number; adjustment: string }) {
+  const credit = formatAdjustment(adjustment);
   return (
     <>
       <span className="tabular-nums">{rawCount}</span>
@@ -93,8 +93,8 @@ export function CountersPage() {
 
   const resetClinicCounter = useResetClinicCounter();
   const resetSystemCounter = useResetSystemCounter();
-  const setClinicBalance = useSetClinicOpeningBalance();
-  const setSystemBalance = useSetSystemOpeningBalance();
+  const setClinicAdjustment = useSetClinicAdjustment();
+  const setSystemAdjustment = useSetSystemAdjustment();
   const resetAllClinicCounters = useResetAllClinicCounters();
   const resetAllSystemCounters = useResetAllSystemCounters();
 
@@ -119,9 +119,9 @@ export function CountersPage() {
   const activeClinicType = sortedClinicTypes.find((ct) => ct.id === activeClinicTypeId) ?? sortedClinicTypes[0];
   const activeClinicCounters = activeClinicType ? (clinicCountersByTypeId.get(activeClinicType.id) ?? []) : [];
 
-  function weightedFor(doctorId: number, rawCount: number, openingBalance: string): string {
+  function weightedFor(doctorId: number, rawCount: number, adjustment: string): string {
     const doctor: Doctor | undefined = doctorsById.get(doctorId);
-    return formatWeightedScore(computeWeightedScore(rawCount, doctor, openingBalance));
+    return formatWeightedScore(computeWeightedScore(rawCount, doctor, adjustment));
   }
 
   function confirmMessage(base: string): string {
@@ -176,9 +176,9 @@ export function CountersPage() {
         reset to zero here.
       </p>
       <p className="mt-1 text-sm text-ink/50">
-        An opening balance credits a doctor with sessions they were not here for, so that a mid-year joiner is not
+        An adjustment credits a doctor with sessions they were not here for, so that a mid-year joiner is not
         read as under-loaded. It is added to the raw count before the weighted score is computed, and is cleared by a
-        reset. {BALANCE_HINT}
+        reset. {ADJUSTMENT_HINT}
       </p>
 
       <div className="mt-6 flex items-center justify-between">
@@ -202,8 +202,8 @@ export function CountersPage() {
       {resetClinicCounter.isError || resetAllClinicCounters.isError ? (
         <p className="mt-2 text-sm text-red-700">Could not reset clinic counter(s).</p>
       ) : null}
-      {setClinicBalance.isError ? (
-        <p className="mt-2 text-sm text-red-700">Could not save clinic opening balance.</p>
+      {setClinicAdjustment.isError ? (
+        <p className="mt-2 text-sm text-red-700">Could not save clinic adjustment.</p>
       ) : null}
       {!clinicTypesLoading && sortedClinicTypes.length === 0 ? (
         <p className="mt-2 text-sm text-ink/50">No clinic counters yet.</p>
@@ -242,7 +242,7 @@ export function CountersPage() {
                       <th className="py-1 pr-4 font-medium">Doctor</th>
                       <th className="py-1 pr-4 font-medium">Raw count</th>
                       <th className="py-1 pr-4 font-medium">Weighted score</th>
-                      <th className="py-1 pr-4 font-medium">Opening balance</th>
+                      <th className="py-1 pr-4 font-medium">Adjustment</th>
                       <th className="py-1 pr-4 font-medium"></th>
                     </tr>
                   </thead>
@@ -254,18 +254,18 @@ export function CountersPage() {
                       <tr key={`${c.doctor_id}-${c.clinic_type_id}`} className="border-t border-border">
                         <td className="py-1 pr-4">{c.doctor_code}</td>
                         <td className="py-1 pr-4">
-                          <RawCount rawCount={c.raw_count} openingBalance={c.opening_balance} />
+                          <RawCount rawCount={c.raw_count} adjustment={c.adjustment} />
                         </td>
                         <td className="py-1 pr-4">
-                          {weightedFor(c.doctor_id, c.raw_count, c.opening_balance)}
+                          {weightedFor(c.doctor_id, c.raw_count, c.adjustment)}
                         </td>
                         <td className="py-1 pr-4">
-                          <OpeningBalanceInput
-                            value={c.opening_balance}
-                            label={`Opening balance for ${c.doctor_code}`}
-                            isPending={setClinicBalance.isPending}
+                          <CounterAdjustmentInput
+                            value={c.adjustment}
+                            label={`Adjustment for ${c.doctor_code}`}
+                            isPending={setClinicAdjustment.isPending}
                             onSave={(sessions) =>
-                              setClinicBalance.mutate({
+                              setClinicAdjustment.mutate({
                                 doctor_id: c.doctor_id,
                                 clinic_type_id: c.clinic_type_id,
                                 sessions,
@@ -278,7 +278,7 @@ export function CountersPage() {
                             type="button"
                             onClick={() => c.id !== null && handleResetClinic(c.id)}
                             // Nothing to reset on a pair with no counter
-                            // row; the balance box beside it still works,
+                            // row; the adjustment box beside it still works,
                             // and saving one creates the row.
                             disabled={c.id === null || resetClinicCounter.isPending}
                             title={c.id === null ? "No counter to reset yet" : undefined}
@@ -322,8 +322,8 @@ export function CountersPage() {
       {resetSystemCounter.isError || resetAllSystemCounters.isError ? (
         <p className="mt-2 text-sm text-red-700">Could not reset system counter(s).</p>
       ) : null}
-      {setSystemBalance.isError ? (
-        <p className="mt-2 text-sm text-red-700">Could not save system opening balance.</p>
+      {setSystemAdjustment.isError ? (
+        <p className="mt-2 text-sm text-red-700">Could not save system adjustment.</p>
       ) : null}
       {systemCounters && systemCounters.length === 0 ? (
         <p className="mt-2 text-sm text-ink/50">No system counters yet.</p>
@@ -336,7 +336,7 @@ export function CountersPage() {
               <th className="py-1 pr-4 font-medium">Counter type</th>
               <th className="py-1 pr-4 font-medium">Raw count</th>
               <th className="py-1 pr-4 font-medium">Weighted score</th>
-              <th className="py-1 pr-4 font-medium">Opening balance</th>
+              <th className="py-1 pr-4 font-medium">Adjustment</th>
               <th className="py-1 pr-4 font-medium"></th>
             </tr>
           </thead>
@@ -346,15 +346,15 @@ export function CountersPage() {
                 <td className="py-1 pr-4">{c.doctor_code}</td>
                 <td className="py-1 pr-4">{systemCounterLabel(c.counter_type)}</td>
                 <td className="py-1 pr-4">
-                  <RawCount rawCount={c.raw_count} openingBalance={c.opening_balance} />
+                  <RawCount rawCount={c.raw_count} adjustment={c.adjustment} />
                 </td>
-                <td className="py-1 pr-4">{weightedFor(c.doctor_id, c.raw_count, c.opening_balance)}</td>
+                <td className="py-1 pr-4">{weightedFor(c.doctor_id, c.raw_count, c.adjustment)}</td>
                 <td className="py-1 pr-4">
-                  <OpeningBalanceInput
-                    value={c.opening_balance}
-                    label={`Opening balance for ${c.doctor_code} ${systemCounterLabel(c.counter_type)}`}
-                    isPending={setSystemBalance.isPending}
-                    onSave={(sessions) => setSystemBalance.mutate({ counterId: c.id, sessions })}
+                  <CounterAdjustmentInput
+                    value={c.adjustment}
+                    label={`Adjustment for ${c.doctor_code} ${systemCounterLabel(c.counter_type)}`}
+                    isPending={setSystemAdjustment.isPending}
+                    onSave={(sessions) => setSystemAdjustment.mutate({ counterId: c.id, sessions })}
                   />
                 </td>
                 <td className="py-1 pr-4">

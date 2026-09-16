@@ -147,11 +147,11 @@ def make_master_session(
 
 
 def make_clinic_counter(
-    session, doctor, clinic_type, raw_count=0, opening_balance=Decimal("0.0")
+    session, doctor, clinic_type, raw_count=0, adjustment=Decimal("0.0")
 ) -> ClinicCounter:
     c = ClinicCounter(
         doctor_id=doctor.id, clinic_type_id=clinic_type.id, raw_count=raw_count,
-        opening_balance=opening_balance,
+        adjustment=adjustment,
     )
     session.add(c)
     session.flush()
@@ -159,11 +159,11 @@ def make_clinic_counter(
 
 
 def make_system_counter(
-    session, doctor, counter_type, raw_count=0, opening_balance=Decimal("0.0")
+    session, doctor, counter_type, raw_count=0, adjustment=Decimal("0.0")
 ) -> SystemCounter:
     c = SystemCounter(
         doctor_id=doctor.id, counter_type=counter_type, raw_count=raw_count,
-        opening_balance=opening_balance,
+        adjustment=adjustment,
     )
     session.add(c)
     session.flush()

@@ -1,6 +1,6 @@
 """Counters router.
 
-Counter views, resets and opening balances. Reads are live values (committed
+Counter views, resets and counter adjustments. Reads are live values (committed
 baseline plus any in-progress draft's increments and edits). Raw counts are
 mutated here only by reset-to-zero -- rows are updated, never deleted, so the
 draft snapshot/scrap lifecycle is undisturbed. All other raw-count mutation
@@ -10,15 +10,15 @@ and `POST /rota/{id}/sessions/{sid}/set-room`, both of which adjust the WFH
 system counter. WFH is the only system counter written outside generation;
 see `patch_session`'s docstring for why it is the exception.
 
-Opening balances (`app/models/counter.py`) are the second mutation, and they
-behave differently in two ways worth stating here:
+Counter adjustments (`app/models/counter.py`) are the second mutation, and
+they behave differently in two ways worth stating here:
 
-- They are never snapshotted, because the engine never writes them, so a
-  balance edit made during an open draft survives that draft being scrapped.
+- They are never snapshotted, because the engine never writes them, so an
+  adjustment made during an open draft survives that draft being scrapped.
   The Counters page's draft warning must not claim otherwise.
-- Resetting a counter to zero clears the balance as well as the count. After
-  a reset everyone is level by definition, so a surviving credit would
-  re-introduce the skew it was created to remove.
+- Resetting a counter to zero clears the adjustment as well as the count.
+  After a reset everyone is level by definition, so a surviving adjustment
+  would re-introduce the skew it was created to remove.
 
 The two upserts are also keyed differently, and deliberately: the clinic one
 takes (doctor, clinic type) in its body because the counter row may not exist
@@ -29,8 +29,8 @@ system counters for every doctor.
 Neither upsert restricts the doctor type, though both GETs show Partner and
 Salaried only. That filter is a pre-existing scope decision about the page;
 the engine counts clinics and system events for whoever is eligible, so
-refusing to record a balance for, say, a trainee would block a real case to
-enforce a display rule.
+refusing to record an adjustment for, say, a trainee would block a real
+case to enforce a display rule.
 """
 from __future__ import annotations
 
@@ -44,10 +44,10 @@ from ...models import ClinicCounter, ClinicType, Doctor, SystemCounter, User
 from ...models.enums import DoctorType
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    ClinicAdjustmentIn,
     ClinicCounterOut,
-    ClinicOpeningBalanceIn,
+    SystemAdjustmentIn,
     SystemCounterOut,
-    SystemOpeningBalanceIn,
 )
 
 _ZERO = Decimal("0.0")
@@ -66,11 +66,11 @@ def list_clinic_counters(
     row.
 
     Clinic counter rows are created lazily -- on first allocation, or by the
-    opening-balance upsert below -- so a doctor who has never been allocated
+    adjustment upsert below -- so a doctor who has never been allocated
     a given clinic type has no row for it. Returning only existing rows would
-    make exactly that pair unaddressable on the page, and a new joiner is the
-    person the opening balance exists for, so the pairs without a row are
-    returned as explicit zeros with `id: null`.
+    make exactly that pair unaddressable on the page -- and a doctor with no
+    count at all is exactly the case an adjustment exists for -- so the pairs
+    without a row are returned as explicit zeros with `id: null`.
 
     Clinic types are the enabled ones, plus any disabled type that still has
     a counter row: a disabled type is not allocated, so listing it for
@@ -110,7 +110,7 @@ def list_clinic_counters(
             clinic_type_id=clinic_type_id,
             clinic_type_name=name,
             raw_count=0 if row is None else row.raw_count,
-            opening_balance=_ZERO if row is None else row.opening_balance,
+            adjustment=_ZERO if row is None else row.adjustment,
         )
         for doctor_id, code in doctors
         for clinic_type_id, name in clinic_types
@@ -133,7 +133,7 @@ def list_system_counters(
         SystemCounterOut(
             id=c.id, doctor_id=c.doctor_id, doctor_code=code,
             counter_type=c.counter_type, raw_count=c.raw_count,
-            opening_balance=c.opening_balance,
+            adjustment=c.adjustment,
         )
         for c, code in rows
     ]
@@ -147,10 +147,10 @@ def reset_all_clinic_counters(
     # Resets every ClinicCounter row, not just the Partner/Salaried rows the
     # GET endpoint and the Counters page display -- a partial reset would
     # leave invisible non-zero counters skewing later tie-breaks. Deliberate.
-    # The opening balance goes with the count: after a reset everyone is level
-    # by definition, so a surviving joiner credit would re-introduce the skew
-    # it was created to remove.
-    db.execute(update(ClinicCounter).values(raw_count=0, opening_balance=_ZERO))
+    # The adjustment goes with the count: after a reset everyone is level by
+    # definition, so a surviving adjustment would re-introduce the skew it
+    # was created to remove.
+    db.execute(update(ClinicCounter).values(raw_count=0, adjustment=_ZERO))
     db.commit()
     return None
 
@@ -161,9 +161,9 @@ def reset_all_system_counters(
     user: User = Depends(get_current_user),
 ) -> None:
     # Same rationale as reset_all_clinic_counters: every row, not just the
-    # ones the GET endpoint and the page display, and the opening balance is
+    # ones the GET endpoint and the page display, and the adjustment is
     # cleared alongside the count.
-    db.execute(update(SystemCounter).values(raw_count=0, opening_balance=_ZERO))
+    db.execute(update(SystemCounter).values(raw_count=0, adjustment=_ZERO))
     db.commit()
     return None
 
@@ -181,7 +181,7 @@ def reset_clinic_counter(
         )
     counter.raw_count = 0
     # Cleared alongside the count -- see the module docstring.
-    counter.opening_balance = _ZERO
+    counter.adjustment = _ZERO
     db.commit()
 
     code, name = db.execute(
@@ -192,7 +192,7 @@ def reset_clinic_counter(
     return ClinicCounterOut(
         id=counter.id, doctor_id=counter.doctor_id, doctor_code=code,
         clinic_type_id=counter.clinic_type_id, clinic_type_name=name,
-        raw_count=counter.raw_count, opening_balance=counter.opening_balance,
+        raw_count=counter.raw_count, adjustment=counter.adjustment,
     )
 
 
@@ -208,7 +208,7 @@ def reset_system_counter(
             status_code=404, detail=f"System counter {counter_id} not found"
         )
     counter.raw_count = 0
-    counter.opening_balance = _ZERO
+    counter.adjustment = _ZERO
     db.commit()
 
     code = db.execute(
@@ -217,22 +217,22 @@ def reset_system_counter(
     return SystemCounterOut(
         id=counter.id, doctor_id=counter.doctor_id, doctor_code=code,
         counter_type=counter.counter_type, raw_count=counter.raw_count,
-        opening_balance=counter.opening_balance,
+        adjustment=counter.adjustment,
     )
 
-@router.put("/clinic/opening-balance", response_model=ClinicCounterOut)
-def set_clinic_opening_balance(
-    payload: ClinicOpeningBalanceIn,
+@router.put("/clinic/adjustment", response_model=ClinicCounterOut)
+def set_clinic_adjustment(
+    payload: ClinicAdjustmentIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClinicCounterOut:
-    """Set one (doctor, clinic type) opening balance, creating the counter
-    row at `raw_count=0` if it does not exist yet.
+    """Set one (doctor, clinic type) adjustment, creating the counter row at
+    `raw_count=0` if it does not exist yet.
 
     Keyed on the pair rather than on a counter id because the row is exactly
-    what may be missing -- see the module docstring. Setting the balance to
+    what may be missing -- see the module docstring. Setting the adjustment to
     zero leaves the row in place rather than deleting it: unlike the duty
-    balance's own table, this row also carries a raw count that may be
+    adjustment's own table, this row also carries a raw count that may be
     non-zero, so "no deviation" is not the same as "nothing to store".
     """
     doctor = db.get(Doctor, payload.doctor_id)
@@ -259,32 +259,32 @@ def set_clinic_opening_balance(
             raw_count=0,
         )
         db.add(counter)
-    counter.opening_balance = payload.sessions
+    counter.adjustment = payload.sessions
     db.commit()
     db.refresh(counter)
 
     return ClinicCounterOut(
         id=counter.id, doctor_id=counter.doctor_id, doctor_code=doctor.code,
         clinic_type_id=counter.clinic_type_id, clinic_type_name=clinic_type.name,
-        raw_count=counter.raw_count, opening_balance=counter.opening_balance,
+        raw_count=counter.raw_count, adjustment=counter.adjustment,
     )
 
 
-@router.put("/system/{counter_id}/opening-balance", response_model=SystemCounterOut)
-def set_system_opening_balance(
+@router.put("/system/{counter_id}/adjustment", response_model=SystemCounterOut)
+def set_system_adjustment(
     counter_id: int,
-    payload: SystemOpeningBalanceIn,
+    payload: SystemAdjustmentIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SystemCounterOut:
-    """Set one system counter's opening balance. 404 for an unknown id; the
+    """Set one system counter's adjustment. 404 for an unknown id; the
     rows are seeded per doctor, so there is nothing to create here."""
     counter = db.get(SystemCounter, counter_id)
     if counter is None:
         raise HTTPException(
             status_code=404, detail=f"System counter {counter_id} not found"
         )
-    counter.opening_balance = payload.sessions
+    counter.adjustment = payload.sessions
     db.commit()
 
     code = db.execute(
@@ -293,5 +293,5 @@ def set_system_opening_balance(
     return SystemCounterOut(
         id=counter.id, doctor_id=counter.doctor_id, doctor_code=code,
         counter_type=counter.counter_type, raw_count=counter.raw_count,
-        opening_balance=counter.opening_balance,
+        adjustment=counter.adjustment,
     )
