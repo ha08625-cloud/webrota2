@@ -77,13 +77,16 @@ export function useResetAllSystemCounters() {
  * adjustment exists for. The upsert
  * creates the row at raw_count=0 when it is missing.
  *
- * `sessions` is sent as a string, matching the Decimal the API returns; at
- * most one decimal place, or the backend rejects the body.
+ * `target_count` is the *effective total* the counter should read, not the
+ * adjustment: the server stores `target_count - raw_count` as raw stands when
+ * it saves, so the admin edits the number they can see and the delta behind it
+ * is derived rather than typed. It is sent as a string, matching the Decimal
+ * the API returns; at most one decimal place, or the backend rejects the body.
  */
 export interface ClinicAdjustmentIn {
   doctor_id: number;
   clinic_type_id: number;
-  sessions: string;
+  target_count: string;
 }
 
 export function useSetClinicAdjustment() {
@@ -98,12 +101,14 @@ export function useSetClinicAdjustment() {
 }
 
 /** Keyed on the counter id, which is always available for system counters -
- * create_doctor seeds a ROOM_MOVE and a SUPERVISION row per doctor. */
+ * create_doctor seeds a ROOM_MOVE and a SUPERVISION row per doctor.
+ *
+ * `target_count` is an effective total, as above. */
 export function useSetSystemAdjustment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ counterId, sessions }: { counterId: number; sessions: string }) =>
-      apiClient.put<SystemCounter>(`/counters/system/${counterId}/adjustment`, { sessions }),
+    mutationFn: ({ counterId, target_count }: { counterId: number; target_count: string }) =>
+      apiClient.put<SystemCounter>(`/counters/system/${counterId}/adjustment`, { target_count }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: counterKeys.system() });
     },

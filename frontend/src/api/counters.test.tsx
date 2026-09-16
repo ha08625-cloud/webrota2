@@ -146,7 +146,7 @@ describe("useResetAllSystemCounters", () => {
   });
 });
 describe("useSetClinicAdjustment", () => {
-  it("puts the (doctor, clinic type) pair and the sessions to /counters/clinic/adjustment", async () => {
+  it("puts the (doctor, clinic type) pair and the target total to /counters/clinic/adjustment", async () => {
     let body: unknown = null;
     server.use(
       http.put("/api/v1/counters/clinic/adjustment", async ({ request }) => {
@@ -156,10 +156,10 @@ describe("useSetClinicAdjustment", () => {
     );
 
     const { result } = renderHook(() => useSetClinicAdjustment(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+    result.current.mutate({ doctor_id: 4, clinic_type_id: 7, target_count: "3.2" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+    expect(body).toEqual({ doctor_id: 4, clinic_type_id: 7, target_count: "3.2" });
     expect(result.current.data?.adjustment).toBe("3.2");
   });
 
@@ -182,7 +182,7 @@ describe("useSetClinicAdjustment", () => {
     const { result: saveResult } = renderHook(() => useSetClinicAdjustment(), {
       wrapper: makeWrapper(queryClient),
     });
-    saveResult.current.mutate({ doctor_id: 4, clinic_type_id: 7, sessions: "3.2" });
+    saveResult.current.mutate({ doctor_id: 4, clinic_type_id: 7, target_count: "3.2" });
 
     await waitFor(() => expect(saveResult.current.isSuccess).toBe(true));
     await waitFor(() => expect(getCallCount).toBe(2));
@@ -190,7 +190,7 @@ describe("useSetClinicAdjustment", () => {
 });
 
 describe("useSetSystemAdjustment", () => {
-  it("puts the sessions to /counters/system/:id/adjustment", async () => {
+  it("puts the target total to /counters/system/:id/adjustment", async () => {
     let calledId = "";
     let body: unknown = null;
     server.use(
@@ -202,10 +202,10 @@ describe("useSetSystemAdjustment", () => {
     );
 
     const { result } = renderHook(() => useSetSystemAdjustment(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ counterId: 9, sessions: "-1.5" });
+    result.current.mutate({ counterId: 9, target_count: "-1.5" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(calledId).toBe("9");
-    expect(body).toEqual({ sessions: "-1.5" });
+    expect(body).toEqual({ target_count: "-1.5" });
   });
 });

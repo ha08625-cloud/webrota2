@@ -62,24 +62,27 @@ class DutyAdjustmentIn(BaseModel):
     calendar year, and by the next 1 January the count restarts and every
     doctor is genuinely level again.
 
-    Setting `sessions` to zero deletes the row rather than storing a zero, so
-    the table holds only real deviations (the `LeaveEntitlement` principle).
+    `target_count` is a *target effective total* for the year -- "make this
+    doctor's duty counter read 14" -- not a credit. The endpoint stores
+    `adjustment = target_count - raw_count` against the year's own count; see
+    the identical shape in schemas/counter.py for why the derivation is
+    server-side and why the field is not just called `count`.
 
-    The request field is `sessions` while the column it sets is
-    `adjustment`: the field says what the number is denominated in, the
-    column says what it is for.
+    A target equal to the raw count derives a zero delta, which deletes the
+    row rather than storing a zero, so the table holds only real deviations
+    (the `LeaveEntitlement` principle).
     """
 
     doctor_id: int
     year: int = Field(ge=MIN_DUTY_YEAR, le=MAX_DUTY_YEAR)
-    sessions: Decimal = Field(ge=-_ADJUSTMENT_LIMIT, le=_ADJUSTMENT_LIMIT)
+    target_count: Decimal = Field(ge=-_ADJUSTMENT_LIMIT, le=_ADJUSTMENT_LIMIT)
 
     @model_validator(mode="after")
     def _one_decimal_place(self) -> "DutyAdjustmentIn":
         """Reject more than one decimal place, then normalise to exactly one --
         see the identical validator in schemas/counter.py."""
-        quantized = self.sessions.quantize(Decimal("0.1"))
-        if self.sessions != quantized:
-            raise ValueError("sessions must have at most one decimal place")
-        self.sessions = quantized
+        quantized = self.target_count.quantize(Decimal("0.1"))
+        if self.target_count != quantized:
+            raise ValueError("target_count must have at most one decimal place")
+        self.target_count = quantized
         return self

@@ -327,7 +327,11 @@ describe("DutyGrid", () => {
       await user.click(screen.getByRole("button", { name: "Save" }));
 
       // MONDAY is in 2026, the year getYearRange derives the counts range from.
-      await waitFor(() => expect(body).toEqual({ doctor_id: 1, year: 2026, sessions: "3.2" }));
+      // The wire carries a target effective total: the annual raw count of 0
+      // plus the typed 3.2.
+      await waitFor(() =>
+        expect(body).toEqual({ doctor_id: 1, year: 2026, target_count: "3.2" }),
+      );
     });
 
     it("keeps the adjustment editor out of the compact sidebar preview (showCounts=false)", async () => {

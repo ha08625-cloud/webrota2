@@ -144,7 +144,7 @@ describe("useDutyCounts", () => {
   });
 });
 describe("useSetDutyAdjustment", () => {
-  it("puts the doctor, year and sessions to /duty/adjustment", async () => {
+  it("puts the doctor, year and target total to /duty/adjustment", async () => {
     let body: unknown = null;
     server.use(
       http.put("/api/v1/duty/adjustment", async ({ request }) => {
@@ -156,10 +156,10 @@ describe("useSetDutyAdjustment", () => {
     );
 
     const { result } = renderHook(() => useSetDutyAdjustment(), { wrapper: makeWrapper(freshClient()) });
-    result.current.mutate({ doctor_id: 1, year: 2026, sessions: "3.2" });
+    result.current.mutate({ doctor_id: 1, year: 2026, target_count: "3.2" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(body).toEqual({ doctor_id: 1, year: 2026, sessions: "3.2" });
+    expect(body).toEqual({ doctor_id: 1, year: 2026, target_count: "3.2" });
   });
 
   it("refetches a ranged counts query on success, since the adjustment applies to whichever range starts in that year", async () => {
@@ -185,7 +185,7 @@ describe("useSetDutyAdjustment", () => {
     const { result: saveResult } = renderHook(() => useSetDutyAdjustment(), {
       wrapper: makeWrapper(queryClient),
     });
-    saveResult.current.mutate({ doctor_id: 1, year: 2026, sessions: "3.2" });
+    saveResult.current.mutate({ doctor_id: 1, year: 2026, target_count: "3.2" });
 
     await waitFor(() => expect(saveResult.current.isSuccess).toBe(true));
     await waitFor(() => expect(getCallCount).toBe(2));
