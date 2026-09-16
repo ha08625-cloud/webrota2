@@ -115,6 +115,7 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/duty/{duty_id}"): "Removed a duty slot",
     ("PUT", "/duty/adjustment"): "Set a duty counter's total",
     ("POST", "/extra-sessions"): "Added an extra session",
+    ("PATCH", "/extra-sessions/{entry_id}"): "Changed how an extra session is compensated",
     ("DELETE", "/extra-sessions/{entry_id}"): "Removed an extra session",
     ("POST", "/recurring-notes"): "Added a recurring note",
     ("PUT", "/recurring-notes/{note_id}"): "Changed a recurring note",
