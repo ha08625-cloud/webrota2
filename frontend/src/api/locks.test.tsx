@@ -46,8 +46,8 @@ function makeLock(overrides: Record<string, unknown> = {}) {
  * lockable area on one side only.
  */
 describe("LOCKABLE_AREAS", () => {
-  it("is exactly the two levelled sections", () => {
-    expect(LOCKABLE_AREAS).toEqual(["clinical", "reception"]);
+  it("is exactly the lockable levelled sections", () => {
+    expect(LOCKABLE_AREAS).toEqual(["clinical", "reception", "nurse_rota"]);
   });
 });
 

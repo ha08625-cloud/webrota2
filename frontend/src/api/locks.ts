@@ -6,10 +6,11 @@ import type { ApiError } from "./types";
 /**
  * The section editing lock, client side (backend: api/routers/locks.py).
  *
- * Two locks exist at most - one for `clinical`, one for `reception` - and
- * the model is a Word document on a shared drive: the first login with
- * write access to enter a section holds it, everyone else is downgraded to
- * read-only there until it is released. Reading is never blocked.
+ * One lock per lockable section - `clinical`, `reception` and
+ * `nurse_rota` - and the model is a Word document on a shared drive: the
+ * first login with write access to enter a section holds it, everyone else
+ * is downgraded to read-only there until it is released. Reading is never
+ * blocked.
  *
  * This module is transport only. The lock is turned into "may I write
  * here, right now" by EditLockProvider in auth/AuthContext.tsx, which is
@@ -29,7 +30,7 @@ import type { ApiError } from "./types";
  * user_admin) cannot be locked, and this type is what stops a caller
  * asking for a lock on one.
  */
-export const LOCKABLE_AREAS = ["clinical", "reception"] as const;
+export const LOCKABLE_AREAS = ["clinical", "reception", "nurse_rota"] as const;
 
 export type LockableArea = (typeof LOCKABLE_AREAS)[number];
 
