@@ -1,5 +1,12 @@
 - add nurses
-- add nurse edit option
+- Bulk row operations on the master template, starting with "copy week 1 to
+  weeks 2-4". The Nurse Rota shipped with no bulk entry path at all, so a
+  nurse's whole pattern is 4 x 5 x 2 cells typed by hand; the same gap exists
+  for a new doctor on the Master Rota
+- A dated read-only nurse view of committed rotas - "where am I next
+  Tuesday?". The Nurse Rota edits the undated 4-week template, so it cannot
+  answer this. Needs doctor_type on RotaSessionOut first - the same field the
+  "add doctor type to room rota cells" task in architecture.md is waiting on
 - add med student
 - different calendar views
 - In the rota generation page, if the user selects a week that has already been cstaged or committed, then instead of "Start staging" the button should show "go to rota"

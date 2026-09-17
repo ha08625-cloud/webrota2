@@ -10,7 +10,7 @@ import type { NurseSlotOccupancy } from "./types";
  * the occupancy list instead of over a session array: the nurse page's
  * session array holds nurse rows only, so that helper can only ever
  * answer half the question, and its `MasterRotaSession` signature cannot
- * express the other half (DD5a).
+ * express the other half.
  *
  * There is no exclude-self parameter, unlike the session-array version.
  * A nurse row is never in the occupancy list, so the caller's own

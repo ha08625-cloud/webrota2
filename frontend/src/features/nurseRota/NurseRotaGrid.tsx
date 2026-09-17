@@ -21,7 +21,7 @@ interface NurseRotaGridProps {
   /** Every room, and who else holds one in which slot. Props rather than
    * hooks of this component's own: `GET /rooms` is clinical-gated, so a
    * nurse_rota-only login cannot call useRooms(), and both arrive on the
-   * page's single /nurse-rota/active fetch (DD8). */
+   * page's single /nurse-rota/active fetch. */
   rooms: Room[];
   occupancy: NurseSlotOccupancy[];
   /** Called after any successful edit/create/delete, so the page can push
@@ -35,7 +35,7 @@ interface NurseRotaGridProps {
 
 /**
  * Nurse x (day, period) grid for the active master template - a clone of
- * MasterRotaGrid (DD10), reading and writing the same rows through the
+ * MasterRotaGrid, reading and writing the same rows through the
  * nurse-gated endpoints.
  *
  * Rows are the nurses from /doctors (active_only=false), the same rule as

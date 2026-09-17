@@ -24,7 +24,7 @@ interface NurseCellEditPopoverProps {
    * separately, as `occupancy`. */
   sessions: MasterRotaSession[];
   /** Non-nurse room occupancy, which is what makes a doctor-held room
-   * un-pickable rather than a bare 409 from the server (DD5a). */
+   * un-pickable rather than a bare 409 from the server. */
   occupancy: NurseSlotOccupancy[];
   rooms: Room[];
   children: ReactNode;
@@ -47,7 +47,7 @@ interface PendingRoomPick {
 }
 
 /**
- * Sibling of MasterCellEditPopover, not a generalisation of it (DD10).
+ * Sibling of MasterCellEditPopover, not a generalisation of it.
  * That component hard-codes its five options and takes no option-list
  * prop, so reuse would mean widening a component the live Master Rota
  * and Staging grids both depend on - and it still could not express the

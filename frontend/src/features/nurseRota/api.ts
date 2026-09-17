@@ -16,11 +16,11 @@ import type { NurseRota, NurseSessionType } from "./types";
  *
  * Its own query key, separate from `masterRotaKeys`, even though the two
  * sections read the same table: they are different payloads (nurse rows
- * plus occupancy here, every row there), and DD4 accepts that an edit in
+ * plus occupancy here, every row there), and it is accepted that an edit in
  * one page is not reflected in an already-open other page until it
  * refetches.
  *
- * Write paths carry no template_id (DD11a) - the nurse surface only ever
+ * Write paths carry no template_id - the nurse surface only ever
  * edits the active template, which the router resolves itself.
  */
 export const nurseRotaKeys = {
@@ -47,7 +47,7 @@ export function useActiveNurseRota() {
 //
 // `occupancy` is never touched by any of these. It lists non-nurse
 // holders only, and a nurse write can never move one: the backend 409s
-// instead of displacing (DD5). Every displacement a response can report
+// instead of displacing. Every displacement a response can report
 // is nurse-on-nurse, which lives in `sessions`.
 
 /** Shared response shape for PATCH and POST (backend: NurseSessionWriteOut). */

@@ -73,7 +73,7 @@ class TestNurseRotaRead:
     def test_rooms_are_all_rooms_not_just_treatment_rooms(
         self, client, seeded_nurses
     ):
-        # DD5: a nurse may be placed in any room, so the picker gets the
+        # A nurse may be placed in any room, so the picker gets the
         # whole list rather than RoomType.TR only.
         codes = {r["code"] for r in client.get(f"{NURSE_ROTA}/active").json()["rooms"]}
         assert codes == {"C1", "D1", "SR", "TR1"}
@@ -133,7 +133,7 @@ class TestNurseSessionPatch:
         ).status_code == 404
 
     def test_non_nurse_session_404(self, client, seeded_nurses, db_session):
-        # DD5: 404 rather than 403 -- the session is not part of this
+        # 404 rather than 403 -- the session is not part of this
         # resource, and a 403 would confirm it exists.
         resp = self._patch(
             client, seeded_nurses["aa_session"],
@@ -147,7 +147,7 @@ class TestNurseSessionPatch:
     def test_session_in_another_template_404(
         self, client, seeded_nurses, db_session
     ):
-        # DD11a: the path carries no template_id, so the router has to
+        # The path carries no template_id, so the router has to
         # verify the session belongs to the ACTIVE template or an archived
         # template's rows would be editable by id.
         other = MasterRotaTemplate(name="Old", is_active=False)
@@ -167,7 +167,7 @@ class TestNurseSessionPatch:
 
     @pytest.mark.parametrize("session_type", ["wfh", "requires_room"])
     def test_non_nurse_session_type_422(self, client, seeded_nurses, session_type):
-        # DD6, enforced on the Pydantic model so it is a 422 naming the
+        # Enforced on the Pydantic model so it is a 422 naming the
         # field rather than a hand-rolled 400 in the router.
         assert self._patch(
             client, seeded_nurses["n1_session"],

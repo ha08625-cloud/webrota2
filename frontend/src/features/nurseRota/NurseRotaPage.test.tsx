@@ -290,7 +290,7 @@ describe("NurseRotaPage: undo", () => {
 
     await screen.findByText("Undone");
     // Slot coordinates and the original pair, and no template_id - the
-    // router resolves the active template itself (DD11a).
+    // router resolves the active template itself.
     expect(posted).toEqual({
       doctor_id: 1, week: 2, day: "Thursday", period: "PM",
       session_type: "pre_assigned", room_id: 5,
