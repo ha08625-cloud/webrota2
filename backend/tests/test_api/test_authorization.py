@@ -64,8 +64,10 @@ import pytest
 from app.api.main import _AREA, _UNGATED, API_PREFIX, app
 from app.models.enums import AccessLevel
 from app.models.permissions import (
+    AREA_KEYS,
     DOCUMENTS_PRESET,
     MANAGER_PRESET,
+    NURSE_ROTA_PRESET,
     PRESET_FOR_ACCESS_LEVEL,
     READ_ONLY_PRESET,
     RECEPTION_ADMIN_PRESET,
@@ -184,6 +186,7 @@ _PROFILES = {
     "documents": preset(DOCUMENTS_PRESET),
     "research": preset(RESEARCH_PRESET),
     "read_only": preset(READ_ONLY_PRESET),
+    "nurse_rota": preset(NURSE_ROTA_PRESET),
     "no_access": default_permissions(),
 }
 
@@ -216,13 +219,22 @@ def _may_reach(permissions, method, path):
     The same rule deps.py implements, restated independently: a levelled
     area admits safe methods at `read` and every method at `write`; a
     boolean admits every method when set and none when not, GETs included.
+
+    `AREA_KEYS` is IMPORTED here, unlike `_AREA_FOR_PREFIX` above which is
+    hand-written on purpose. The duplication that module docstring defends
+    is about classifying a ROUTER into a section -- a judgement this file
+    has to make independently. Which permissions are levelled and which are
+    boolean is not a judgement: it is the shape of the permission set, and
+    a hand-written copy could only ever be silently wrong about a new key,
+    treating it as a boolean and quietly expecting the wrong answer for
+    every GET.
     """
     area = _area_for(path)
     if area is None:
         return True
     if method in _SAFE and path in _SHARED_READ_PATHS:
         allowed = True
-    elif area in ("clinical", "reception", "research"):
+    elif area in AREA_KEYS:
         granted = permissions.get(area)
         allowed = granted == "write" or (granted == "read" and method in _SAFE)
     else:
@@ -247,6 +259,11 @@ _NON_GET_FLOORS = {
     # of a preset that exists to be given to a research nurse.
     "research": (8, 72),
     "read_only": (0, 72),
+    # No /nurse-rota router exists yet, so this profile writes nowhere at
+    # all -- its only two non-GETs are the ungated /locks pair, which the
+    # sweep reaches with "1" for the area and which 422 before any
+    # permission is read. Both numbers move in Task 2 and are meant to.
+    "nurse_rota": (2, 95),
     "no_access": (0, 72),
 }
 
@@ -259,6 +276,11 @@ _GET_FLOORS = {
     # two ungated reads every login gets.
     "research": (7, 32),
     "read_only": (32, 4),
+    # The two _SHARED_READ pickers plus the three ungated reads, and
+    # nothing else until Task 2 adds the router -- identical to
+    # `no_access`, which is the correct shape for an area with no
+    # endpoints.
+    "nurse_rota": (5, 40),
     "no_access": (4, 32),
 }
 

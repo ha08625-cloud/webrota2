@@ -23,9 +23,9 @@ classified in main.py's `_AREA`), is gated the moment it exists. Router-level
 router, so the discrimination has to happen inside the dependency, off
 request.method.
 
-The three levelled areas (clinical, reception, research) admit safe methods
-at `read` or `write` and everything else at `write` only. The three boolean
-areas
+The four levelled areas (clinical, reception, research, nurse_rota) admit
+safe methods at `read` or `write` and everything else at `write` only. The
+three boolean areas
 (signatures, study_eoi, user_admin) admit every method when the flag is true
 and nothing when false -- for signatures because reading is the sensitive
 part: a scanned signature image is worth more outside this API than in it.
@@ -55,7 +55,7 @@ four places where a router's area gate is not the whole answer:
 
 `require_edit_lock(area)` is the third gate, and the only one that is not
 about permissions: it enforces the section editing lock (models/edit_lock.py)
-on unsafe methods for the two lockable areas. main.py's loop adds it after
+on unsafe methods for the three lockable areas. main.py's loop adds it after
 `require_access` for those routers, so a caller who may not write a section
 is refused 403 before anybody is told who is in it. It answers 409, and
 reading is never blocked.
@@ -126,6 +126,7 @@ _FORBIDDEN_DETAIL = {
     "clinical": "Your permissions do not include the clinical rota",
     "reception": "Your permissions do not include the reception rota",
     "research": "Your permissions do not include the research section",
+    "nurse_rota": "Your permissions do not include the nurse rota",
     "signatures": "Your permissions do not include signatures",
     "study_eoi": "Your permissions do not include the study EOI tool",
     "user_admin": "User management requires the user administration permission",
@@ -137,6 +138,7 @@ _READ_ONLY_DETAIL = {
     "clinical": "Your access to the clinical rota is read-only",
     "reception": "Your access to the reception rota is read-only",
     "research": "Your access to the research section is read-only",
+    "nurse_rota": "Your access to the nurse rota is read-only",
 }
 
 
