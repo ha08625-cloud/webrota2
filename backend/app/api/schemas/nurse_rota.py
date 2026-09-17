@@ -33,7 +33,7 @@ from ...models.enums import Day, MasterSessionType, Period
 from .master_rota import MasterRotaSessionOut
 from .room import RoomOut
 
-# The three types a nurse row may hold (DD6). Enforced server-side rather
+# The three types a nurse row may hold. Enforced server-side rather
 # than only hidden from the popover's menu.
 NURSE_SESSION_TYPES: set[MasterSessionType] = {
     MasterSessionType.PRE_ASSIGNED,

@@ -4,7 +4,7 @@ import type { NurseSessionType } from "./types";
 
 /**
  * Single-level undo for the Nurse Rota, cloned from `lib/masterUndo.ts`
- * (DD11) rather than shared with it. `lib/undoStack.ts` is generic and is
+ * rather than shared with it. `lib/undoStack.ts` is generic and is
  * reused unchanged; only the entry shapes and the replay builder are the
  * section's own.
  *
@@ -16,15 +16,15 @@ import type { NurseSessionType } from "./types";
  * Two differences from the master version:
  *
  * 1. Replay steps carry no `templateId`. The nurse endpoints resolve the
- *    active template themselves (DD11a), so there is nothing to thread
+ *    active template themselves, so there is nothing to thread
  *    through.
  * 2. `displaced` is only ever ANOTHER NURSE. A non-nurse holder is
- *    refused outright with a 409 (DD5) and the popover will not even
+ *    refused outright with a 409 and the popover will not even
  *    offer their room, so no replay step can ever try to move a doctor.
  *
  * Both entry kinds that can carry a room use `NurseSessionType`, not
  * `MasterSessionType`: the router accepts three of the five types and
- * 422s the other two (DD6), so a replay step that could name
+ * 422s the other two, so a replay step that could name
  * `requires_room` or `wfh` would be an undo that cannot run. The builders
  * below are the place that rule is enforced - see `asNurseSessionType`.
  */

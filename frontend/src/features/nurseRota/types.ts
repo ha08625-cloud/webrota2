@@ -16,7 +16,7 @@ import type { Day, MasterRotaSession, Period, Room } from "@/api/types";
 
 /**
  * The three session types a nurse row may hold, narrower than the master
- * template's five (DD6). `requires_room` is a bug state rather than a
+ * template's five. `requires_room` is a bug state rather than a
  * choice - nurses are inert to the engine, so no phase ever rooms one -
  * and `wfh` is meaningless for a nurse. The backend rejects the other two
  * with a 422; this type is what stops the frontend offering them.
@@ -43,7 +43,7 @@ export interface NurseSlotOccupancy {
 
 /**
  * GET /nurse-rota/active. Rooms ride along because `GET /rooms` is
- * clinical-gated and a nurse_rota-only login cannot reach it (DD8), so
+ * clinical-gated and a nurse_rota-only login cannot reach it, so
  * this is one fetch for the whole page.
  */
 export interface NurseRota {

@@ -17,7 +17,7 @@ import { buildNurseReplaySteps, type NurseUndoEntry } from "./undo";
  *
  * One fetch feeds the whole page - the grid's rows, the room list its
  * popover offers, and the occupancy that decides which of those rooms a
- * nurse may take (DD8). `GET /rooms` is clinical-gated, so a
+ * nurse may take. `GET /rooms` is clinical-gated, so a
  * nurse_rota-only login could not have fetched rooms separately.
  */
 export function NurseRotaPage() {
