@@ -4,7 +4,7 @@ import type { Permissions } from "@/api/types";
 import { canReadArea, usePermissions } from "@/auth/AuthContext";
 
 /**
- * The five sections, in the order they are offered. Each names the predicate
+ * The six sections, in the order they are offered. Each names the predicate
  * that makes it enterable, so this list is the one place the landing page
  * and the shells agree on what "enterable" means - each shell redirects back
  * here on the same test.
@@ -29,6 +29,12 @@ const SECTIONS: readonly {
     title: "Reception Rota",
     description: "Reception desk cover and shifts.",
     enterable: (p) => canReadArea(p, "reception"),
+  },
+  {
+    to: "/nurse-rota",
+    title: "Nurse Rota",
+    description: "Nurse sessions and treatment rooms on the master template.",
+    enterable: (p) => canReadArea(p, "nurse_rota"),
   },
   {
     to: "/signatures",

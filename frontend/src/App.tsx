@@ -15,6 +15,7 @@ import {
 import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { EditLockBanner, EditLockDialog } from "@/components/EditLockBanner";
+import { NurseRotaPage } from "@/features/nurseRota/NurseRotaPage";
 import { StudiesPage } from "@/features/research/StudiesPage";
 import { StudyPage } from "@/features/research/StudyPage";
 import { ThemePicker } from "@/components/ThemePicker";
@@ -440,6 +441,43 @@ function ResearchShell() {
   );
 }
 
+/**
+ * The Nurse Rota section: the nurse rows of the same master template the
+ * clinical section's Master Rota edits, behind their own permission.
+ *
+ * Its own top-level section rather than a tab inside the clinical shell,
+ * because ClinicalShell redirects anyone who cannot read `clinical` back
+ * to the landing page - which is exactly the login this section exists
+ * for (`nurse_rota: write`, `clinical: none`).
+ *
+ * Modelled on ResearchShell - own header, no left nav - since one page
+ * needs no nav bar. One PermissionAreaProvider on the shell: the whole
+ * section is the single `nurse_rota` permission.
+ */
+function NurseRotaShell() {
+  const permissions = usePermissions();
+
+  if (!canReadArea(permissions, "nurse_rota")) {
+    return <Navigate to="/" replace />;
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background text-ink">
+      <ShellHeader title="Rota Generator - Nurse Rota" />
+      <main className="flex-1 p-6">
+        <PermissionAreaProvider area="nurse_rota">
+          <Routes>
+            <Route index element={<NurseRotaPage />} />
+            {/* Anything else is a stale bookmark - it lands on the one
+                page this section has rather than on a blank screen. */}
+            <Route path="*" element={<Navigate to="/nurse-rota" replace />} />
+          </Routes>
+        </PermissionAreaProvider>
+      </main>
+    </div>
+  );
+}
+
 function ReceptionShell() {
   const permissions = usePermissions();
 
@@ -572,6 +610,7 @@ export function App() {
         />
         <Route path="/signatures/*" element={<SignaturesShell />} />
         <Route path="/research/*" element={<ResearchShell />} />
+        <Route path="/nurse-rota/*" element={<NurseRotaShell />} />
         <Route path="/admin/*" element={<AdminShell />} />
       </Routes>
     </BrowserRouter>
