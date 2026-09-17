@@ -523,12 +523,12 @@ def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
     Shared by scrap_rota() and rollback_commit(): both need to undo every
     counter change made since this rota's snapshot was taken -- the
     generation's own increments plus any edits made afterward -- by
-    restoring snapshotted rows to their pre-generation values, deleting
-    rows absent from the snapshot (created after it), and recreating
-    snapshotted rows that no longer exist live (deleted during the draft
-    or committed period by some other action). Does not touch the
-    snapshot rows themselves or the rota row -- callers decide what
-    happens to those: scrap_rota() deletes both, rollback_commit() leaves
+    restoring snapshotted rows to their pre-generation values, clearing
+    rows absent from the snapshot (created after it -- clinic rows are
+    deleted, system rows only zeroed), and recreating snapshotted rows
+    that no longer exist live (deleted during the draft or committed
+    period by some other action). Does not touch the snapshot rows
+    themselves or the rota row -- callers decide what happens to those: scrap_rota() deletes both, rollback_commit() leaves
     the snapshot in place and flips the rota back to draft.
     """
     clinic_snaps = db.execute(
@@ -543,12 +543,13 @@ def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
     clinic_before = {(s.doctor_id, s.clinic_type_id): s.value_before for s in clinic_snaps}
     system_before = {(s.doctor_id, s.counter_type): s.value_before for s in system_snaps}
 
-    # Restore snapshotted rows; delete rows created after the snapshot --
-    # except where such a row carries a counter adjustment, which is never
-    # snapshotted because the engine never writes it. Deleting that row would
-    # destroy an admin's adjustment made during the draft, so it is kept
-    # with its raw count zeroed: a row absent from the snapshot had no
-    # pre-generation count to restore.
+    # Restore snapshotted clinic rows; delete clinic rows created after the
+    # snapshot -- except where such a row carries a counter adjustment, which
+    # is never snapshotted because the engine never writes it. Deleting that
+    # row would destroy an admin's adjustment made during the draft, so it is
+    # kept with its raw count zeroed: a row absent from the snapshot had no
+    # pre-generation count to restore. Absence is a valid state for a clinic
+    # counter; for a system counter it is not -- see below.
     for row in db.execute(select(ClinicCounter)).scalars().all():
         key = (row.doctor_id, row.clinic_type_id)
         if key in clinic_before:
@@ -557,14 +558,16 @@ def _restore_counters_from_snapshot(db: Session, rota_id: int) -> None:
             row.raw_count = 0
         else:
             db.delete(row)
+    # System counter rows are never deleted on restore, only zeroed. Doctor
+    # creation seeds one row per SystemCounterType for every doctor, and
+    # _write_counters() relies on that guarantee (.scalar_one()). A doctor
+    # added after the snapshot was taken is absent from it, so deleting
+    # their rows here would break the next generation that touches any of
+    # their system counters. Absence from the snapshot means "no
+    # pre-generation count to restore", which is a zero, not a missing row.
     for row in db.execute(select(SystemCounter)).scalars().all():
         key = (row.doctor_id, row.counter_type)
-        if key in system_before:
-            row.raw_count = system_before.pop(key)
-        elif row.adjustment:
-            row.raw_count = 0
-        else:
-            db.delete(row)
+        row.raw_count = system_before.pop(key, 0)
 
     # Snapshotted rows that no longer exist as live rows are recreated at
     # their pre-generation values, so the restore is always exact.
