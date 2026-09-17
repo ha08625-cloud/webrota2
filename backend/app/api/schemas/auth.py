@@ -1,7 +1,7 @@
 """Auth and user-management schemas. UserOut never includes password_hash.
 
 `permissions` (PermissionSet) is the per-user permission set -- see
-models/permissions.py for what the six permissions mean. It is required
+models/permissions.py for what the seven permissions mean. It is required
 on UserIn and optional on UserPatch, exactly like access_level, and
 deliberately ABSENT from UserSelfPatch: nobody edits their own
 permissions, for the same reason nobody sets their own access level.
@@ -51,7 +51,7 @@ from ...models.permissions import (
 class PermissionSet(BaseModel):
     """What a login may do: the wire shape of the permission set.
 
-    Three levelled areas and three flags. Each field defaults to denied so
+    Four levelled areas and three flags. Each field defaults to denied so
     an incomplete body under-grants rather than over-grants. Defaulting is
     also what keeps a user row whose stored JSON predates a new key from
     ever serialising without it.
@@ -68,6 +68,7 @@ class PermissionSet(BaseModel):
     clinical: AccessArea = "none"
     reception: AccessArea = "none"
     research: AccessArea = "none"
+    nurse_rota: AccessArea = "none"
     signatures: bool = False
     study_eoi: bool = False
     user_admin: bool = False

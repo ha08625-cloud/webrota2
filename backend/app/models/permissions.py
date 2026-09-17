@@ -1,7 +1,7 @@
 """The per-user permission set: its shape, its default, and the presets.
 
-Six permissions replace the single `access_level` tier as the thing the
-API actually consults. Three of them are levels rather than flags -- "clinical
+Seven permissions replace the single `access_level` tier as the thing the
+API actually consults. Four of them are levels rather than flags -- "clinical
 rota, read only" is not a separate permission from "clinical rota", it is
 the same permission at a lower level -- and three are booleans, because there is no meaningful read-only
 view of a document generator or of user administration:
@@ -9,6 +9,7 @@ view of a document generator or of user administration:
     clinical    none / read / write   the whole /clinical section
     reception   none / read / write   the whole /reception section
     research    none / read / write   the whole /research section
+    nurse_rota  none / read / write   the whole /nurse-rota section
     signatures  bool                  upload, delete, apply, and VIEW
     study_eoi   bool                  the EOI autofill tool
     user_admin  bool                  user management and the audit log
@@ -58,7 +59,7 @@ AREA_LEVELS: tuple[AccessArea, ...] = (NONE, READ, WRITE)
 # Levelled permissions and boolean ones, separately: the two groups are
 # validated, rendered and checked differently, and every consumer needs to
 # tell them apart.
-AREA_KEYS: tuple[str, ...] = ("clinical", "reception", "research")
+AREA_KEYS: tuple[str, ...] = ("clinical", "reception", "research", "nurse_rota")
 FLAG_KEYS: tuple[str, ...] = ("signatures", "study_eoi", "user_admin")
 PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 
@@ -78,7 +79,23 @@ PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 # page of small independent fields. Locking the whole section so that one
 # person can tick a setup step would be worse than the collision it
 # prevents.
-LOCKABLE_AREAS: tuple[str, ...] = ("clinical", "reception")
+#
+# `nurse_rota` is lockable for the same reason clinical is -- it is a
+# shared rota grid, and two people editing it overwrite each other -- but
+# it is the first case of two locks over ONE table. The nurse rota and the
+# master rota both mutate `master_rota_sessions`; what keeps the two locks
+# over disjoint row sets is the nurse router's rule that a write may only
+# target a doctor whose type is NURSE, and may not displace a non-nurse
+# holder of a room. Without that rule the two locks would be over the same
+# rows and neither would mean anything.
+#
+# The residual hole, recorded rather than closed: a clinical writer holding
+# the clinical lock can still edit nurse rows from the Master Rota while a
+# nurse holds the nurse lock. `clinical: write` is deliberately the
+# superset, and closing the hole would mean master rota writes taking both
+# locks -- which would let any nurse block the rota administrator out of
+# their whole section.
+LOCKABLE_AREAS: tuple[str, ...] = ("clinical", "reception", "nurse_rota")
 
 # The structural half of the rule above, checked at import: a lockable area
 # that is not a levelled area is a bug, whichever tuple gained the entry.
@@ -90,6 +107,7 @@ DEFAULT_PERMISSIONS: PermissionSetDict = {
     "clinical": NONE,
     "reception": NONE,
     "research": NONE,
+    "nurse_rota": NONE,
     "signatures": False,
     "study_eoi": False,
     "user_admin": False,
@@ -106,12 +124,14 @@ RECEPTION_ADMIN_PRESET = "reception_admin"
 DOCUMENTS_PRESET = "documents"
 RESEARCH_PRESET = "research"
 READ_ONLY_PRESET = "read_only"
+NURSE_ROTA_PRESET = "nurse_rota"
 
 PRESETS: dict[str, PermissionSetDict] = {
     MANAGER_PRESET: {
         "clinical": WRITE,
         "reception": WRITE,
         "research": WRITE,
+        "nurse_rota": WRITE,
         "signatures": True,
         "study_eoi": True,
         "user_admin": True,
@@ -120,6 +140,7 @@ PRESETS: dict[str, PermissionSetDict] = {
         "clinical": WRITE,
         "reception": WRITE,
         "research": NONE,
+        "nurse_rota": WRITE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
@@ -130,6 +151,7 @@ PRESETS: dict[str, PermissionSetDict] = {
         "clinical": READ,
         "reception": WRITE,
         "research": NONE,
+        "nurse_rota": NONE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
@@ -138,6 +160,7 @@ PRESETS: dict[str, PermissionSetDict] = {
         "clinical": NONE,
         "reception": NONE,
         "research": NONE,
+        "nurse_rota": NONE,
         "signatures": True,
         "study_eoi": True,
         "user_admin": False,
@@ -149,16 +172,32 @@ PRESETS: dict[str, PermissionSetDict] = {
         "clinical": NONE,
         "reception": NONE,
         "research": WRITE,
+        "nurse_rota": NONE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
     },
-    # Clinical and reception at read, and research at none. The two rotas
-    # are things everybody benefits from seeing; a study page is not.
+    # The three rotas at read, and research at none. A rota is something
+    # everybody benefits from seeing; a study page is not.
     READ_ONLY_PRESET: {
         "clinical": READ,
         "reception": READ,
         "research": NONE,
+        "nurse_rota": READ,
+        "signatures": False,
+        "study_eoi": False,
+        "user_admin": False,
+    },
+    # The nursing team's login: the nurse rota and nothing else, not even
+    # read on the clinical rota. It is the tightest preset in the table,
+    # and it is the one the nurse_rota area exists for -- a login that can
+    # edit nurse rows in the master template without being able to reach a
+    # doctor's row at all.
+    NURSE_ROTA_PRESET: {
+        "clinical": NONE,
+        "reception": NONE,
+        "research": NONE,
+        "nurse_rota": WRITE,
         "signatures": False,
         "study_eoi": False,
         "user_admin": False,
