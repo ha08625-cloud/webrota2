@@ -136,6 +136,7 @@ describe("userFormSchema - permissions", () => {
         clinical: "none",
         reception: "none",
         research: "none",
+        nurse_rota: "none",
         signatures: false,
         study_eoi: false,
         user_admin: false,
@@ -153,6 +154,8 @@ describe("userFormSchema - permissions", () => {
     // The Research preset is exactly this set, so a form that refused it
     // would make that preset unsavable.
     ["write on research alone", { research: "write" as const }],
+    // And the Nurse rota preset is exactly this one.
+    ["write on the nurse rota alone", { nurse_rota: "write" as const }],
   ])("accepts a set granting only %s", (_label, granted) => {
     const result = userFormSchema("create").safeParse({
       ...values,
@@ -160,6 +163,7 @@ describe("userFormSchema - permissions", () => {
         clinical: "none" as const,
         reception: "none" as const,
         research: "none" as const,
+        nurse_rota: "none" as const,
         signatures: false,
         study_eoi: false,
         user_admin: false,
@@ -169,7 +173,7 @@ describe("userFormSchema - permissions", () => {
     expect(result.success).toBe(true);
   });
 
-  // Mirrors PermissionSetIn: all six keys are required on the wire, so the
+  // Mirrors PermissionSetIn: all seven keys are required on the wire, so the
   // form can never send a partial set and have the backend fill the gaps
   // behind the user's back.
   it("rejects a set that omits a permission entirely", () => {

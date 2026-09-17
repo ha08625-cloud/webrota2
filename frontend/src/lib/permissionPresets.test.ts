@@ -13,6 +13,7 @@ const NOTHING: Permissions = {
   clinical: "none",
   reception: "none",
   research: "none",
+  nurse_rota: "none",
   signatures: false,
   study_eoi: false,
   user_admin: false,
@@ -40,8 +41,8 @@ describe("isEmptyPermissions", () => {
   // Users form refuses to save exactly the narrowly scoped login the new
   // permission was added to make possible.
   it("is false for a set holding only the newest permission", () => {
-    expect(isEmptyPermissions(permissionPreset("research"))).toBe(false);
-    expect(isEmptyPermissions({ ...NOTHING, research: "read" })).toBe(false);
+    expect(isEmptyPermissions(permissionPreset("nurse_rota"))).toBe(false);
+    expect(isEmptyPermissions({ ...NOTHING, nurse_rota: "read" })).toBe(false);
   });
 });
 
@@ -59,6 +60,23 @@ describe("the presets", () => {
   it("gives the research preset that permission and nothing else", () => {
     expect(permissionsSummary(permissionPreset("research"))).toBe("Research: edit");
   });
+
+  // The point of the nurse_rota area: a nursing login that can edit nurse
+  // rows in the master template without holding even read on the clinical
+  // rota the same table serves.
+  it("gives the nurse rota preset that permission and nothing else", () => {
+    expect(permissionsSummary(permissionPreset("nurse_rota"))).toBe("Nurse rota: edit");
+  });
+
+  // Rota admin edits it, Read-only reads it, and the two presets that grant
+  // no rota at all do not see it.
+  it("grant the nurse rota to the rota presets and the read-only one", () => {
+    const granted = Object.entries(PERMISSION_PRESETS)
+      .filter(([, set]) => set.nurse_rota !== "none")
+      .map(([name]) => name);
+
+    expect(granted.sort()).toEqual(["manager", "nurse_rota", "read_only", "rota_admin"]);
+  });
 });
 
 describe("permissionsSummary", () => {
@@ -67,8 +85,8 @@ describe("permissionsSummary", () => {
       "Clinical rota: read, Reception rota: edit",
     );
     expect(permissionsSummary(permissionPreset("manager"))).toBe(
-      "Clinical rota: edit, Reception rota: edit, Research: edit, Signatures, Study EOI, " +
-        "User administration",
+      "Clinical rota: edit, Reception rota: edit, Nurse rota: edit, Research: edit, " +
+        "Signatures, Study EOI, User administration",
     );
   });
 

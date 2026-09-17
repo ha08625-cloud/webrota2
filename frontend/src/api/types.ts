@@ -58,7 +58,7 @@ export type AccessLevel = "manager" | "admin" | "doctor" | "nurse";
 export type AccessArea = "none" | "read" | "write";
 
 /**
- * What a login may do (PermissionSet in schemas/auth.py). Three areas with
+ * What a login may do (PermissionSet in schemas/auth.py). Four areas with
  * three levels each and three flags; for the flags, true grants reads and
  * writes on that area and false denies both.
  *
@@ -71,6 +71,7 @@ export interface Permissions {
   clinical: AccessArea;
   reception: AccessArea;
   research: AccessArea;
+  nurse_rota: AccessArea;
   signatures: boolean;
   study_eoi: boolean;
   user_admin: boolean;
