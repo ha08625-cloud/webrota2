@@ -9,6 +9,12 @@ import { getMasterRotaCell, pivotMasterRota } from "@/lib/pivotMasterRota";
 import { useCreateNurseSession, useDeleteNurseSession, useUpdateNurseSession } from "./api";
 import { NurseCellEditPopover } from "./NurseCellEditPopover";
 import type { NurseSessionType, NurseSlotOccupancy } from "./types";
+import {
+  buildNurseCreateUndoEntry,
+  buildNurseDeleteUndoEntry,
+  buildNursePatchUndoEntry,
+  type NurseUndoEntry,
+} from "./undo";
 
 interface NurseRotaGridProps {
   sessions: MasterRotaSession[];
@@ -18,10 +24,12 @@ interface NurseRotaGridProps {
    * page's single /nurse-rota/active fetch (DD8). */
   rooms: Room[];
   occupancy: NurseSlotOccupancy[];
-  /** Called after any successful edit/create/delete, so the page can show
-   * a toast. Undo is Task 6; when it lands this grows the undo entry the
-   * master grid's equivalent already passes. */
-  onMutationApplied?: (toastMessage: string) => void;
+  /** Called after any successful edit/create/delete, so the page can push
+   * an undo entry and show a toast. A null entry means this edit is not
+   * undoable through the nurse endpoints - see `undo.ts`'s
+   * `asNurseSessionType`; the page clears the stack rather than leaving a
+   * stale older entry behind an enabled Undo button. */
+  onMutationApplied?: (entry: NurseUndoEntry | null, toastMessage: string) => void;
   onMutationError?: (message: string) => void;
 }
 
@@ -76,12 +84,18 @@ export function NurseRotaGrid({
     session: MasterRotaSession,
     sessionType: NurseSessionType,
     roomId: number | null,
+    displaced: MasterRotaSession | null,
   ) {
     updateSession.mutate(
       { sessionId: session.session_id, sessionType, roomId },
       {
         onSuccess: (data) =>
           onMutationApplied?.(
+            // Built from `session`/`displaced`, the pre-mutation objects
+            // captured at click time - the response carries the post-write
+            // state, in which a displaced row's original type is already
+            // gone.
+            buildNursePatchUndoEntry(session, displaced),
             sessionSetMessage(
               data.session.doctor_code,
               data.session.day,
@@ -102,12 +116,14 @@ export function NurseRotaGrid({
     period: Period,
     sessionType: NurseSessionType,
     roomId: number | null,
+    displaced: MasterRotaSession | null,
   ) {
     createSession.mutate(
       { doctorId, week, day, period, sessionType, roomId },
       {
         onSuccess: (data) =>
           onMutationApplied?.(
+            buildNurseCreateUndoEntry(data.session.session_id, displaced),
             sessionCreatedMessage(
               data.session.doctor_code,
               data.session.day,
@@ -127,6 +143,7 @@ export function NurseRotaGrid({
       {
         onSuccess: () =>
           onMutationApplied?.(
+            buildNurseDeleteUndoEntry(session),
             sessionDeletedMessage(session.doctor_code, session.day, session.period),
           ),
         onError: (error) => onMutationError?.(writeErrorMessage(error)),
@@ -224,7 +241,9 @@ export function NurseRotaGrid({
                               sessions={sessions}
                               occupancy={occupancy}
                               rooms={rooms}
-                              onPick={(sessionType, roomId) => handlePick(session, sessionType, roomId)}
+                              onPick={(sessionType, roomId, displaced) =>
+                                handlePick(session, sessionType, roomId, displaced)
+                              }
                               onDelete={() => handleDelete(session)}
                               saving={saving}
                             >
@@ -241,8 +260,10 @@ export function NurseRotaGrid({
                               sessions={sessions}
                               occupancy={occupancy}
                               rooms={rooms}
-                              onPick={(sessionType, roomId) =>
-                                handleCreate(doctor.id, activeWeek, day, period, sessionType, roomId)
+                              onPick={(sessionType, roomId, displaced) =>
+                                handleCreate(
+                                  doctor.id, activeWeek, day, period, sessionType, roomId, displaced,
+                                )
                               }
                               saving={saving}
                             >
@@ -305,8 +326,9 @@ function SessionTypeBadge({ sessionType }: { sessionType: MasterRotaSession["ses
 
 // --- Toast messages ---
 // Local to the section rather than lib/masterUndo's equivalents: the
-// labels differ ("Not working", no five-type table) and those live with
-// the master template's undo entries, which Task 6 clones separately.
+// labels differ ("Not working", no five-type table). They stayed here
+// rather than moving into the section's own undo.ts when that landed -
+// they are what the grid says about a write, not part of replaying one.
 
 const SESSION_TYPE_LABEL: Record<MasterRotaSession["session_type"], string> = {
   pre_assigned: "Pre-assigned",
