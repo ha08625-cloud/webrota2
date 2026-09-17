@@ -129,6 +129,14 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
     ("DELETE", "/master-rota/templates/{template_id}/sessions/{session_id}"):
         "Removed a session from the master rota",
 
+    # Nurse rota (the same table, nurse rows only)
+    ("POST", "/nurse-rota/sessions"):
+        "Added a session to the nurse rota",
+    ("PATCH", "/nurse-rota/sessions/{session_id}"):
+        "Changed a session on the nurse rota",
+    ("DELETE", "/nurse-rota/sessions/{session_id}"):
+        "Removed a session from the nurse rota",
+
     # Staging (the editable copy taken before generating)
     ("POST", "/staging"): "Started a staging copy of the master rota",
     ("POST", "/staging/{staging_id}/complete"):

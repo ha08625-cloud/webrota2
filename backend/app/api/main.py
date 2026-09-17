@@ -6,7 +6,7 @@ development. All routers are registered under /api/v1.
 Registration is also where authorization is enforced. Every router except
 the four in _UNGATED is included with
 `dependencies=[Depends(require_access(_AREA[module]))]`, plus
-`Depends(require_edit_lock(area))` for the two lockable sections. The area is
+`Depends(require_edit_lock(area))` for the lockable sections. The area is
 resolved HERE because it cannot be resolved per request: FastAPI wraps each
 include_router call in an opaque _IncludedRouter, so a running request
 cannot ask which router served it. See deps.py for what each area admits.
@@ -68,6 +68,7 @@ from .routers import (
     leave_planning,
     locks,
     master_rota,
+    nurse_rota,
     recurring_notes,
     rooms,
     rota,
@@ -168,7 +169,7 @@ async def audit_validation_exception_handler(
 
 API_PREFIX = "/api/v1"
 
-_ALL_ROUTERS = (auth, locks, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, research_studies, research_documents, audit_router, calendar, eoi)
+_ALL_ROUTERS = (auth, locks, rota, clinic_types, doctors, leave, leave_entitlement, leave_planning, extra_sessions, duty, rooms, counters, master_rota, nurse_rota, staging, closures, school_holidays, signatures, users, recurring_notes, reception_staff, reception_master, reception_rota, reception_leave, reception_counters, research_studies, research_documents, audit_router, calendar, eoi)
 
 # The ONLY four routers that do not get a permission gate. Do not
 # extend this without a reason as specific as these:
@@ -210,6 +211,11 @@ _AREA = {
     rooms: "clinical",
     counters: "clinical",
     master_rota: "clinical",
+    # The nurse rota writes the same table master_rota does, partitioned
+    # by Doctor.doctor_type rather than by table -- the first case of two
+    # permission areas over one table. See routers/nurse_rota.py for the
+    # two rules that make that partition a real boundary.
+    nurse_rota: "nurse_rota",
     staging: "clinical",
     closures: "clinical",
     school_holidays: "clinical",
@@ -245,7 +251,7 @@ for module in _ALL_ROUTERS:
         # rather than serving an unguarded section.
         area = _AREA[module]
         dependencies = [Depends(require_access(area))]
-        # The section editing lock, on the two lockable areas only. There is
+        # The section editing lock, on the lockable areas only. There is
         # deliberately NO second table listing which routers are lock-gated:
         # the lock is per SECTION, `_AREA` already records every router's
         # section, and a second mandatory classification would be a second

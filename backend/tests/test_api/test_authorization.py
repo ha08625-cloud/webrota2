@@ -104,6 +104,7 @@ _AREA_FOR_PREFIX = {
     f"{API_PREFIX}/leave": "clinical",
     f"{API_PREFIX}/leave-planning": "clinical",
     f"{API_PREFIX}/master-rota": "clinical",
+    f"{API_PREFIX}/nurse-rota": "nurse_rota",
     f"{API_PREFIX}/recurring-notes": "clinical",
     f"{API_PREFIX}/rooms": "clinical",
     f"{API_PREFIX}/rota": "clinical",
@@ -259,11 +260,11 @@ _NON_GET_FLOORS = {
     # of a preset that exists to be given to a research nurse.
     "research": (8, 72),
     "read_only": (0, 72),
-    # No /nurse-rota router exists yet, so this profile writes nowhere at
-    # all -- its only two non-GETs are the ungated /locks pair, which the
+    # The three /nurse-rota writes, plus the ungated /locks pair, which the
     # sweep reaches with "1" for the area and which 422 before any
-    # permission is read. Both numbers move in Task 2 and are meant to.
-    "nurse_rota": (2, 95),
+    # permission is read. Nowhere else: this preset is the one that proves
+    # a nursing login cannot touch the clinical rota.
+    "nurse_rota": (5, 95),
     "no_access": (0, 72),
 }
 
@@ -276,11 +277,11 @@ _GET_FLOORS = {
     # two ungated reads every login gets.
     "research": (7, 32),
     "read_only": (32, 4),
-    # The two _SHARED_READ pickers plus the three ungated reads, and
-    # nothing else until Task 2 adds the router -- identical to
-    # `no_access`, which is the correct shape for an area with no
-    # endpoints.
-    "nurse_rota": (5, 40),
+    # GET /nurse-rota/active, plus the two _SHARED_READ pickers and the
+    # three ungated reads every login gets. The nurse grid is one fetch,
+    # which is why this is six and not more: rooms ride along on /active
+    # rather than the page reaching for the clinical-gated /rooms.
+    "nurse_rota": (6, 40),
     "no_access": (4, 32),
 }
 
