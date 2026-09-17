@@ -6,9 +6,10 @@ import { NOTES_MAX_LENGTH } from "@/lib/planningMonth";
 import type { PlanningCellState } from "@/lib/planningMonth";
 
 const STATE_OPTIONS: { value: PlanningCellState; label: string }[] = [
-  { value: "normal", label: "Normal" },
+  // Leave first: it is by far the commonest choice in the planner.
   { value: "leave", label: "Leave" },
   { value: "extra_session", label: "Extra session" },
+  { value: "normal", label: "Normal" },
   { value: "blocked", label: "Blocked" },
 ];
 
