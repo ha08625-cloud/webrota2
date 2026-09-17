@@ -232,6 +232,31 @@ class TestScrap:
         assert restored.raw_count == 3
         assert restored.adjustment == Decimal("2.0")
 
+    def test_scrap_keeps_system_counters_of_a_doctor_added_mid_draft(
+        self, session, monday
+    ):
+        """A doctor created while a draft exists is absent from that
+        draft's snapshot, and their seeded system counter rows with them.
+        Deleting those rows on restore would break the next generation
+        that touches any of their system counters -- _write_counters()
+        uses .scalar_one() on the strength of the seed guarantee -- so
+        they are kept with their raw counts zeroed instead."""
+        config, a, b, ct = _build_fixture(session, monday)
+        result = generate(session, config.id)
+
+        c = make_doctor(session, code="CC", doctor_type=DoctorType.SALARIED)
+        for counter_type in SystemCounterType:
+            make_system_counter(session, c, counter_type, raw_count=2)
+        session.flush()
+
+        scrap_rota(session, result.rota_id)
+
+        rows = session.execute(
+            select(SystemCounter).where(SystemCounter.doctor_id == c.id)
+        ).scalars().all()
+        assert {r.counter_type for r in rows} == set(SystemCounterType)
+        assert all(r.raw_count == 0 for r in rows)
+
     def test_scrap_committed_raises(self, session, monday):
         config, *_ = _build_fixture(session, monday)
         result = generate(session, config.id)
@@ -321,6 +346,29 @@ class TestRollbackCommit:
 
         assert _clinic_count(session, a.id, ct.id) == 3  # recreated at snapshot value
         assert _clinic_count(session, b.id, ct.id) is None  # absent from snapshot, deleted
+
+    def test_rollback_keeps_system_counters_of_a_doctor_added_after_commit(
+        self, session, monday
+    ):
+        """Same guarantee as scrap, on the rollback path: a doctor who
+        joined after the commit is absent from the snapshot, and their
+        seeded system counter rows are zeroed rather than deleted."""
+        config, a, b, ct = _build_fixture(session, monday)
+        result = generate(session, config.id)
+        commit_rota(session, result.rota_id)
+
+        c = make_doctor(session, code="CC", doctor_type=DoctorType.SALARIED)
+        for counter_type in SystemCounterType:
+            make_system_counter(session, c, counter_type, raw_count=5)
+        session.flush()
+
+        rollback_commit(session, result.rota_id)
+
+        rows = session.execute(
+            select(SystemCounter).where(SystemCounter.doctor_id == c.id)
+        ).scalars().all()
+        assert {r.counter_type for r in rows} == set(SystemCounterType)
+        assert all(r.raw_count == 0 for r in rows)
 
     def test_rollback_not_found_raises(self, session, monday):
         try:
