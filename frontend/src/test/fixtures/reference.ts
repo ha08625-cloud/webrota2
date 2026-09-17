@@ -278,7 +278,7 @@ export function makeSchool(overrides: Partial<School> = {}): School {
 /**
  * The permission presets the Users form offers, as the wire shape (see
  * models/permissions.py, where these values are decided). Tests name a
- * preset rather than spelling six fields out, so a test reads as "what a
+ * preset rather than spelling seven fields out, so a test reads as "what a
  * reception administrator sees" rather than as a literal.
  */
 export const PERMISSION_PRESETS = {
@@ -286,6 +286,7 @@ export const PERMISSION_PRESETS = {
     clinical: "write",
     reception: "write",
     research: "write",
+    nurse_rota: "write",
     signatures: true,
     study_eoi: true,
     user_admin: true,
@@ -294,6 +295,7 @@ export const PERMISSION_PRESETS = {
     clinical: "write",
     reception: "write",
     research: "none",
+    nurse_rota: "write",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -302,6 +304,7 @@ export const PERMISSION_PRESETS = {
     clinical: "read",
     reception: "write",
     research: "none",
+    nurse_rota: "none",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -310,6 +313,7 @@ export const PERMISSION_PRESETS = {
     clinical: "none",
     reception: "none",
     research: "none",
+    nurse_rota: "none",
     signatures: true,
     study_eoi: true,
     user_admin: false,
@@ -318,6 +322,7 @@ export const PERMISSION_PRESETS = {
     clinical: "read",
     reception: "read",
     research: "none",
+    nurse_rota: "read",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -326,6 +331,16 @@ export const PERMISSION_PRESETS = {
     clinical: "none",
     reception: "none",
     research: "write",
+    nurse_rota: "none",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+  nurseRota: {
+    clinical: "none",
+    reception: "none",
+    research: "none",
+    nurse_rota: "write",
     signatures: false,
     study_eoi: false,
     user_admin: false,

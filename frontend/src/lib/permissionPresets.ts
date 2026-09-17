@@ -15,6 +15,7 @@ export const PERMISSION_PRESETS = {
     clinical: "write",
     reception: "write",
     research: "write",
+    nurse_rota: "write",
     signatures: true,
     study_eoi: true,
     user_admin: true,
@@ -23,6 +24,7 @@ export const PERMISSION_PRESETS = {
     clinical: "write",
     reception: "write",
     research: "none",
+    nurse_rota: "write",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -33,6 +35,7 @@ export const PERMISSION_PRESETS = {
     clinical: "read",
     reception: "write",
     research: "none",
+    nurse_rota: "none",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -41,16 +44,18 @@ export const PERMISSION_PRESETS = {
     clinical: "none",
     reception: "none",
     research: "none",
+    nurse_rota: "none",
     signatures: true,
     study_eoi: true,
     user_admin: false,
   },
-  // Clinical and reception at read, and research at none: the two rotas
-  // are things everybody benefits from seeing, and a study page is not.
+  // The three rotas at read, and research at none: a rota is something
+  // everybody benefits from seeing, and a study page is not.
   read_only: {
     clinical: "read",
     reception: "read",
     research: "none",
+    nurse_rota: "read",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -62,6 +67,21 @@ export const PERMISSION_PRESETS = {
     clinical: "none",
     reception: "none",
     research: "write",
+    nurse_rota: "none",
+    signatures: false,
+    study_eoi: false,
+    user_admin: false,
+  },
+  // The nursing team's login: the nurse rota and nothing else, not even
+  // read on the clinical rota. It is the tightest preset in the table, and
+  // it is the one the nurse_rota area exists for - a login that can edit
+  // nurse rows in the master template without being able to reach a
+  // doctor's row at all.
+  nurse_rota: {
+    clinical: "none",
+    reception: "none",
+    research: "none",
+    nurse_rota: "write",
     signatures: false,
     study_eoi: false,
     user_admin: false,
@@ -99,6 +119,7 @@ export const PRESET_ORDER: readonly PermissionPresetName[] = [
   "reception_admin",
   "documents",
   "research",
+  "nurse_rota",
   "read_only",
 ];
 
@@ -108,6 +129,7 @@ const PRESET_LABELS: Record<PermissionPresetName, string> = {
   reception_admin: "Reception admin",
   documents: "Documents",
   research: "Research",
+  nurse_rota: "Nurse rota",
   read_only: "Read-only",
 };
 
@@ -115,8 +137,8 @@ export function presetLabel(name: PermissionPresetName): string {
   return PRESET_LABELS[name];
 }
 
-/** The three levelled areas, in the order the editor renders them. */
-export const PERMISSION_AREAS = ["clinical", "reception", "research"] as const;
+/** The four levelled areas, in the order the editor renders them. */
+export const PERMISSION_AREAS = ["clinical", "reception", "nurse_rota", "research"] as const;
 /** The three flags, in the order the editor renders them. */
 export const PERMISSION_FLAGS = ["signatures", "study_eoi", "user_admin"] as const;
 
@@ -126,6 +148,7 @@ export type PermissionFlagKey = (typeof PERMISSION_FLAGS)[number];
 const AREA_LABELS: Record<PermissionAreaKey, string> = {
   clinical: "Clinical rota",
   reception: "Reception rota",
+  nurse_rota: "Nurse rota",
   research: "Research",
 };
 
@@ -171,8 +194,8 @@ export function accessAreaLabel(level: AccessArea): string {
 /**
  * A one-line summary for the users table - "Clinical: edit, Reception:
  * read, Signatures". Denied areas and unset flags are left out rather than
- * listed as "none": the row is scanned for what someone *can* do, and six
- * entries per row of which four say "no" is unreadable.
+ * listed as "none": the row is scanned for what someone *can* do, and
+ * seven entries per row of which five say "no" is unreadable.
  */
 export function permissionsSummary(permissions: Permissions): string {
   const parts: string[] = [];

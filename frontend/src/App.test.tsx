@@ -300,6 +300,7 @@ describe("LandingPage tiles", () => {
       clinical: "none",
       reception: "none",
       research: "none",
+      nurse_rota: "none",
       signatures: false,
       study_eoi: false,
       user_admin: false,

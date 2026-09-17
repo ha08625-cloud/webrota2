@@ -442,6 +442,7 @@ describe("UserFormDialog - permissions", () => {
     await user.type(screen.getByLabelText("Password"), "password1");
     await user.click(areaGroup("Clinical rota").getByRole("radio", { name: "None" }));
     await user.click(areaGroup("Reception rota").getByRole("radio", { name: "None" }));
+    await user.click(areaGroup("Nurse rota").getByRole("radio", { name: "None" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/needs at least one permission/)).toBeInTheDocument();
@@ -467,6 +468,7 @@ describe("UserFormDialog - permissions", () => {
         clinical: "none",
         reception: "none",
         research: "none",
+        nurse_rota: "none",
         signatures: false,
         study_eoi: false,
         user_admin: true,
