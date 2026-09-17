@@ -518,6 +518,78 @@ describe("documents section", () => {
 });
 
 /**
+ * What is tested here is the shell: the section is reachable on `nurse_rota`
+ * at read or write and on nothing else, and the section stands on its own -
+ * the login it exists for holds no clinical permission to hang it off.
+ * What the page itself renders is its own suite's question
+ * (features/nurseRota/*.test.tsx).
+ */
+describe("NurseRotaShell", () => {
+  function stubActiveNurseRota() {
+    server.use(
+      http.get("/api/v1/nurse-rota/active", () =>
+        HttpResponse.json({
+          template_id: 1,
+          name: "Default",
+          sessions: [],
+          rooms: [],
+          occupancy: [],
+        }),
+      ),
+    );
+  }
+
+  it("renders the nurse rota section at /nurse-rota", async () => {
+    stubActiveNurseRota();
+    renderAt("/nurse-rota", PERMISSION_PRESETS.nurseRota);
+
+    expect(await screen.findByRole("heading", { name: "Nurse Rota - Default" })).toBeInTheDocument();
+  });
+
+  it("is reachable at read, since the grid is readable without edit rights", async () => {
+    stubActiveNurseRota();
+    renderAt("/nurse-rota", { ...PERMISSION_PRESETS.nurseRota, nurse_rota: "read" });
+
+    expect(await screen.findByRole("heading", { name: "Nurse Rota - Default" })).toBeInTheDocument();
+  });
+
+  it("redirects a login with no nurse_rota permission back to the landing page", () => {
+    stubActiveNurseRota();
+    renderAt("/nurse-rota", PERMISSION_PRESETS.documents);
+
+    expect(screen.getByRole("heading", { name: "Rota Generator" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Nurse Rota/ })).not.toBeInTheDocument();
+  });
+
+  it("sends a stale bookmark inside the section to its one page", async () => {
+    stubActiveNurseRota();
+    renderAt("/nurse-rota/anything-else", PERMISSION_PRESETS.nurseRota);
+
+    expect(await screen.findByRole("heading", { name: "Nurse Rota - Default" })).toBeInTheDocument();
+  });
+
+  // A nurse-rota-only login holds no clinical permission at all, so the
+  // section has to stand on its own rather than assuming a shell around it.
+  it("offers a nurse-rota-only login its tile and no rota sections", () => {
+    renderAt("/", PERMISSION_PRESETS.nurseRota);
+
+    expect(screen.getByRole("link", { name: /Nurse Rota/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Clinical Rota/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Reception Rota/ })).not.toBeInTheDocument();
+  });
+
+  // The nurse rota is reached from the landing page, not from a nav entry
+  // beside Master Rota: architecture.md rules out sharing a nav item across
+  // shells, and a clinical writer's way in is the tile.
+  it("keeps the nurse rota out of the clinical nav", () => {
+    renderAt("/clinical");
+
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).queryByRole("link", { name: /Nurse Rota/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
  * What is tested here is the shell: the section is reachable on `research`
  * at read or write and on nothing else, and its two routes resolve. What
  * either page renders is its own suite's question
