@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ReactNode } from "react";
 
 import { apiClient } from "@/api/client";
-import type { EditLock } from "@/api/locks";
+import type { EditLock, LockableArea } from "@/api/locks";
 import type { Permissions } from "@/api/types";
 import { PERMISSION_PRESETS, makeAuthUser } from "@/test/fixtures/reference";
 import { server } from "@/test/msw/server";
@@ -111,7 +111,7 @@ interface Options {
    * turn on the refetch returning something new than it did on mount.
    */
   locks?: EditLock[] | (() => EditLock[]);
-  area?: "clinical" | "reception";
+  area?: LockableArea;
   probeArea?: PermissionArea;
   /** Rendered inside the provider alongside the probe. */
   children?: ReactNode;
@@ -219,6 +219,32 @@ describe("EditLockProvider acquisition", () => {
     unmount();
 
     await waitFor(() => expect(released).toEqual(["reception"]));
+  });
+
+  it("takes and gives back the nurse rota lock, the third lockable section", async () => {
+    // The nurse rota and the master rota write to the same table, so the
+    // section being lockable at all is the point: this pins that the
+    // provider App wraps /nurse-rota/* in actually reaches the endpoint.
+    const acquired: string[] = [];
+    const released: string[] = [];
+    server.use(
+      http.post("/api/v1/locks/:area", ({ params }) => {
+        acquired.push(String(params.area));
+        return HttpResponse.json(
+          makeLock({ area: "nurse_rota", user_id: ME, user_name: "Ann" }),
+        );
+      }),
+      http.delete("/api/v1/locks/:area", ({ params }) => {
+        released.push(String(params.area));
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const { unmount } = renderLocked({ area: "nurse_rota" });
+    await waitFor(() => expect(acquired).toEqual(["nurse_rota"]));
+    unmount();
+
+    await waitFor(() => expect(released).toEqual(["nurse_rota"]));
   });
 
   it("does not release once the token has gone, which would only be a 401", async () => {

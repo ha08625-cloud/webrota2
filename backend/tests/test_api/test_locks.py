@@ -247,6 +247,27 @@ class TestList:
         body = client.get(LOCKS).json()
         assert [entry["area"] for entry in body] == ["reception"]
 
+    def test_a_nurse_rota_login_sees_that_lock_and_not_the_clinical_one(
+        self, client_with_permissions, users, db_session
+    ):
+        """The login this section exists for: nurse_rota and nothing else.
+        It needs its own banner, and has no business learning who is in
+        the clinical rota - even though both locks cover rows of the same
+        table."""
+        _insert_lock(db_session, "clinical", _OTHER_ID)
+        _insert_lock(db_session, "nurse_rota", _OTHER_ID)
+
+        client = client_with_permissions({
+            "clinical": "none",
+            "reception": "none",
+            "nurse_rota": "write",
+            "signatures": False,
+            "study_eoi": False,
+            "user_admin": False,
+        })
+        body = client.get(LOCKS).json()
+        assert [entry["area"] for entry in body] == ["nurse_rota"]
+
     def test_a_reader_sees_the_lock_on_a_section_it_cannot_write(
         self, readonly_client, users, db_session
     ):

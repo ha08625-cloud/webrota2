@@ -3,9 +3,9 @@
 The model is a Word document on a shared drive. The first login with write
 access to enter a section holds the lock; everyone else is downgraded to
 read-only in that section until it is released. Reading is never blocked.
-At most two rows ever exist -- one for `clinical`, one for `reception` --
-which is structural rather than enforced by a trigger: `area` is the
-primary key.
+At most one row per lockable area ever exists -- `clinical`, `reception`
+and `nurse_rota` -- which is structural rather than enforced by a trigger:
+`area` is the primary key.
 
 Two facts about the timer, both load-bearing:
 

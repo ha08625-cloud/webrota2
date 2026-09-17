@@ -1,19 +1,19 @@
 """Section editing locks: read them, take one, give it back.
 
-Two locks exist at most -- one for `clinical`, one for `reception` -- and
-the model is a Word document on a shared drive. The first login with write
-access to enter a section holds it; everyone else is downgraded to
-read-only there until it is released. Reading is never blocked, for
-anyone, ever: this router refuses acquisitions, never reads of the section
-itself.
+One lock per lockable section -- `clinical`, `reception` and
+`nurse_rota` -- and the model is a Word document on a shared drive. The
+first login with write access to enter a section holds it; everyone else
+is downgraded to read-only there until it is released. Reading is never
+blocked, for anyone, ever: this router refuses acquisitions, never reads
+of the section itself.
 
 This router is in main.py's `_UNGATED` tuple and gates itself per endpoint,
 which is the `users.py` arrangement and needs the same justification.
 `require_access` is built once per router around ONE area, and this router
 has no single area: the area it acts on arrives as a path parameter and may
-be either lockable section, so a registration-time gate would have to pick
-one and would then either 403 half the legitimate calls or wave through
-half the illegitimate ones. Each endpoint therefore calls
+be any lockable section, so a registration-time gate would have to pick
+one and would then either 403 the legitimate calls to the others or wave
+through the illegitimate ones. Each endpoint therefore calls
 `deps.require_area_write` with the area it was actually given, raising the
 same 403s with the same wording as the factory would. **A new endpoint in
 this file is UNGATED until somebody adds that call** --

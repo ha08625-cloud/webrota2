@@ -76,7 +76,7 @@ function useMinuteTick(): number {
 const STRIP_CLASS = "border-b px-4 py-2 text-sm";
 
 /**
- * The standing strip, immediately below the shell header in the two
+ * The standing strip, immediately below the shell header in each of the
  * lockable sections.
  *
  * Three states, and the third is the point of the second one: nothing at

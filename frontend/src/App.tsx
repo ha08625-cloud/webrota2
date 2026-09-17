@@ -192,7 +192,7 @@ function useHandleLogout() {
     // valid - logging out deletes the session, so after this point the
     // lock could only be released by waiting out the idle timeout, and a
     // colleague would be locked out of the section for fifteen minutes by
-    // somebody who had gone home. A no-op in the two shells that are not
+    // somebody who had gone home. A no-op in the shells that are not
     // lockable, and best effort everywhere (see EditLockProvider).
     await releaseEditLock();
     // Best-effort session deletion server-side; a network failure here
@@ -283,8 +283,8 @@ function ClinicalShell() {
       {/* Directly under the header, above the nav and the page, so it is
           the first thing read on a section that is not the user's to edit
           - and so it does not scroll away with the page content. Only the
-          two lockable shells carry it; the documents and administration
-          shells have no lock to report. */}
+          lockable shells carry it; the documents, research and
+          administration shells have no lock to report. */}
       <EditLockBanner />
       <EditLockDialog />
       <div className="flex flex-1">
@@ -453,6 +453,10 @@ function ResearchShell() {
  * Modelled on ResearchShell - own header, no left nav - since one page
  * needs no nav bar. One PermissionAreaProvider on the shell: the whole
  * section is the single `nurse_rota` permission.
+ *
+ * Unlike Research, this one IS lockable: it is a shared rota grid, which
+ * is the thing the lock exists for. Hence the banner and dialog below,
+ * and the EditLockProvider around the route in App.
  */
 function NurseRotaShell() {
   const permissions = usePermissions();
@@ -464,6 +468,9 @@ function NurseRotaShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <ShellHeader title="Rota Generator - Nurse Rota" />
+      {/* Directly under the header, for the reason ClinicalShell gives. */}
+      <EditLockBanner />
+      <EditLockDialog />
       <main className="flex-1 p-6">
         <PermissionAreaProvider area="nurse_rota">
           <Routes>
@@ -584,14 +591,15 @@ export function App() {
             administration only - cannot read the clinical section. */}
         <Route path="/clinical/users" element={<Navigate to="/admin/users" replace />} />
         <Route path="/clinical/audit" element={<Navigate to="/admin/audit" replace />} />
-        {/* The two lockable sections carry the editing lock for as long as
-            the user is anywhere inside them, which is what makes "leaving
-            the section" release it. Wrapped here rather than inside the
-            shell so the header - and the logout button in it, which gives
-            the lock back explicitly - is inside the provider too.
-            Signatures and administration are deliberately not wrapped:
-            their permissions are booleans with no read level to be
-            downgraded to, so they cannot be locked. */}
+        {/* The three lockable sections carry the editing lock for as long
+            as the user is anywhere inside them, which is what makes
+            "leaving the section" release it. Wrapped here rather than
+            inside the shell so the header - and the logout button in it,
+            which gives the lock back explicitly - is inside the provider
+            too. Signatures and administration are deliberately not
+            wrapped: their permissions are booleans with no read level to
+            be downgraded to, so they cannot be locked. Research is
+            levelled and still not wrapped - see ResearchShell. */}
         <Route
           path="/clinical/*"
           element={
@@ -610,7 +618,14 @@ export function App() {
         />
         <Route path="/signatures/*" element={<SignaturesShell />} />
         <Route path="/research/*" element={<ResearchShell />} />
-        <Route path="/nurse-rota/*" element={<NurseRotaShell />} />
+        <Route
+          path="/nurse-rota/*"
+          element={
+            <EditLockProvider area="nurse_rota">
+              <NurseRotaShell />
+            </EditLockProvider>
+          }
+        />
         <Route path="/admin/*" element={<AdminShell />} />
       </Routes>
     </BrowserRouter>
