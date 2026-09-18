@@ -10,7 +10,7 @@ import { makeRotaSummary } from "@/test/fixtures/rota";
 import { makeStaging } from "@/test/fixtures/staging";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { server } from "@/test/msw/server";
-import { addDays, getUpcomingMondays } from "@/lib/date";
+import { addDays, formatWeekLabel, getUpcomingMondays } from "@/lib/date";
 import { weekDutySlots } from "@/lib/dutyWeekSlots";
 
 import { RotaPage } from "./RotaPage";
@@ -26,6 +26,14 @@ function makeFullWeekAssignments(weekStartDate: string): DutyAssignment[] {
   return weekDutySlots(weekStartDate).map((slot) =>
     makeDutyAssignment({ date: slot.date, period: slot.period, duty_type: slot.dutyType }),
   );
+}
+
+/** Clicks Start staging and confirms the incomplete-duty dialog. The
+ * default fixtures have no duty assignments at all, so every week reads as
+ * not fully staffed and the confirm dialog always appears. */
+async function startStagingAndConfirm(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Start staging" }));
+  await user.click(await screen.findByRole("button", { name: "Start staging anyway" }));
 }
 
 describe("RotaPage", () => {
@@ -178,7 +186,7 @@ describe("RotaPage", () => {
     const user = userEvent.setup();
     await user.selectOptions(weekSelect, chosenWeek);
     await user.selectOptions(screen.getByLabelText("Number of weeks"), "2");
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     await waitFor(() => {
       expect(capturedBody).toEqual({
@@ -206,7 +214,7 @@ describe("RotaPage", () => {
 
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Template starting week"), "3");
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     await waitFor(() => {
       expect(capturedBody).toMatchObject({ template_start_week: 3 });
@@ -225,7 +233,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     expect(await screen.findByTestId("staging-probe")).toBeInTheDocument();
   });
@@ -242,7 +250,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     expect(await screen.findByText("A draft rota already exists; commit or scrap it first")).toBeInTheDocument();
   });
@@ -274,7 +282,7 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     expect(await screen.findByText(/Duty doctor is on leave/)).toBeInTheDocument();
   });
@@ -294,9 +302,116 @@ describe("RotaPage", () => {
     await screen.findByText("Generate a rota");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Start staging" }));
+    await startStagingAndConfirm(user);
 
     expect(await screen.findByText("field required")).toBeInTheDocument();
+  });
+
+  describe("incomplete-duty confirmation", () => {
+    it("does not POST until the dialog is confirmed when a selected week's duty is incomplete", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      let posted = false;
+      server.use(
+        http.post("/api/v1/staging", () => {
+          posted = true;
+          return HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<RotaPage />, {
+        additionalRoutes: [{ path: "/clinical/staging", element: <StagingProbe /> }],
+      });
+      await screen.findByText("Generate a rota");
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Start staging" }));
+
+      expect(await screen.findByText("Are you sure?")).toBeInTheDocument();
+      expect(posted).toBe(false);
+
+      await user.click(screen.getByRole("button", { name: "Start staging anyway" }));
+
+      await waitFor(() => expect(posted).toBe(true));
+    });
+
+    it("cancelling the dialog leaves the form in place and sends nothing", async () => {
+      server.use(http.get("/api/v1/rota", () => HttpResponse.json([])));
+      let posted = false;
+      server.use(
+        http.post("/api/v1/staging", () => {
+          posted = true;
+          return HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Start staging" }));
+      await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => expect(screen.queryByText("Are you sure?")).not.toBeInTheDocument());
+      expect(posted).toBe(false);
+      expect(screen.getByRole("button", { name: "Start staging" })).toBeInTheDocument();
+    });
+
+    it("POSTs straight away, with no dialog, when every selected week is fully staffed", async () => {
+      const firstMonday = getUpcomingMondays(1)[0];
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(firstMonday))),
+      );
+      let posted = false;
+      server.use(
+        http.post("/api/v1/staging", () => {
+          posted = true;
+          return HttpResponse.json(makeStaging({ staging_id: 42 }), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<RotaPage />, {
+        additionalRoutes: [{ path: "/clinical/staging", element: <StagingProbe /> }],
+      });
+      await screen.findByText("Generate a rota");
+      // The duty query must have landed before submitting, or the form
+      // would treat the still-unknown duty state as "nothing to warn about"
+      // for the wrong reason.
+      await screen.findByTestId(`generate-week-duty-status-${firstMonday}`);
+      expect(screen.getByTestId(`generate-week-duty-status-${firstMonday}`)).toHaveTextContent(
+        "Duty fully staffed",
+      );
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "Start staging" }));
+
+      await waitFor(() => expect(posted).toBe(true));
+      expect(screen.queryByText("Are you sure?")).not.toBeInTheDocument();
+    });
+
+    it("lists only the incomplete weeks of a multi-week selection", async () => {
+      const firstMonday = getUpcomingMondays(1)[0];
+      server.use(
+        http.get("/api/v1/rota", () => HttpResponse.json([])),
+        // Week 1 complete, week 2 left empty.
+        http.get("/api/v1/duty", () => HttpResponse.json(makeFullWeekAssignments(firstMonday))),
+      );
+
+      renderWithProviders(<RotaPage />);
+      await screen.findByText("Generate a rota");
+
+      const user = userEvent.setup();
+      await user.selectOptions(screen.getByLabelText("Number of weeks"), "2");
+      const secondMonday = addDays(firstMonday, 7);
+      await screen.findByTestId(`generate-week-duty-status-${secondMonday}`);
+
+      await user.click(screen.getByRole("button", { name: "Start staging" }));
+
+      const dialog = await screen.findByTestId("incomplete-duty-confirm");
+      const listed = within(dialog).getAllByRole("listitem");
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toHaveTextContent(formatWeekLabel(secondMonday));
+    });
   });
 
   describe("already-committed week", () => {
