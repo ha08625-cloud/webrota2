@@ -324,10 +324,10 @@ export function RotaGrid({
     <table className="min-w-full border-collapse text-sm">
       <thead>
         <tr>
-          <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+          <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
             Doctor
           </th>
-          <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+          <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
             Session
           </th>
           {DAYS.map((day, dayIndex) => {
@@ -381,7 +381,7 @@ export function RotaGrid({
                     rowSpan={PERIODS.length}
                     data-testid={`doctor-row-header-${doctor.id}`}
                     data-linked-doctor={isLinkedDoctor ? "true" : undefined}
-                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass} ${linkedEdgeClass}`}
+                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 align-top font-medium ${doctorCellGroupDividerClass} ${linkedEdgeClass}`}
                   >
                     <div>
                       {doctor.code}
@@ -393,7 +393,7 @@ export function RotaGrid({
                   </td>
                 ) : null}
                 <td
-                  className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
+                  className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
                 >
                   {period}
                 </td>

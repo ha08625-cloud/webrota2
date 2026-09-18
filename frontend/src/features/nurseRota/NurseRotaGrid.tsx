@@ -176,10 +176,10 @@ export function NurseRotaGrid({
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
                 Nurse
               </th>
-              <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+              <th className="sticky left-24 z-10 w-12 border-b-2 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
                 Session
               </th>
               {DAYS.map((day, dayIndex) => (
@@ -208,7 +208,7 @@ export function NurseRotaGrid({
                     {periodIndex === 0 ? (
                       <td
                         rowSpan={PERIODS.length}
-                        className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${nurseCellGroupDividerClass}`}
+                        className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 align-top font-medium ${nurseCellGroupDividerClass}`}
                       >
                         <div>{doctor.code}</div>
                         {inactiveWithSessions ? (
@@ -217,7 +217,7 @@ export function NurseRotaGrid({
                       </td>
                     ) : null}
                     <td
-                      className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
+                      className={`sticky left-24 z-10 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-xs font-medium text-ink/70 ${groupDividerClass}`}
                     >
                       {period}
                     </td>
