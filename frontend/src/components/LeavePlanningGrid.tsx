@@ -462,7 +462,7 @@ export function LeavePlanningGrid({
           <table className={`min-w-full border-collapse text-sm ${dragging ? "select-none" : ""}`}>
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 w-24 border-b-[3px] border-r-[3px] border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+                <th className="sticky left-0 z-10 w-24 border-b-[3px] border-r-[3px] border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
                   Doctor / School
                 </th>
                 {dates.map((date) => {
@@ -491,7 +491,7 @@ export function LeavePlanningGrid({
                   <tr key={`school-${school.id}`}>
                     <td
                       data-testid={`planning-school-label-${school.id}`}
-                      className="sticky left-0 z-10 whitespace-nowrap border-b border-r-[3px] border-ink/40 bg-background px-2 py-1 font-medium"
+                      className="sticky left-0 z-10 whitespace-nowrap border-b border-r-[3px] border-ink/40 bg-grid-chrome px-2 py-1 font-medium"
                     >
                       {school.name}
                     </td>
@@ -525,7 +525,7 @@ export function LeavePlanningGrid({
                   {/* The tint sits on the button, not this cell: the cell
                       is the sticky column, so a translucent background on
                       it would let scrolled cells show through it. */}
-                  <td className="sticky left-0 z-10 whitespace-nowrap border-b-2 border-r-[3px] border-ink/40 bg-background p-0 font-medium">
+                  <td className="sticky left-0 z-10 whitespace-nowrap border-b-2 border-r-[3px] border-ink/40 bg-grid-chrome p-0 font-medium">
                     <button
                       type="button"
                       data-testid={`planning-doctor-label-${doctor.id}`}
@@ -581,14 +581,14 @@ export function LeavePlanningGrid({
             </tbody>
             <tfoot>
               <tr>
-                <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t-[3px] border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t-[3px] border-ink/40 bg-grid-chrome px-2 py-1 text-xs font-medium text-ink/70">
                   Clinical cover
                 </td>
                 {dates.map((date) => (
                   <td
                     key={date}
                     className={`${weekDividerClass(date)} border-t-[3px] border-ink/40 p-0.5 align-top ${
-                      isInMonth(date, year, month) ? "bg-background" : "bg-ink/[0.03]"
+                      isInMonth(date, year, month) ? "bg-grid-chrome" : "bg-ink/[0.03]"
                     }`}
                   >
                     {PLANNING_PERIODS.map((period) => {
@@ -608,7 +608,7 @@ export function LeavePlanningGrid({
                 ))}
               </tr>
               <tr>
-                <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t border-ink/40 bg-background px-2 py-1 text-xs font-medium text-ink/70">
+                <td className="sticky left-0 z-10 whitespace-nowrap border-r-[3px] border-t border-ink/40 bg-grid-chrome px-2 py-1 text-xs font-medium text-ink/70">
                   Weekly cover
                 </td>
                 {chunkIntoWeeks(dates).map((weekDates) => {
@@ -618,7 +618,7 @@ export function LeavePlanningGrid({
                       key={weekDates[0]}
                       colSpan={weekDates.length}
                       data-testid={`planning-weekly-total-${weekDates[0]}`}
-                      className="border-r-[3px] border-t border-ink/40 bg-background p-0.5 text-center text-[11px] font-medium leading-tight tabular-nums text-ink/70"
+                      className="border-r-[3px] border-t border-ink/40 bg-grid-chrome p-0.5 text-center text-[11px] font-medium leading-tight tabular-nums text-ink/70"
                     >
                       {total === null ? "—" : total}
                     </td>

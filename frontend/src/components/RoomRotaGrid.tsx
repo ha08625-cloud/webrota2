@@ -78,7 +78,7 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange, currentWeek = nul
   function renderDayHeaderRow() {
     return (
       <tr>
-        <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-background px-2 py-1 text-left font-medium text-ink/70">
+        <th className="sticky left-0 z-10 w-24 border-b-2 border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 text-left font-medium text-ink/70">
           Room
         </th>
         {DAYS.map((day, dayIndex) => {
@@ -121,7 +121,7 @@ export function RoomRotaGrid({ rota, activeWeek, onWeekChange, currentWeek = nul
               return (
                 <tr key={room.id}>
                   <td
-                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-background px-2 py-1 align-top font-medium ${groupDividerClass}`}
+                    className={`sticky left-0 z-10 whitespace-nowrap border-r-2 border-ink/40 bg-grid-chrome px-2 py-1 align-top font-medium ${groupDividerClass}`}
                   >
                     {room.code}
                   </td>

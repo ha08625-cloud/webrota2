@@ -1,18 +1,26 @@
-/* Theme tokens. These five variables are the app's only themeable colours;
+/* Theme tokens. These six variables are the app's only themeable colours;
    tailwind.config.js consumes them as rgb(var(--color-x) / <alpha-value>)
    so that opacity modifiers (text-ink/70 and friends) keep working. Values
    are space-separated RGB channels, not hex, because that is the only form
    the alpha-modifier syntax accepts. Additional themes are defined here as
-   [data-theme="..."] blocks overriding the same five variables. */
+   [data-theme="..."] blocks overriding the same six variables.
+
+   --color-grid-chrome is white in every palette today. It exists as a token
+   rather than a literal bg-white so the rota grids stay inside the theme
+   system: it fills the header row and the sticky leader columns, which sit
+   directly against the pinned Q13 cell colours and so must not take a tint
+   just because the page background does. Keep it opaque - the leader columns
+   are sticky, and a translucent fill lets scrolled cells show through. */
 :root {
   --color-background: 247 248 250;
   --color-surface: 255 255 255;
   --color-ink: 28 36 48;
   --color-border: 221 225 230;
   --color-accent: 79 95 166;
+  --color-grid-chrome: 255 255 255;
 }
 
-/* The four alternative palettes. Each overrides the same five variables and
+/* The four alternative palettes. Each overrides the same six variables and
    nothing else; anything not in this list is pinned and does not move with a
    theme (the Q13 rota cell colours, validation red, warning amber, exports).
 
@@ -34,6 +42,7 @@
   --color-ink: 12 32 41; /* #0C2029 */
   --color-border: 188 213 226; /* #BCD5E2 */
   --color-accent: 14 106 133; /* #0E6A85 */
+  --color-grid-chrome: 255 255 255;
 }
 
 [data-theme="forest"] {
@@ -42,6 +51,7 @@
   --color-ink: 19 32 20; /* #132014 */
   --color-border: 198 217 193; /* #C6D9C1 */
   --color-accent: 47 107 60; /* #2F6B3C */
+  --color-grid-chrome: 255 255 255;
 }
 
 [data-theme="plum"] {
@@ -50,6 +60,7 @@
   --color-ink: 37 26 36; /* #251A24 */
   --color-border: 223 203 219; /* #DFCBDB */
   --color-accent: 138 58 107; /* #8A3A6B */
+  --color-grid-chrome: 255 255 255;
 }
 
 [data-theme="sand"] {
@@ -58,11 +69,14 @@
   --color-ink: 37 29 20; /* #251D14 */
   --color-border: 231 215 185; /* #E7D7B9 */
   --color-accent: 154 74 34; /* #9A4A22 */
+  --color-grid-chrome: 255 255 255;
 }
 
 /* High contrast is a second axis, not a fifth palette - see themeStore.ts.
    These blocks come after the palettes so they win on source order at equal
-   specificity, and they leave --color-background and --color-surface alone:
+   specificity, and they leave --color-background, --color-surface and
+   --color-grid-chrome alone (the last is already white, the strongest ground
+   the pinned cell colours can sit on):
    the theme keeps its hue, and only the three variables that carry legibility
    move. Black ink, a border that reads as a line rather than a hint (6.1:1 on
    surface, against roughly 1.5:1 normally), and a darkened accent.

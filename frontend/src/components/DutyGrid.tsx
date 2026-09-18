@@ -377,13 +377,13 @@ function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRe
         className="mt-1 grid gap-px border border-border bg-border text-sm"
         style={{ gridTemplateColumns: `3rem repeat(${columns.length}, minmax(3rem, 1fr))` }}
       >
-        <div className="bg-background px-2 py-1" />
+        <div className="bg-grid-chrome px-2 py-1" />
         {columns.map((col) => (
           <div
             key={col.key}
             data-testid={`duty-column-header-${col.date}`}
             className={`px-2 py-1 text-center font-medium ${
-              col.fullyClosed ? "bg-gray-200 text-ink/40" : "bg-background text-ink/70"
+              col.fullyClosed ? "bg-gray-200 text-ink/40" : "bg-grid-chrome text-ink/70"
             }`}
           >
             {col.label}
@@ -392,7 +392,7 @@ function DutyWeekTable({ weekStartDate, assignments, closures, doctorsById, onRe
         ))}
         {PERIODS.map((period) => (
           <Fragment key={period}>
-            <div className="bg-background px-2 py-1 font-medium text-ink/70">{period}</div>
+            <div className="bg-grid-chrome px-2 py-1 font-medium text-ink/70">{period}</div>
             {columns.map((col) => {
               if (col.fullyClosed || isSlotClosed(closedSet, col.date, period)) {
                 return (

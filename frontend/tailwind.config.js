@@ -19,6 +19,12 @@ export default {
         ink: "rgb(var(--color-ink) / <alpha-value>)",
         border: "rgb(var(--color-border) / <alpha-value>)",
         accent: "rgb(var(--color-accent) / <alpha-value>)",
+        // Grid chrome: the header row and the sticky leader columns of every
+        // rota grid. Deliberately a token of its own rather than sharing
+        // `background` (the page) or `surface` (nav/cards): those cells sit
+        // directly against the pinned Q13 cell colours, so they need to stay
+        // white while the page background is free to carry a real colour.
+        "grid-chrome": "rgb(var(--color-grid-chrome) / <alpha-value>)",
       },
       // Global font-size scale, single source of truth for the app's
       // standard text sizes. Values below match Tailwind's own defaults
