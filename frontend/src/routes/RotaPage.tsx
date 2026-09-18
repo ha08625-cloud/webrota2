@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -187,6 +188,32 @@ function findOverlappingCommittedRota(
  * to fail: POST /staging would 409 on exactly this case, and the useful
  * action for a week that is already done is to go and look at it.
  */
+/**
+ * The weeks of the selected range whose duty rota is not fully staffed,
+ * by the same isDutyWeekComplete rule (closures included) the duty status
+ * markers and the Duty page use. Reads the already-cached GET /duty and
+ * GET /closures the duty preview sidebar loads, so this costs no extra
+ * requests.
+ *
+ * While either query is loading or has failed the result is empty: duty
+ * staffing is advisory (neither this form nor the backend blocks on it),
+ * so an unknown duty state must not manufacture a warning the user cannot
+ * act on.
+ */
+function useIncompleteDutyWeeks(startDate: string, numWeeks: number): string[] {
+  const { data: dutyAssignments, isLoading: dutyLoading, isError: dutyError } = useDuty();
+  const { data: closures, isLoading: closuresLoading, isError: closuresError } = useClosures(null);
+
+  return useMemo(() => {
+    if (dutyLoading || closuresLoading || dutyError || closuresError) {
+      return [];
+    }
+    return Array.from({ length: numWeeks }, (_, i) => addDays(startDate, i * 7)).filter(
+      (weekStart) => !isDutyWeekComplete(weekStart, dutyAssignments ?? [], closures ?? []),
+    );
+  }, [startDate, numWeeks, dutyAssignments, closures, dutyLoading, closuresLoading, dutyError, closuresError]);
+}
+
 interface StartStagingFormProps {
   upcomingMondays: string[];
   startDate: string;
@@ -208,22 +235,16 @@ function StartStagingForm({
   const navigate = useNavigate();
   const createStaging = useCreateStaging();
   const [templateStartWeek, setTemplateStartWeek] = useState<1 | 2 | 3 | 4>(1);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const incompleteDutyWeeks = useIncompleteDutyWeeks(startDate, numWeeks);
 
   const overlappingRota = useMemo(
     () => findOverlappingCommittedRota(committedRotas, startDate, numWeeks),
     [committedRotas, startDate, numWeeks],
   );
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    // The submit button is not rendered while the range is covered by a
-    // committed rota, but a keyboard submit from one of the selects can
-    // still fire this handler - POST /staging would only 409.
-    if (overlappingRota) {
-      return;
-    }
-
+  function startStaging() {
     // Staging create applies template_start_week once at copy time, to
     // pick which template weeks get copied, then discards it - the
     // persisted RotaConfig always stores template_start_week=1.
@@ -236,6 +257,35 @@ function StartStagingForm({
     createStaging.mutate(payload, {
       onSuccess: () => navigate("/clinical/staging"),
     });
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    // The submit button is not rendered while the range is covered by a
+    // committed rota, but a keyboard submit from one of the selects can
+    // still fire this handler - POST /staging would only 409.
+    if (overlappingRota) {
+      return;
+    }
+
+    // Staging copies the template for weeks whose duty is usually already
+    // fixed, and the generated rota is built around those duty slots, so
+    // starting against a half-filled duty week is nearly always a mistake
+    // rather than a deliberate choice. It is still only a warning - duty
+    // is advisory here and at the backend - so the confirm dialog offers
+    // a way through rather than blocking.
+    if (incompleteDutyWeeks.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    startStaging();
+  }
+
+  function handleConfirm() {
+    setConfirmOpen(false);
+    startStaging();
   }
 
   return (
@@ -321,6 +371,44 @@ function StartStagingForm({
       )}
 
       {createStaging.isError ? <GenerateErrorMessage error={createStaging.error} /> : null}
+
+      <Dialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-ink/30" />
+          <Dialog.Content
+            className="fixed left-1/2 top-1/2 w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded bg-surface p-5 shadow-lg"
+            data-testid="incomplete-duty-confirm"
+          >
+            <Dialog.Title className="text-lg font-semibold">Are you sure?</Dialog.Title>
+
+            <Dialog.Description className="mt-2 text-sm text-ink/70">
+              The duty rota is not fully staffed for {incompleteDutyWeeks.length === 1 ? "this week" : "these weeks"}:
+            </Dialog.Description>
+
+            <ul className="mt-2 list-disc pl-5 text-sm text-ink">
+              {incompleteDutyWeeks.map((weekStart) => (
+                <li key={weekStart}>{formatWeekLabel(weekStart)}</li>
+              ))}
+            </ul>
+
+            <p className="mt-3 text-sm text-ink/70">
+              Duty slots left empty now will be missing from the generated rota. You can fill them in on the
+              Duty page first, or start staging anyway.
+            </p>
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
+              <Dialog.Close className="rounded px-3 py-1 text-sm text-ink/70">Cancel</Dialog.Close>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                className="rounded bg-accent px-4 py-1 text-sm font-medium text-white"
+              >
+                Start staging anyway
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </form>
   );
 }
