@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
-from app.api.routers.doctors import NULLED_TABLES, PURGED_MODELS
+from app.api.routers._doctors import NULLED_TABLES, PURGED_MODELS
 from app.database import Base
 from app.models import Doctor, DutyCounterAdjustment, GeneratedRota, SystemCounter, User
 from app.models.enums import DoctorType, SystemCounterType
@@ -339,7 +339,7 @@ def test_purged_models_covers_every_fk_to_doctors():
     ), (
         "a table references doctors but is neither purged nor nulled when a "
         "doctor is deleted -- add its model to PURGED_MODELS (or its table to "
-        "NULLED_TABLES) in app/api/routers/doctors.py"
+        "NULLED_TABLES) in app/api/routers/_doctors.py"
     )
 
 

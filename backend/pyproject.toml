@@ -186,6 +186,7 @@ source_modules = [
     "app.doctor_window",
     "app.calendar_feed",
     "app.api.routers._doctor_ids",
+    "app.api.routers._doctors",
     # NOTE: app.api.routers._uploads is deliberately NOT here. It was
     # promoted to the shared kernel below when the research documents
     # router became its third caller -- see the comment there.
