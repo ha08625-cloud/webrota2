@@ -1,9 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/api/client";
-import type { Day, MasterRotaSession, Period } from "@/api/types";
+import type {
+  Day,
+  Doctor,
+  DoctorDeleteResult,
+  DoctorUsage,
+  MasterRotaSession,
+  Period,
+} from "@/api/types";
 
-import type { NurseRota, NurseSessionType } from "./types";
+import type { NurseIn, NursePatch, NurseRota, NurseSessionType } from "./types";
 
 /**
  * TanStack Query hooks for the Nurse Rota section.
@@ -26,6 +33,9 @@ import type { NurseRota, NurseSessionType } from "./types";
 export const nurseRotaKeys = {
   all: ["nurse-rota"] as const,
   active: () => [...nurseRotaKeys.all, "active"] as const,
+  nurses: (includeInactive: boolean) =>
+    [...nurseRotaKeys.all, "nurses", includeInactive] as const,
+  nurseUsage: (nurseId: number) => [...nurseRotaKeys.all, "nurses", "usage", nurseId] as const,
 };
 
 /**
@@ -157,6 +167,89 @@ export function useDeleteNurseSession() {
         if (prev === undefined) return prev;
         return { ...prev, sessions: prev.sessions.filter((s) => s.session_id !== sessionId) };
       });
+    },
+  });
+}
+
+// --- Nurse staff ---
+// Reference data, and deliberately NOT the splice-in-place convention the
+// session hooks above use: these lists are small, nobody is mid-gesture
+// when they fire, and a create has no cached row to patch. Invalidate off
+// `nurseRotaKeys.all` so both `include_inactive` variants of the list are
+// covered by one call - a deactivation moves a row between them, so
+// invalidating only the variant the caller read would leave the other
+// stale.
+
+/**
+ * The section's nurses. Its own endpoint rather than `GET /doctors`
+ * filtered client-side: that route is one of the two deliberate holes in
+ * default-deny (`deps._SHARED_READ`), open for the user-admin
+ * linked-doctor picker rather than for this page.
+ */
+export function useNurses(includeInactive = false) {
+  return useQuery({
+    queryKey: nurseRotaKeys.nurses(includeInactive),
+    queryFn: () =>
+      apiClient.get<Doctor[]>(`/nurse-rota/nurses?include_inactive=${includeInactive}`),
+  });
+}
+
+export function useCreateNurse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: NurseIn) => apiClient.post<Doctor>("/nurse-rota/nurses", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nurseRotaKeys.all });
+    },
+  });
+}
+
+export interface UpdateNursePayload {
+  id: number;
+  payload: NursePatch;
+}
+
+export function useUpdateNurse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: UpdateNursePayload) =>
+      apiClient.patch<Doctor>(`/nurse-rota/nurses/${id}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nurseRotaKeys.all });
+    },
+  });
+}
+
+/**
+ * What a permanent delete would destroy, read by the confirm dialog before
+ * it asks. Pass null to keep it unfetched - the dialog passes the id only
+ * while it is open, so a closed dialog costs nothing.
+ */
+export function useNurseUsage(nurseId: number | null) {
+  return useQuery({
+    queryKey: nurseRotaKeys.nurseUsage(nurseId ?? 0),
+    queryFn: () => apiClient.get<DoctorUsage>(`/nurse-rota/nurses/${nurseId}/usage`),
+    enabled: nurseId !== null,
+  });
+}
+
+/**
+ * Permanent purge. Deactivation is useUpdateNurse with {active: false};
+ * this is the irreversible one, and the backend 409s unless the nurse is
+ * already inactive.
+ *
+ * Invalidating off `nurseRotaKeys.all` matters most here: it takes
+ * `active()` with it, and `MasterRotaSession` is in the backend's
+ * PURGED_MODELS, so the purge deletes the nurse's template rows and the
+ * rota grid's cached payload is stale the moment it returns. Without that
+ * the staff page leaves ghost rows on the grid.
+ */
+export function useDeleteNurse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiClient.delete<DoctorDeleteResult>(`/nurse-rota/nurses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nurseRotaKeys.all });
     },
   });
 }

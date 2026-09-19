@@ -53,3 +53,43 @@ export interface NurseRota {
   rooms: Room[];
   occupancy: NurseSlotOccupancy[];
 }
+
+// --- Nurse staff ---
+// Responses are `Doctor`, imported from `@/api/types` rather than
+// re-declared here, for the same reason session rows are: the backend
+// reuses `DoctorOut` verbatim for every nurse staff endpoint (see
+// `schemas/nurse_rota.py`), and a parallel interface would be a copy that
+// could drift from the one thing it must match. `DoctorUsage` and
+// `DoctorDeleteResult` are reused for the same reason.
+//
+// The write bodies are the exception, and are the whole point of the
+// section: `NurseIn`/`NursePatch` are narrower than `DoctorIn`/`DoctorPatch`
+// by design, and a field added to the doctor bodies later must not silently
+// widen what this section can write.
+
+/**
+ * POST /nurse-rota/nurses. No `doctor_type` - the router sets NURSE itself,
+ * and a payload field would let a nurse_rota-only login mint a Partner. No
+ * `active` either: the router creates active rows and deactivation is a
+ * PATCH.
+ */
+export interface NurseIn {
+  code: string;
+  /** Employment window; null means unbounded at that end. */
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+/**
+ * PATCH /nurse-rota/nurses/{id}. Every field optional; only supplied fields
+ * are applied. `doctor_type` is absent for the reason it is absent from
+ * `NurseIn`, plus one: were it patchable, the backend's
+ * 404-unless-nurse guard would be worth nothing, since a nurse could be
+ * promoted out of the partition one request later.
+ */
+export interface NursePatch {
+  code?: string;
+  active?: boolean;
+  start_date?: string | null;
+  end_date?: string | null;
+}
