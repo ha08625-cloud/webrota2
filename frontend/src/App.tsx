@@ -16,6 +16,7 @@ import { clearToken } from "@/auth/tokenStore";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { EditLockBanner, EditLockDialog } from "@/components/EditLockBanner";
 import { NurseRotaPage } from "@/features/nurseRota/NurseRotaPage";
+import { NurseStaffPage } from "@/features/nurseRota/NurseStaffPage";
 import { StudiesPage } from "@/features/research/StudiesPage";
 import { StudyPage } from "@/features/research/StudyPage";
 import { ThemePicker } from "@/components/ThemePicker";
@@ -170,6 +171,13 @@ function navLinkClass(isActive: boolean) {
 
 // Reception nav, paths relative to the /reception mount point. Built the
 // same way as CLINICAL_NAV_ITEMS above - see App.tsx's Task 5 plan.
+// Nurse rota nav, paths relative to the /nurse-rota mount point. Built the
+// same way as the two above.
+const NURSE_ROTA_NAV_ITEMS = [
+  { to: "/nurse-rota", label: "Rota", end: true },
+  { to: "/nurse-rota/staff", label: "Staff", end: false },
+] as const;
+
 const RECEPTION_NAV_ITEMS = [
   { to: "/reception", label: "Day Rota", end: true },
   { to: "/reception/master", label: "Master Template", end: false },
@@ -450,9 +458,9 @@ function ResearchShell() {
  * to the landing page - which is exactly the login this section exists
  * for (`nurse_rota: write`, `clinical: none`).
  *
- * Modelled on ResearchShell - own header, no left nav - since one page
- * needs no nav bar. One PermissionAreaProvider on the shell: the whole
- * section is the single `nurse_rota` permission.
+ * Two pages behind the ReceptionShell nav layout: the rota grid and nurse
+ * staff administration. One PermissionAreaProvider on the shell: the whole
+ * section is the single `nurse_rota` permission, staff CRUD included.
  *
  * Unlike Research, this one IS lockable: it is a shared rota grid, which
  * is the thing the lock exists for. Hence the banner and dialog below,
@@ -468,19 +476,43 @@ function NurseRotaShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-ink">
       <ShellHeader title="Rota Generator - Nurse Rota" />
-      {/* Directly under the header, for the reason ClinicalShell gives. */}
+      {/* Directly under the header, for the reason ClinicalShell gives, and
+          above the nav split: the lock covers the whole section, staff
+          writes included. */}
       <EditLockBanner />
       <EditLockDialog />
-      <main className="flex-1 p-6">
-        <PermissionAreaProvider area="nurse_rota">
-          <Routes>
-            <Route index element={<NurseRotaPage />} />
-            {/* Anything else is a stale bookmark - it lands on the one
-                page this section has rather than on a blank screen. */}
-            <Route path="*" element={<Navigate to="/nurse-rota" replace />} />
-          </Routes>
-        </PermissionAreaProvider>
-      </main>
+      <div className="flex flex-1">
+        <nav className="flex w-48 shrink-0 flex-col border-r border-border bg-surface">
+          <ul className="flex-1">
+            {NURSE_ROTA_NAV_ITEMS.map((item) => (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `block px-4 py-2 text-sm ${
+                      isActive ? "bg-accent/10 font-medium text-accent" : "text-ink/80 hover:bg-accent/5"
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <main className="flex-1 p-6">
+          <PermissionAreaProvider area="nurse_rota">
+            <Routes>
+              <Route index element={<NurseRotaPage />} />
+              <Route path="staff" element={<NurseStaffPage />} />
+              {/* Anything else is a stale bookmark - it lands on the
+                  section's rota rather than on a blank screen. */}
+              <Route path="*" element={<Navigate to="/nurse-rota" replace />} />
+            </Routes>
+          </PermissionAreaProvider>
+        </main>
+      </div>
     </div>
   );
 }

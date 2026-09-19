@@ -561,11 +561,21 @@ describe("NurseRotaShell", () => {
     expect(screen.queryByRole("heading", { name: /Nurse Rota/ })).not.toBeInTheDocument();
   });
 
-  it("sends a stale bookmark inside the section to its one page", async () => {
+  it("sends a stale bookmark inside the section to its rota page", async () => {
     stubActiveNurseRota();
     renderAt("/nurse-rota/anything-else", PERMISSION_PRESETS.nurseRota);
 
     expect(await screen.findByRole("heading", { name: "Nurse Rota - Default" })).toBeInTheDocument();
+  });
+
+  it("mounts nurse staff administration at /nurse-rota/staff", async () => {
+    server.use(http.get("/api/v1/nurse-rota/nurses", () => HttpResponse.json([])));
+    renderAt("/nurse-rota/staff", PERMISSION_PRESETS.nurseRota);
+
+    expect(await screen.findByRole("heading", { name: "Nurse Staff" })).toBeInTheDocument();
+    // The nav is what makes the second page reachable without a bookmark.
+    expect(screen.getByRole("link", { name: "Rota" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Staff" })).toBeInTheDocument();
   });
 
   // A nurse-rota-only login holds no clinical permission at all, so the
