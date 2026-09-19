@@ -87,6 +87,8 @@ from .master_rota import (
     MasterSessionWriteOut,
 )
 from .nurse_rota import (
+    NurseIn,
+    NursePatch,
     NurseRotaOut,
     NurseSessionCreateIn,
     NurseSessionPatchIn,
@@ -173,6 +175,7 @@ __all__ = [
     "ClinicAdjustmentIn", "SystemAdjustmentIn",
     "MasterRotaSessionOut", "MasterRotaTemplateOut",
     "MasterSessionPatchIn", "MasterSessionCreateIn", "MasterSessionWriteOut",
+    "NurseIn", "NursePatch",
     "NurseRotaOut", "NurseSlotOccupancy", "NurseSessionPatchIn",
     "NurseSessionCreateIn", "NurseSessionWriteOut",
     "StagingCreateIn", "StagingOut", "StagingSessionOut",
