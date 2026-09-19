@@ -130,6 +130,9 @@ _DESCRIPTIONS: dict[tuple[str, str], str] = {
         "Removed a session from the master rota",
 
     # Nurse rota (the same table, nurse rows only)
+    ("POST", "/nurse-rota/nurses"): "Added a nurse",
+    ("PATCH", "/nurse-rota/nurses/{doctor_id}"): "Changed a nurse's details",
+    ("DELETE", "/nurse-rota/nurses/{doctor_id}"): "Permanently deleted a nurse",
     ("POST", "/nurse-rota/sessions"):
         "Added a session to the nurse rota",
     ("PATCH", "/nurse-rota/sessions/{session_id}"):

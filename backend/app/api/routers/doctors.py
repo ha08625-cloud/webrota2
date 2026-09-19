@@ -56,25 +56,17 @@ top of that -- see its docstring.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, distinct, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...models import (
-    BlockedEntry,
     Doctor,
     DoctorPreferredRoom,
-    DutyAssignment,
-    ExtraSessionEntry,
-    GeneratedRota,
-    LeaveEntry,
-    MasterRotaSession,
-    RotaSession,
-    RotaStagingSession,
     Room,
     User,
 )
-from ...models.enums import RoomType, RotaStatus
+from ...models.enums import RoomType
 from ..auth_utils import new_session_token
 from ..deps import get_current_user, get_db, require_capability
 from ..schemas import (
@@ -87,7 +79,12 @@ from ..schemas import (
     DoctorUsageOut,
     PreferredRoomIn,
 )
-from ._doctors import create_doctor_row, purge_doctor, validate_window
+from ._doctors import (
+    create_doctor_row,
+    doctor_usage_counts,
+    purge_doctor,
+    validate_window,
+)
 from .calendar import feed_path
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
@@ -319,40 +316,11 @@ def doctor_usage(
     confirm dialog's input, and the dialog is worth reading only if the
     numbers in it are real.
 
-    Not every purged table is counted. These seven are the ones a person
-    deciding would recognise as history of their own; the counters,
-    snapshots, preferences, eligibilities and note pickers the delete also
-    removes are consequences of those rows rather than separate losses, and
-    listing eighteen numbers would bury the two that matter
-    (`committed_rotas` and `rota_sessions`).
+    The counts themselves are `_doctors.doctor_usage_counts`, shared with the
+    nurse staff router, which documents why these eight tables and not the
+    other ten the delete also purges.
     """
-    doctor = _get_or_404(db, doctor_id)
-
-    def _count(model) -> int:
-        return db.execute(
-            select(func.count()).select_from(model).where(model.doctor_id == doctor.id)
-        ).scalar_one()
-
-    committed_rotas = db.execute(
-        select(func.count(distinct(RotaSession.rota_id)))
-        .select_from(RotaSession)
-        .join(GeneratedRota, RotaSession.rota_id == GeneratedRota.id)
-        .where(
-            RotaSession.doctor_id == doctor.id,
-            GeneratedRota.status == RotaStatus.COMMITTED,
-        )
-    ).scalar_one()
-
-    return DoctorUsageOut(
-        master_sessions=_count(MasterRotaSession),
-        rota_sessions=_count(RotaSession),
-        committed_rotas=committed_rotas,
-        staging_sessions=_count(RotaStagingSession),
-        leave_entries=_count(LeaveEntry),
-        duty_assignments=_count(DutyAssignment),
-        extra_sessions=_count(ExtraSessionEntry),
-        blocked_entries=_count(BlockedEntry),
-    )
+    return doctor_usage_counts(db, _get_or_404(db, doctor_id))
 
 
 @router.delete("/{doctor_id}", response_model=DoctorDeleteOut)

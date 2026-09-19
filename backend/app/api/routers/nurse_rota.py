@@ -1,9 +1,11 @@
-"""Nurse rota router: the nurse-row view of the active master template.
+"""Nurse rota router: the nurse-row view of the active master template,
+plus administration of the nurses themselves.
 
-A second permission area over the SAME table the master rota edits. The
-partition is `Doctor.doctor_type == NURSE`, not a separate table, and two
-rules are what make that partition a real boundary rather than a filter on
-the read:
+A second permission area over the SAME tables the clinical routers edit.
+The partition is `Doctor.doctor_type == NURSE` -- over `doctors` for the
+staff endpoints and over `master_rota_sessions` for the rota ones, not a
+separate table in either case. Three rules are what make that partition a
+real boundary rather than a filter on the read:
 
 1. Every write resolves the target doctor and 404s unless they are a
    nurse -- 404 rather than 403, because the session is not part of this
@@ -13,9 +15,17 @@ the read:
    the exact mechanism by which a nurse_rota-only login could otherwise
    reach and mutate a doctor's row, so this is the permission boundary
    itself. Nurse-on-nurse displacement keeps the master rota's behaviour.
+3. No write can set or change `doctor_type`. POST /nurse-rota/nurses sets
+   NURSE itself rather than taking it from the payload, and `NursePatch`
+   has no `doctor_type` field -- without that second half, rule 1 would be
+   worth nothing, since a nurse could be promoted out of the partition one
+   request later.
 
 The reverse is deliberately NOT symmetrical: a clinical writer on the
-Master Rota can still displace a nurse. `clinical: write` is the superset.
+Master Rota can still displace a nurse, and `/doctors` remains the
+clinical administrator's full staff surface, nurses included -- demoting
+an existing doctor *into* nurse-hood stays a `clinical: write` action
+there. `clinical: write` is the superset.
 
 The write paths carry no template_id -- the nurse surface only ever edits
 the active template, so the router resolves it and 404s any session id
@@ -32,19 +42,31 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ...models import Doctor, MasterRotaSession, MasterRotaTemplate, Room, User
 from ...models.enums import DoctorType, MasterSessionType
 from ..deps import get_current_user, get_db
 from ..schemas import (
+    DoctorDeleteOut,
+    DoctorOut,
+    DoctorUsageOut,
     MasterRotaSessionOut,
+    NurseIn,
+    NursePatch,
     NurseRotaOut,
     NurseSessionCreateIn,
     NurseSessionPatchIn,
     NurseSessionWriteOut,
     NurseSlotOccupancy,
     RoomOut,
+)
+from ._doctors import (
+    create_doctor_row,
+    doctor_usage_counts,
+    purge_doctor,
+    validate_window,
 )
 from .master_rota import _find_room_holder, _session_outs
 
@@ -313,3 +335,172 @@ def delete_nurse_session(
     _template, target = _resolve_target(db, session_id)
     db.delete(target)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Nurse staff
+# ---------------------------------------------------------------------------
+
+@router.get("/nurses", response_model=list[DoctorOut])
+def list_nurses(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[Doctor]:
+    """Every nurse, by code.
+
+    The section's own list rather than `GET /doctors` filtered client-side:
+    that route is one of the two deliberate holes in default-deny
+    (`deps._SHARED_READ`), open for the user-admin linked-doctor picker
+    rather than for this page, and a create here has to invalidate a key
+    the rota grid reads.
+
+    `include_inactive` matches `GET /reception/staff`'s flag for the same
+    reason: this is the section's only management surface, so a
+    deactivation needs a visible way back.
+    """
+    stmt = (
+        select(Doctor)
+        .where(Doctor.doctor_type == DoctorType.NURSE)
+        .order_by(Doctor.code)
+    )
+    if not include_inactive:
+        stmt = stmt.where(Doctor.active.is_(True))
+    return db.execute(stmt).scalars().all()
+
+
+@router.post("/nurses", response_model=DoctorOut, status_code=201)
+def create_nurse(
+    payload: NurseIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Doctor:
+    """Create a nurse. `doctor_type` is set here, never taken from the body.
+
+    The row mechanics -- the SystemCounter and calendar-token invariants --
+    are `_doctors.create_doctor_row`, shared with `/doctors` so there is one
+    definition of what a doctor row must have at birth.
+    """
+    validate_window(payload.start_date, payload.end_date)
+    try:
+        nurse = create_doctor_row(
+            db,
+            code=payload.code,
+            doctor_type=DoctorType.NURSE,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Staff code '{payload.code}' is already in use",
+        ) from exc
+    db.refresh(nurse)
+    return nurse
+
+
+@router.get("/nurses/{doctor_id}", response_model=DoctorOut)
+def get_nurse(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Doctor:
+    return _require_nurse(db, doctor_id)
+
+
+@router.patch("/nurses/{doctor_id}", response_model=DoctorOut)
+def patch_nurse(
+    doctor_id: int,
+    payload: NursePatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Doctor:
+    """Edit a nurse's code, active flag or employment window.
+
+    `doctor_type` is not in `NursePatch`, so it cannot be changed here --
+    see rule 3 in the module docstring. Deactivation is this endpoint with
+    `{"active": false}`; DELETE means delete.
+    """
+    nurse = _require_nurse(db, doctor_id)
+    updates = payload.model_dump(exclude_unset=True)
+    # Validate the window against the *merged* values, exactly as
+    # patch_doctor does: a PATCH setting only start_date still has to sit
+    # before whatever end_date the row already holds.
+    validate_window(
+        updates.get("start_date", nurse.start_date),
+        updates.get("end_date", nurse.end_date),
+    )
+    for field, value in updates.items():
+        setattr(nurse, field, value)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="That staff code is already in use"
+        ) from exc
+    db.refresh(nurse)
+    return nurse
+
+
+@router.get("/nurses/{doctor_id}/usage", response_model=DoctorUsageOut)
+def nurse_usage(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DoctorUsageOut:
+    """What deleting this nurse would destroy -- the delete dialog's input.
+
+    `DoctorUsageOut` reused verbatim rather than a trimmed nurse variant:
+    it is eight plain integers with no `code` and no `doctor_type`, so it
+    widens the nurse surface by nothing, and the obvious trim would be
+    wrong. See `_doctors.doctor_usage_counts` for why the four counts that
+    look structurally zero for a nurse are reported anyway.
+    """
+    return doctor_usage_counts(db, _require_nurse(db, doctor_id))
+
+
+@router.delete("/nurses/{doctor_id}", response_model=DoctorDeleteOut)
+def delete_nurse(
+    doctor_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DoctorDeleteOut:
+    """Permanently remove a nurse and every row that references them.
+
+    **No `user_admin` dependency, deliberately** -- and this is the first
+    permanent staff purge in the API without one. `DELETE /doctors/{id}`
+    and `DELETE /reception/staff/{id}` both carry it on top of their area
+    gate; keeping it here would mean a nurse_rota-only login could never
+    delete, which is the feature.
+
+    State the cost accurately: the login this widens is not only the
+    nurse-only one but `rota_admin`, which holds `clinical: write` +
+    `nurse_rota: write` + `user_admin: false`. Today it can permanently
+    purge nobody; after this it can purge any nurse through this endpoint
+    while still being refused on `DELETE /doctors/{id}` for the same row.
+    And the purge is genuinely destructive for a nurse: Phase 2 builds grid
+    slots for nurse rows like anyone else's, so a nurse accumulates
+    `rota_sessions` in committed rotas, and nothing rejects a nurse from
+    /leave, /duty or /extra-sessions either.
+
+    The three mitigations are the ones `/doctors` already relies on and
+    they all stay: the 409 below (deactivate first -- a deliberate two-step
+    which, unlike a has-history guard, never makes a nurse who has actually
+    worked permanently undeletable), `GET /nurse-rota/nurses/{id}/usage`
+    feeding the confirm dialog, and the audit log, which records who
+    deleted which id after the rows are gone.
+    """
+    nurse = _require_nurse(db, doctor_id)
+    if nurse.active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Nurse '{nurse.code}' is active -- deactivate before deleting",
+        )
+
+    counts = purge_doctor(db, nurse)
+    db.commit()
+
+    return DoctorDeleteOut(deleted=counts)

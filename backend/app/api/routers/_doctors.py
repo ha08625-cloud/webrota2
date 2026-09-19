@@ -57,7 +57,7 @@ from __future__ import annotations
 import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, update
+from sqlalchemy import delete, distinct, func, select, update
 from sqlalchemy.orm import Session
 
 from ...models import (
@@ -70,6 +70,7 @@ from ...models import (
     DutyAssignment,
     DutyCounterAdjustment,
     ExtraSessionEntry,
+    GeneratedRota,
     LeaveEntitlement,
     LeaveEntry,
     MasterRotaSession,
@@ -82,8 +83,9 @@ from ...models import (
     SystemCounter,
     User,
 )
-from ...models.enums import DoctorType, SystemCounterType
+from ...models.enums import DoctorType, RotaStatus, SystemCounterType
 from ..auth_utils import new_session_token
+from ..schemas import DoctorUsageOut
 
 # Every table that must be purged when a Doctor row is deleted, in delete
 # order (nothing here references anything else here, so the order is only
@@ -208,3 +210,52 @@ def purge_doctor(db: Session, doctor: Doctor) -> dict[str, int]:
         counts[model.__tablename__] = result.rowcount
     db.delete(doctor)
     return counts
+
+
+def doctor_usage_counts(db: Session, doctor: Doctor) -> DoctorUsageOut:
+    """What deleting `doctor` would destroy, for the confirm dialog.
+
+    Shared rather than copied for the same reason the purge is: the eight
+    counts are the human-readable half of PURGED_MODELS, and a copy would
+    be the thing that stops matching it.
+
+    Not every purged table is counted. These eight are the ones a person
+    deciding would recognise as history of their own; the counters,
+    snapshots, preferences, eligibilities and note pickers the delete also
+    removes are consequences of those rows rather than separate losses, and
+    listing eighteen numbers would bury the two that matter
+    (`committed_rotas` and `rota_sessions`).
+
+    Every count is computed for a nurse too, and four of them look
+    structurally zero for one -- nurses take no leave, duty, extra sessions
+    or blocked entries through any nurse surface. They are kept because
+    nothing enforces that: /leave, /duty, /extra-sessions and /blocked have
+    no doctor_type check at all, so a clinical administrator can record any
+    of them against a nurse. A dialog that silently omitted a count which
+    turned out to be non-zero would be worse than one showing four zeroes.
+    """
+    def _count(model) -> int:
+        return db.execute(
+            select(func.count()).select_from(model).where(model.doctor_id == doctor.id)
+        ).scalar_one()
+
+    committed_rotas = db.execute(
+        select(func.count(distinct(RotaSession.rota_id)))
+        .select_from(RotaSession)
+        .join(GeneratedRota, RotaSession.rota_id == GeneratedRota.id)
+        .where(
+            RotaSession.doctor_id == doctor.id,
+            GeneratedRota.status == RotaStatus.COMMITTED,
+        )
+    ).scalar_one()
+
+    return DoctorUsageOut(
+        master_sessions=_count(MasterRotaSession),
+        rota_sessions=_count(RotaSession),
+        committed_rotas=committed_rotas,
+        staging_sessions=_count(RotaStagingSession),
+        leave_entries=_count(LeaveEntry),
+        duty_assignments=_count(DutyAssignment),
+        extra_sessions=_count(ExtraSessionEntry),
+        blocked_entries=_count(BlockedEntry),
+    )
