@@ -27,7 +27,7 @@ The expectation is computed, not listed, from three pieces:
                       a router between sections is a deliberate edit in two
                       places.
   `_SHARED_READ_PATHS`  the two reads every login may make (deps._SHARED_READ).
-  `_ALSO_NEEDS_USER_ADMIN`  the two endpoints whose rule is a conjunction.
+  `_ALSO_NEEDS_USER_ADMIN`  the endpoints whose rule is a conjunction.
 
 `_may_reach` turns those into the same rule deps.py implements: a levelled
 area admits safe methods at `read` and everything at `write`; a boolean
@@ -138,8 +138,19 @@ _AREA_FOR_PREFIX = {
 # rota editor 403s on them despite being inside a section they can
 # otherwise write. The only conjunctions in the API -- see deps.py. Paths
 # are as the sweeps generate them, i.e. with "1" substituted for every
-# path param. The two DELETEs are the two permanent staff purges, which are
-# deliberately the same shape as each other.
+# path param.
+#
+# There are now THREE permanent staff purges in the API and only two of
+# them are here. `DELETE /nurse-rota/nurses/{id}` is deliberately not: a
+# nurse_rota-only login holds `user_admin: false`, so the conjunction would
+# mean it could never delete, which is the feature. The login that widens
+# is `rota_admin` as much as the nurse-only one -- it can now purge any
+# nurse through the nurse router while still being refused on
+# `DELETE /doctors/{id}` for the same row. What replaces the conjunction
+# there is the 409-unless-inactive guard, the usage endpoint behind the
+# confirm dialog and the audit log; see the endpoint's docstring in
+# routers/nurse_rota.py. Its absence from this set is asserted by the
+# nurse-rota row of the floors below and by tests/test_api/test_nurse_staff.py.
 _ALSO_NEEDS_USER_ADMIN = {
     ("DELETE", f"{API_PREFIX}/reception/staff/1"),
     ("DELETE", f"{API_PREFIX}/doctors/1"),
@@ -252,37 +263,42 @@ def _may_reach(permissions, method, path):
 # their rows assert.
 _NON_GET_FLOORS = {
     "manager": (72, 0),
-    "rota_admin": (65, 7),
-    "reception_admin": (13, 58),
-    "documents": (4, 68),
+    "rota_admin": (65, 17),
+    "reception_admin": (13, 86),
+    "documents": (4, 97),
     # The research preset grants exactly `research: write`, so it writes
     # everywhere in /research and nowhere else -- which is the whole point
     # of a preset that exists to be given to a research nurse.
-    "research": (8, 72),
-    "read_only": (0, 72),
-    # The three /nurse-rota writes, plus the ungated /locks pair, which the
-    # sweep reaches with "1" for the area and which 422 before any
-    # permission is read. Nowhere else: this preset is the one that proves
-    # a nursing login cannot touch the clinical rota.
-    "nurse_rota": (5, 95),
-    "no_access": (0, 72),
+    "research": (8, 93),
+    "read_only": (0, 101),
+    # The three /nurse-rota session writes and the three nurse staff writes
+    # (POST /nurses, PATCH and DELETE /nurses/{id}), plus the ungated
+    # /locks pair, which the sweep reaches with "1" for the area and which
+    # 422 before any permission is read. Nowhere else: this preset is the
+    # one that proves a nursing login cannot touch the clinical rota, and
+    # the DELETE in that six is the purge deliberately absent from
+    # `_ALSO_NEEDS_USER_ADMIN` above.
+    "nurse_rota": (8, 95),
+    "no_access": (0, 101),
 }
 
 _GET_FLOORS = {
     "manager": (36, 0),
-    "rota_admin": (32, 4),
-    "reception_admin": (32, 4),
-    "documents": (6, 30),
+    "rota_admin": (32, 7),
+    "reception_admin": (32, 11),
+    "documents": (6, 42),
     # The three /research reads, plus the two _SHARED_READ pickers and the
     # two ungated reads every login gets.
-    "research": (7, 32),
-    "read_only": (32, 4),
-    # GET /nurse-rota/active, plus the two _SHARED_READ pickers and the
-    # three ungated reads every login gets. The nurse grid is one fetch,
-    # which is why this is six and not more: rooms ride along on /active
-    # rather than the page reaching for the clinical-gated /rooms.
-    "nurse_rota": (6, 40),
-    "no_access": (4, 32),
+    "research": (7, 41),
+    "read_only": (32, 7),
+    # GET /nurse-rota/active and the three nurse staff reads (the list, one
+    # nurse by id, and that nurse's usage), plus the two _SHARED_READ
+    # pickers and the three ungated reads every login gets. The rota page
+    # itself is still one fetch for the grid -- rooms ride along on /active
+    # rather than the page reaching for the clinical-gated /rooms -- and
+    # the staff list is the second, deliberately separate call.
+    "nurse_rota": (9, 40),
+    "no_access": (4, 44),
 }
 
 
