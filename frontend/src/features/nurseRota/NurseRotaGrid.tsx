@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react";
 
-import { useDoctors } from "@/api/doctors";
 import { useCanWrite } from "@/auth/AuthContext";
-import type { ApiError, Day, Doctor, MasterRotaSession, Period, Room } from "@/api/types";
+import type { ApiError, Day, MasterRotaSession, Period, Room } from "@/api/types";
 import { DAYS, PERIODS } from "@/lib/pivot";
 import { getMasterRotaCell, pivotMasterRota } from "@/lib/pivotMasterRota";
 
-import { useCreateNurseSession, useDeleteNurseSession, useUpdateNurseSession } from "./api";
+import {
+  useCreateNurseSession,
+  useDeleteNurseSession,
+  useNurses,
+  useUpdateNurseSession,
+} from "./api";
 import { NurseCellEditPopover } from "./NurseCellEditPopover";
 import type { NurseSessionType, NurseSlotOccupancy } from "./types";
 import {
@@ -38,12 +42,18 @@ interface NurseRotaGridProps {
  * MasterRotaGrid, reading and writing the same rows through the
  * nurse-gated endpoints.
  *
- * Rows are the nurses from /doctors (active_only=false), the same rule as
- * the master grid's: an active nurse with zero template sessions still
- * gets a row to populate, and an inactive nurse who still holds sessions
- * is flagged rather than silently dropped. Absent cells follow the same
- * rule too - a "+" affordance on an active nurse's row, inert on an
- * inactive one.
+ * Rows are the section's own nurses, from GET /nurse-rota/nurses
+ * (include_inactive=true). Not `GET /doctors` filtered client-side: that
+ * route is one of the two deliberate holes in default-deny
+ * (`deps._SHARED_READ`), open for the user-admin linked-doctor picker
+ * rather than for this section, and reading the section's list also means
+ * a create on the staff page invalidates the key this grid reads.
+ *
+ * include_inactive=true keeps the master grid's rule: an active nurse
+ * with zero template sessions still gets a row to populate, and an
+ * inactive nurse who still holds sessions is flagged rather than silently
+ * dropped. Absent cells follow the same rule too - a "+" affordance on an
+ * active nurse's row, inert on an inactive one.
  *
  * No conflicts panel beside it: MasterRotaConflictsPanel recomputes
  * double-booked rooms from the session list, and this page holds nurse
@@ -57,7 +67,7 @@ export function NurseRotaGrid({
   onMutationApplied,
   onMutationError,
 }: NurseRotaGridProps) {
-  const { data: doctors, isLoading: doctorsLoading } = useDoctors(false);
+  const { data: nurses, isLoading: nursesLoading } = useNurses(true);
   // The popover already renders inert content for a read-level login, so
   // a filled cell needs no test here. An absent cell does: its content is
   // the "+" affordance itself, which would otherwise invite a click that
@@ -69,14 +79,14 @@ export function NurseRotaGrid({
   const deleteSession = useDeleteNurseSession();
   const saving = updateSession.isPending || createSession.isPending || deleteSession.isPending;
 
-  const nurses = useMemo(
-    () => (doctors ?? []).filter((d: Doctor) => d.doctor_type === "Nurse"),
-    [doctors],
-  );
-  const grid = useMemo(() => pivotMasterRota(sessions, nurses), [sessions, nurses]);
+  const grid = useMemo(() => pivotMasterRota(sessions, nurses ?? []), [sessions, nurses]);
   const [activeWeek, setActiveWeek] = useState(grid.weeks[0] ?? 1);
 
-  if (doctorsLoading) {
+  // The page's /nurse-rota/active fetch and this one resolve
+  // independently, so the grid must not render until the nurse list has:
+  // pivoting the sessions against an empty list would drop every row for
+  // a frame.
+  if (nursesLoading) {
     return <p className="text-sm text-ink/70">Loading grid...</p>;
   }
 

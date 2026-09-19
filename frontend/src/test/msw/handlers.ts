@@ -58,6 +58,9 @@ export const handlers: HttpHandler[] = [
   // research route test, and a study-specific suite stubs its own rows.
   http.get("/api/v1/research/studies", () => HttpResponse.json([])),
   http.get("/api/v1/doctors", () => HttpResponse.json([])),
+  // The Nurse Rota section's own staff list, which its grid and staff
+  // page both read. Empty by default like the other reference lists here.
+  http.get("/api/v1/nurse-rota/nurses", () => HttpResponse.json([])),
   http.get("/api/v1/leave", () => HttpResponse.json([])),
   // Leave entitlement (leave entitlement and balances). The empty default
   // means no doctor has a balance line or a sessions/week mismatch flag, so
