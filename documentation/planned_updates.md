@@ -1,4 +1,3 @@
-- nurse edit only users can add or remove nurse staff only
 - Bulk row operations on the master template, starting with "copy week 1 to
   weeks 2-4". The Nurse Rota shipped with no bulk entry path at all, so a
   nurse's whole pattern is 4 x 5 x 2 cells typed by hand; the same gap exists

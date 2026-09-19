@@ -82,12 +82,21 @@ PERMISSION_KEYS: tuple[str, ...] = AREA_KEYS + FLAG_KEYS
 #
 # `nurse_rota` is lockable for the same reason clinical is -- it is a
 # shared rota grid, and two people editing it overwrite each other -- but
-# it is the first case of two locks over ONE table. The nurse rota and the
-# master rota both mutate `master_rota_sessions`; what keeps the two locks
-# over disjoint row sets is the nurse router's rule that a write may only
-# target a doctor whose type is NURSE, and may not displace a non-nurse
-# holder of a room. Without that rule the two locks would be over the same
-# rows and neither would mean anything.
+# it is the first case of two locks over SHARED tables. The nurse rota and
+# the master rota both mutate `master_rota_sessions`, and `/nurse-rota`
+# also administers nurse staff, so both locks now cover writes to `doctors`
+# as well. What keeps the two locks over disjoint row sets in both tables
+# is the nurse router's rules: a write may only target a doctor whose type
+# is NURSE, may not displace a non-nurse holder of a room, and may not set
+# or change `doctor_type` (POST stamps NURSE itself; the field is absent
+# from the PATCH schema). Without those rules the two locks would be over
+# the same rows and neither would mean anything.
+#
+# Nothing here is per-endpoint: `main.py` attaches `require_edit_lock` off
+# the area already recorded in `_AREA`, deliberately, so a new router in a
+# lockable section cannot be permission-gated but lock-free. Adding a nurse
+# therefore requires holding the Nurse Rota lock -- the same shape as
+# reception staff CRUD sitting behind the reception lock.
 #
 # The residual hole, recorded rather than closed: a clinical writer holding
 # the clinical lock can still edit nurse rows from the Master Rota while a
