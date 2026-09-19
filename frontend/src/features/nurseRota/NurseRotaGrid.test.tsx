@@ -13,10 +13,9 @@ import { NurseRotaGrid } from "./NurseRotaGrid";
 import type { NurseSlotOccupancy } from "./types";
 
 const NURSE = makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: true });
-const DOCTOR = makeDoctor({ id: 2, code: "AB", doctor_type: "Partner", active: true });
 
-function setUpDoctors(doctors = [NURSE, DOCTOR]) {
-  server.use(http.get("/api/v1/doctors", () => HttpResponse.json(doctors)));
+function setUpNurses(nurses = [NURSE]) {
+  server.use(http.get("/api/v1/nurse-rota/nurses", () => HttpResponse.json(nurses)));
 }
 
 function renderGrid({
@@ -32,16 +31,32 @@ function renderGrid({
 }
 
 describe("NurseRotaGrid: rows", () => {
-  it("renders nurse rows only, never the doctors sharing the template", async () => {
-    setUpDoctors();
+  it("reads its rows from the section's own nurse list, not /doctors", async () => {
+    // /doctors is the shared-read hole this grid deliberately no longer
+    // depends on: a row that exists only there must not appear.
+    server.use(
+      http.get("/api/v1/doctors", () =>
+        HttpResponse.json([makeDoctor({ id: 2, code: "AB", doctor_type: "Nurse", active: true })]),
+      ),
+    );
+    let capturedUrl: string | null = null;
+    server.use(
+      http.get("/api/v1/nurse-rota/nurses", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json([NURSE]);
+      }),
+    );
     renderGrid();
 
     expect(await screen.findByText("NA")).toBeInTheDocument();
     expect(screen.queryByText("AB")).not.toBeInTheDocument();
+    // include_inactive=true: an inactive nurse who still holds sessions
+    // has to reach the grid to be badged.
+    expect(capturedUrl).toContain("/api/v1/nurse-rota/nurses?include_inactive=true");
   });
 
   it("gives an active nurse with zero template sessions a row to populate", async () => {
-    setUpDoctors([NURSE]);
+    setUpNurses();
     renderGrid();
 
     expect(await screen.findByText("NA")).toBeInTheDocument();
@@ -49,7 +64,7 @@ describe("NurseRotaGrid: rows", () => {
   });
 
   it("flags an inactive nurse who still holds sessions rather than dropping the row", async () => {
-    setUpDoctors([makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: false })]);
+    setUpNurses([makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: false })]);
     renderGrid({
       sessions: [
         makeMasterRotaSession({
@@ -64,7 +79,7 @@ describe("NurseRotaGrid: rows", () => {
   });
 
   it("renders all four week tabs even with sessions only in week 1", async () => {
-    setUpDoctors([NURSE]);
+    setUpNurses();
     renderGrid({
       sessions: [
         makeMasterRotaSession({
@@ -81,7 +96,7 @@ describe("NurseRotaGrid: rows", () => {
   });
 
   it("gives an absent cell on an active nurse's row an add affordance", async () => {
-    setUpDoctors([NURSE]);
+    setUpNurses();
     renderGrid();
 
     const cell = await screen.findByTestId("nurse-cell-1-1-Monday-AM");
@@ -89,7 +104,7 @@ describe("NurseRotaGrid: rows", () => {
   });
 
   it("leaves an absent cell on an inactive nurse's row inert", async () => {
-    setUpDoctors([makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: false })]);
+    setUpNurses([makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: false })]);
     renderGrid({
       sessions: [
         makeMasterRotaSession({
@@ -106,7 +121,7 @@ describe("NurseRotaGrid: rows", () => {
 
 describe("NurseRotaGrid: editing", () => {
   it("writes a room pick to /nurse-rota/sessions with no template in the path", async () => {
-    setUpDoctors([NURSE]);
+    setUpNurses();
     const session = makeMasterRotaSession({
       session_id: 7, doctor_id: 1, doctor_code: "NA", doctor_type: "Nurse",
       week: 1, day: "Monday", period: "AM", session_type: "no_surgery",
@@ -137,7 +152,7 @@ describe("NurseRotaGrid: editing", () => {
 
 describe("NurseRotaGrid: read-level login", () => {
   it("renders the grid with every cell control gone", async () => {
-    setUpDoctors([NURSE]);
+    setUpNurses();
     renderGrid({
       sessions: [
         makeMasterRotaSession({

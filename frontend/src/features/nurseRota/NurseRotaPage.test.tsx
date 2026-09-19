@@ -20,7 +20,7 @@ function renderPage() {
 describe("NurseRotaPage", () => {
   it("feeds the grid from one /nurse-rota/active fetch, rooms included", async () => {
     server.use(
-      http.get("/api/v1/doctors", () =>
+      http.get("/api/v1/nurse-rota/nurses", () =>
         HttpResponse.json([makeDoctor({ id: 1, code: "NA", doctor_type: "Nurse", active: true })]),
       ),
       // Deliberately 403: the page must not need GET /rooms, which is
@@ -83,11 +83,12 @@ function nurseSession(overrides: Parameters<typeof makeMasterRotaSession>[0]) {
   return makeMasterRotaSession({ doctor_type: "Nurse", week: 1, day: "Monday", period: "AM", ...overrides });
 }
 
-/** The page under one /nurse-rota/active payload, with the doctor list it
- * needs for rows. Returns nothing; each test drives it through the UI. */
-function setUpRota(sessions: ReturnType<typeof nurseSession>[], doctors = [NURSE_A, NURSE_B]) {
+/** The page under one /nurse-rota/active payload, plus the section's
+ * nurse list, which the grid fetches separately for its rows. Returns
+ * nothing; each test drives it through the UI. */
+function setUpRota(sessions: ReturnType<typeof nurseSession>[], nurses = [NURSE_A, NURSE_B]) {
   server.use(
-    http.get("/api/v1/doctors", () => HttpResponse.json(doctors)),
+    http.get("/api/v1/nurse-rota/nurses", () => HttpResponse.json(nurses)),
     http.get("/api/v1/nurse-rota/active", () =>
       HttpResponse.json({
         template_id: 3, name: "Default", sessions, rooms: [TR1], occupancy: [],
